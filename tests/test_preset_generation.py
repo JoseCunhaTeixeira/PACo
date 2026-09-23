@@ -8,7 +8,7 @@ from typing import Any
 import pytest
 from pydantic import TypeAdapter, ValidationError
 
-from paco.presets import ActivePreset, PassivePreset, PresetError, generation, make_preset
+from paco.presets import PresetError, generation, make_preset, override_schema
 from paco.presets.generation import stage_type
 from paco.presets.stages import WHITENING, Parameter, Stage, pac_methods
 from sigpipe.algorithms import (
@@ -173,18 +173,18 @@ PACS_METHODS = {
 
 
 @pytest.mark.parametrize(
-    ("preset", "stages"),
+    ("name", "stages"),
     [
-        (ActivePreset, ["muting", "filtering"]),
+        ("active", ["muting", "filtering"]),
         (
-            PassivePreset,
+            "passive",
             ["muting", "filtering", "selection", "whitening", "normalization", "stacking"],
         ),
     ],
 )
-def test_the_agent_sees_only_pacs_methods(preset: type[Any], stages: list[str]) -> None:
+def test_the_agent_sees_only_pacs_methods(name: str, stages: list[str]) -> None:
     # What the agent reads: each stage's choices are the keys of its discriminator mapping.
-    schema = preset.model_json_schema()
+    schema = override_schema(name)
     offered = {
         stage: set(schema["properties"][stage]["discriminator"]["mapping"]) for stage in stages
     }
