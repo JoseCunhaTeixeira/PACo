@@ -15,12 +15,14 @@ Last updated 2026-09-23. Read this first at the start of each session.
 | Milestone | Status |
 |---|---|
 | 0. Orientation | Done, with gaps (see open issues) |
-| 1. Plain functions | Done: `inspect_profile`, `run_processing`, 134 tests |
-| 2. Schemas | Next |
-| 3. Quality metric and picking | Picking designed (see decisions) |
+| 1. Plain functions | Done: `inspect_profile`, `run_processing` |
+| 2. Schemas | Done: generated presets, messages for the agent, checks before any work, schema budget; 173 tests |
+| 3. Quality metric and picking | Next. Picking is designed (see decisions) |
 | 4 to 8 | Not started |
 
-Milestone 1 check question: asked 2026-09-23, answer pending.
+Check questions: milestone 1 asked, answer pending. Milestone 2 (what happens when sigpipe renames
+a parameter): answered with hints on 2026-09-23, up to the plain-words rung. Worth revisiting:
+why generated models fail at import while hand-written ones fail in every window.
 
 ## Milestone 0: orientation
 
@@ -54,10 +56,7 @@ Code in `src/paco/`, one sub-package per feature:
   - `ProfileError` messages are written for the agent.
 - `windows/`: a port of PAC's `build_windows`, with `xmid` from sigpipe's `LinearAcquisition`.
   `MASWParameters` holds PAC's form defaults, except `distance_max`, set to 1000 m.
-- `presets/`:
-  - `ActivePreset` and `PassivePreset` are PAC's config models, with PAC's form defaults.
-  - `make_preset(name, overrides)` applies the agent's overrides.
-  - `resolve_preset(preset, profile)` fills in the derived values.
+- `presets/`: see milestone 2.
 - `pipelines/`: a port of PAC's adapters. `build_pipeline(preset, window, output_folder)`
   refuses presets that were not resolved.
 - `runs/`: `run_processing(profile, preset, overrides, settings, on_progress)` returns a
@@ -69,9 +68,28 @@ Checks against PAC:
 - **Windows:** identical in 12 cases. The reference is `tests/data/pac_windows.json`.
 - **Presets:** resolved presets validate as PAC configs.
 - **Pipelines:** identical steps, and bit-identical outputs on demo windows, even though PAC's
-  lockfile pins sigpipe 31274d8 and PACo's pins 403fea2.
-- **Tests:** 134 tests in about 12 s. Each feature was also checked with deliberately broken
-  copies of the code.
+  lockfile pins sigpipe 31274d8 and PACo's pins 403fea2. Re-checked after milestone 2.
+- **Tests:** each feature was also checked with deliberately broken copies of the code.
+
+## Milestone 2: schemas
+
+All in `src/paco/presets/`:
+
+- **Generated models** (`stages.py`, `generation.py`, `models.py`):
+  - method names, parameter names and types are read from sigpipe's functions
+    (`inspect.signature`, `typing.get_type_hints`);
+  - `stages.py` holds PAC's choices: exposed methods (only PAC's), PAC's defaults, bounds, units,
+    parameters the pipeline sets itself;
+  - drift fails at import: a parameter or method sigpipe renames or drops raises with
+    "update paco/presets/stages.py".
+- **Messages for the agent** (`explaining.py`): `make_preset` raises a `PresetError` with one line
+  per problem, what is allowed, and "did you mean" for typos; a stage of the other preset says so.
+- **Checks before any work** (`resolving.py`): the profile-dependent rules sigpipe checks in every
+  window (segment length and step, whitening band against taper and frequency step, dispersion
+  `fmin` below Nyquist, filter `fmax` below Nyquist), all listed at once.
+- **The schema the agent reads** (`schemas.py`): `override_schema(name)`, the preset's JSON Schema
+  without titles and `mode`; derived values say "null: from the profile". About 2,900 characters
+  (active) and 6,500 (passive), under a tested budget of 3,000 and 6,600.
 
 ## Decisions (2026-09-23)
 
@@ -83,30 +101,45 @@ Checks against PAC:
 - **Profile model:** `Profile` and `Record` built on sigpipe types, instead of PAC's parallel
   lists.
 - **Presets:**
-  - config models, like PAC's;
-  - values from PAC's forms (`distance_max` changed to 1000 m);
+  - config models, like PAC's, now fully generated from sigpipe's signatures;
+  - the agent sees only what PAC uses: no FTAN, beamforming or extra whitening methods;
+  - values from PAC's forms (`distance_max` changed to 1000 m); PAC's 5 Hz whitening taper
+    replaces sigpipe's 1000 Hz;
   - derived values as in PAC, except the IIR filter `fmax`, set to 0.95 × Nyquist;
-  - a preset's mode must match the profile's type;
-  - short field names (`filtering`, not `filtering_params`);
+  - checks like sigpipe's: root stacking `n >= 1`; a dispersion `fmax` above Nyquist is left to
+    sigpipe, which lowers it to Nyquist;
+  - a preset's mode must match the profile's type; short field names (`filtering`);
   - the number of workers is a server setting, not part of presets.
+- **Agent view of the schema:** raw JSON Schema (MCP's standard), kept lean and under a tested
+  budget.
 - **Runs:**
   - timestamp run IDs in UTC, like `20260923-142501-a3f9`;
   - PAC-shaped folders, grouped by profile;
   - a process pool whose workers run in the run folder, so sigpipe's `logs/` folder and logger
     reset stay inside the run.
-- **Picking (to build at the start of milestone 3):** automatic, adapted from malw-pipe's picker
-  (`../malw-pipe/docs/picking.md`).
-  - The fundamental mode is the lowest ridge, scanned upwards from the aliasing floor.
-  - Viterbi tracking runs inside a corridor, with the `on_edge` and coherence-to-floor
-    diagnostics.
-  - It picks M0, then the higher modes.
+- **Picking (milestone 3, core built in `paco/picking/`):** automatic, adapted from malw-pipe's
+  picker (`../malw-pipe/docs/picking.md`).
+  - The fundamental mode is the lowest ridge, scanned upwards from the aliasing floor (2 x
+    receiver spacing); Viterbi tracking inside a +/-20 % corridor, penalising relative velocity
+    change per Hz.
+  - M0 only (`max_modes = 1`); the higher-mode search is kept but off.
+  - No wavelength limit (`max_wavelength = None`), the user's choice after comparing no limit,
+    2 x L and 1 x L on the demo windows: 2 x L removed the unresolved low frequencies on active
+    data without losing visible ridge; 1 x L lost 17-33 Hz of clean active ridge.
+  - A mode is judged on its kept points; a point is kept if not pinned and at or above the noise
+    floor 1/sqrt(N); a mode needs 5 kept points with a median coherence >= 1.5 x the floor.
   - The code lives in `paco/picking/` first, and moves to sigpipe once proven.
-  - Output: `DispersionCurves_0000.csv` in PAC's layout.
+  - Output: `DispersionCurves_0000.csv` in PAC's layout (still to build).
+- **AI picker: later.** Discussed 2026-09-23: training a model (image in, M0 velocity per
+  frequency out) needs labelled pairs, and none are at hand. Chosen route: keep the rule-based
+  picker and the quality metric, and let human-approved picks (milestone 6) accumulate as training
+  data (PAC's layout already pairs `DispersionImage_0000.hdf5` with `DispersionCurves_0000.csv`).
+  A trained model can later replace the picker behind the same `pick` tool.
 - **Inversion (milestone 5):** an inversion preset built from PAC's form defaults (2 layers, Vs
   100 to 1000 m/s, thicknesses 1 to 10 m, 100k iterations, 10k burn-in, 5 chains), run as a
   background job, one process per window.
 
-## Concepts covered (to confirm with the check question)
+## Concepts covered (to confirm with the check questions)
 
 - A tool's input schema is the model's only contract: a few named parameters with known defaults
   work better than a full config.
@@ -118,6 +151,13 @@ Checks against PAC:
 - Run manifests (resolved config plus versions) make runs reproducible, a basic of MLOps.
 - Process isolation for libraries with global side effects. Python 3.14's forkserver needs a
   `__main__` guard in scripts.
+- One source of truth: schemas generated from the library's own signatures, so drift fails
+  loudly instead of silently.
+- Error messages are the model's only way to fix its next call: name the field, list what is
+  allowed, suggest the closest name.
+- Validate against the data before any work: the same rules as the library, checked once instead
+  of failing in every window.
+- A tool schema travels with every request: measure it, and give it a budget.
 
 ## Open issues
 
@@ -139,18 +179,24 @@ Checks against PAC:
   - an interrupted run leaves a folder without `run.json` (milestone 5: write the manifest when
     the run starts, with a status);
   - scripts that call `run_processing` need a `__main__` guard.
-- **For milestone 2:**
-  - the passive preset's JSON schema is about 8,200 characters (about 2,000 tokens), so a compact
-    override schema is needed;
-  - pydantic's error messages need rewording for the model;
-  - sigpipe has whitening methods PAC doesn't expose (`savgol`, `stft_*`).
+- **Rules left to sigpipe** (rare): FK selection on unevenly spaced receivers, segments shorter
+  than the 25 samples of the pipeline's padding taper, a dispersion band too narrow to hold a
+  frequency step. They still fail inside each window.
+- **Generated models:** pyright cannot see their fields; code reaches stages by name
+  (`model_dump()["dispersion"]`) and sees presets as `PresetBase`.
+- **For milestone 4:** the passive override schema (about 1,800 tokens) is a large share of an 8k
+  context; the MCP tools should send one preset's schema at a time, not both.
 - **Picking risks:**
   - the lowest-ridge scan can stop on the air wave (about 340 m/s) in active data on stiff soils;
-  - Viterbi costs O(n_f × n_v²), about 1 to 2 s per window.
+  - with no wavelength limit, M0 keeps unresolved low-frequency points (active: below about
+    13 Hz, climbing to 700 m/s), and resampling over wavelength turns them into long curves;
+  - on passive_p1 (24-receiver windows, preset defaults) the images have no clear ridge: M0
+    follows the edge of the broad bright region, yet its coherence is about 2 x the floor, so
+    coherence alone cannot reject it. The quality metric must.
 - **PAC's defaults:** its form defaults give 3-receiver windows, which make flat passive images
   with nothing to pick.
 
 ## Next
 
-Milestone 2, schemas: Pydantic models for presets and overrides, generated from sigpipe's
-registries, with rejection messages written for the model. Picking starts milestone 3.
+Milestone 3: automatic picking (designed above), then the quality metric that the picker's
+diagnostics feed (`dispersion_quality`), designed with the user as the domain expert.

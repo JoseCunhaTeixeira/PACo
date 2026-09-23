@@ -1,3 +1,5 @@
+import json
+
 import pytest
 from pydantic import TypeAdapter, ValidationError
 
@@ -7,7 +9,9 @@ from paco.presets import (
     Preset,
     PresetError,
     make_preset,
+    override_schema,
     resolve_preset,
+    schema_size,
 )
 from paco.profiles import Profile
 from paco.windows import MASWParameters
@@ -578,3 +582,39 @@ def test_whitening_band_rule_agrees_with_sigpipe(
             paco_accepts = False
 
         assert paco_accepts == sigpipe_accepts, f"band {band:.2f} Hz"
+
+
+# ---------------------------------------------------------------- the schema the agent reads
+
+# Characters of each override schema, written compactly: the lean sizes plus a small margin.
+# The schema travels with every request to a model with an 8-16k context, so growing it has to
+# be a deliberate choice: raise the budget here if it is worth it.
+SCHEMA_BUDGET = {"active": 3_000, "passive": 6_600}
+
+
+@pytest.mark.parametrize("name", ["active", "passive"])
+def test_override_schema_stays_within_budget(name: str) -> None:
+    assert schema_size(override_schema(name)) <= SCHEMA_BUDGET[name]
+
+
+@pytest.mark.parametrize("name", ["active", "passive"])
+def test_override_schema_keeps_what_the_agent_needs(name: str) -> None:
+    schema = override_schema(name)
+    full = make_preset(name).model_json_schema()
+
+    # Only the noise is gone: pydantic's titles, and the mode the preset name sets.
+    assert '"title"' not in json.dumps(schema)
+    assert set(schema["properties"]) == set(full["properties"]) - {"mode"}
+    assert set(schema["$defs"]) == set(full["$defs"])
+    assert schema["properties"]["dispersion"]["default"] == DISPERSION_DEFAULTS
+    # A value the profile fills says so, instead of showing a bare null.
+    fmax = schema["$defs"]["FilteringIir"]["properties"]["fmax"]
+    assert fmax["default"] is None
+    assert fmax["description"] == "Hz; null: from the profile"
+
+
+def test_override_schema_of_an_unknown_preset() -> None:
+    with pytest.raises(
+        PresetError, match=r"Unknown preset 'activ'\. Available presets: active, passive\."
+    ):
+        override_schema("activ")

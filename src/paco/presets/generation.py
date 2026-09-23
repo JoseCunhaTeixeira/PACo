@@ -82,12 +82,14 @@ def _field(annotation: Any, sigpipe_default: Any, parameter: Parameter | None) -
         default = sigpipe_default
     else:
         default = ...  # required: sigpipe has no default and PAC's form gives none
+    # The description is what the agent reads about a value: its unit, and why it may be null.
+    notes = [parameter.unit, "null: from the profile" if parameter.derived else ""]
     return annotation, Field(
         default,
         ge=parameter.ge,
         gt=parameter.gt,
         le=parameter.le,
-        description=parameter.unit or None,
+        description="; ".join(note for note in notes if note) or None,
     )
 
 
