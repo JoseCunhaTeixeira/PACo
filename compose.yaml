@@ -1,0 +1,87 @@
+# PACo's whole stack on a GPU host: vLLM serving Qwen, PACo's MCP server, and the agent.
+#
+#   docker compose up -d vllm paco-server   # the first start downloads the model
+#   docker compose run --rm agent           # chat in this terminal; approvals are asked here
+#   docker compose run --rm evaluate        # the evaluation suite
+#
+# Needs NVIDIA's container toolkit on the host. Settings come from .env: PACO_LLM_MODEL,
+# VLLM_MAX_MODEL_LEN, PACO_WORKERS, and HF_TOKEN for gated models. Profiles are read from
+# ./data/input, results written to ./data/output.
+
+x-model: &model
+  PACO_LLM_BASE_URL: http://vllm:8000/v1
+  PACO_LLM_MODEL: ${PACO_LLM_MODEL:-Qwen/Qwen3-8B}
+
+services:
+  vllm:
+    image: vllm/vllm-openai:v0.30.0
+    command:
+      - --model=${PACO_LLM_MODEL:-Qwen/Qwen3-8B}
+      - --max-model-len=${VLLM_MAX_MODEL_LEN:-16384}
+      # Qwen3's tool calls, and its thinking kept out of the answers (Qwen's and vLLM's docs).
+      - --enable-auto-tool-choice
+      - --tool-call-parser=hermes
+      - --reasoning-parser=qwen3
+    environment:
+      HF_TOKEN: ${HF_TOKEN:-}
+    volumes:
+      - huggingface:/root/.cache/huggingface
+    ipc: host
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: all
+              capabilities: [gpu]
+    ports:
+      - 127.0.0.1:8001:8000  # this machine only
+    healthcheck:
+      test: ["CMD", "python3", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8000/health')"]
+      interval: 10s
+      start_period: 10m  # downloading and loading the model
+
+  paco-server:
+    build: .
+    image: paco
+    environment:
+      PACO_WORKERS: ${PACO_WORKERS:-4}
+      # Listening on 0.0.0.0 in the container: check the Host header against DNS rebinding.
+      PACO_ALLOWED_HOSTS: '["paco-server:*", "127.0.0.1:*", "localhost:*"]'
+    volumes:
+      - ./data:/data
+    ports:
+      - 127.0.0.1:8000:8000  # this machine only: anyone who reaches it can run PACo's tools
+
+  agent:
+    image: paco
+    command: paco-agent
+    environment:
+      <<: *model
+      PACO_MCP_URL: http://paco-server:8000/mcp
+    volumes:
+      - ./data:/data
+    stdin_open: true
+    tty: true
+    depends_on:
+      vllm:
+        condition: service_healthy
+      paco-server:
+        condition: service_started
+    profiles: [tools]
+
+  evaluate:
+    image: paco
+    command: paco-evaluate
+    environment:
+      <<: *model
+      PACO_WORKERS: ${PACO_WORKERS:-4}
+    volumes:
+      - ./data:/data
+    depends_on:
+      vllm:
+        condition: service_healthy
+    profiles: [tools]
+
+volumes:
+  huggingface:

@@ -3,6 +3,9 @@ from collections.abc import Callable, Sequence
 
 import numpy as np
 import pytest
+from sigpipe.algorithms.dispersion.phase_shift import phase_shift
+from sigpipe.base import Coordinate, DispersionImage, LinearAcquisition, Mode, VelocityType
+from sigpipe.transformers import Load
 
 from paco.picking import PickingParameters, pick_modes
 from paco.picking.tracking import corridor, lowest_ridge, track
@@ -10,9 +13,6 @@ from paco.pipelines import build_pipeline
 from paco.presets import make_preset, resolve_preset
 from paco.profiles import Profile
 from paco.windows import build_windows
-from sigpipe.algorithms.dispersion.phase_shift import phase_shift
-from sigpipe.base import Coordinate, DispersionImage, LinearAcquisition, Mode, VelocityType
-from sigpipe.transformers import Load
 
 type Dispersion = Callable[[np.ndarray], np.ndarray]
 

@@ -4,16 +4,6 @@ from typing import Any
 
 import numpy as np
 import pytest
-
-from paco.pipelines import (
-    PIPELINE_BUILDERS,
-    build_active_pipeline,
-    build_passive_pipeline,
-    build_pipeline,
-)
-from paco.presets import ActivePreset, PassivePreset, make_preset, resolve_preset
-from paco.profiles import Profile
-from paco.windows import MASWWindow, build_windows
 from sigpipe.base import DispersionImage, Pipeline, Transformer
 from sigpipe.transformers import (
     Apodize,
@@ -32,6 +22,16 @@ from sigpipe.transformers import (
     Stack,
     Whiten,
 )
+
+from paco.pipelines import (
+    PIPELINE_BUILDERS,
+    build_active_pipeline,
+    build_passive_pipeline,
+    build_pipeline,
+)
+from paco.presets import ActivePreset, PassivePreset, make_preset, resolve_preset
+from paco.profiles import Profile
+from paco.windows import MASWWindow, build_windows
 
 # The steps of PAC's adapters/active.py and adapters/passive.py.
 ACTIVE_CHAIN = [

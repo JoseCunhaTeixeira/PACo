@@ -6,6 +6,8 @@ from typing import get_args
 
 import numpy as np
 import pytest
+from sigpipe.algorithms.dispersion.phase_shift import phase_shift
+from sigpipe.base import Coordinate, DispersionImage, LinearAcquisition, VelocityType
 
 from paco.picking import PickedMode, PickingParameters, pick_modes
 from paco.quality import (
@@ -23,8 +25,6 @@ from paco.quality import (
 )
 from paco.runs import RunError, find_run, load_manifest, run_processing
 from paco.settings import Settings
-from sigpipe.algorithms.dispersion.phase_shift import phase_shift
-from sigpipe.base import Coordinate, DispersionImage, LinearAcquisition, VelocityType
 
 
 def _line(n_receivers: int) -> LinearAcquisition:

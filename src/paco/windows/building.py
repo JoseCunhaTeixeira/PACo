@@ -3,9 +3,10 @@
 import logging
 from pathlib import Path
 
+from sigpipe.base import Coordinate, LinearAcquisition
+
 from paco.profiles import Profile
 from paco.windows.models import MASWParameters, MASWWindow
-from sigpipe.base import Coordinate, LinearAcquisition
 
 logger = logging.getLogger(__name__)
 

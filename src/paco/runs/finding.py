@@ -4,10 +4,11 @@ it is processed."""
 import re
 from pathlib import Path
 
-from paco.runs.models import RunError, RunManifest
-from paco.settings import Settings
 from sigpipe.base import DispersionImage
 from sigpipe.transformers import Load
+
+from paco.runs.models import RunError, RunManifest
+from paco.settings import Settings
 
 # Only names shaped like run IDs are looked up, so an ID can never reach outside the output
 # directory (e.g. "../x").

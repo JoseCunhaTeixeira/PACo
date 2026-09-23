@@ -1,0 +1,137 @@
+"""Playing the scenarios: the agent against PACo's server, in this process, one scenario at a
+time, each with its own output directory."""
+
+import os
+import secrets
+import time
+from collections.abc import Callable, Generator, Sequence
+from contextlib import contextmanager
+from datetime import UTC, datetime
+from pathlib import Path
+
+import anyio
+from mcp import Client
+from mcp.client.session import ClientRequestContext
+from mcp.types import ElicitRequestParams, ElicitResult
+
+from paco import server
+from paco.agent import Agent, ChatModel
+from paco.evaluation.checks import Trial
+from paco.evaluation.judging import judge
+from paco.evaluation.models import EvaluationReport, ScenarioResult
+from paco.evaluation.scenarios import Scenario
+from paco.inversion import InversionRecord
+from paco.settings import get_settings
+
+_JOBS_TIMEOUT_S = 1_800  # an approved inversion, left running when the conversation ends
+
+type OnEvent = Callable[[str], None]
+
+
+async def run_evaluation(
+    scenarios: Sequence[Scenario],
+    model: ChatModel,
+    model_name: str,
+    root: Path,
+    judge_model: ChatModel | None = None,
+    judge_name: str | None = None,
+    on_event: OnEvent = print,
+) -> EvaluationReport:
+    """Play every scenario, then write report.json in a new folder of `root`."""
+    started_at = datetime.now(UTC)
+    eval_id = f"eval-{started_at:%Y%m%d-%H%M%S}-{secrets.token_hex(2)}"
+    folder = root / eval_id
+    results: list[ScenarioResult] = []
+    for scenario in scenarios:
+        on_event(f"== {scenario.name}")
+        results.append(
+            await run_scenario(
+                scenario, model, model_name, folder / scenario.name, judge_model, on_event
+            )
+        )
+    report = EvaluationReport(
+        eval_id=eval_id,
+        model=model_name,
+        judge_model=judge_name if judge_model is not None else None,
+        started_at=started_at,
+        results=tuple(results),
+    )
+    folder.mkdir(parents=True, exist_ok=True)
+    (folder / "report.json").write_text(report.model_dump_json(indent=2))
+    return report
+
+
+async def run_scenario(
+    scenario: Scenario,
+    model: ChatModel,
+    model_name: str,
+    folder: Path,
+    judge_model: ChatModel | None = None,
+    on_event: OnEvent = print,
+) -> ScenarioResult:
+    """Play `scenario` with the server writing into `folder`/outputs, and score it; the
+    conversation is saved as `folder`/transcript.json."""
+    questions_to_user: list[str] = []
+
+    async def simulated_user(
+        context: ClientRequestContext,  # noqa: ARG001
+        params: ElicitRequestParams,
+    ) -> ElicitResult:
+        questions_to_user.append(params.message)
+        if scenario.approval == "accept":
+            return ElicitResult(action="accept", content={"approve": True})
+        return ElicitResult(action="decline")
+
+    outputs = folder / "outputs"
+    start = time.perf_counter()
+    with _server_writes_into(outputs):
+        async with Client(server.server, elicitation_callback=simulated_user) as client:
+            agent = await Agent.start(client, model, on_event=on_event)
+            for question in scenario.questions:
+                await agent.answer(question)
+        await _wait_for_jobs(outputs)
+    duration_s = round(time.perf_counter() - start, 1)
+
+    transcript = agent.transcript(model_name)
+    # A scenario that never processed a profile left no folder behind.
+    folder.mkdir(parents=True, exist_ok=True)
+    (folder / "transcript.json").write_text(transcript.model_dump_json(indent=2))
+    trial = Trial(transcript, outputs, tuple(questions_to_user))
+    tokens = [step.prompt_tokens for step in transcript.steps if step.kind == "model"]
+    known_tokens = [count for count in tokens if count is not None]
+    return ScenarioResult(
+        name=scenario.name,
+        kind=scenario.kind,
+        checks=tuple(check(trial) for check in scenario.checks),
+        judge=await judge(judge_model, scenario.rubric, transcript) if judge_model else None,
+        tool_calls=len(transcript.tool_steps),
+        failed_calls=sum(step.is_error for step in transcript.tool_steps),
+        max_prompt_tokens=max(known_tokens) if known_tokens else None,
+        duration_s=duration_s,
+        answer=transcript.answer,
+    )
+
+
+@contextmanager
+def _server_writes_into(outputs: Path) -> Generator[None]:
+    """The in-process server reads its settings from the environment: point its outputs here."""
+    previous = os.environ.get("PACO_OUTPUT_DIR")
+    os.environ["PACO_OUTPUT_DIR"] = str(outputs)
+    get_settings.cache_clear()
+    try:
+        yield
+    finally:
+        if previous is None:
+            del os.environ["PACO_OUTPUT_DIR"]
+        else:
+            os.environ["PACO_OUTPUT_DIR"] = previous
+        get_settings.cache_clear()
+
+
+async def _wait_for_jobs(outputs: Path) -> None:
+    """Let the inversions the scenario started finish, so that scenarios never overlap."""
+    deadline = time.monotonic() + _JOBS_TIMEOUT_S
+    for path in outputs.glob("*/*/inversion.json"):
+        job = InversionRecord.model_validate_json(path.read_text()).job_id
+        while server.JOBS.is_live(job) and time.monotonic() < deadline:
+            await anyio.sleep(0.5)

@@ -3,18 +3,18 @@
 from pathlib import Path
 
 import matplotlib.pyplot as plt
-
-from paco.picking import pick_modes
-from paco.picks.models import PickedWindow, PickSummary, RunPicks
-from paco.quality import RunQuality, good_stretches, load_quality
-from paco.runs import RunError, find_run, load_image, load_manifest
-from paco.settings import Settings
 from sigpipe.algorithms import min_resolvable_wavelength
 from sigpipe.base import DispersionCurve, DispersionCurvesImage, DispersionImage
 from sigpipe.dataio.dispersion.loading import load_dispersion_curves
 from sigpipe.dataio.dispersion.plotting import plot_dispersion_image
 from sigpipe.dataio.dispersion.saving import save_dispersion_curves
 from sigpipe.transformers import Plot
+
+from paco.picking import pick_modes
+from paco.picks.models import PickedWindow, PickSummary, RunPicks
+from paco.quality import RunQuality, good_stretches, load_quality
+from paco.runs import RunError, find_run, load_image, load_manifest
+from paco.settings import Settings
 
 CURVES_FILE = "DispersionCurves_0000.csv"
 FIGURE_FILE = "DispersionImage_0000.png"

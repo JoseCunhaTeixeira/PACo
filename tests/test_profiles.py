@@ -3,6 +3,7 @@ from pathlib import Path
 
 import pytest
 import yaml
+from sigpipe.base import Coordinate
 
 from paco.profiles import (
     RECEIVER_POSITIONS_FILE,
@@ -14,7 +15,6 @@ from paco.profiles import (
     load_profile,
 )
 from paco.settings import Settings
-from sigpipe.base import Coordinate
 
 # Signature of the `copy_demo` fixture from conftest.py.
 type CopyDemo = Callable[[str, str], Path]
