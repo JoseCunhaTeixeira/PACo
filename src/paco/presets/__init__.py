@@ -1,12 +1,13 @@
 """Processing presets: PAC's active and passive configurations, with PAC's form defaults.
 
-The agent picks a preset by name and overrides a few values (make_preset); the preset is then
-fitted to a profile, which fills the values PAC derives from the data (resolve_preset). The
-stage models live in paco.presets.models.
+The preset models are generated from sigpipe's functions and restricted to what PAC uses
+(stages.py). The agent picks a preset by name and overrides a few values (make_preset); the
+preset is then fitted to a profile, which fills the values PAC derives from the data
+(resolve_preset).
 """
 
 from .making import PRESETS, make_preset
-from .models import ActivePreset, PassivePreset, Preset, PresetError
+from .models import ActivePreset, PassivePreset, Preset, PresetBase, PresetError
 from .resolving import IIR_FMAX_NYQUIST_FRACTION, resolve_preset
 
 __all__ = [
@@ -15,6 +16,7 @@ __all__ = [
     "ActivePreset",
     "PassivePreset",
     "Preset",
+    "PresetBase",
     "PresetError",
     "make_preset",
     "resolve_preset",

@@ -79,7 +79,7 @@ def test_presets_round_trip_through_json(name: str) -> None:
 def test_overriding_a_field_keeps_the_other_values() -> None:
     preset = make_preset("passive", {"dispersion": {"fmax": 60}, "masw": {"length": 24}})
 
-    assert preset.dispersion.model_dump() == DISPERSION_DEFAULTS | {"fmax": 60.0}
+    assert preset.model_dump()["dispersion"] == DISPERSION_DEFAULTS | {"fmax": 60.0}
     assert preset.masw.model_dump() == MASW_DEFAULTS | {"length": 24}
     assert preset.model_dump(exclude={"dispersion", "masw"}) == make_preset("passive").model_dump(
         exclude={"dispersion", "masw"}
@@ -256,8 +256,11 @@ def test_explicit_values_are_kept(profiles: dict[str, Profile]) -> None:
     passive = make_preset("passive", {"filtering": {"method": "iir", "fmin": 5, "fmax": 100}})
     active = make_preset("active", {"muting": {"method": "mute", "tmax": 1.0}})
 
-    assert resolve_preset(passive, profiles["passive_p1"]).filtering == passive.filtering
-    assert resolve_preset(active, profiles["active_p1"]).muting == active.muting
+    resolved_passive = resolve_preset(passive, profiles["passive_p1"]).model_dump()
+    resolved_active = resolve_preset(active, profiles["active_p1"]).model_dump()
+
+    assert resolved_passive["filtering"] == passive.model_dump()["filtering"]
+    assert resolved_active["muting"] == active.model_dump()["muting"]
 
 
 def test_resolving_twice_changes_nothing(profiles: dict[str, Profile]) -> None:
@@ -287,7 +290,7 @@ def test_derived_filter_band_passes_sigpipe_where_pacs_default_fails(
     assert isinstance(stream, Stream)
 
     preset = resolve_preset(make_preset("active", {"filtering": {"method": "iir"}}), profile)
-    Filter(**preset.filtering.model_dump()).transform([stream])
+    Filter(**preset.model_dump()["filtering"]).transform([stream])
 
     # PAC's form default, fmax at Nyquist, is what sigpipe's filter rejects.
     with pytest.raises(ValueError, match=r"fmax < sampling_freq/2"):
