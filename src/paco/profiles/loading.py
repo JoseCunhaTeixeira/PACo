@@ -1,21 +1,12 @@
-"""Profile discovery and inspection.
+"""Reading a profile folder from disk into a validated Profile."""
 
-A profile is a folder of the input directory holding seismic records, a receiver_positions.yaml
-and, for active profiles only, a source_positions.yaml. As in PAC, every file that is not .yaml
-or .json is a record. Records are read with sigpipe's Load, the same reader the processing
-pipelines use, so any format obspy can read is accepted. Positions become sigpipe Coordinates.
-"""
-
-import statistics
 from collections.abc import Sequence
-from enum import StrEnum
-from itertools import pairwise
 from pathlib import Path
 from typing import Any
 
 import yaml
-from pydantic import BaseModel, ConfigDict
 
+from paco.profiles.models import Profile, ProfileKind, Record
 from paco.settings import Settings
 from sigpipe.base import Coordinate, LinearAcquisition, Stream
 from sigpipe.transformers import Load
@@ -33,58 +24,6 @@ class ProfileError(ValueError):
     """A profile is unknown or malformed. Messages are written to be read by the agent."""
 
 
-class ProfileKind(StrEnum):
-    ACTIVE = "active"
-    PASSIVE = "passive"
-
-
-class Record(BaseModel):
-    model_config = ConfigDict(frozen=True)
-
-    path: Path
-    n_traces: int
-    sampling_rate_hz: float
-    duration_s: float
-    source: Coordinate | None
-
-
-class Profile(BaseModel):
-    """Everything processing needs to know about a profile, validated."""
-
-    model_config = ConfigDict(frozen=True)
-
-    name: str
-    kind: ProfileKind
-    folder: Path
-    records: tuple[Record, ...]
-    receivers: tuple[Coordinate, ...]
-
-    @property
-    def sampling_rate_hz(self) -> float:
-        return self.records[0].sampling_rate_hz
-
-    @property
-    def nyquist_hz(self) -> float:
-        return self.sampling_rate_hz / 2
-
-
-class ProfileSummary(BaseModel):
-    """Short description of a profile for the agent, with no per-record or per-trace lists."""
-
-    model_config = ConfigDict(frozen=True)
-
-    name: str
-    kind: ProfileKind
-    n_records: int
-    n_receivers: int
-    receiver_x_range_m: tuple[float, float]
-    receiver_spacing_m: float
-    sampling_rate_hz: float
-    nyquist_hz: float
-    record_duration_range_s: tuple[float, float]
-    source_x_range_m: tuple[float, float] | None
-
-
 def list_profiles(settings: Settings) -> list[str]:
     """Names of the profile folders in the input directory, sorted."""
     return sorted(
@@ -92,10 +31,6 @@ def list_profiles(settings: Settings) -> list[str]:
         for path in settings.input_dir.iterdir()
         if path.is_dir() and not path.name.startswith(".")
     )
-
-
-def inspect_profile(name: str, settings: Settings) -> ProfileSummary:
-    return summarize(load_profile(name, settings))
 
 
 def load_profile(name: str, settings: Settings) -> Profile:
@@ -140,25 +75,6 @@ def load_profile(name: str, settings: Settings) -> Profile:
         folder=folder,
         records=records,
         receivers=receivers,
-    )
-
-
-def summarize(profile: Profile) -> ProfileSummary:
-    receiver_xs = [receiver.x for receiver in profile.receivers]
-    durations = [record.duration_s for record in profile.records]
-    source_xs = [record.source.x for record in profile.records if record.source is not None]
-
-    return ProfileSummary(
-        name=profile.name,
-        kind=profile.kind,
-        n_records=len(profile.records),
-        n_receivers=len(profile.receivers),
-        receiver_x_range_m=(receiver_xs[0], receiver_xs[-1]),
-        receiver_spacing_m=statistics.median(b - a for a, b in pairwise(receiver_xs)),
-        sampling_rate_hz=profile.sampling_rate_hz,
-        nyquist_hz=profile.nyquist_hz,
-        record_duration_range_s=(round(min(durations), 3), round(max(durations), 3)),
-        source_x_range_m=(min(source_xs), max(source_xs)) if source_xs else None,
     )
 
 
