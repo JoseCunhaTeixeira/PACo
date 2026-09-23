@@ -1,0 +1,276 @@
+"""Profile discovery and inspection.
+
+A profile is a folder of the input directory holding seismic records, a receiver_positions.yaml
+and, for active profiles only, a source_positions.yaml. As in PAC, every file that is not .yaml
+or .json is a record. Records are read with sigpipe's Load, the same reader the processing
+pipelines use, so any format obspy can read is accepted. Positions become sigpipe Coordinates.
+"""
+
+import statistics
+from collections.abc import Sequence
+from enum import StrEnum
+from itertools import pairwise
+from pathlib import Path
+from typing import Any
+
+import yaml
+from pydantic import BaseModel, ConfigDict
+
+from paco.settings import Settings
+from sigpipe.base import Coordinate, LinearAcquisition, Stream
+from sigpipe.transformers import Load
+
+RECEIVER_POSITIONS_FILE = "receiver_positions.yaml"
+SOURCE_POSITIONS_FILE = "source_positions.yaml"
+
+# Files with these suffixes are metadata, not records (PAC's rule).
+_NON_RECORD_SUFFIXES = {".yaml", ".json"}
+
+_MAX_LISTED = 5
+
+
+class ProfileError(ValueError):
+    """A profile is unknown or malformed. Messages are written to be read by the agent."""
+
+
+class ProfileKind(StrEnum):
+    ACTIVE = "active"
+    PASSIVE = "passive"
+
+
+class Record(BaseModel):
+    model_config = ConfigDict(frozen=True)
+
+    path: Path
+    n_traces: int
+    sampling_rate_hz: float
+    duration_s: float
+    source: Coordinate | None
+
+
+class Profile(BaseModel):
+    """Everything processing needs to know about a profile, validated."""
+
+    model_config = ConfigDict(frozen=True)
+
+    name: str
+    kind: ProfileKind
+    folder: Path
+    records: tuple[Record, ...]
+    receivers: tuple[Coordinate, ...]
+
+    @property
+    def sampling_rate_hz(self) -> float:
+        return self.records[0].sampling_rate_hz
+
+    @property
+    def nyquist_hz(self) -> float:
+        return self.sampling_rate_hz / 2
+
+
+class ProfileSummary(BaseModel):
+    """Short description of a profile for the agent, with no per-record or per-trace lists."""
+
+    model_config = ConfigDict(frozen=True)
+
+    name: str
+    kind: ProfileKind
+    n_records: int
+    n_receivers: int
+    receiver_x_range_m: tuple[float, float]
+    receiver_spacing_m: float
+    sampling_rate_hz: float
+    nyquist_hz: float
+    record_duration_range_s: tuple[float, float]
+    source_x_range_m: tuple[float, float] | None
+
+
+def list_profiles(settings: Settings) -> list[str]:
+    """Names of the profile folders in the input directory, sorted."""
+    return sorted(
+        path.name
+        for path in settings.input_dir.iterdir()
+        if path.is_dir() and not path.name.startswith(".")
+    )
+
+
+def inspect_profile(name: str, settings: Settings) -> ProfileSummary:
+    return summarize(load_profile(name, settings))
+
+
+def load_profile(name: str, settings: Settings) -> Profile:
+    available = list_profiles(settings)
+    # Also rejects names such as "../x": only direct sub-folders of input_dir are profiles.
+    if name not in available:
+        raise ProfileError(
+            f"Unknown profile '{name}'. Available profiles: {', '.join(available) or 'none'}."
+        )
+    folder = settings.input_dir / name
+
+    record_paths = sorted(
+        path
+        for path in folder.iterdir()
+        if path.is_file()
+        and not path.name.startswith(".")
+        and path.suffix not in _NON_RECORD_SUFFIXES
+    )
+    if not record_paths:
+        raise ProfileError(
+            f"Profile '{name}' has no record files (any file that is not .yaml or .json)."
+        )
+
+    receivers = _read_receivers(folder / RECEIVER_POSITIONS_FILE, name)
+    sources = _read_sources(folder / SOURCE_POSITIONS_FILE, record_paths, name)
+
+    records = tuple(
+        _read_record(path, None if sources is None else sources[path.name], receivers, name)
+        for path in record_paths
+    )
+
+    sampling_rates = sorted({record.sampling_rate_hz for record in records})
+    if len(sampling_rates) > 1:
+        raise ProfileError(
+            f"Profile '{name}': all records must share one sampling rate, "
+            f"found {', '.join(f'{rate:g} Hz' for rate in sampling_rates)}."
+        )
+
+    return Profile(
+        name=name,
+        kind=ProfileKind.PASSIVE if sources is None else ProfileKind.ACTIVE,
+        folder=folder,
+        records=records,
+        receivers=receivers,
+    )
+
+
+def summarize(profile: Profile) -> ProfileSummary:
+    receiver_xs = [receiver.x for receiver in profile.receivers]
+    durations = [record.duration_s for record in profile.records]
+    source_xs = [record.source.x for record in profile.records if record.source is not None]
+
+    return ProfileSummary(
+        name=profile.name,
+        kind=profile.kind,
+        n_records=len(profile.records),
+        n_receivers=len(profile.receivers),
+        receiver_x_range_m=(receiver_xs[0], receiver_xs[-1]),
+        receiver_spacing_m=statistics.median(b - a for a, b in pairwise(receiver_xs)),
+        sampling_rate_hz=profile.sampling_rate_hz,
+        nyquist_hz=profile.nyquist_hz,
+        record_duration_range_s=(round(min(durations), 3), round(max(durations), 3)),
+        source_x_range_m=(min(source_xs), max(source_xs)) if source_xs else None,
+    )
+
+
+def _read_record(
+    path: Path,
+    source: Coordinate | None,
+    receivers: tuple[Coordinate, ...],
+    profile: str,
+) -> Record:
+    # Passive records have no source; like PAC's windowing, the first receiver stands in
+    # for it. It only serves to read the record and is not kept.
+    acquisition = LinearAcquisition(source=source or receivers[0], receivers=receivers)
+    try:
+        streams = Load(
+            file_paths=[path], data_type="seismic", acquisitions=[acquisition]
+        ).transform()
+    except Exception as exc:
+        raise ProfileError(
+            f"Profile '{profile}': sigpipe cannot load record {path.name} ({exc}). "
+            f"{RECEIVER_POSITIONS_FILE} lists {len(receivers)} receivers."
+        ) from exc
+
+    stream = streams[0]
+    if not isinstance(stream, Stream):
+        raise ProfileError(f"Profile '{profile}': {path.name} did not load as a seismic record.")
+
+    return Record(
+        path=path,
+        n_traces=stream.nx,
+        sampling_rate_hz=stream.sampling_freq,
+        duration_s=float(stream.ts[-1]),
+        source=source,
+    )
+
+
+def _read_receivers(path: Path, profile: str) -> tuple[Coordinate, ...]:
+    if not path.exists():
+        raise ProfileError(f"Profile '{profile}' has no {RECEIVER_POSITIONS_FILE}.")
+
+    raw = _load_yaml(path, profile)
+    if not isinstance(raw, list):
+        raise ProfileError(
+            f"Profile '{profile}': {RECEIVER_POSITIONS_FILE} must be a list of {{x, z}} entries."
+        )
+
+    receivers = tuple(_parse_coordinate(entry, RECEIVER_POSITIONS_FILE, profile) for entry in raw)
+
+    if len(receivers) < 2:
+        raise ProfileError(
+            f"Profile '{profile}': {RECEIVER_POSITIONS_FILE} needs at least 2 receivers, "
+            f"found {len(receivers)}."
+        )
+    xs = [receiver.x for receiver in receivers]
+    if xs != sorted(xs):
+        raise ProfileError(
+            f"Profile '{profile}': receivers in {RECEIVER_POSITIONS_FILE} must be sorted by x."
+        )
+    return receivers
+
+
+def _read_sources(
+    path: Path, record_paths: Sequence[Path], profile: str
+) -> dict[str, Coordinate] | None:
+    # No source file means a passive profile.
+    if not path.exists():
+        return None
+
+    raw = _load_yaml(path, profile)
+    if not isinstance(raw, dict):
+        raise ProfileError(
+            f"Profile '{profile}': {SOURCE_POSITIONS_FILE} must map each record file name "
+            "to its {x, z} source position."
+        )
+
+    record_names = {record_path.name for record_path in record_paths}
+    listed_names = {str(key) for key in raw}
+    if listed_names != record_names:
+        problems = []
+        if missing := sorted(record_names - listed_names):
+            problems.append(f"no source position for {_short_list(missing)}")
+        if unknown := sorted(listed_names - record_names):
+            problems.append(f"positions for unknown records {_short_list(unknown)}")
+        raise ProfileError(
+            f"Profile '{profile}': {SOURCE_POSITIONS_FILE} does not match the record files: "
+            f"{'; '.join(problems)}."
+        )
+
+    return {
+        str(key): _parse_coordinate(value, f"{SOURCE_POSITIONS_FILE} entry '{key}'", profile)
+        for key, value in raw.items()
+    }
+
+
+def _load_yaml(path: Path, profile: str) -> Any:  # noqa: ANN401
+    try:
+        with path.open(encoding="utf-8") as file:
+            return yaml.safe_load(file)
+    except yaml.YAMLError as exc:
+        raise ProfileError(f"Profile '{profile}': {path.name} is not valid YAML ({exc}).") from exc
+
+
+def _parse_coordinate(entry: object, where: str, profile: str) -> Coordinate:
+    # As in PAC, profiles are 2D lines in (x, z): y is ignored and set to 0.
+    try:
+        return Coordinate(x=float(entry["x"]), y=0.0, z=float(entry["z"]))  # type: ignore[index]
+    except (KeyError, TypeError, ValueError) as exc:
+        raise ProfileError(
+            f"Profile '{profile}': {where} needs numeric 'x' and 'z', got {entry!r}."
+        ) from exc
+
+
+def _short_list(names: Sequence[str]) -> str:
+    shown = ", ".join(names[:_MAX_LISTED])
+    extra = len(names) - _MAX_LISTED
+    return f"{shown} and {extra} more" if extra > 0 else shown
