@@ -56,7 +56,8 @@ def _derive(
 ) -> None:
     """Set `stage.upper` to its derived `value`, which must stay above `stage.lower`."""
     params = values[stage]
-    if params[lower] >= value:
+    # sigpipe lets some lower bounds be None, meaning no bound (e.g. muting.tmin).
+    if params[lower] is not None and params[lower] >= value:
         raise PresetError(
             f"{stage}.{lower} ({params[lower]:g} {unit}) must be below {stage}.{upper}, which "
             f"defaults to {value:g} {unit} for profile '{profile.name}'. "

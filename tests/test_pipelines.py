@@ -307,8 +307,8 @@ def test_pipeline_runs_on_a_demo_window(
         file_paths=[output_folder / "DispersionImage_0000.hdf5"], data_type="dispersion_image"
     ).transform()
     assert isinstance(image, DispersionImage)
-    dispersion = preset.dispersion
-    assert image.vs.size == dispersion.nv
-    assert image.vs[[0, -1]] == pytest.approx([dispersion.vmin, dispersion.vmax])
-    assert dispersion.fmin <= image.fs[0] and image.fs[-1] <= dispersion.fmax
+    dispersion = preset.model_dump()["dispersion"]
+    assert image.vs.size == dispersion["nv"]
+    assert image.vs[[0, -1]] == pytest.approx([dispersion["vmin"], dispersion["vmax"]])
+    assert dispersion["fmin"] <= image.fs[0] and image.fs[-1] <= dispersion["fmax"]
     assert np.all(np.isfinite(image.fv_map))
