@@ -1,16 +1,19 @@
 import json
 
 import pytest
-from pydantic import TypeAdapter, ValidationError
+from pydantic import BaseModel, TypeAdapter, ValidationError
 from sigpipe.algorithms import WHITENING_METHODS
 from sigpipe.base import LinearAcquisition, Stream
 from sigpipe.transformers import Filter, Load, Slice
 
+from paco.inversion import InversionParameters
+from paco.picking import PickingParameters
 from paco.presets import (
     ActivePreset,
     PassivePreset,
     Preset,
     PresetError,
+    explain_parameters,
     make_preset,
     override_schema,
     resolve_preset,
@@ -304,6 +307,82 @@ def test_every_problem_gets_its_own_line() -> None:
         "- whitening.method: unknown method 'onebit_apd'. Allowed: none, onebit, onebit_apod. "
         "Did you mean onebit_apod?",
     ]
+
+
+INVERSION_NAMES = (
+    "n_layers, vs_layers, thickness_layers, n_iterations, n_burnin_iterations, n_chains"
+)
+
+# The tools' other arguments (picking, thresholds, parameters) get the same explanations.
+INVALID_PARAMETERS = [
+    pytest.param(
+        InversionParameters,
+        {"iterations": 2000},
+        f"parameters.iterations: unknown parameter. Allowed: {INVERSION_NAMES}. "
+        "Did you mean n_iterations?",
+        id="parameter typo",
+    ),
+    pytest.param(
+        InversionParameters,
+        {"inversion": {"n_iterations": 2000}},
+        f"parameters.inversion: unknown parameter. Allowed: {INVERSION_NAMES}.",
+        id="wrapped in a key",
+    ),
+    pytest.param(
+        InversionParameters,
+        {"vs_layers": [{"vs_minn": 50}, {}]},
+        "parameters.vs_layers[0].vs_minn: unknown parameter. "
+        "Allowed: vs_min, vs_max, vs_perturb_std. Did you mean vs_min?",
+        id="parameter typo in an item",
+    ),
+    pytest.param(
+        InversionParameters,
+        {"vs_layers": [{}, {"vs_min": -5}]},
+        "parameters.vs_layers[1].vs_min: must be > 0 (got -5).",
+        id="below bound in an item",
+    ),
+    pytest.param(
+        InversionParameters,
+        {"vs_layers": [100, {}]},
+        "parameters.vs_layers[0]: must be an object (got 100). "
+        "Parameters: vs_min, vs_max, vs_perturb_std.",
+        id="item not an object",
+    ),
+    pytest.param(
+        InversionParameters,
+        {"vs_layers": 5},
+        "parameters.vs_layers: must be a list (got 5).",
+        id="not a list",
+    ),
+    pytest.param(
+        InversionParameters,
+        {"vs_layers": [{"vs_min": 500, "vs_max": 200}, {}]},
+        "parameters.vs_layers[0]: vs_max must be greater than vs_min.",
+        id="check of an item",
+    ),
+    pytest.param(
+        InversionParameters,
+        {"n_layers": 3},
+        "parameters: vs_layers must have length n_layers (3).",
+        id="check of the whole",
+    ),
+    pytest.param(
+        PickingParameters,
+        {"max_modes": "two"},
+        "parameters.max_modes: must be an integer (got 'two').",
+        id="wrong type",
+    ),
+]
+
+
+@pytest.mark.parametrize(("model", "values", "line"), INVALID_PARAMETERS)
+def test_invalid_parameters_are_explained_for_the_agent(
+    model: type[BaseModel], values: dict[str, object], line: str
+) -> None:
+    with pytest.raises(ValidationError) as caught:
+        model.model_validate(values)
+
+    assert explain_parameters(caught.value, model, "parameters") == [line]
 
 
 # ---------------------------------------------------------------- resolution against a profile

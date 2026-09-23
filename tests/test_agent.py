@@ -161,8 +161,15 @@ def test_mistakes_go_back_to_the_model() -> None:
         _says("Sorry, I will check the profile's name."),
     )
 
-    _, _, messages = _converse(model, "Inspect active_p2.")
+    _, events, messages = _converse(model, "Inspect active_p2.")
 
+    # The user sees the calls made, and why they failed; calls refused unmade stay silent.
+    assert events == [
+        "-> invent_curve({})",
+        "   failed: Unknown tool: invent_curve",
+        '-> inspect_profile({"profile": "active_p2"})',
+        "   failed: Unknown profile 'active_p2'. Available profiles: active_p1, passive_p1.",
+    ]
     results = _tool_results(messages)
     assert results[0].startswith("Not called: the arguments of inspect_profile are not valid JSON")
     assert results[1] == "Not called: the arguments of inspect_profile must be a JSON object."
@@ -317,6 +324,8 @@ def test_openai_chat_sends_the_conversation_and_reads_tool_calls() -> None:
     assert request.headers["authorization"] == "Bearer secret"
     body = json.loads(request.content)
     assert (body["model"], body["messages"], body["tools"]) == ("Qwen/Qwen3-8B", messages, tools)
+    # Each call is chosen after the result of the one before.
+    assert body["parallel_tool_calls"] is False
 
 
 @pytest.mark.parametrize(
