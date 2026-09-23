@@ -49,7 +49,12 @@ class OpenAIChat:
         tools: list[ChatCompletionFunctionToolParam],
     ) -> Reply:
         response = await self._client.chat.completions.create(
-            model=self._model, messages=messages, tools=tools
+            model=self._model,
+            messages=messages,
+            tools=tools,
+            # One call per reply: in a batch, Qwen3-4B made up the run_id of the call before it
+            # (run_12345). vLLM then keeps the first call only.
+            parallel_tool_calls=False,
         )
         message = response.choices[0].message
         calls = tuple(

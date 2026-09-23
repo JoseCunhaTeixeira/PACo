@@ -280,7 +280,8 @@ def _wait_for(job_id: str, timeout_s: float = 120) -> dict[str, Any]:
             "dispersion_quality",
             {"run_id": "20260923-000000-0000", "thresholds": {"min_sharpnes": 1}},
             "Invalid thresholds (see quality_settings):\n"
-            "- thresholds.min_sharpnes: Extra inputs are not permitted",
+            "- thresholds.min_sharpnes: unknown parameter. Allowed: min_sharpness, "
+            "min_prominence, min_on_data, max_constant_wavelength. Did you mean min_sharpness?",
         ),
         (
             "pick",
@@ -296,7 +297,18 @@ def _wait_for(job_id: str, timeout_s: float = 120) -> dict[str, Any]:
             "invert",
             {"run_id": "20260923-000000-0000", "parameters": {"n_layers": 3}},
             "Invalid parameters (see inversion_settings):\n"
-            "- parameters: Value error, vs_layers must have length n_layers (3)",
+            "- parameters: vs_layers must have length n_layers (3).",
+        ),
+        (
+            # Qwen3-4B's guess, four times in a row, when the message only said "not permitted".
+            "invert",
+            {"run_id": "20260923-000000-0000", "parameters": {"iterations": 2000, "chains": 1}},
+            "- parameters.iterations: unknown parameter. Allowed: n_layers, vs_layers, "
+            "thickness_layers, n_iterations, n_burnin_iterations, n_chains. "
+            "Did you mean n_iterations?\n"
+            "- parameters.chains: unknown parameter. Allowed: n_layers, vs_layers, "
+            "thickness_layers, n_iterations, n_burnin_iterations, n_chains. "
+            "Did you mean n_chains?",
         ),
         (
             "job_status",

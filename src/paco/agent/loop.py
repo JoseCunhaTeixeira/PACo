@@ -2,6 +2,7 @@
 answers the user."""
 
 import json
+import textwrap
 import time
 from collections.abc import Callable
 from datetime import UTC, datetime
@@ -20,7 +21,7 @@ ROLE = (
     "what the tools return: never invent a result."
 )
 
-# What the loop does, for the user to follow: tool calls, progress.
+# What the loop does, for the user to follow: tool calls, progress, failures.
 type OnEvent = Callable[[str], None]
 
 
@@ -121,13 +122,18 @@ class Agent:
 
         self._on_event(f"-> {call.name}({call.arguments})")
         result = await self._client.call_tool(call.name, parsed, progress_callback=on_progress)
+        text = result_for_model(result)
+        if result.is_error:
+            # The SDK's prefix repeats the call shown just above.
+            message = text.removeprefix(f"Error executing tool {call.name}: ")
+            self._on_event(textwrap.indent(f"failed: {message}", "   "))
         return ToolStep(
             name=call.name,
             arguments=call.arguments,
             called=True,
             is_error=bool(result.is_error),
             duration_s=round(time.perf_counter() - start, 3),
-            result=result_for_model(result),
+            result=text,
         )
 
 

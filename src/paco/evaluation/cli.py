@@ -1,6 +1,7 @@
 """paco-evaluate [scenario ...]: play the suite (or the named scenarios) with the model in .env,
 and print the report."""
 
+import logging
 import sys
 
 import anyio
@@ -15,6 +16,9 @@ from paco.evaluation.scenarios import SCENARIOS
 
 def main() -> None:
     """paco-evaluate: the suite, or the scenarios named on the command line."""
+    # PACo's server runs in this process, and its SDK logs every request at INFO level: the
+    # scenarios' own lines (calls, failures, progress) say what matters.
+    logging.getLogger().setLevel(logging.WARNING)
     anyio.run(evaluate, sys.argv[1:])
 
 

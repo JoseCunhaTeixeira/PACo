@@ -105,14 +105,16 @@ def run_processing(
     overrides: Annotated[
         dict[str, Any] | None,
         Field(
-            description='Changes to the default settings, e.g. {"masw": {"length": 24}}; see '
-            "preset_settings. Leave it out to use the defaults."
+            # Qwen3-4B copied a one-key example as is, dropping the step the user asked for.
+            description='Changes to the default settings, e.g. {"masw": {"length": 48, "step": '
+            "12}}; see preset_settings. Leave it out to use the defaults."
         ),
     ] = None,
 ) -> runs.RunSummary:
     """Process a profile into dispersion images, one per MASW window, with the preset that fits
     it (active or passive). Takes seconds to minutes. Returns a summary with the run_id that the
-    tools working on a run take."""
+    tools working on a run take. A window that succeeded has an image, not yet a good one: judge
+    them with dispersion_quality."""
 
     def report(done: int, total: int) -> None:
         # The SDK runs this tool in a worker thread: progress goes out through the event loop.
@@ -245,16 +247,15 @@ def _preset(profile: str) -> str:
 def _parse[M: BaseModel](
     model: type[M], values: dict[str, Any] | None, argument: str, described_by: str
 ) -> M | None:
-    """`values` as a `model`, or None to keep the defaults; one line per problem otherwise."""
+    """`values` as a `model`, or None to keep the defaults; one line per problem otherwise, naming
+    what to send instead."""
     if values is None:
         return None
     try:
         return model.model_validate(values)
     except ValidationError as error:
-        problems = "\n".join(
-            f"- {'.'.join([argument, *map(str, problem['loc'])])}: {problem['msg']}"
-            for problem in error.errors()
-        )
+        lines = presets.explain_parameters(error, model, argument)
+        problems = "\n".join(f"- {line}" for line in lines)
         raise ValueError(f"Invalid {argument} (see {described_by}):\n{problems}") from error
 
 
