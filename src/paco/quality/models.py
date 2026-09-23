@@ -1,8 +1,10 @@
-"""The quality thresholds, and the quality of one dispersion image."""
+"""The quality thresholds, the quality of one dispersion image, and of a whole run."""
 
 from typing import Literal
 
 from pydantic import BaseModel, ConfigDict, Field
+
+from paco.picking import PickingParameters
 
 
 class QualityParameters(BaseModel):
@@ -10,12 +12,13 @@ class QualityParameters(BaseModel):
 
     Tuned on the 14 demo windows only (active_p1 and passive_p1, 24-receiver windows), so they
     separate those perfectly by construction: recalibrate them on a reference set of windows judged
-    by hand before trusting them.
+    by hand before trusting them. min_sharpness sits below the score of a perfect plane wave,
+    0.98 to 1.08 depending on the array, to leave room for noise.
     """
 
     model_config = ConfigDict(frozen=True, extra="forbid")
 
-    min_sharpness: float = Field(default=1.0, gt=0)
+    min_sharpness: float = Field(default=0.8, gt=0)
     min_prominence: float = Field(default=2.0, gt=0)
     min_on_data: float = Field(default=0.6, ge=0, le=1)
     max_constant_wavelength: float = Field(default=0.4, ge=0, le=1)
@@ -30,8 +33,9 @@ class ImageQuality(BaseModel):
 
     Every measurement is a median over the pick's kept points:
     - sharpness: peak width above the noise floor, over the width the window can resolve at that
-      wavelength (v * wavelength / window length). A propagating wave cannot be narrower: below 1,
-      the peak is a fringe or an edge, not a ridge.
+      wavelength (v * wavelength / window length). A perfect plane wave scores about 1, and a
+      propagating wave cannot be much narrower: well below 1, the peak is a fringe or an edge, not
+      a ridge.
     - prominence: peak height above the floor, over the column's median height above the floor.
     - on_data: share of points on their column's brightest value (within 10 %), so the data and not
       the tracker's smoothing drew the curve.
@@ -49,3 +53,38 @@ class ImageQuality(BaseModel):
     prominence: float | None = None
     on_data: float | None = None
     constant_wavelength: float | None = None
+
+
+class WindowQuality(BaseModel):
+    model_config = ConfigDict(frozen=True)
+
+    xmid: float
+    folder: str  # xmid_<x>, inside the run folder
+    quality: ImageQuality
+
+
+class RunQuality(BaseModel):
+    """The quality of every window of a run, and how it was measured: written as quality.json."""
+
+    model_config = ConfigDict(frozen=True)
+
+    run_id: str
+    picking: PickingParameters
+    thresholds: QualityParameters
+    windows: tuple[WindowQuality, ...]  # sorted by xmid
+
+
+class QualitySummary(BaseModel):
+    """Short description of a run's quality for the agent."""
+
+    model_config = ConfigDict(frozen=True)
+
+    run_id: str
+    profile: str
+    n_windows: int  # windows with a dispersion image
+    good: int
+    doubtful: int
+    bad: int
+    good_xmids: tuple[str, ...]  # runs of consecutive good windows: "2.88-20.88 m (7)"
+    flags: dict[str, int]  # windows raising each flag, most frequent first
+    advice: tuple[str, ...]  # what to change, for the most frequent flags
