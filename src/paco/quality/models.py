@@ -18,10 +18,33 @@ class QualityParameters(BaseModel):
 
     model_config = ConfigDict(frozen=True, extra="forbid")
 
-    min_sharpness: float = Field(default=0.8, gt=0)
-    min_prominence: float = Field(default=2.0, gt=0)
-    min_on_data: float = Field(default=0.6, ge=0, le=1)
-    max_constant_wavelength: float = Field(default=0.4, ge=0, le=1)
+    # The descriptions are what the agent reads (see paco.server's quality_settings).
+    min_sharpness: float = Field(
+        default=0.8,
+        gt=0,
+        description="Flag when the median peak width is below this multiple of the width the "
+        "window can resolve (a perfect plane wave scores about 1).",
+    )
+    min_prominence: float = Field(
+        default=2.0,
+        gt=0,
+        description="Flag when the median peak height above the noise floor is below this "
+        "multiple of its column's median height.",
+    )
+    min_on_data: float = Field(
+        default=0.6,
+        ge=0,
+        le=1,
+        description="Flag when a smaller share of the points sit on their column's brightest "
+        "value (within 10 %).",
+    )
+    max_constant_wavelength: float = Field(
+        default=0.4,
+        ge=0,
+        le=1,
+        description="Flag when a larger share of the points have a velocity growing like "
+        "frequency: the edge of what the window resolves, not a dispersion curve.",
+    )
 
 
 type Flag = Literal["no_ridge", "sharpness", "prominence", "on_data", "constant_wavelength"]

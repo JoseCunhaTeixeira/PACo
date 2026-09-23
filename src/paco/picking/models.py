@@ -13,26 +13,57 @@ class PickingParameters(BaseModel):
 
     model_config = ConfigDict(frozen=True, extra="forbid")
 
-    # A bump is a ridge if it reaches this fraction of its column's maximum (malw-pipe's value).
-    threshold: float = Field(default=0.35, gt=0, le=1)
-    # Half-width of the corridor around a ridge, as a fraction of its velocity.
-    corridor: float = Field(default=0.2, gt=0, lt=1)
-    # Cost of a relative velocity change per Hz, squared, between neighbouring frequencies.
-    smoothness: float = Field(default=1.0, ge=0)
-    # A mode is kept if its kept points' median coherence reaches this multiple of the noise
-    # floor, 1/sqrt(N).
-    mode_min_ratio: float = Field(default=1.5, gt=0)
-    # A point below this multiple of the noise floor is dropped from the saved curve.
-    point_min_ratio: float = Field(default=1.0, gt=0)
-    # A point below this fraction of its mode's median coherence is dropped too: a sidelobe or
-    # noise, not the ridge.
-    min_relative_coherence: float = Field(default=0.5, gt=0, le=1)
-    # Longest wavelength searched, as a multiple of the window length; None: no limit.
-    max_wavelength: float | None = Field(default=None, gt=0)
-    # M0 only; above 1, each higher mode is searched above the one below.
-    max_modes: int = Field(default=1, ge=1)
-    # Fewest kept points a mode needs.
-    min_frequencies: int = Field(default=5, ge=2)
+    # The descriptions are what the agent reads (see paco.server's quality_settings).
+    threshold: float = Field(
+        default=0.35,
+        gt=0,
+        le=1,
+        description="A bump is a ridge if it reaches this fraction of its column's maximum "
+        "(malw-pipe's value).",
+    )
+    corridor: float = Field(
+        default=0.2,
+        gt=0,
+        lt=1,
+        description="Half-width of the corridor around a ridge, as a fraction of its velocity.",
+    )
+    smoothness: float = Field(
+        default=1.0,
+        ge=0,
+        description="Cost of a relative velocity change per Hz, squared, between neighbouring "
+        "frequencies.",
+    )
+    mode_min_ratio: float = Field(
+        default=1.5,
+        gt=0,
+        description="A mode is kept if its kept points' median coherence reaches this multiple of "
+        "the noise floor, 1/sqrt(N).",
+    )
+    point_min_ratio: float = Field(
+        default=1.0,
+        gt=0,
+        description="A point below this multiple of the noise floor is dropped from the saved "
+        "curve.",
+    )
+    min_relative_coherence: float = Field(
+        default=0.5,
+        gt=0,
+        le=1,
+        description="A point below this fraction of its mode's median coherence is dropped too: "
+        "a sidelobe or noise, not the ridge.",
+    )
+    max_wavelength: float | None = Field(
+        default=None,
+        gt=0,
+        description="Longest wavelength searched, as a multiple of the window length; null: no "
+        "limit.",
+    )
+    max_modes: int = Field(
+        default=1,
+        ge=1,
+        description="1 picks M0 only; above 1, each higher mode is searched above the one below.",
+    )
+    min_frequencies: int = Field(default=5, ge=2, description="Fewest kept points a mode needs.")
 
 
 @dataclass(frozen=True, slots=True)
