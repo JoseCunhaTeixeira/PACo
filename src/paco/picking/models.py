@@ -4,7 +4,6 @@ from dataclasses import dataclass
 
 import numpy as np
 from pydantic import BaseModel, ConfigDict, Field
-
 from sigpipe.base import DispersionCurve
 
 

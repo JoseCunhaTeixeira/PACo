@@ -3,12 +3,13 @@
 from collections.abc import Callable
 from pathlib import Path
 
+from sigpipe.base import Pipeline
+
 from paco.pipelines.active import build_active_pipeline
 from paco.pipelines.passive import build_passive_pipeline
 from paco.presets import ActivePreset, PassivePreset
 from paco.profiles import ProfileKind
 from paco.windows import MASWWindow
-from sigpipe.base import Pipeline
 
 PIPELINE_BUILDERS: dict[str, Callable[..., Pipeline]] = {
     ProfileKind.ACTIVE: build_active_pipeline,

@@ -2,11 +2,12 @@
 
 from pathlib import Path
 
+from sigpipe.base import Pipeline
+from sigpipe.transformers import Detrend, Dispersion, Filter, Mute, Pad, Plot, Save, Stack
+
 from paco.pipelines.common import load_window, stage_kwargs
 from paco.presets import ActivePreset
 from paco.windows import MASWWindow
-from sigpipe.base import Pipeline
-from sigpipe.transformers import Detrend, Dispersion, Filter, Mute, Pad, Plot, Save, Stack
 
 
 def build_active_pipeline(

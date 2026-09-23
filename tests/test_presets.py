@@ -2,6 +2,9 @@ import json
 
 import pytest
 from pydantic import TypeAdapter, ValidationError
+from sigpipe.algorithms import WHITENING_METHODS
+from sigpipe.base import LinearAcquisition, Stream
+from sigpipe.transformers import Filter, Load, Slice
 
 from paco.presets import (
     ActivePreset,
@@ -15,9 +18,6 @@ from paco.presets import (
 )
 from paco.profiles import Profile
 from paco.windows import MASWParameters
-from sigpipe.algorithms import WHITENING_METHODS
-from sigpipe.base import LinearAcquisition, Stream
-from sigpipe.transformers import Filter, Load, Slice
 
 # PAC's form defaults (ActiveConfigForm.tsx and PassiveConfigForm.tsx), except distance_max:
 # 1000 m in PACo, 100 m in PAC.

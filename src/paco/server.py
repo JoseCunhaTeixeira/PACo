@@ -1,8 +1,8 @@
 """PACo's MCP server: the tools the agent calls, each an adapter around a plain function.
 
 The only module that imports mcp. Settings come from the server's environment (PACO_* variables or
-.env), never from the model. Run it with `python -m paco.server`; it serves Streamable HTTP on
-http://127.0.0.1:8000/mcp, reachable from this machine only.
+.env), never from the model. Run it with `paco-server`: it serves Streamable HTTP at
+http://<PACO_HOST>:<PACO_PORT>/mcp, by default http://127.0.0.1:8000/mcp, this machine only.
 """
 
 import functools
@@ -21,6 +21,7 @@ from mcp.server.mcpserver import (
     Resolve,
 )
 from mcp.server.mcpserver.exceptions import ToolError
+from mcp.server.transport_security import TransportSecuritySettings
 from pydantic import BaseModel, Field, ValidationError
 
 from paco import inversion, picks, presets, profiles, quality, runs
@@ -28,7 +29,7 @@ from paco.inversion import InversionParameters
 from paco.jobs import JobManager
 from paco.picking import PickingParameters
 from paco.quality import QualityParameters
-from paco.settings import get_settings
+from paco.settings import Settings, get_settings
 
 # pick draws figures in this process, from the SDK's worker threads: never start a GUI backend.
 matplotlib.use("Agg")
@@ -257,7 +258,29 @@ def _parse[M: BaseModel](
         raise ValueError(f"Invalid {argument} (see {described_by}):\n{problems}") from error
 
 
-if __name__ == "__main__":
+def transport_security(settings: Settings) -> TransportSecuritySettings | None:
+    """Host checks for the settings' allowed hosts; None leaves the SDK's own rule (checks on
+    127.0.0.1 only)."""
+    if not settings.allowed_hosts:
+        return None
+    return TransportSecuritySettings(
+        enable_dns_rebinding_protection=True,
+        allowed_hosts=list(settings.allowed_hosts),
+        allowed_origins=[f"http://{host}" for host in settings.allowed_hosts],
+    )
+
+
+def main() -> None:
+    """paco-server: serve PACo's tools over Streamable HTTP, where the settings say."""
     # A wrong setting stops the server here, instead of failing every tool call.
-    get_settings()
-    server.run(transport="streamable-http")
+    settings = get_settings()
+    server.run(
+        transport="streamable-http",
+        host=settings.host,
+        port=settings.port,
+        transport_security=transport_security(settings),
+    )
+
+
+if __name__ == "__main__":
+    main()

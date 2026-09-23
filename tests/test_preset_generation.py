@@ -7,16 +7,16 @@ from typing import Any
 
 import pytest
 from pydantic import TypeAdapter, ValidationError
-
-from paco.presets import PresetError, generation, make_preset, override_schema
-from paco.presets.generation import stage_type
-from paco.presets.stages import WHITENING, Parameter, Stage, pac_methods
 from sigpipe.algorithms import (
     DISPERSION_METHODS,
     FILTERING_METHODS,
     STREAM_SELECTION_METHODS,
     WHITENING_METHODS,
 )
+
+from paco.presets import PresetError, generation, make_preset, override_schema
+from paco.presets.generation import stage_type
+from paco.presets.stages import WHITENING, Parameter, Stage, pac_methods
 
 
 @pytest.fixture(autouse=True)

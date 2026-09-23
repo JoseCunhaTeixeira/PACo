@@ -22,7 +22,9 @@ Last updated 2026-09-23. Read this first at the start of each session.
 | 3. Quality metric and picking | Done: picker, metric, `dispersion_quality`, `pick`; 250 tests |
 | 4. MCP server | Done: 7 tools over Streamable HTTP, errors the model reads, progress, instructions; 267 tests |
 | 5. Background jobs | Done: PAC's inversion ported, run as a background job after the user's approval; 294 tests |
-| 6 to 8 | Not started |
+| 6. Agent loop | In progress: the host is built and tested with a scripted model (308 tests); waiting for vLLM's address, key and model name to run it with Qwen |
+| 7. Evaluation | Built: 8 scenarios, rule checks and an optional judge model, reports and transcripts; an ideal scripted agent passes 8 of 8; waiting for Qwen; 334 tests |
+| 8. Packaging | Done: commands, Docker image (tried) and Compose file with vLLM (not tried: no GPU here), CI, README; 335 tests |
 
 Check questions: milestone 1 asked, answer pending. Milestone 2 (what happens when sigpipe renames
 a parameter): answered with hints on 2026-09-23, up to the plain-words rung. Worth revisiting:
@@ -190,6 +192,84 @@ environment; `.env` (git-ignored) sets `PACO_INPUT_DIR=data/input`.
   that cannot run, finding jobs, summaries, the job manager) and the new tools in
   `tests/test_server.py` (a fake user approves or declines). Nine deliberate bugs, all caught.
 
+## Milestone 6: the agent loop (in progress)
+
+`src/paco/agent/`, the only package that imports `openai` (3.19, which uses `httpx2`):
+
+- `settings.py`: `AgentSettings`, from the environment or `.env`: `PACO_LLM_BASE_URL` and
+  `PACO_LLM_MODEL` (required, no default), `PACO_LLM_API_KEY` (default `EMPTY`, what vLLM accepts
+  without `--api-key`), `PACO_MCP_URL` (PACo's server), `PACO_MAX_TOOL_CALLS` (15). The server's
+  `Settings` now ignores these keys (`extra="ignore"`): a `PACO_LLM_*` line in `.env` used to
+  stop the server.
+- `model.py`: the model behind a small interface (`ChatModel`: messages and tools in, a `Reply`
+  out). `OpenAIChat` calls an OpenAI-compatible chat API such as vLLM's; Qwen3's thinking
+  (`<think>...</think>`) is dropped from the reply, so it does not fill the context.
+- `conversion.py`: the server's tool cards become OpenAI function tools; a result becomes compact
+  JSON (`structuredContent`), a string (the settings tools), or the error's message.
+- `loop.py`: `Agent.answer(question)` sends the conversation and the tools to the model, calls
+  the tools it asks for (with progress printed), gives the results back, until the model answers
+  in plain text. Bad JSON arguments, an unknown tool, or more than 15 calls in one answer go back
+  to the model as text.
+- `terminal.py` and `python -m paco.agent`: a chat in the terminal. An approval question from
+  `invert` goes to the user (y/N), never to the model.
+- Before the first question the model already has about 1,530 tokens: the system prompt (role and
+  the server's instructions, 787 characters) and the 10 tools (5,330 characters).
+- Tests (`tests/test_agent.py`): a scripted model stands in for Qwen, over PACo's real server in
+  memory; the request vLLM would receive is checked through a fake HTTP transport. Seven
+  deliberate bugs, all caught. Not run with the real model yet.
+
+## Milestone 7: evaluation
+
+- The agent records each conversation (`paco/agent/record.py`): the messages as the model saw
+  them, and every step with its cost: model calls (duration, prompt and completion tokens, when
+  the API gives them) and tool calls (arguments, called or refused, error or not, duration, what
+  the model read). The chat saves it on exit in `data/output/agent_logs/`.
+- `paco/evaluation/`, run with `python -m paco.evaluation [scenario ...]`:
+  - 8 scenarios, 2 per kind: look around (list, describe), process and judge (active, passive),
+    recover (unknown profile, windows longer than the line), approval (declined, approved);
+  - rule checks (`checks.py`): tools called with given arguments (nested objects may hold more),
+    succeeded or not, order, number of calls, facts in the answer (numbers as whole numbers),
+    the user asked to approve, what the server left on disk (the number of good windows, an
+    inversion started or not);
+  - a simulated user answers approval questions as each scenario says;
+  - each scenario runs against PACo's real server in this process, with its own output
+    directory (`PACO_OUTPUT_DIR`, restored after), and waits for the inversions it started;
+  - an optional judge model (`PACO_JUDGE_BASE_URL`, `PACO_JUDGE_MODEL`) grades each
+    conversation from 1 to 5 against the scenario's rubric; an unreadable grade is recorded as
+    such;
+  - the report: a table in the terminal, and `report.json` with one `transcript.json` per
+    scenario, in `data/output/evaluations/<eval_id>/`.
+- Checked that every scenario can be passed: an ideal scripted agent passes 8 of 8 (and found a
+  bug, fixed: a scenario that processed nothing left no folder for its transcript).
+- Tests (`tests/test_evaluation.py`): each check on hand-built conversations, the judge's
+  parsing, three scenarios played with scripted agents (one right, one inventing, one going up to
+  a declined approval), a whole evaluation, the report. Seven deliberate bugs, all caught.
+
+## Milestone 8: packaging
+
+- Commands (`[project.scripts]`): `paco-server`, `paco-agent`, `paco-evaluate`.
+- Server address from the settings: `PACO_HOST`, `PACO_PORT`, and `PACO_ALLOWED_HOSTS`, which turns
+  the SDK's Host-header check (against DNS rebinding) back on when the server listens beyond
+  127.0.0.1; the SDK only turns it on by itself for 127.0.0.1. Checked: a request for
+  `evil.test` gets 421, one for `paco-server` or `127.0.0.1` goes through.
+- sigpipe without its `silex` and `santiludo` extras: nothing in PACo used them; the environment
+  went from 6.0 GB to 765 MB (torch and 3.2 GB of CUDA libraries gone).
+- The tests read PACo's own copy of the demo profiles (`data/input`, committed, identical to
+  PAC's): no PAC clone is needed.
+- `Dockerfile`: PACo's image (1.29 GB), built with uv 0.10.9 from `uv.lock`; `g++` in the build
+  stage only, for bayesbay's C++ extensions (no wheel for Python 3.14). Runs as user 1000,
+  reads `/data/input`, writes `/data/output`. Tried: the whole workflow over HTTP into the
+  server's container (process, judge, pick, approved inversion).
+- `compose.yaml`: vLLM v0.30.0 serving Qwen3 (default `Qwen/Qwen3-8B`, 16k context, flags from
+  Qwen's and vLLM's documentation: `--enable-auto-tool-choice --tool-call-parser hermes
+  --reasoning-parser qwen3`), `paco-server`, and the `agent` and `evaluate` services; ports on
+  127.0.0.1 only. Checked with `docker compose config`; not run (no GPU here).
+- `.github/workflows/ci.yml`: ruff, format, pyright and pytest on every push. The suite passes
+  in a clean copy (no `.env`, no PAC clone, fresh environment), as a runner would see it.
+- `README.md`: install, data, settings, commands, tools, safety, vLLM, Docker, development.
+- Also: sigpipe is a third-party import for ruff (21 import blocks reordered), and the
+  `MASWParameters` docstring mentions the `distance_max` exception.
+
 ## Decisions (2026-09-23)
 
 - **PAC's role (option A):** PACo depends on sigpipe only; PAC is the reference and the source of
@@ -270,6 +350,14 @@ environment; `.env` (git-ignored) sets `PACO_INPUT_DIR=data/input`.
     tell the user; `quality.json` records the parameters used.
   - Tool results stay typed models (`structuredContent` plus pretty JSON text); the host decides
     what the model reads.
+- **Packaging (milestone 8):** Docker Compose with vLLM (the user's choice; Claude would have
+  stopped at the Docker image, which can be tried here); sigpipe's extras dropped and CI on
+  PACo's demo data (the user's choices, and Claude's).
+- **Evaluation (milestone 7):** rule checks and an optional judge model (the user's choice;
+  Claude would have started with rule checks alone, since a judge needs a second model, and a
+  model grading itself is biased); four kinds of scenarios, two each.
+- **Agent loop (milestone 6):** our own loop with the `openai` client and the MCP client (the
+  user's choice, and Claude's), instead of an agent framework: every step is visible.
 - **Inversion (milestone 5):**
   - PAC's form defaults, one process per window, PAC's files in each window folder.
   - Approval: PACo asks the user through the host with MCP elicitation (the user's choice; Claude
@@ -328,6 +416,15 @@ environment; `.env` (git-ignored) sets `PACO_INPUT_DIR=data/input`.
   before the answer runs twice and must not change anything.
 - Long work as a job: return a handle at once, keep progress and results in a durable record,
   and let the model poll; a record without a live job means the server stopped.
+- The agent loop: the host sends the conversation and the tools, the model answers with text or
+  tool calls (each with an ID its result must quote), the host runs them and sends the results
+  back, until the model answers in text. The model never talks to the server.
+- Test an agent without a model: a scripted model gives fixed replies and records what it was
+  sent; the server and the loop are the real ones.
+- Evaluate an agent on scenarios: check what it did (tool calls and arguments), what it left
+  behind (files on disk), and what it said (facts in the answer); a judge model can grade the
+  rest, with its own errors. Make sure a perfect agent can pass the suite, or the suite is
+  wrong.
 
 ## Open issues
 
@@ -338,13 +435,11 @@ environment; `.env` (git-ignored) sets `PACO_INPUT_DIR=data/input`.
   (SEG-2 in the demo profiles)".
 - **PAC README:** the second wording change ("any format ObsPy can read") is uncommitted in
   `../PAC`.
-- **Demo data location:** tests read `../PAC/data/input`, `PACo/data/input` holds a copy, and the
-  settings default is `/data/input`. One source should be chosen.
-- **`pyproject.toml`:**
-  - `sigpipe[silex,santiludo]` installs keras, torch and santiludo, which no planned tool needs;
-  - `known-first-party = ["sigpipe"]` should be removed or set to `paco`.
-- **Stale docstring:** the `MASWParameters` docstring still says "PAC's form defaults", but
-  `distance_max` is now 1000 m.
+- **Packaging (milestone 8):**
+  - the Compose file has not run on a GPU host yet (vLLM, the model download, the agent's TTY);
+  - the CI workflow has not run on GitHub yet: its first push will tell;
+  - the image is 1.29 GB (scipy, obspy, matplotlib, h5py, bayesbay);
+  - `mcp[cli]` still has no upper bound.
 - **Runs:**
   - an interrupted run leaves a folder without `run.json` (milestone 5: write the manifest when
     the run starts, with a status);
@@ -354,6 +449,20 @@ environment; `.env` (git-ignored) sets `PACO_INPUT_DIR=data/input`.
   frequency step. They still fail inside each window.
 - **Generated models:** pyright cannot see their fields; code reaches stages by name
   (`model_dump()["dispersion"]`) and sees presets as `PresetBase`.
+- **Agent (milestone 6):**
+  - not tried with Qwen yet: needs vLLM's address, key and model name;
+  - vLLM must parse Qwen3's tool calls: `--enable-auto-tool-choice --tool-call-parser hermes`,
+    and `--reasoning-parser qwen3` to move the thinking out of the answer (checked in Qwen's and
+    vLLM's documentation for milestone 8);
+  - about 1,530 tokens are taken before the first question, and every result stays in the
+    conversation: long sessions will need trimming in an 8k context;
+  - conversations are saved by the chat (milestone 7).
+- **Evaluation (milestone 7):**
+  - not run with Qwen yet;
+  - the fact checks are strict about wording: "0,25 m" or "25 cm" miss "0.25";
+  - scenarios run the server in the evaluation's own process, not over HTTP, and point it at
+    their folder through an environment variable;
+  - a judge using the same model as the agent grades its own answers: better another model.
 - **Jobs and inversion:**
   - the approval is only as good as the host: milestone 6's host must show the question to the
     user and never let the model answer it;
@@ -392,7 +501,6 @@ environment; `.env` (git-ignored) sets `PACO_INPUT_DIR=data/input`.
 
 ## Next
 
-Milestone 6: the agent loop, the host between Qwen (vLLM, OpenAI-compatible API) and PACo's
-server: tool cards to OpenAI tools, compact `structuredContent` for the model, the server's
-instructions in the system prompt, elicitation questions to the user in the terminal. Ask the user
-for the vLLM address and key.
+Every milestone is built. What is left needs the model: with vLLM's address, key and model name
+in `.env` (or the Compose stack on a GPU host), run `paco-agent` on the demo profiles, then
+`paco-evaluate`, and fix what they show.

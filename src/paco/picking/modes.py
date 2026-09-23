@@ -3,12 +3,12 @@
 import math
 
 import numpy as np
-
-from paco.picking.models import PickedMode, PickingParameters
-from paco.picking.tracking import corridor, lowest_ridge, track
 from sigpipe.algorithms import lorentzian_uncertainty, min_resolvable_wavelength
 from sigpipe.algorithms.picking.dispersion.curve import resample_wavelength
 from sigpipe.base import DispersionCurve, DispersionImage, Mode
+
+from paco.picking.models import PickedMode, PickingParameters
+from paco.picking.tracking import corridor, lowest_ridge, track
 
 
 def pick_modes(

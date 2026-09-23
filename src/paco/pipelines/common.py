@@ -2,9 +2,10 @@
 
 from typing import Any
 
+from sigpipe.transformers import Load
+
 from paco.presets import ActivePreset, PassivePreset
 from paco.windows import MASWWindow
-from sigpipe.transformers import Load
 
 
 def load_window(window: MASWWindow) -> Load:

@@ -1,0 +1,7 @@
+# Only pyproject.toml, uv.lock and src/ go into the image; data is mounted, secrets stay out.
+*
+!pyproject.toml
+!uv.lock
+!src/
+src/**/__pycache__
+src/*.egg-info

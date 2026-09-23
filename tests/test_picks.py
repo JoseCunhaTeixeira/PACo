@@ -3,15 +3,15 @@ from dataclasses import dataclass, replace
 from pathlib import Path
 
 import pytest
+from sigpipe.base import DispersionCurvesImage, Mode
+from sigpipe.dataio.dispersion.loading import load_dispersion_curves
+from sigpipe.dataio.dispersion.saving import save_dispersion_curves
 
 from paco.picking import PickingParameters, pick_modes
 from paco.picks import PickSummary, RunPicks, pick
 from paco.quality import Flag, RunQuality, Verdict, dispersion_quality
 from paco.runs import RunError, find_run, load_image, run_processing
 from paco.settings import Settings
-from sigpipe.base import DispersionCurvesImage, Mode
-from sigpipe.dataio.dispersion.loading import load_dispersion_curves
-from sigpipe.dataio.dispersion.saving import save_dispersion_curves
 
 # Four 24-receiver windows along the active demo line, as in test_runs.py; all four are good.
 SMALL_WINDOWS = {"masw": {"length": 24, "step": 24}}

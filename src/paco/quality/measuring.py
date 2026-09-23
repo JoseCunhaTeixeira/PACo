@@ -1,10 +1,10 @@
 """Measuring the quality of one dispersion image from its M0 pick."""
 
 import numpy as np
+from sigpipe.base import DispersionImage
 
 from paco.picking import PickedMode
 from paco.quality.models import Flag, ImageQuality, QualityParameters
-from sigpipe.base import DispersionImage
 
 # A point is on the data when its velocity is within this fraction of its column's brightest one.
 _ON_DATA_TOLERANCE = 0.1

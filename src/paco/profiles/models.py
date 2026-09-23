@@ -5,7 +5,6 @@ from enum import StrEnum
 from pathlib import Path
 
 from pydantic import BaseModel, ConfigDict
-
 from sigpipe.base import Coordinate
 
 

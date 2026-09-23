@@ -2,9 +2,6 @@
 
 from pathlib import Path
 
-from paco.pipelines.common import load_window, stage_kwargs
-from paco.presets import PassivePreset
-from paco.windows import MASWWindow
 from sigpipe.base import Pipeline
 from sigpipe.transformers import (
     Apodize,
@@ -22,6 +19,10 @@ from sigpipe.transformers import (
     Stack,
     Whiten,
 )
+
+from paco.pipelines.common import load_window, stage_kwargs
+from paco.presets import PassivePreset
+from paco.windows import MASWWindow
 
 
 def build_passive_pipeline(

@@ -1,6 +1,5 @@
 import json
 import time
-from collections.abc import Iterator
 from pathlib import Path
 from typing import Any, Literal
 
@@ -12,7 +11,7 @@ from mcp.types import CallToolResult, ElicitRequestParams, ElicitResult, Tool
 
 from paco import profiles, server
 from paco.presets import override_schema
-from paco.settings import Settings, get_settings
+from paco.settings import Settings
 
 # The workflow's order: tools/list should list them the same way, every time.
 TOOLS = [
@@ -94,19 +93,6 @@ def _card(tool: Tool) -> str:
     )
 
 
-@pytest.fixture
-def paco_env(
-    demo_input_dir: Path, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
-) -> Iterator[Settings]:
-    """The server's settings, as its environment gives them: the demo profiles, and outputs in
-    `tmp_path` rather than data/output."""
-    monkeypatch.setenv("PACO_INPUT_DIR", str(demo_input_dir))
-    monkeypatch.setenv("PACO_OUTPUT_DIR", str(tmp_path / "output"))
-    get_settings.cache_clear()
-    yield get_settings()
-    get_settings.cache_clear()
-
-
 # ---------------------------------------------------------------- what the model reads
 
 
@@ -135,6 +121,20 @@ def test_the_instructions_give_the_whole_workflow() -> None:
     assert len(text) <= INSTRUCTIONS_BUDGET
     for name in TOOLS:
         assert name in text
+
+
+def test_host_checks_follow_the_allowed_hosts(demo_input_dir: Path) -> None:
+    open_to_all = Settings(input_dir=demo_input_dir)
+    compose = Settings(input_dir=demo_input_dir, allowed_hosts=("paco-server:*", "localhost:*"))
+
+    assert server.transport_security(open_to_all) is None
+    security = server.transport_security(compose)
+    assert security is not None
+    assert security.model_dump() == {
+        "enable_dns_rebinding_protection": True,
+        "allowed_hosts": ["paco-server:*", "localhost:*"],
+        "allowed_origins": ["http://paco-server:*", "http://localhost:*"],
+    }
 
 
 def test_the_context_is_not_an_argument() -> None:

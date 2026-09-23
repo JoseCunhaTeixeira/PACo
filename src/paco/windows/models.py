@@ -4,12 +4,12 @@ from pathlib import Path
 from typing import Self
 
 from pydantic import BaseModel, ConfigDict, Field, model_validator
-
 from sigpipe.base import LinearAcquisition
 
 
 class MASWParameters(BaseModel):
-    """Defaults are PAC's form defaults, so a partial override keeps the other values."""
+    """Defaults are PAC's form defaults, except distance_max (1000 m), so that a partial override
+    keeps the other values."""
 
     # Unknown keys are errors: presets expose these parameters to the agent's overrides.
     model_config = ConfigDict(frozen=True, extra="forbid")

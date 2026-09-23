@@ -1,0 +1,27 @@
+# The same checks as before a commit: lint, format, types, tests. The tests read the demo
+# profiles committed in data/input, and install sigpipe from GitHub at the commit uv.lock pins.
+name: CI
+
+on:
+  push:
+  pull_request:
+
+jobs:
+  checks:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - uses: astral-sh/setup-uv@v10
+        with:
+          version: "0.10.9"
+          enable-cache: true
+      - name: Install
+        run: uv sync --frozen
+      - name: Lint
+        run: uv run ruff check
+      - name: Format
+        run: uv run ruff format --check
+      - name: Types
+        run: uv run pyright src tests
+      - name: Tests
+        run: uv run pytest

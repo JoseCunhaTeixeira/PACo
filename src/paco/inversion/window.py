@@ -5,9 +5,6 @@ import logging
 from pathlib import Path
 
 import matplotlib.pyplot as plt
-
-from paco.inversion.models import InversionParameters
-from paco.runs import load_image
 from sigpipe.algorithms.inversion.rayleigh.seismic.forward import (
     fwd_seismic_all_modes,
     fwd_seismic_phase,
@@ -21,6 +18,9 @@ from sigpipe.dataio.dispersion.saving import save_dispersion_curves
 from sigpipe.dataio.inversion.forward import MODEL_NAMES, forward_model_all
 from sigpipe.dataio.inversion.plotting import plot_density_curves, plot_posterior_marginals
 from sigpipe.transformers import Invert, Plot, Save
+
+from paco.inversion.models import InversionParameters
+from paco.runs import load_image
 
 logger = logging.getLogger(__name__)
 

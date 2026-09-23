@@ -1,27 +1,27 @@
 import shutil
-from collections.abc import Callable
+from collections.abc import Callable, Iterator
 from pathlib import Path
 
 import matplotlib
 import pytest
 
 from paco.profiles import Profile, load_profile
-from paco.settings import Settings
+from paco.settings import Settings, get_settings
 
 # Pipelines save figures to files: use the non-GUI backend, as PAC's API does.
 matplotlib.use("Agg")
 
-# PACo reads PAC's demo profiles in place, so the PAC clone must sit next to the PACo clone.
-PAC_INPUT_DIR = Path(__file__).resolve().parents[2] / "PAC" / "data" / "input"
+# PAC's demo profiles, as PACo's repository keeps a copy of them: the tests need no PAC clone.
+DEMO_INPUT_DIR = Path(__file__).resolve().parents[1] / "data" / "input"
 
 type CopyDemo = Callable[[str, str], Path]
 
 
 @pytest.fixture(scope="session")
 def demo_input_dir() -> Path:
-    if not (PAC_INPUT_DIR / "active_p1").is_dir():
-        pytest.skip(f"PAC demo profiles not found in {PAC_INPUT_DIR}")
-    return PAC_INPUT_DIR
+    if not (DEMO_INPUT_DIR / "active_p1").is_dir():
+        pytest.skip(f"Demo profiles not found in {DEMO_INPUT_DIR}")
+    return DEMO_INPUT_DIR
 
 
 @pytest.fixture(scope="session")
@@ -67,3 +67,16 @@ def copy_demo(demo_input_dir: Path, input_dir: Path) -> CopyDemo:
         return destination
 
     return copy
+
+
+@pytest.fixture
+def paco_env(
+    demo_input_dir: Path, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> Iterator[Settings]:
+    """The server's settings, as its environment gives them: the demo profiles, and outputs in
+    `tmp_path` rather than data/output."""
+    monkeypatch.setenv("PACO_INPUT_DIR", str(demo_input_dir))
+    monkeypatch.setenv("PACO_OUTPUT_DIR", str(tmp_path / "output"))
+    get_settings.cache_clear()
+    yield get_settings()
+    get_settings.cache_clear()
