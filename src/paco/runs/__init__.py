@@ -6,7 +6,7 @@ window, as PAC's UI expects, plus run.json with everything needed to understand 
 
 from .finding import find_run, load_image, load_manifest
 from .models import RunError, RunManifest, RunSummary, WindowOutcome
-from .processing import run_processing
+from .processing import run_processing, start_worker
 from .summary import summarize_run
 
 __all__ = [
@@ -18,5 +18,6 @@ __all__ = [
     "load_image",
     "load_manifest",
     "run_processing",
+    "start_worker",
     "summarize_run",
 ]

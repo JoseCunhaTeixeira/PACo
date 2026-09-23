@@ -4,9 +4,11 @@ Last updated 2026-09-23. Read this first at the start of each session.
 
 ## Working agreement
 
-- Tutor mode, from the rules pasted in the first session (not saved as `CLAUDE.md` yet).
-- Amended 2026-09-23: Claude writes code only when explicitly asked, and only what is asked.
-  Design decisions still go through options first.
+- Started in tutor mode, from the rules pasted in the first session (not saved as `CLAUDE.md`).
+- Since milestone 4 (2026-09-23): Claude builds, runs and checks each step itself, then explains
+  it with the real output; it never asks the user to run anything. Real design decisions still go
+  to the user as options, and Claude says afterwards which one it would have picked. No check
+  questions. The user commits.
 - Repos: sigpipe in `../sigpipe` (GitHub HEAD 403fea2), PAC in `../PAC` (372357c, plus one
   uncommitted README change). PACo installs sigpipe from git; `uv.lock` pins 403fea2.
 
@@ -18,7 +20,9 @@ Last updated 2026-09-23. Read this first at the start of each session.
 | 1. Plain functions | Done: `inspect_profile`, `run_processing` |
 | 2. Schemas | Done: generated presets, messages for the agent, checks before any work, schema budget; 173 tests |
 | 3. Quality metric and picking | Done: picker, metric, `dispersion_quality`, `pick`; 250 tests |
-| 4 to 8 | Not started |
+| 4. MCP server | Done: 7 tools over Streamable HTTP, errors the model reads, progress, instructions; 267 tests |
+| 5. Background jobs | Done: PAC's inversion ported, run as a background job after the user's approval; 294 tests |
+| 6 to 8 | Not started |
 
 Check questions: milestone 1 asked, answer pending. Milestone 2 (what happens when sigpipe renames
 a parameter): answered with hints on 2026-09-23, up to the plain-words rung. Worth revisiting:
@@ -26,7 +30,7 @@ why generated models fail at import while hand-written ones fail in every window
 (why `pick` reads its parameters and verdicts from `quality.json`): answered on 2026-09-23 after
 the concept hint. The user's point: judging a curve means seeing it, which a text-only LLM
 cannot. Completed: so the verdict is the agent's only view of the curve, and it must describe
-the exact curve saved.
+the exact curve saved. Milestone 4: none, at the user's request.
 
 ## Milestone 0: orientation
 
@@ -121,6 +125,71 @@ All in `src/paco/presets/`:
 - On the 14 demo windows: active 7 good; passive 6 bad and 1 doubtful (xmid 2.88, whose only flag
   is constant wavelength). No passive window is good.
 
+## Milestone 4: MCP server
+
+`src/paco/server.py` is the only module that imports `mcp` (SDK 2.2.0, MCP specification
+2026-07-28). Run it with `uv run python -m paco.server`: Streamable HTTP on
+`http://127.0.0.1:8000/mcp`, reachable from this machine only. Settings come from the server's
+environment; `.env` (git-ignored) sets `PACO_INPUT_DIR=data/input`.
+
+- **Tools**, in the workflow's order (the order `tools/list` gives):
+  - `list_profiles`, `inspect_profile(profile)`;
+  - `preset_settings(profile)`: the settings `run_processing` can change for that profile's
+    preset, as compact JSON (2,932 characters for active), only when the agent asks;
+  - `run_processing(profile, overrides)`: the preset is the profile's kind; reports progress
+    after every window;
+  - `quality_settings()`: the picking parameters and thresholds, with descriptions;
+  - `dispersion_quality(run_id, picking, thresholds)`, `pick(run_id)`.
+- **What the model reads before calling:** the 7 cards (name, description, argument schema) come to
+  4,025 characters, about 1,000 tokens, on every request; the server's instructions (the workflow,
+  474 characters) go into the system prompt.
+- **Errors:** PACo's errors are `ValueError`s written for the agent; a decorator turns them into
+  `ToolError`, whose message the model reads. Any other exception is a bug: the SDK shows the model
+  only "Error executing tool ...", and logs the traceback in the server's terminal.
+- **Progress:** `run_processing` reports "n of N windows" to the host (not to the model). The SDK
+  runs plain tools in a worker thread, so the report goes back through `anyio.from_thread.run`.
+- **Figures:** the server sets matplotlib's Agg backend, since `pick` draws from worker threads.
+- **Tests** (`tests/test_server.py`, in-memory `Client`): tool order, a card budget (4,500
+  characters), every argument described, instructions budget (600), results equal to the plain
+  functions, the whole workflow with progress, errors the model reads, bugs it does not. Six
+  deliberate server bugs, all caught.
+- Checked over real HTTP with the SDK's client: 5 s for a 4-window active run, progress 0/7 to
+  7/7 on a 7-window passive run.
+
+## Milestone 5: background jobs and the inversion
+
+- `inversion/`: a port of PAC's seismic inversion (sigpipe's MCMC, `Invert(method="mcmc")`, PAC's
+  fixed Vp/Vs 1.77 and dz 0.01 m). `invert_window` writes the same 14 files as PAC's
+  `invert_position` (the five models, a log, forward-modelled curves, three figures), checked
+  against PAC on the same window. `InversionParameters` holds PAC's form defaults: 2 layers, Vs
+  100 to 1,000 m/s (steps of 20), thicknesses 1 to 10 m (steps of 1), 100,000 iterations with
+  10,000 burn-in, 5 chains.
+- A job lives in the run's `inversion.json`: `submit_inversion` writes it queued (job ID
+  `inv-<UTC time>-<suffix>`), `invert_run` inverts the M0 curve of every picked window in worker
+  processes and records each window as it finishes (median model), `summarize_inversion` reports
+  it. The file is written whole then renamed, so a reader never sees half of it.
+- `jobs/`: `JobManager` runs jobs one at a time in a background thread of the server, and knows
+  which are alive; a record a stopped server left queued or running reads as interrupted.
+- Tools (10 in all, 5,221 characters of cards):
+  - `inversion_settings()`: the parameters, on demand (1,918 characters);
+  - `invert(run_id, parameters)`: asks the user to approve the curves through the host (MCP
+    elicitation), then returns a job ID at once; refuses, without asking, a run with no picks or
+    already being inverted;
+  - `job_status(job_id)`: state, windows done, the range of each layer's Vs and each interface's
+    depth so far, a few distinct errors.
+- Elicitation under the 2026-07-28 specification: a server can no longer send the client a
+  request of its own (`ctx.elicit` fails); the tool answers "input required" and the client
+  retries with the answer. In SDK v2 a resolver parameter (`Annotated[..., Resolve(ask)]`) does
+  it: the resolver runs on every round (it only reads and checks), the tool body once, and the
+  model never sees the parameter.
+- Timing (12 cores here): about 0.26 ms per iteration and chain on a 103-point curve, so about
+  2 minutes per window with PAC's defaults; 7-point curves take about 25 s.
+- Checked over real HTTP: approval asked once, `invert` answered in 0.01 s, `job_status` followed
+  the job from new connections.
+- Tests: `tests/test_inversion.py` (parameters, submitting, running, a window without M0, a job
+  that cannot run, finding jobs, summaries, the job manager) and the new tools in
+  `tests/test_server.py` (a fake user approves or declines). Nine deliberate bugs, all caught.
+
 ## Decisions (2026-09-23)
 
 - **PAC's role (option A):** PACo depends on sigpipe only; PAC is the reference and the source of
@@ -188,9 +257,28 @@ All in `src/paco/presets/`:
   A trained model can later replace the picker behind the same `pick` tool. Another idea (the
   user's, 2026-09-23): a vision-language model could judge the figure `pick` redraws, at about a
   thousand tokens of context per figure; it too must judge the exact curve saved.
-- **Inversion (milestone 5):** an inversion preset built from PAC's form defaults (2 layers, Vs
-  100 to 1000 m/s, thicknesses 1 to 10 m, 100k iterations, 10k burn-in, 5 chains), run as a
-  background job, one process per window.
+- **MCP server (milestone 4):**
+  - SDK: the official `mcp` 2.x (`MCPServer`), not v1's `FastMCP` nor the separate `fastmcp`.
+  - Transport: Streamable HTTP (the user's choice, and Claude's): the server outlives the host, so
+    milestone 5's long inversions survive an agent restart.
+  - Settings on demand: `overrides`, `picking` and `thresholds` are plain objects in the cards,
+    described by `preset_settings` and `quality_settings` only when asked (the user's choice, and
+    Claude's), instead of about 2,500 tokens of schemas on every request.
+  - The preset is the profile's kind (the user's choice, and Claude's).
+  - The agent may change the picking parameters and the thresholds (the user's choice; Claude
+    would have kept the judge fixed). The descriptions ask it to do so only with a reason and to
+    tell the user; `quality.json` records the parameters used.
+  - Tool results stay typed models (`structuredContent` plus pretty JSON text); the host decides
+    what the model reads.
+- **Inversion (milestone 5):**
+  - PAC's form defaults, one process per window, PAC's files in each window folder.
+  - Approval: PACo asks the user through the host with MCP elicitation (the user's choice; Claude
+    would have used a command outside MCP, which PACo itself enforces). The model cannot answer
+    the question, but the approval is only as trustworthy as the host.
+  - Jobs: a background job and `job_status` (the user's choice, and Claude's). MCP's tasks
+    extension is not in SDK 2.2.0.
+  - The inversion parameters are exposed on demand, like the other settings.
+  - One job at a time; a run holds one inversion record, replaced by the next inversion.
 
 ## Concepts covered (to confirm with the check questions)
 
@@ -220,6 +308,26 @@ All in `src/paco/presets/`:
 - A tool that builds on another tool's result reads that tool's record (`pick` reads
   `quality.json`), so its output is exactly what was judged; without the record, it refuses and
   names the tool to call first.
+- MCP roles: the model only reads text and writes tool calls; the host translates between it and
+  the MCP client; the server exposes tools and never knows which model is on the other side.
+- `tools/list` gives each tool's card (name, description, argument schema); `tools/call` returns
+  content (text for the model), `structuredContent` (JSON for programs) or an error.
+- Since the 2026-07-28 specification MCP is stateless: no handshake, no session. State across
+  calls is a handle the server mints and the model passes back, like `run_id`.
+- stdio vs Streamable HTTP: a child process that lives with its host, or a service at a URL that
+  outlives it; with stdio, stdout belongs to the protocol.
+- A tool description is a prompt sent with every request: what it returns, when to call it,
+  what each argument means. Pydantic's titles and pretty-printing cost tokens for nothing.
+- An error the model can fix must reach it (`ToolError`); a bug must not (its message may leak
+  internals and cannot help the model).
+- Progress notifications go to the host, not the model; a sync tool runs in a worker thread and
+  sends them through the event loop.
+- Test a server with an in-memory client: the same messages as over HTTP, without a network.
+- Human in the loop: elicitation asks the user through the host, and the model never sees the
+  question; under the 2026-07-28 specification it is a retried request, so anything that runs
+  before the answer runs twice and must not change anything.
+- Long work as a job: return a handle at once, keep progress and results in a durable record,
+  and let the model poll; a record without a live job means the server stopped.
 
 ## Open issues
 
@@ -246,11 +354,22 @@ All in `src/paco/presets/`:
   frequency step. They still fail inside each window.
 - **Generated models:** pyright cannot see their fields; code reaches stages by name
   (`model_dump()["dispersion"]`) and sees presets as `PresetBase`.
-- **For milestone 4:**
-  - the passive override schema (about 1,800 tokens) is a large share of an 8k context; the MCP
-    tools should send one preset's schema at a time, not both;
-  - `pick` draws figures in the calling process: the server must use matplotlib's Agg backend,
-    as PAC's API does.
+- **Jobs and inversion:**
+  - the approval is only as good as the host: milestone 6's host must show the question to the
+    user and never let the model answer it;
+  - jobs die with the server (reported as interrupted), and there is no tool to cancel one;
+  - the MCMC is not seeded, so an inversion cannot be reproduced exactly (as in PAC);
+  - curves with no wavelength limit are long, which makes inversions slower too;
+  - the approval message holds the run folder's absolute path.
+- **MCP server:**
+  - a `run_processing` call keeps its HTTP request open until the run ends: fine for minutes;
+  - the cards budget went from 4,500 to 5,500 characters for the inversion tools;
+  - tool results are sent as pretty-printed JSON text: about a third larger than compact JSON;
+    the milestone 6 host should give the model the compact `structuredContent`;
+  - pydantic's `title`s stay in the tool schemas (about 13 % of a card): not worth working around
+    the SDK yet;
+  - `anyio` is imported directly but comes with `mcp`; `mcp[cli]` has no upper bound (a `<3`
+    was suggested, the user's call).
 - **Picking risks:**
   - the lowest-ridge scan can stop on the air wave (about 340 m/s) in active data on stiff soils;
   - with no wavelength limit, M0 keeps unresolved low-frequency points, and resampling over
@@ -273,5 +392,7 @@ All in `src/paco/presets/`:
 
 ## Next
 
-Answer the milestone 3 check question, then milestone 4: the MCP server over the plain functions
-(`list_profiles`, `inspect_profile`, `run_processing`, `dispersion_quality`, `pick`).
+Milestone 6: the agent loop, the host between Qwen (vLLM, OpenAI-compatible API) and PACo's
+server: tool cards to OpenAI tools, compact `structuredContent` for the model, the server's
+instructions in the system prompt, elicitation questions to the user in the terminal. Ask the user
+for the vLLM address and key.

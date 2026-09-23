@@ -90,7 +90,7 @@ def _process_windows(
 ) -> tuple[WindowOutcome, ...]:
     outcomes: list[WindowOutcome] = []
     with ProcessPoolExecutor(
-        max_workers=workers, initializer=_start_worker, initargs=(run_folder,)
+        max_workers=workers, initializer=start_worker, initargs=(run_folder,)
     ) as executor:
         futures: dict[Future[float], tuple[float, Path]] = {}
         for window in windows:
@@ -125,7 +125,8 @@ def _process_windows(
     return tuple(sorted(outcomes, key=lambda outcome: outcome.xmid))
 
 
-def _start_worker(run_folder: Path) -> None:
+def start_worker(run_folder: Path) -> None:
+    """Set up a worker process of a run: in the run folder, with no GUI backend."""
     # sigpipe's Pipeline.run creates a logs/ folder in the working directory and resets a global
     # logger: in a worker whose working directory is the run folder, both stay inside the run.
     os.chdir(run_folder)
