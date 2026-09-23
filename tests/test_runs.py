@@ -5,7 +5,6 @@ from pathlib import Path
 from typing import Any
 
 import pytest
-from pydantic import ValidationError
 
 from paco.presets import PresetError, make_preset, resolve_preset
 from paco.profiles import Profile, ProfileError, summarize
@@ -23,8 +22,9 @@ from paco.windows import MASWWindow, build_windows
 
 # Four 24-receiver windows along the 96-receiver demo lines.
 SMALL_WINDOWS = {"masw": {"length": 24, "step": 24}}
-# Segments longer than the records: sigpipe's Slice fails in every window.
-FAILING = {**SMALL_WINDOWS, "slicing": {"segment_duration": 100, "segment_step": 100}}
+# A dispersion band too narrow to hold a frequency step: PACo leaves that rule to sigpipe, whose
+# phase shift fails in every window.
+FAILING = {**SMALL_WINDOWS, "dispersion": {"fmin": 10.1, "fmax": 10.2}}
 
 WINDOW_FILES = {
     "active": {
@@ -94,7 +94,7 @@ def passive_run(demo_input_dir: Path, tmp_path_factory: pytest.TempPathFactory) 
 @pytest.fixture(scope="module")
 def failing_run(demo_input_dir: Path, tmp_path_factory: pytest.TempPathFactory) -> Run:
     root = tmp_path_factory.mktemp("failing")
-    return _run(demo_input_dir, root, "passive_p1", "passive", FAILING)
+    return _run(demo_input_dir, root, "active_p1", "active", FAILING)
 
 
 # ---------------------------------------------------------------- successful runs
@@ -187,7 +187,7 @@ def test_failing_windows_do_not_stop_the_run(failing_run: Run) -> None:
     # Every window fails for the same reason, which is reported once.
     (error,) = summary.errors
     assert error.startswith(
-        f"xmid {first_xmid:.2f}: ValueError: requires segment_duration <= record durations"
+        f"xmid {first_xmid:.2f}: ValueError: no frequencies found in the requested band"
     )
 
 
@@ -196,12 +196,12 @@ def test_failed_windows_keep_their_traceback(failing_run: Run) -> None:
         assert window.status == "failed"
         assert window.duration_s is None
         assert window.error is not None
-        assert window.error.startswith("ValueError: requires segment_duration")
+        assert window.error.startswith("ValueError: no frequencies found")
 
         log = (failing_run.folder / window.folder / "error.log").read_text()
         # The worker's own traceback, down to the sigpipe step that failed.
         assert "_RemoteTraceback" in log
-        assert "slicing.py" in log
+        assert "phase_shift.py" in log
 
 
 # ---------------------------------------------------------------- requests refused before any work
@@ -221,7 +221,7 @@ def test_no_valid_shot_is_refused_before_writing(demo_settings: Settings) -> Non
         ("nope", "active", {}, ProfileError, "Unknown profile 'nope'"),
         ("active_p1", "activ", {}, PresetError, "Unknown preset 'activ'"),
         ("passive_p1", "active", {}, PresetError, "only fits active profiles"),
-        ("active_p1", "active", {"masw": {"lenght": 24}}, ValidationError, r"masw\.lenght"),
+        ("active_p1", "active", {"masw": {"lenght": 24}}, PresetError, r"masw\.lenght: unknown"),
         (
             "active_p1",
             "active",
@@ -266,11 +266,11 @@ def test_run_ids_stay_unique_within_one_second(
 
     monkeypatch.setattr(processing, "datetime", _FrozenClock)
     monkeypatch.setattr(processing.secrets, "token_hex", token_hex)
-    # A single window whose segments are longer than the records: it fails at once.
-    overrides = {"masw": {"length": 96}, "slicing": {"segment_duration": 100, "segment_step": 100}}
+    # A single 3-receiver window, with a dispersion band that makes it fail: cheap to run.
+    overrides = {"masw": {"length": 3, "step": 94}, "dispersion": {"fmin": 10.1, "fmax": 10.2}}
 
-    first = run_processing("passive_p1", "passive", overrides, demo_settings)
-    second = run_processing("passive_p1", "passive", overrides, demo_settings)
+    first = run_processing("active_p1", "active", overrides, demo_settings)
+    second = run_processing("active_p1", "active", overrides, demo_settings)
 
     assert (first.run_id, second.run_id) == ("20260923-100000-abcd", "20260923-100000-ef01")
 

@@ -102,7 +102,9 @@ def _order_checks(names: Iterable[str]) -> dict[str, Any]:
         for low, high in pairs:
             low_value, high_value = getattr(model, low), getattr(model, high)
             if low_value is not None and high_value is not None and high_value <= low_value:
-                raise ValueError(f"{high} must be greater than {low}")
+                raise ValueError(
+                    f"{high} ({high_value:g}) must be greater than {low} ({low_value:g})"
+                )
         return model
 
     return {"check_order": model_validator(mode="after")(check_order)}

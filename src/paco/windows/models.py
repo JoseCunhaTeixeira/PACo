@@ -22,7 +22,10 @@ class MASWParameters(BaseModel):
     @model_validator(mode="after")
     def _check_distances(self) -> Self:
         if self.distance_max <= self.distance_min:
-            raise ValueError("distance_max must be greater than distance_min")
+            raise ValueError(
+                f"distance_max ({self.distance_max:g}) must be greater than "
+                f"distance_min ({self.distance_min:g})"
+            )
         return self
 
 
