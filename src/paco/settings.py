@@ -3,7 +3,7 @@
 from functools import lru_cache
 from pathlib import Path
 
-from pydantic import DirectoryPath, field_validator
+from pydantic import DirectoryPath, Field, field_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
@@ -20,6 +20,9 @@ class Settings(BaseSettings):
 
     # PACo writes its own results, never into PAC's data folder.
     output_dir: Path = Path("data/output")
+
+    # Windows a run processes in parallel, one worker process each.
+    workers: int = Field(default=1, ge=1)
 
     @field_validator("input_dir", "output_dir")
     @classmethod
