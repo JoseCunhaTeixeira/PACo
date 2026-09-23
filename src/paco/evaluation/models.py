@@ -28,6 +28,7 @@ class ScenarioResult(BaseModel):
 
     name: str
     kind: Kind
+    attempt: int = 1  # which play of the scenario, when the evaluation repeats them
     checks: tuple[CheckResult, ...]
     judge: JudgeScore | None  # None: no judge model configured
     tool_calls: int
@@ -42,7 +43,8 @@ class ScenarioResult(BaseModel):
 
 
 class EvaluationReport(BaseModel):
-    """One run of the suite: written as report.json, with one transcript per scenario."""
+    """One run of the suite: written as report.json, with one transcript per play of each
+    scenario."""
 
     model_config = ConfigDict(frozen=True)
 
@@ -50,4 +52,6 @@ class EvaluationReport(BaseModel):
     model: str
     judge_model: str | None
     started_at: datetime
-    results: tuple[ScenarioResult, ...]
+    # Plays of each scenario: the model samples, so a single play is a noisy measure.
+    repeat: int = 1
+    results: tuple[ScenarioResult, ...]  # every play, scenario by scenario

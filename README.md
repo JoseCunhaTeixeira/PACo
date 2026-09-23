@@ -104,6 +104,8 @@ paco> All 4 windows are good.
 
 The conversation is saved when you leave (`exit`). To evaluate the model, run
 `uv run paco-evaluate`, or name scenarios: `uv run paco-evaluate list_profiles judge_active`.
+The model samples its answers, so one play of a scenario is a noisy measure: `--repeat 3` plays
+each scenario three times and reports pass rates.
 
 ## Tools
 

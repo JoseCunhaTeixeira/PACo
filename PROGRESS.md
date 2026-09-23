@@ -22,9 +22,9 @@ Last updated 2026-09-23. Read this first at the start of each session.
 | 3. Quality metric and picking | Done: picker, metric, `dispersion_quality`, `pick`; 250 tests |
 | 4. MCP server | Done: 7 tools over Streamable HTTP, errors the model reads, progress, instructions; 267 tests |
 | 5. Background jobs | Done: PAC's inversion ported, run as a background job after the user's approval; 294 tests |
-| 6. Agent loop | In progress: the host is built and tested with a scripted model (308 tests); waiting for vLLM's address, key and model name to run it with Qwen |
-| 7. Evaluation | Built: 8 scenarios, rule checks and an optional judge model, reports and transcripts; an ideal scripted agent passes 8 of 8; waiting for Qwen; 334 tests |
-| 8. Packaging | Done: commands, Docker image (tried) and Compose file with vLLM (not tried: no GPU here), CI, README; 335 tests |
+| 6. Agent loop | Done: runs with Qwen3 on vLLM, on this machine's AMD GPU; fixed from what Qwen did (see "With Qwen on the GPU") |
+| 7. Evaluation | Done: run with Qwen3-4B, 5 of 8 at first, RESULT_4B after the fixes; RESULT_8B |
+| 8. Packaging | Done: commands, Docker image (tried), Compose file with vLLM (tried on AMD with `compose.rocm.yaml`), CI (passes on GitHub after a tag fix), README |
 
 Check questions: milestone 1 asked, answer pending. Milestone 2 (what happens when sigpipe renames
 a parameter): answered with hints on 2026-09-23, up to the plain-words rung. Worth revisiting:
@@ -192,7 +192,7 @@ environment; `.env` (git-ignored) sets `PACO_INPUT_DIR=data/input`.
   that cannot run, finding jobs, summaries, the job manager) and the new tools in
   `tests/test_server.py` (a fake user approves or declines). Nine deliberate bugs, all caught.
 
-## Milestone 6: the agent loop (in progress)
+## Milestone 6: the agent loop
 
 `src/paco/agent/`, the only package that imports `openai` (3.19, which uses `httpx2`):
 
@@ -230,7 +230,9 @@ environment; `.env` (git-ignored) sets `PACO_INPUT_DIR=data/input`.
   - rule checks (`checks.py`): tools called with given arguments (nested objects may hold more),
     succeeded or not, order, number of calls, facts in the answer (numbers as whole numbers),
     the user asked to approve, what the server left on disk (the number of good windows, an
-    inversion started or not);
+    inversion started or not). Added with Qwen: a tool never called, and every successful call
+    of a tool keeping given arguments;
+  - `--repeat N` plays each scenario N times, for pass rates;
   - a simulated user answers approval questions as each scenario says;
   - each scenario runs against PACo's real server in this process, with its own output
     directory (`PACO_OUTPUT_DIR`, restored after), and waits for the inversions it started;
@@ -269,6 +271,147 @@ environment; `.env` (git-ignored) sets `PACO_INPUT_DIR=data/input`.
 - `README.md`: install, data, settings, commands, tools, safety, vLLM, Docker, development.
 - Also: sigpipe is a third-party import for ruff (21 import blocks reordered), and the
   `MASWParameters` docstring mentions the `distance_max` exception.
+- CI's first push failed: `astral-sh/setup-uv@v10` does not exist, since setup-uv publishes no
+  major tags after v7. Pinned to `v10.2.0` (checked against the repository's tags, and with
+  actionlint); `actions/checkout@v7` exists. The next push (f1d30f9) passed.
+
+## With Qwen on the GPU (2026-09-23)
+
+### vLLM on this machine
+
+- The GPU is an AMD Radeon RX 9070 XT (RDNA4, gfx1201, 16 GB). vLLM's ROCm image
+  (`vllm/vllm-openai-rocm:v0.30.0`, 49 GB) supports it. `compose.rocm.yaml` goes over
+  `compose.yaml`: the ROCm image, AMD's device access (`/dev/kfd`, `/dev/dri`, group `video`,
+  `SYS_PTRACE`, `seccomp=unconfined`), and `~/.cache/huggingface` for the models.
+- vLLM's 4-bit formats (AWQ, GPTQ) do not run on AMD, and Qwen3-8B in bf16 needs about 16.4 GB
+  for its weights. So Qwen3-4B (bf16, 7.56 GiB) first, then Qwen3-8B-FP8 (8.8 GiB).
+- The first start failed. CUDA graphs for vLLM's default 512 sequences took the memory of the KV
+  cache: 2.25 GiB were needed, 1.01 GiB were left. With `--max-num-seqs=8` (PACo serves one
+  user), the graphs take 0.56 GiB and the KV cache holds 34,560 tokens, 2.1 conversations of
+  16k. vLLM sees 15.8 of the card's 15.9 GiB free, and takes 92 % of it.
+- `.env`: `PACO_LLM_BASE_URL=http://127.0.0.1:8001/v1` and `PACO_LLM_MODEL`.
+- First contact: "Which seismic profiles…" took one `list_profiles` call and 2.2 s. The prompt
+  is 1,608 tokens before the question.
+
+### What the evaluation showed
+
+The first run seemed to hang on `inversion_approved`, and was stopped. It was in fact
+processing 73 windows (75 s), because the model had left out the step. Processing runs in the
+evaluation's own process, so no worker process showed.
+
+Baseline (`eval-20260923-175258-e575`): 5 of 8. What Qwen3-4B got wrong:
+
+1. **Batches with made-up IDs.** In one reply it called `run_processing`, then
+   `dispersion_quality`, `pick` and `invert` on `run_12345`, and `job_status` on `job_67890`,
+   before seeing any result. It even asked for `inversion_settings` in the same batch. The
+   server's errors name the latest runs, so it recovered, but at the cost of calls, and once it
+   processed the profile again.
+2. **Guessed parameter names.** It sent `iterations` and `chains` four times in a row, and never
+   read `inversion_settings`. The error said "Extra inputs are not permitted (see
+   inversion_settings)".
+3. **A copied example.** It copied the one-key example of `overrides`
+   (`{"masw": {"length": 24}}`) and dropped the step the user had asked for. That gave 73 windows
+   instead of 4, and passive windows that were good where none should be.
+4. **`n_succeeded` read as good windows.** It took the processing summary's count for good
+   windows, and answered without judging.
+
+Fixes:
+
+1. **One tool call per reply** (`parallel_tool_calls=false`, which vLLM honours: 3 calls per
+   reply became 1). The user's choice, and Claude's.
+2. **Errors that name the right keys.** The overrides' explainer now also covers `picking`,
+   `thresholds` and `parameters`. An unknown name gets the allowed list and the closest one
+   ("Did you mean n_iterations?"). List items are written `vs_layers[0]`.
+3. **A two-key example:** `{"masw": {"length": 48, "step": 12}}`.
+4. **`run_processing`'s description:** a window that succeeded has an image, not yet a good one.
+
+After these (`eval-20260923-180218-472e`): 6 of 8. `inversion_approved` recovered from
+`{"inversion": {...}}` in one call, thanks to the new message. The suite ran in 4 minutes
+instead of 9. Two problems were left:
+
+5. **It told the user to call `dispersion_quality`:** "you need to run dispersion_quality
+   next".
+6. **It went beyond the request.** Asked to process with windows of 120 receivers, it processed
+   with 96, then judged, picked and asked to invert. Its answer only spoke of the approval.
+
+The role now says: do what the user asks, all of it and nothing more, calling the tools yourself,
+since the user cannot call them. A new check, `never_called("invert")`, is on the three
+processing scenarios that do not ask for an inversion. The ideal agent still passes 8 of 8.
+
+The next run (`eval-20260923-180727-79a4`) passed 8 of 8, but its transcripts showed a failure
+the checks could not see:
+
+7. **It changed the user's windows without a word.** In both approval scenarios it processed
+   with `{"masw": {"step": 24}}`: the default 3-receiver windows, none of them good. It then
+   followed the quality advice, with 48 receivers (the example's value) and a narrower band,
+   and inverted those windows. The approval scenarios did not check the processing.
+
+What changed:
+
+- **A new check.** `only_called("run_processing", ..., overrides=SMALL_WINDOWS)` is on the four
+  scenarios that name windows: every run that succeeded must keep them.
+- **The earlier runs, re-scored** from their transcripts: the baseline 4 of 8 (not 5), the first
+  fixes 6 of 8, the role 6 of 8 (not 8).
+- **The role:** keep the settings the user gave, and ask before changing any.
+- **The example.** Its values had leaked both ways: one key dropped the step, two keys added
+  step 12 and chose 48. It now shows placeholders:
+  `{"masw": {"length": <receivers>, "step": <receivers>}}`.
+- **Checks read JSON text as the SDK does.** They read an object sent as JSON text the way the
+  SDK decodes it; before, such a call counted as a miss.
+
+8. **One play per scenario is too noisy.** The same code kept the user's windows in one run and
+   dropped them in the next (Qwen samples at temperature 0.6). `paco-evaluate --repeat N` plays
+   each scenario N times, each play in its own folder (`judge_active/1`, ...). The report adds
+   pass rates per scenario. The user's choice, and Claude's.
+
+With 3 plays each (`eval-20260923-185238-4694`): 19 of 24 plays. Two weaknesses came back every
+time:
+
+9. **`judge_active`, 0 of 3.** One call, then "4 windows, all of which succeeded. Thus, 4 windows
+   are good". The word in the result (`n_succeeded`) beat the description. Renamed
+   `n_processed`.
+10. **`judge_passive`, 1 of 3.** It reprocessed on the advice, with windows of its own. The
+    server's instructions said "follow its advice: change settings…", against the role's "keep
+    the settings the user gave". The model followed the more specific one. The instructions now
+    say: follow the advice except on settings the user chose, and ask before changing those
+    (571 of 600 characters).
+
+After these (`eval-20260923-190854-32a0`): 23 of 24. The one miss uncovered a bug in the
+inversion, which the model reported honestly:
+
+11. **"2,000 iterations" crashed every window.** The burn-in stayed at PAC's 10,000, so nothing
+    was left to sample: `KeyError: 'space.vs1'` in sigpipe. The job was still recorded as
+    "succeeded", and the other plays passed because `invert` only has to start the job.
+    - bayesbay keeps iteration i when i > burn-in and (i - burn-in) is a multiple of
+      `save_every`, which sigpipe sets to 150. Tried on a window: 150 iterations after the
+      burn-in keep one model; 149 keep none and crash. With one model the window still
+      succeeds, but the posterior-marginals figure is skipped (a density needs two points).
+    - PAC has the same bug: its backend only checks `n_burnin_iterations > 0`.
+    - Fixed:
+      - a burn-in that is not given is a tenth of `n_iterations`, PAC's ratio;
+      - a given burn-in must leave at least 150 iterations to sample (`SAMPLE_EVERY`), or the
+        parameters are refused with the rule;
+      - a job whose every window failed is "failed";
+      - a new check, `inversion_succeeded`, reads `inversion.json`.
+    - Tests run the real sampler on both sides of the limit.
+    - Fixed at the source too, at the user's request (in `../sigpipe` and `../PAC`, not
+      committed):
+      - sigpipe's `inversion_mcmc` names the constant (`SAVE_EVERY = 150`) and refuses such a
+        run before sampling. Its first inversion tests (`tests/algorithms/test_inversion_mcmc.py`)
+        run a real 300-iteration chain to show the shortest run keeps one model.
+      - PAC's `InversionParameters` checks the same rule, so the form shows "Invalid config —
+        parameters: … must exceed n_burnin_iterations … by at least 150" before any job starts
+        (`tests/test_inversion_parameters.py`).
+      - PAC pins sigpipe 31274d8, PACo 403fea2: both keep their own copy of 150 until they pin a
+        sigpipe with `SAVE_EVERY`.
+
+Also:
+
+- JSON strings sent instead of objects for arguments are decoded by the SDK.
+- The evaluation's output is now quiet (logging at WARNING; the SDK had set INFO), and the loop
+  shows each failure as a `failed:` line, in the chat too.
+
+RESULTS_TABLE
 
 ## Decisions (2026-09-23)
 
@@ -358,6 +501,18 @@ environment; `.env` (git-ignored) sets `PACO_INPUT_DIR=data/input`.
   model grading itself is biased); four kinds of scenarios, two each.
 - **Agent loop (milestone 6):** our own loop with the `openai` client and the MCP client (the
   user's choice, and Claude's), instead of an agent framework: every step is visible.
+- **With Qwen:**
+  - One tool call per reply (`parallel_tool_calls=false`; the user's choice, and Claude's). In a
+    batch, Qwen3-4B made up the IDs that earlier calls had not returned yet. Rejected: a rule in
+    the role (this model ignored "see inversion_settings"), and leaving the errors to correct it
+    (calls lost, a profile processed twice).
+  - Repeated plays for the evaluation (`--repeat N`; the user's choice, and Claude's), since
+    the model samples. Rejected: greedy decoding (it measures a mode the chat does not use, and
+    Qwen warns it makes the thinking loop), and single runs read as rough signs.
+  - The burn-in: a tenth of `n_iterations` when not given, and at least 150 iterations left to
+    sample (the user's choice, and Claude's). Rejected: the check alone (the model would have to
+    choose a burn-in the user never mentioned), and the scaling alone (a bad explicit value
+    would still crash every window).
 - **Inversion (milestone 5):**
   - PAC's form defaults, one process per window, PAC's files in each window folder.
   - Approval: PACo asks the user through the host with MCP elicitation (the user's choice; Claude
@@ -425,6 +580,15 @@ environment; `.env` (git-ignored) sets `PACO_INPUT_DIR=data/input`.
   behind (files on disk), and what it said (facts in the answer); a judge model can grade the
   rest, with its own errors. Make sure a perfect agent can pass the suite, or the suite is
   wrong.
+- A small model copies the values of the examples in tool descriptions: a placeholder shows the
+  shape without a value to copy.
+- Parallel tool calls invite made-up IDs: a call that needs another call's result must come
+  after it.
+- An error that names the allowed keys, and the closest one, lets even a 4B model fix its call
+  in one step; "see inversion_settings" did not.
+- Checks only see what they look for: a passing table hid a model changing the user's
+  settings. Read the transcripts. And a model that samples needs repeated plays before two
+  scores can be compared.
 
 ## Open issues
 
@@ -436,8 +600,10 @@ environment; `.env` (git-ignored) sets `PACO_INPUT_DIR=data/input`.
 - **PAC README:** the second wording change ("any format ObsPy can read") is uncommitted in
   `../PAC`.
 - **Packaging (milestone 8):**
-  - the Compose file has not run on a GPU host yet (vLLM, the model download, the agent's TTY);
-  - the CI workflow has not run on GitHub yet: its first push will tell;
+  - only vLLM's service has run, on AMD with `compose.rocm.yaml`. Not tried yet: the NVIDIA
+    path, and the `paco-server`, `agent` and `evaluate` containers next to vLLM (the agent's
+    TTY);
+  - CI passes on GitHub since the tag fix (commit f1d30f9);
   - the image is 1.29 GB (scipy, obspy, matplotlib, h5py, bayesbay);
   - `mcp[cli]` still has no upper bound.
 - **Runs:**
@@ -450,20 +616,28 @@ environment; `.env` (git-ignored) sets `PACO_INPUT_DIR=data/input`.
 - **Generated models:** pyright cannot see their fields; code reaches stages by name
   (`model_dump()["dispersion"]`) and sees presets as `PresetBase`.
 - **Agent (milestone 6):**
-  - not tried with Qwen yet: needs vLLM's address, key and model name;
-  - vLLM must parse Qwen3's tool calls: `--enable-auto-tool-choice --tool-call-parser hermes`,
-    and `--reasoning-parser qwen3` to move the thinking out of the answer (checked in Qwen's and
-    vLLM's documentation for milestone 8);
-  - about 1,530 tokens are taken before the first question, and every result stays in the
+  - Qwen3 thinks before each reply: up to 1,800 tokens and 28 s for a single step with Qwen3-4B.
+    Its thinking is not kept in the conversation. Turning it off (`enable_thinking: false`)
+    would be faster; the evaluation can say what it costs in quality;
+  - about 1,600 tokens are taken before the first question, and every result stays in the
     conversation: long sessions will need trimming in an 8k context;
   - conversations are saved by the chat (milestone 7).
 - **Evaluation (milestone 7):**
-  - not run with Qwen yet;
+  - Qwen samples (temperature 0.6 in its `generation_config.json`, which vLLM applies): compare
+    models or prompts with `--repeat`, and even 3 plays only give coarse pass rates;
+  - the checks only see what they look for: an 8 of 8 hid a model changing the user's windows,
+    until `only_called` was added. Read transcripts, not only the table;
+  - no judge model has been run: on this 16 GB card, vLLM serves one model at a time;
   - the fact checks are strict about wording: "0,25 m" or "25 cm" miss "0.25";
   - scenarios run the server in the evaluation's own process, not over HTTP, and point it at
     their folder through an environment variable;
   - a judge using the same model as the agent grades its own answers: better another model.
 - **Jobs and inversion:**
+  - the burn-in fixes in `../sigpipe` and `../PAC` are not committed yet. Once sigpipe's is
+    pushed, PACo and PAC can import `SAVE_EVERY` instead of keeping 150 themselves;
+  - PAC's `src` has 141 pyright errors in strict mode, before and after its burn-in fix;
+  - an `inversion.json` written before the burn-in rule, with fewer than 150 iterations after
+    the burn-in, no longer loads; none exists outside the evaluation folders here;
   - the approval is only as good as the host: milestone 6's host must show the question to the
     user and never let the model answer it;
   - jobs die with the server (reported as interrupted), and there is no tool to cancel one;

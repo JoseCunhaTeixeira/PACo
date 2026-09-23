@@ -144,6 +144,11 @@ def test_parameters_default_to_pacs_form() -> None:
             lambda: InversionParameters(n_layers=3, vs_layers=(VsLayer(),) * 3),
             r"thickness_layers must have length n_layers - 1 \(2\)",
         ),
+        (
+            lambda: InversionParameters(n_iterations=2_000, n_burnin_iterations=1_900),
+            r"n_iterations \(2000\) must exceed n_burnin_iterations \(1900\) by at least 150: "
+            "each chain keeps one model every 150 iterations after the burn-in",
+        ),
         (lambda: VsLayer(vs_min=500, vs_max=400), "vs_max must be greater than vs_min"),
         (
             lambda: ThicknessLayer(thickness_min=5, thickness_max=5),
@@ -154,6 +159,16 @@ def test_parameters_default_to_pacs_form() -> None:
 def test_parameters_are_checked(build: Callable[[], object], message: str) -> None:
     with pytest.raises(ValidationError, match=message):
         build()
+
+
+def test_the_burnin_follows_the_iterations() -> None:
+    # A tenth, PAC's ratio: "2,000 iterations" used to keep 10,000 of burn-in.
+    assert InversionParameters(n_iterations=2_000).n_burnin_iterations == 200
+    assert InversionParameters.model_validate({"n_iterations": 2e3}).n_burnin_iterations == 200
+    # A burn-in the user gives is kept.
+    assert InversionParameters(n_iterations=2_000, n_burnin_iterations=500).n_burnin_iterations == (
+        500
+    )
 
 
 # ---------------------------------------------------------------- starting a job
@@ -233,6 +248,32 @@ def test_a_window_without_m0_fails_alone(picked: Picked, tmp_path: Path) -> None
         failed.error == "ValueError: No M0 curve in xmid_8.88: pick it, or pick it again by hand."
     )
     assert (folder / "xmid_8.88" / "inversion_error.log").exists()
+
+
+def test_150_iterations_after_the_burnin_are_enough(picked: Picked, tmp_path: Path) -> None:
+    settings, _ = _copy(picked, tmp_path)
+    # One model kept per chain (SAMPLE_EVERY is sigpipe's save_every).
+    parameters = InversionParameters(n_iterations=300, n_burnin_iterations=150, n_chains=1)
+
+    record = invert_run(submit_inversion(picked.run_id, parameters, settings), settings)
+
+    assert record.state == "succeeded"
+    assert {window.status for window in record.windows} == {"succeeded"}
+
+
+def test_a_job_whose_every_window_failed_is_failed(picked: Picked, tmp_path: Path) -> None:
+    settings, _ = _copy(picked, tmp_path)
+    parameters = InversionParameters(n_iterations=300, n_burnin_iterations=150, n_chains=1)
+    record = submit_inversion(picked.run_id, parameters, settings)
+    # 149 iterations after the burn-in keep no model, which the parameters' check now refuses:
+    # this is how "2,000 iterations" with PAC's 10,000 of burn-in ended, before it.
+    unchecked = parameters.model_copy(update={"n_iterations": 299})
+
+    record = invert_run(record.model_copy(update={"parameters": unchecked}), settings)
+
+    assert (record.state, record.error) == ("failed", "Every window failed: see errors.")
+    assert {window.error for window in record.windows} == {"KeyError: 'space.vs1'"}
+    assert len(record.windows) == 4
 
 
 def test_a_job_that_cannot_run_is_failed(picked: Picked, tmp_path: Path) -> None:

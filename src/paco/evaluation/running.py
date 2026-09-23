@@ -35,25 +35,37 @@ async def run_evaluation(
     root: Path,
     judge_model: ChatModel | None = None,
     judge_name: str | None = None,
+    repeat: int = 1,
     on_event: OnEvent = print,
 ) -> EvaluationReport:
-    """Play every scenario, then write report.json in a new folder of `root`."""
+    """Play every scenario `repeat` times, then write report.json in a new folder of `root`.
+
+    Each play has its own folder: the scenario's name, or with repeats, one numbered folder per
+    play inside it (judge_active/1, judge_active/2, ...).
+    """
     started_at = datetime.now(UTC)
     eval_id = f"eval-{started_at:%Y%m%d-%H%M%S}-{secrets.token_hex(2)}"
     folder = root / eval_id
     results: list[ScenarioResult] = []
     for scenario in scenarios:
-        on_event(f"== {scenario.name}")
-        results.append(
-            await run_scenario(
-                scenario, model, model_name, folder / scenario.name, judge_model, on_event
+        for attempt in range(1, repeat + 1):
+            if repeat == 1:
+                on_event(f"== {scenario.name}")
+                where = folder / scenario.name
+            else:
+                on_event(f"== {scenario.name} #{attempt}")
+                where = folder / scenario.name / str(attempt)
+            results.append(
+                await run_scenario(
+                    scenario, model, model_name, where, judge_model, on_event, attempt
+                )
             )
-        )
     report = EvaluationReport(
         eval_id=eval_id,
         model=model_name,
         judge_model=judge_name if judge_model is not None else None,
         started_at=started_at,
+        repeat=repeat,
         results=tuple(results),
     )
     folder.mkdir(parents=True, exist_ok=True)
@@ -68,9 +80,10 @@ async def run_scenario(
     folder: Path,
     judge_model: ChatModel | None = None,
     on_event: OnEvent = print,
+    attempt: int = 1,
 ) -> ScenarioResult:
     """Play `scenario` with the server writing into `folder`/outputs, and score it; the
-    conversation is saved as `folder`/transcript.json."""
+    conversation is saved as `folder`/transcript.json. `attempt` numbers the play."""
     questions_to_user: list[str] = []
 
     async def simulated_user(
@@ -102,6 +115,7 @@ async def run_scenario(
     return ScenarioResult(
         name=scenario.name,
         kind=scenario.kind,
+        attempt=attempt,
         checks=tuple(check(trial) for check in scenario.checks),
         judge=await judge(judge_model, scenario.rubric, transcript) if judge_model else None,
         tool_calls=len(transcript.tool_steps),

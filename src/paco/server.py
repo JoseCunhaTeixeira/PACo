@@ -37,9 +37,9 @@ matplotlib.use("Agg")
 # For the host's system prompt: the workflow the tools make together.
 INSTRUCTIONS = (
     "PACo turns MASW seismic profiles into dispersion curves. Usual order: list_profiles, "
-    "inspect_profile, run_processing with the defaults, then dispersion_quality. If few windows "
-    "are good, follow its advice: change settings with run_processing's overrides (listed by "
-    "preset_settings) and judge the new run; change picking parameters or thresholds "
+    "inspect_profile, run_processing, then dispersion_quality. If few windows are good, follow "
+    "its advice with run_processing's overrides (listed by preset_settings), except on settings "
+    "the user chose: ask before changing those. Change picking parameters or thresholds "
     "(quality_settings) only with a reason. Then pick saves the curves of the good windows. "
     "invert asks the user to approve them, then runs in the background (inversion_settings lists "
     "its parameters): follow it with job_status."
@@ -105,16 +105,18 @@ def run_processing(
     overrides: Annotated[
         dict[str, Any] | None,
         Field(
-            # Qwen3-4B copied a one-key example as is, dropping the step the user asked for.
-            description='Changes to the default settings, e.g. {"masw": {"length": 48, "step": '
-            "12}}; see preset_settings. Leave it out to use the defaults."
+            # Qwen3-4B copied the values of examples: {"masw": {"length": 24}} dropped the step
+            # the user asked for, {"masw": {"length": 48, "step": 12}} added one.
+            description="Only the settings to change, by stage, e.g. "
+            '{"masw": {"length": <receivers>, "step": <receivers>}}; see preset_settings. Leave '
+            "it out to use the defaults."
         ),
     ] = None,
 ) -> runs.RunSummary:
     """Process a profile into dispersion images, one per MASW window, with the preset that fits
     it (active or passive). Takes seconds to minutes. Returns a summary with the run_id that the
-    tools working on a run take. A window that succeeded has an image, not yet a good one: judge
-    them with dispersion_quality."""
+    tools working on a run take. A processed window has an image, not yet a judged one:
+    dispersion_quality tells which are good."""
 
     def report(done: int, total: int) -> None:
         # The SDK runs this tool in a worker thread: progress goes out through the event loop.

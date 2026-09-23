@@ -72,7 +72,8 @@ def invert_run(
     """Run queued job `record` to its end, recording every window as it finishes.
 
     A window that fails does not stop the job: its error goes to inversion.json and to its
-    folder's inversion_error.log. Any other failure marks the whole job failed.
+    folder's inversion_error.log. The job fails when every window failed, or on any other
+    failure.
     """
     folder = find_run(record.run_id, settings)
     record = record.model_copy(update={"state": "running", "started_at": datetime.now(UTC)})
@@ -80,7 +81,12 @@ def invert_run(
     try:
         picks = _picks(folder, record.run_id)
         record = _invert_windows(record, picks, folder, settings.workers, on_progress)
-        record = record.model_copy(update={"state": "succeeded"})
+        if record.windows and all(window.status == "failed" for window in record.windows):
+            # Not "succeeded": Qwen3-4B read that as a job done, with a few errors.
+            update = {"state": "failed", "error": "Every window failed: see errors."}
+        else:
+            update = {"state": "succeeded"}
+        record = record.model_copy(update=update)
     except Exception as exc:
         record = record.model_copy(
             update={"state": "failed", "error": f"{type(exc).__name__}: {exc}"}

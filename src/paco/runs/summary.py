@@ -26,7 +26,7 @@ def summarize_run(manifest: RunManifest) -> RunSummary:
         preset=manifest.preset.mode,
         path=f"{manifest.profile.name}/{manifest.run_id}",
         n_windows=len(manifest.windows),
-        n_succeeded=len(manifest.windows) - len(failed),
+        n_processed=len(manifest.windows) - len(failed),
         n_failed=len(failed),
         n_skipped=manifest.n_positions - len(manifest.windows),
         duration_s=round((manifest.finished_at - manifest.started_at).total_seconds(), 1),
