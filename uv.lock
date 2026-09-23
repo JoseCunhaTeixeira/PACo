@@ -1173,6 +1173,7 @@ source = { editable = "." }
 dependencies = [
     { name = "pydantic" },
     { name = "pydantic-settings" },
+    { name = "pyyaml" },
     { name = "sigpipe", extra = ["santiludo", "silex"] },
 ]
 
@@ -1188,6 +1189,7 @@ dev = [
 requires-dist = [
     { name = "pydantic", specifier = ">=2.13.5" },
     { name = "pydantic-settings", specifier = ">=2.15.0" },
+    { name = "pyyaml", specifier = ">=6.0.3" },
     { name = "sigpipe", extras = ["silex", "santiludo"], git = "https://github.com/JoseCunhaTeixeira/sigpipe" },
 ]
 
