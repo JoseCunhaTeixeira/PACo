@@ -11,8 +11,9 @@ from paco.presets import (
 )
 from paco.profiles import Profile
 from paco.windows import MASWParameters
+from sigpipe.algorithms import WHITENING_METHODS
 from sigpipe.base import LinearAcquisition, Stream
-from sigpipe.transformers import Filter, Load
+from sigpipe.transformers import Filter, Load, Slice
 
 # PAC's form defaults (ActiveConfigForm.tsx and PassiveConfigForm.tsx), except distance_max:
 # 1000 m in PACo, 100 m in PAC.
@@ -142,74 +143,163 @@ def test_switching_a_stage_on_uses_pacs_form_values(
     assert preset.model_dump(exclude={stage}) == make_preset(name).model_dump(exclude={stage})
 
 
-@pytest.mark.parametrize(
-    ("name", "overrides", "location"),
-    [
-        pytest.param(
-            "active", {"whitening": {"method": "onebit"}}, "whitening", id="passive-only stage"
-        ),
-        pytest.param("active", {"mode": "passive"}, "mode", id="other mode"),
-        pytest.param("active", {"masw": {"lenght": 24}}, r"masw\.lenght", id="masw typo"),
-        pytest.param("active", {"masw": {"length": 2}}, r"masw\.length", id="window too short"),
-        pytest.param("active", {"filtering": {"fmin": 5}}, "filtering", id="stage without method"),
-        pytest.param(
-            "active",
-            {"filtering": {"method": "iir", "fmaxx": 3}},
-            r"filtering\.iir\.fmaxx",
-            id="field typo",
-        ),
-        pytest.param(
-            "active",
-            {"filtering": {"method": "none", "fmin": 5}},
-            r"filtering\.none\.fmin",
-            id="value on none",
-        ),
-        pytest.param(
-            "active",
-            {"filtering": {"method": "iir", "fmin": 50, "fmax": 20}},
-            r"filtering\.iir",
-            id="inverted band",
-        ),
-        pytest.param(
-            "active",
-            {"muting": {"method": "mute", "tmin": 1, "tmax": 0.5}},
-            r"muting\.mute",
-            id="inverted times",
-        ),
-        pytest.param(
-            "active",
-            {"dispersion": {"fmin": 50, "fmax": 20}},
-            "dispersion",
-            id="inverted dispersion",
-        ),
-        pytest.param(
-            "passive", {"whitening": {"method": "savgol"}}, "whitening", id="method not in PAC"
-        ),
-        pytest.param(
-            "passive",
-            {"selection": {"method": "fk", "threshold": 1.5}},
-            r"selection\.fk\.threshold",
-            id="threshold",
-        ),
-        pytest.param(
-            "passive",
-            {"stacking": {"method": "root", "n": -1}},
-            r"stacking\.root\.n",
-            id="negative root",
-        ),
-        pytest.param(
-            "passive",
-            {"slicing": {"segment_duration": 0}},
-            r"slicing\.segment_duration",
-            id="empty segment",
-        ),
-    ],
-)
-def test_invalid_overrides_point_at_the_faulty_field(
-    name: str, overrides: dict[str, object], location: str
+# One case per kind of mistake: the line the agent reads, and what it says to send instead.
+INVALID_OVERRIDES = [
+    pytest.param(
+        "active",
+        {"whitening": {"method": "onebit"}},
+        "whitening: not a stage of preset 'active', only of passive. "
+        "Stages: masw, muting, filtering, dispersion.",
+        id="stage of the other preset",
+    ),
+    pytest.param(
+        "active",
+        {"filterng": {"method": "iir"}},
+        "filterng: unknown stage. Allowed: masw, muting, filtering, dispersion. "
+        "Did you mean filtering?",
+        id="stage typo",
+    ),
+    pytest.param(
+        "active",
+        {"mode": "passive"},
+        "mode: set by the preset name ('active'); leave it out.",
+        id="mode",
+    ),
+    pytest.param(
+        "active",
+        {"masw": {"lenght": 24}},
+        "masw.lenght: unknown parameter. Allowed: length, step, distance_min, distance_max. "
+        "Did you mean length?",
+        id="parameter typo",
+    ),
+    pytest.param(
+        "active",
+        {"filtering": {"method": "iir", "fmaxx": 3}},
+        "filtering.fmaxx: unknown parameter. Allowed: fmin, fmax, order. Did you mean fmax?",
+        id="parameter typo in a method",
+    ),
+    pytest.param(
+        "active",
+        {"filtering": {"method": "none", "fmin": 5}},
+        "filtering.fmin: unknown parameter; method 'none' takes no parameters.",
+        id="value on none",
+    ),
+    pytest.param(
+        "passive",
+        {"whitening": {"method": "onebit_apd"}},
+        "whitening.method: unknown method 'onebit_apd'. Allowed: none, onebit, onebit_apod. "
+        "Did you mean onebit_apod?",
+        id="method typo",
+    ),
+    pytest.param(
+        "passive",
+        {"whitening": {"method": "savgol"}},
+        "whitening.method: unknown method 'savgol'. Allowed: none, onebit, onebit_apod.",
+        id="method not in PAC",
+    ),
+    pytest.param(
+        "active",
+        {"filtering": {"fmin": 5}},
+        'filtering: missing "method". Methods: none, iir.',
+        id="stage without method",
+    ),
+    pytest.param(
+        "active", {"masw": {"length": 2}}, "masw.length: must be >= 3 (got 2).", id="below bound"
+    ),
+    pytest.param(
+        "passive",
+        {"selection": {"method": "fk", "threshold": 1.5}},
+        "selection.threshold: must be <= 1 (got 1.5).",
+        id="above bound",
+    ),
+    pytest.param(
+        "passive",
+        {"slicing": {"segment_duration": 0}},
+        "slicing.segment_duration: must be > 0 (got 0).",
+        id="empty segment",
+    ),
+    pytest.param(
+        "passive",
+        {"stacking": {"method": "root", "n": -1}},
+        "stacking.n: must be >= 1 (got -1).",
+        id="negative root",
+    ),
+    pytest.param(
+        "passive",
+        {"stacking": {"method": "root", "n": 2.5}},
+        "stacking.n: must be an integer (got 2.5).",
+        id="fractional integer",
+    ),
+    pytest.param(
+        "passive",
+        {"slicing": {"segment_duration": "long"}},
+        "slicing.segment_duration: must be a number (got 'long').",
+        id="text for a number",
+    ),
+    pytest.param(
+        "passive",
+        {"filtering": "iir"},
+        "filtering: must be an object (got 'iir'). Methods: none, iir.",
+        id="method name for a stage",
+    ),
+    pytest.param(
+        "active",
+        {"masw": 24},
+        "masw: must be an object (got 24). Parameters: length, step, distance_min, distance_max.",
+        id="number for an object",
+    ),
+    pytest.param(
+        "active",
+        {"filtering": {"method": "iir", "fmin": 50, "fmax": 20}},
+        "filtering: fmax (20) must be greater than fmin (50).",
+        id="inverted band",
+    ),
+    pytest.param(
+        "active",
+        {"muting": {"method": "mute", "tmin": 1, "tmax": 0.5}},
+        "muting: tmax (0.5) must be greater than tmin (1).",
+        id="inverted times",
+    ),
+    pytest.param(
+        "active",
+        {"dispersion": {"fmin": 50, "fmax": 20}},
+        "dispersion: fmax (20) must be greater than fmin (50).",
+        id="inverted dispersion",
+    ),
+    pytest.param(
+        "active",
+        {"masw": {"distance_min": 50, "distance_max": 10}},
+        "masw: distance_max (10) must be greater than distance_min (50).",
+        id="inverted distances",
+    ),
+]
+
+
+@pytest.mark.parametrize(("name", "overrides", "line"), INVALID_OVERRIDES)
+def test_invalid_overrides_are_explained_for_the_agent(
+    name: str, overrides: dict[str, object], line: str
 ) -> None:
-    with pytest.raises(ValidationError, match=location):
+    with pytest.raises(PresetError) as caught:
         make_preset(name, overrides)
+
+    assert str(caught.value) == f"Invalid overrides for preset '{name}':\n- {line}"
+    # pydantic's own error stays attached, for debugging.
+    assert isinstance(caught.value.__cause__, ValidationError)
+
+
+def test_every_problem_gets_its_own_line() -> None:
+    overrides = {"whitening": {"method": "onebit_apd"}, "masw": {"lenght": 24}}
+
+    with pytest.raises(PresetError) as caught:
+        make_preset("passive", overrides)
+
+    assert str(caught.value).splitlines() == [
+        "Invalid overrides for preset 'passive':",
+        "- masw.lenght: unknown parameter. Allowed: length, step, distance_min, distance_max. "
+        "Did you mean length?",
+        "- whitening.method: unknown method 'onebit_apd'. Allowed: none, onebit, onebit_apod. "
+        "Did you mean onebit_apod?",
+    ]
 
 
 # ---------------------------------------------------------------- resolution against a profile
@@ -375,3 +465,116 @@ def test_preset_must_match_the_profile_kind(
 def test_resolution_keeps_the_preset_type(profiles: dict[str, Profile]) -> None:
     assert isinstance(resolve_preset(make_preset("active"), profiles["active_p1"]), ActivePreset)
     assert isinstance(resolve_preset(make_preset("passive"), profiles["passive_p1"]), PassivePreset)
+
+
+# ---------------------------------------------------------------- sigpipe's rules, before any work
+
+PASSIVE_RULES = [
+    pytest.param(
+        {"slicing": {"segment_duration": 200, "segment_step": 200}},
+        "slicing.segment_duration (200 s) must not exceed the shortest record of profile "
+        "'passive_p1' (89.998 s).",
+        id="segments longer than a record",
+    ),
+    pytest.param(
+        {"slicing": {"segment_duration": 0.1, "segment_step": 0.2}},
+        "slicing.segment_step (0.2 s) must not exceed slicing.segment_duration (0.1 s).",
+        id="step longer than segments",
+    ),
+    pytest.param(
+        {"whitening": {"method": "onebit_apod", "fmin": 10, "fmax": 40, "taper_width_Hz": 30}},
+        "whitening.taper_width_Hz (30 Hz) must be smaller than the band fmax - fmin (30 Hz).",
+        id="taper wider than the band",
+    ),
+    pytest.param(
+        {"whitening": {"method": "onebit_apod", "fmin": 10, "fmax": 25, "taper_width_Hz": 1}},
+        "whitening: the band fmax - fmin (15 Hz) must span at least 2 frequency steps of the "
+        "0.1 s segments (19.6 Hz). Widen the band or lengthen slicing.segment_duration.",
+        id="band narrower than two frequency steps",
+    ),
+    pytest.param(
+        {"dispersion": {"fmin": 300, "fmax": 400}},
+        "dispersion.fmin (300 Hz) must be below the Nyquist frequency of profile 'passive_p1' "
+        "(250 Hz).",
+        id="dispersion above Nyquist",
+    ),
+]
+
+
+@pytest.mark.parametrize(("overrides", "line"), PASSIVE_RULES)
+def test_sigpipes_rules_are_checked_before_any_work(
+    profiles: dict[str, Profile], overrides: dict[str, object], line: str
+) -> None:
+    with pytest.raises(PresetError) as caught:
+        resolve_preset(make_preset("passive", overrides), profiles["passive_p1"])
+
+    assert str(caught.value) == f"Preset 'passive' does not fit profile 'passive_p1':\n- {line}"
+
+
+def test_every_problem_with_the_profile_is_listed(profiles: dict[str, Profile]) -> None:
+    overrides = {
+        "filtering": {"method": "iir", "fmax": 260},
+        "slicing": {"segment_duration": 95, "segment_step": 100},
+        "dispersion": {"fmin": 251, "fmax": 300},
+    }
+
+    with pytest.raises(PresetError) as caught:
+        resolve_preset(make_preset("passive", overrides), profiles["passive_p1"])
+
+    lines = str(caught.value).splitlines()
+    assert lines[0] == "Preset 'passive' does not fit profile 'passive_p1':"
+    assert [line.split(" (")[0] for line in lines[1:]] == [
+        "- filtering.fmax",
+        "- slicing.segment_step",
+        "- slicing.segment_duration",
+        "- dispersion.fmin",
+    ]
+
+
+def test_dispersion_fmax_above_nyquist_is_left_to_sigpipe(profiles: dict[str, Profile]) -> None:
+    # sigpipe lowers it to Nyquist, with a warning, as PAC does.
+    preset = make_preset("passive", {"dispersion": {"fmax": 300}})
+
+    resolved = resolve_preset(preset, profiles["passive_p1"])
+
+    assert resolved.model_dump()["dispersion"]["fmax"] == 300.0
+
+
+@pytest.mark.parametrize("duration", [0.1, 0.37, 1.0])
+def test_whitening_band_rule_agrees_with_sigpipe(
+    profiles: dict[str, Profile], duration: float
+) -> None:
+    # PACo recomputes sigpipe's frequency step for a segment: compare on real segments, around
+    # the two-step limit, so a change in sigpipe's arithmetic shows up here.
+    profile = profiles["passive_p1"]
+    record = profile.records[1]
+    acquisition = LinearAcquisition(source=profile.receivers[0], receivers=profile.receivers)
+    stream = Load(
+        file_paths=[record.path], data_type="seismic", acquisitions=[acquisition]
+    ).transform()[0]
+    assert isinstance(stream, Stream)
+    segment = Slice(segment_duration=duration, segment_step=duration).transform([stream])[0]
+    df = profile.sampling_rate_hz / (round(duration * profile.sampling_rate_hz) + 1)
+
+    for band in [k * df / 4 for k in range(6, 11)]:
+        whitening = {
+            "method": "onebit_apod",
+            "fmin": 0.0,
+            "fmax": band,
+            "taper_width_Hz": band / 10,
+        }
+        overrides = {"slicing": {"segment_duration": duration, "segment_step": duration}}
+        try:
+            WHITENING_METHODS["onebit_apod"](
+                segment, **{k: v for k, v in whitening.items() if k != "method"}
+            )
+            sigpipe_accepts = True
+        except ValueError:
+            sigpipe_accepts = False
+        try:
+            resolve_preset(make_preset("passive", overrides | {"whitening": whitening}), profile)
+            paco_accepts = True
+        except PresetError:
+            paco_accepts = False
+
+        assert paco_accepts == sigpipe_accepts, f"band {band:.2f} Hz"

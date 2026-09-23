@@ -44,15 +44,20 @@ class Stage:
     fixed: frozenset[str] = frozenset()  # parameters the pipeline sets itself
 
 
-def _pac(
+def pac_methods(
     registry: Mapping[str, Callable[..., object]], *methods: str
 ) -> dict[str, Callable[..., object]]:
     """The methods PAC uses from a sigpipe registry. A method sigpipe drops fails here, at import."""
+    if missing := [method for method in methods if method not in registry]:
+        raise TypeError(
+            f"sigpipe's registry has no method {', '.join(missing)} "
+            f"(it has {', '.join(registry)}): update paco/presets/stages.py"
+        )
     return {method: registry[method] for method in methods}
 
 
 MUTING = Stage(
-    functions=_pac(MUTTING_METHODS, "mute"),
+    functions=pac_methods(MUTTING_METHODS, "mute"),
     parameters={
         "mute": {
             "tmin": Parameter("s", default=0.0, ge=0),
@@ -65,7 +70,7 @@ MUTING = Stage(
 )
 
 FILTERING = Stage(
-    functions=_pac(FILTERING_METHODS, "iir"),
+    functions=pac_methods(FILTERING_METHODS, "iir"),
     parameters={
         "iir": {
             "fmin": Parameter("Hz", default=0.0, ge=0),
@@ -89,7 +94,7 @@ SLICING = Stage(
 )
 
 SELECTION = Stage(
-    functions=_pac(STREAM_SELECTION_METHODS, "fk"),
+    functions=pac_methods(STREAM_SELECTION_METHODS, "fk"),
     parameters={
         "fk": {
             "threshold": Parameter(default=0.1, ge=0, le=1),
@@ -101,7 +106,7 @@ SELECTION = Stage(
 )
 
 WHITENING = Stage(
-    functions=_pac(WHITENING_METHODS, "onebit", "onebit_apod"),
+    functions=pac_methods(WHITENING_METHODS, "onebit", "onebit_apod"),
     parameters={
         "onebit_apod": {
             "fmin": Parameter("Hz", default=0.0, ge=0),
@@ -112,17 +117,18 @@ WHITENING = Stage(
     },
 )
 
-NORMALIZATION = Stage(functions=_pac(NORMALIZATION_METHODS, "onebit"))
+NORMALIZATION = Stage(functions=pac_methods(NORMALIZATION_METHODS, "onebit"))
 
 STACKING = Stage(
-    functions=_pac(STREAM_STACKING_METHODS, "linear", "phase_weighted", "root"),
-    parameters={"phase_weighted": {"nu": Parameter(ge=0)}, "root": {"n": Parameter(ge=0)}},
+    functions=pac_methods(STREAM_STACKING_METHODS, "linear", "phase_weighted", "root"),
+    # sigpipe: nu >= 0, n >= 1 (PAC's form allowed n = 0, which sigpipe rejects).
+    parameters={"phase_weighted": {"nu": Parameter(ge=0)}, "root": {"n": Parameter(ge=1)}},
     default="linear",
     none=False,
 )
 
 DISPERSION = Stage(
-    functions=_pac(DISPERSION_METHODS, "phase"),
+    functions=pac_methods(DISPERSION_METHODS, "phase"),
     parameters={
         "phase": {
             "fmin": Parameter("Hz", default=0.0, ge=0),
