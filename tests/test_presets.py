@@ -1,5 +1,3 @@
-from pathlib import Path
-
 import pytest
 from pydantic import TypeAdapter, ValidationError
 
@@ -11,8 +9,7 @@ from paco.presets import (
     make_preset,
     resolve_preset,
 )
-from paco.profiles import Profile, load_profile
-from paco.settings import Settings
+from paco.profiles import Profile
 from paco.windows import MASWParameters
 from sigpipe.base import LinearAcquisition, Stream
 from sigpipe.transformers import Filter, Load
@@ -42,12 +39,6 @@ PASSIVE_DEFAULTS = {
     "stacking": {"method": "linear"},
     "dispersion": DISPERSION_DEFAULTS,
 }
-
-
-@pytest.fixture(scope="module")
-def profiles(demo_input_dir: Path) -> dict[str, Profile]:
-    settings = Settings(input_dir=demo_input_dir)
-    return {name: load_profile(name, settings) for name in ("active_p1", "passive_p1")}
 
 
 # ---------------------------------------------------------------- defaults
