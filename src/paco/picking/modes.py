@@ -49,10 +49,16 @@ def pick_modes(
         path, on_edge = track(
             values[span], velocities, frequencies[span], low, high, parameters.smoothness
         )
+        # A ridge cut by a search bound stays pinned, wherever the smoothing moved the pick.
+        pinned = on_edge | (ridge == start[span]) | (ridge == stop[span])
         coherence = values[span][np.arange(path.size), path]
         ratio = coherence / noise_floor
-        # Judged on its kept points only: pinned points are where a bound, not the data, decided.
-        kept = ~on_edge & (ratio >= parameters.point_min_ratio)
+        # Judged on its kept points only: pinned points are where a bound, not the data, decided,
+        # and 0 Hz has no wavelength.
+        kept = ~pinned & (ratio >= parameters.point_min_ratio) & (frequencies[span] > 0)
+        # Points far below the mode's typical coherence are sidelobes or noise, not its ridge.
+        if kept.any():
+            kept &= coherence >= parameters.min_relative_coherence * np.median(coherence[kept])
         if kept.sum() < parameters.min_frequencies:
             break
         if float(np.median(ratio[kept])) < parameters.mode_min_ratio:
@@ -64,7 +70,7 @@ def pick_modes(
                 frequencies=frequencies[span],
                 velocities=velocities[path],
                 coherence=coherence,
-                on_edge=on_edge,
+                pinned=pinned,
                 kept=kept,
                 noise_floor=noise_floor,
                 curve=_curve(image, frequencies[span][kept], velocities[path][kept], number),

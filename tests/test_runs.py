@@ -13,6 +13,8 @@ from paco.runs import (
     RunManifest,
     RunSummary,
     WindowOutcome,
+    find_run,
+    load_manifest,
     processing,
     run_processing,
     summarize_run,
@@ -313,3 +315,61 @@ def test_summary_reports_a_few_distinct_errors(profiles: dict[str, Profile]) -> 
         "xmid 3.00: ValueError: b",
         f"xmid 4.00: {long_error[:200]}",
     )
+
+
+# ---------------------------------------------------------------- finding runs
+
+
+def _fake_run(settings: Settings, profile: str, run_id: str) -> Path:
+    """A run folder with a run.json: all find_run looks for."""
+    folder = settings.output_dir / profile / run_id
+    folder.mkdir(parents=True)
+    (folder / "run.json").write_text("{}")
+    return folder
+
+
+def test_find_run_returns_the_run_folder(settings: Settings) -> None:
+    folder = _fake_run(settings, "passive_p1", "20260923-100000-abcd")
+
+    assert find_run("20260923-100000-abcd", settings) == folder
+
+
+def test_an_unknown_run_lists_the_five_latest(settings: Settings) -> None:
+    for second in range(7):
+        profile = ("active_p1", "passive_p1")[second % 2]
+        _fake_run(settings, profile, f"20260923-10000{second}-abcd")
+    # An interrupted run: its folder has no run.json.
+    (settings.output_dir / "active_p1" / "20260923-100009-abcd").mkdir()
+
+    with pytest.raises(RunError) as error:
+        find_run("20260923-100009-abcd", settings)
+
+    assert str(error.value) == (
+        "Unknown run '20260923-100009-abcd'. Latest runs: 20260923-100006-abcd (active_p1), "
+        "20260923-100005-abcd (passive_p1), 20260923-100004-abcd (active_p1), "
+        "20260923-100003-abcd (passive_p1), 20260923-100002-abcd (active_p1)."
+    )
+
+
+def test_an_unknown_run_without_any_run(settings: Settings) -> None:
+    with pytest.raises(
+        RunError, match=r"^Unknown run '20260923-100000-abcd'\. Latest runs: none\.$"
+    ):
+        find_run("20260923-100000-abcd", settings)
+
+
+@pytest.mark.parametrize(
+    "run_id", ["*", "2026*", "../passive_p1/20260923-100000-abcd", "20260923-100000-abcd/.."]
+)
+def test_only_run_ids_are_looked_up(settings: Settings, run_id: str) -> None:
+    # A run exists, but a pattern or a path must not reach it, nor anything outside the outputs.
+    _fake_run(settings, "passive_p1", "20260923-100000-abcd")
+
+    with pytest.raises(RunError, match=r"^Unknown run"):
+        find_run(run_id, settings)
+
+
+def test_load_manifest_reads_run_json(active_run: Run, demo_input_dir: Path) -> None:
+    settings = Settings(input_dir=demo_input_dir, output_dir=active_run.folder.parents[1])
+
+    assert load_manifest(active_run.summary.run_id, settings) == active_run.manifest

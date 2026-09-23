@@ -24,6 +24,9 @@ class PickingParameters(BaseModel):
     mode_min_ratio: float = Field(default=1.5, gt=0)
     # A point below this multiple of the noise floor is dropped from the saved curve.
     point_min_ratio: float = Field(default=1.0, gt=0)
+    # A point below this fraction of its mode's median coherence is dropped too: a sidelobe or
+    # noise, not the ridge.
+    min_relative_coherence: float = Field(default=0.5, gt=0, le=1)
     # Longest wavelength searched, as a multiple of the window length; None: no limit.
     max_wavelength: float | None = Field(default=None, gt=0)
     # M0 only; above 1, each higher mode is searched above the one below.
@@ -40,8 +43,10 @@ class PickedMode:
     frequencies: np.ndarray  # every tracked frequency, Hz
     velocities: np.ndarray  # the pick at each frequency, m/s
     coherence: np.ndarray  # image value along the pick
-    on_edge: np.ndarray  # pinned to a search bound: the bound, not the data, decided
-    kept: np.ndarray  # neither pinned nor below the noise floor
+    # The bound, not the data, decided: the pick is on its corridor's edge, or its column's ridge
+    # is cut by the search bounds.
+    pinned: np.ndarray
+    kept: np.ndarray  # not pinned, not 0 Hz, above the noise floor and near the mode's coherence
     noise_floor: float  # 1/sqrt(N) for the N receivers of the window
     curve: DispersionCurve | None  # kept points, resampled over wavelength; None below 2 points
 

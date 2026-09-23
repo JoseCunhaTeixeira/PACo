@@ -17,12 +17,16 @@ Last updated 2026-09-23. Read this first at the start of each session.
 | 0. Orientation | Done, with gaps (see open issues) |
 | 1. Plain functions | Done: `inspect_profile`, `run_processing` |
 | 2. Schemas | Done: generated presets, messages for the agent, checks before any work, schema budget; 173 tests |
-| 3. Quality metric and picking | Next. Picking is designed (see decisions) |
+| 3. Quality metric and picking | Done: picker, metric, `dispersion_quality`, `pick`; 250 tests |
 | 4 to 8 | Not started |
 
 Check questions: milestone 1 asked, answer pending. Milestone 2 (what happens when sigpipe renames
 a parameter): answered with hints on 2026-09-23, up to the plain-words rung. Worth revisiting:
-why generated models fail at import while hand-written ones fail in every window.
+why generated models fail at import while hand-written ones fail in every window. Milestone 3
+(why `pick` reads its parameters and verdicts from `quality.json`): answered on 2026-09-23 after
+the concept hint. The user's point: judging a curve means seeing it, which a text-only LLM
+cannot. Completed: so the verdict is the agent's only view of the curve, and it must describe
+the exact curve saved.
 
 ## Milestone 0: orientation
 
@@ -91,6 +95,32 @@ All in `src/paco/presets/`:
   without titles and `mode`; derived values say "null: from the profile". About 2,900 characters
   (active) and 6,500 (passive), under a tested budget of 3,000 and 6,600.
 
+## Milestone 3: picking and quality
+
+- `picking/`: `pick_modes(image, parameters)` returns each mode's points with their diagnostics
+  (coherence, pinned, kept) and the kept points as a sigpipe `DispersionCurve` (`M<n>`, Lorentzian
+  uncertainties, resampled over wavelength).
+- `quality/`: `measure_quality(image, m0)` for one image; `dispersion_quality(run_id, settings)`
+  picks and measures every window of a run, writes `quality.json` per window and per run (with
+  the parameters used), and returns a `QualitySummary` (counts, stretches of good windows, flags,
+  advice for the three most frequent flags).
+- `picks/`: `pick(run_id, settings)` saves the M0 curve of every good window in PAC's layout
+  (`DispersionCurves_0000.csv`, replacing the window's M0 curve and keeping other labels), redraws
+  `DispersionImage_0000.png` with the curves as PAC does, writes `pick.json` and returns a
+  `PickSummary` (windows picked, skipped, and whose M0 was replaced). It uses the verdicts and
+  picking parameters of the run's `quality.json`, so the saved curves are the judged picks; it
+  refuses a run not yet assessed, or without a good window.
+- `runs/finding.py`: `find_run`, `load_manifest` and `load_image`. Only names shaped like run IDs
+  are looked up, so an ID cannot reach outside the output directory; an unknown ID lists the five
+  latest runs.
+- Tests:
+  - synthetic shots with known dispersion curves, through sigpipe's own `phase_shift`;
+  - analytic Gaussian ridges, so each measurement has an exact expected value;
+  - real runs of both demo profiles;
+  - a mutation check (42 deliberate bugs, all caught).
+- On the 14 demo windows: active 7 good; passive 6 bad and 1 doubtful (xmid 2.88, whose only flag
+  is constant wavelength). No passive window is good.
+
 ## Decisions (2026-09-23)
 
 - **PAC's role (option A):** PACo depends on sigpipe only; PAC is the reference and the source of
@@ -125,16 +155,39 @@ All in `src/paco/presets/`:
   - M0 only (`max_modes = 1`); the higher-mode search is kept but off.
   - No wavelength limit (`max_wavelength = None`), the user's choice after comparing no limit,
     2 x L and 1 x L on the demo windows: 2 x L removed the unresolved low frequencies on active
-    data without losing visible ridge; 1 x L lost 17-33 Hz of clean active ridge.
-  - A mode is judged on its kept points; a point is kept if not pinned and at or above the noise
-    floor 1/sqrt(N); a mode needs 5 kept points with a median coherence >= 1.5 x the floor.
+    data without losing visible ridge; 1 x L lost 17-33 Hz of clean active ridge. Confirmed after
+    seeing the saved curves, mostly beyond 2 x L (see the picking risks): the human cuts them in
+    PAC's UI before any inversion. Claude would have limited the search to 2 x L.
+  - A mode is judged on its kept points; a mode needs 5 kept points with a median coherence >=
+    1.5 x the noise floor 1/sqrt(N). A point is kept if:
+    - it is not pinned: neither on its corridor's edge, nor in a column whose ridge a search bound
+      cuts (the smoothing can move such a pick off the edge);
+    - it is not 0 Hz, which has no wavelength;
+    - its coherence reaches the noise floor, and half the mode's median coherence (the user chose
+      this relative-coherence rule over a continuity rule or both; Claude would have picked both).
   - The code lives in `paco/picking/` first, and moves to sigpipe once proven.
-  - Output: `DispersionCurves_0000.csv` in PAC's layout (still to build).
+  - Output: `DispersionCurves_0000.csv` in PAC's layout, for good windows only (the user's choice;
+    Claude would have included doubtful windows, flagged, for the approval step).
+  - An existing M0 curve is replaced, like PAC's own re-pick, even one corrected by hand (the
+    user's choice; Claude would have had `pick` replace only its own unchanged curves). Curves
+    from an earlier pick stay in windows that are no longer good.
+- **Quality metric (milestone 3, `paco/quality/`):** four measurements on the kept points of M0,
+  each with a threshold that raises a flag; good with no flag, doubtful with one, bad with two or
+  more, or without a ridge.
+  - sharpness: peak width over the window's resolution, flagged below 0.8. A perfect plane wave
+    scores 0.98 to 1.08, depending on the array, so the first threshold (1.0) flagged clean
+    shots.
+  - prominence (below 2), on_data (below 0.6), constant_wavelength (above 0.4).
+  - The thresholds were tuned on the 14 demo windows only: recalibrate them on windows judged by
+    hand.
+  - Advice per flag, for the agent: wording reviewed by the user.
 - **AI picker: later.** Discussed 2026-09-23: training a model (image in, M0 velocity per
   frequency out) needs labelled pairs, and none are at hand. Chosen route: keep the rule-based
   picker and the quality metric, and let human-approved picks (milestone 6) accumulate as training
   data (PAC's layout already pairs `DispersionImage_0000.hdf5` with `DispersionCurves_0000.csv`).
-  A trained model can later replace the picker behind the same `pick` tool.
+  A trained model can later replace the picker behind the same `pick` tool. Another idea (the
+  user's, 2026-09-23): a vision-language model could judge the figure `pick` redraws, at about a
+  thousand tokens of context per figure; it too must judge the exact curve saved.
 - **Inversion (milestone 5):** an inversion preset built from PAC's form defaults (2 layers, Vs
   100 to 1000 m/s, thicknesses 1 to 10 m, 100k iterations, 10k burn-in, 5 chains), run as a
   background job, one process per window.
@@ -158,6 +211,15 @@ All in `src/paco/presets/`:
 - Validate against the data before any work: the same rules as the library, checked once instead
   of failing in every window.
 - A tool schema travels with every request: measure it, and give it a budget.
+- Test an algorithm on inputs with a known answer: synthetic data through the real transform for
+  the picker, analytic images with exact expected values for the metric.
+- A strict `xfail` test is an executable bug report: it fails once the bug is fixed, as a
+  reminder to remove the marker.
+- Overlapping rules hide each other from tests: a mutant that removes one survives while another
+  rule covers for it, so each rule needs a test that isolates it.
+- A tool that builds on another tool's result reads that tool's record (`pick` reads
+  `quality.json`), so its output is exactly what was judged; without the record, it refuses and
+  names the tool to call first.
 
 ## Open issues
 
@@ -184,19 +246,32 @@ All in `src/paco/presets/`:
   frequency step. They still fail inside each window.
 - **Generated models:** pyright cannot see their fields; code reaches stages by name
   (`model_dump()["dispersion"]`) and sees presets as `PresetBase`.
-- **For milestone 4:** the passive override schema (about 1,800 tokens) is a large share of an 8k
-  context; the MCP tools should send one preset's schema at a time, not both.
+- **For milestone 4:**
+  - the passive override schema (about 1,800 tokens) is a large share of an 8k context; the MCP
+    tools should send one preset's schema at a time, not both;
+  - `pick` draws figures in the calling process: the server must use matplotlib's Agg backend,
+    as PAC's API does.
 - **Picking risks:**
   - the lowest-ridge scan can stop on the air wave (about 340 m/s) in active data on stiff soils;
-  - with no wavelength limit, M0 keeps unresolved low-frequency points (active: below about
-    13 Hz, climbing to 700 m/s), and resampling over wavelength turns them into long curves;
+  - with no wavelength limit, M0 keeps unresolved low-frequency points, and resampling over
+    wavelength (one point per metre) turns them into most of the saved curve: on the four
+    24-receiver active_p1 windows, 64 to 91 % of the points lie beyond 2 x the window length
+    (xmid 2.88: 94 of 103 points, 3.7 to 15.1 Hz, up to 765 m/s). With `max_wavelength = 2.0` the
+    same windows stay good and keep 5 to 9 points (154 to 272 m/s). Kept on purpose: the approval
+    step must cut them;
   - on passive_p1 (24-receiver windows, preset defaults) the images have no clear ridge: M0
     follows the edge of the broad bright region, yet its coherence is about 2 x the floor, so
-    coherence alone cannot reject it. The quality metric must.
+    coherence alone cannot reject it. The quality metric must. The picker also finds an M0 in pure
+    noise on 48 receivers, which the metric judges bad.
+  - a coherent wrong branch is still kept: when M0 drops below the aliasing floor and a higher mode
+    is present, the pick carries on along M1, labelled M0 (synthetic, 48 receivers 1 m apart:
+    above 75 Hz). A continuity rule would catch it.
+  - the metric works on medians, so a few wrong points do not change a verdict: the approval step
+    must look at the curve itself.
 - **PAC's defaults:** its form defaults give 3-receiver windows, which make flat passive images
   with nothing to pick.
 
 ## Next
 
-Milestone 3: automatic picking (designed above), then the quality metric that the picker's
-diagnostics feed (`dispersion_quality`), designed with the user as the domain expert.
+Answer the milestone 3 check question, then milestone 4: the MCP server over the plain functions
+(`list_profiles`, `inspect_profile`, `run_processing`, `dispersion_quality`, `pick`).

@@ -4,6 +4,7 @@ A run writes PAC's layout under <output_dir>/<profile>/<run_id>/: one xmid_<x>/ 
 window, as PAC's UI expects, plus run.json with everything needed to understand or reproduce it.
 """
 
+from .finding import find_run, load_image, load_manifest
 from .models import RunError, RunManifest, RunSummary, WindowOutcome
 from .processing import run_processing
 from .summary import summarize_run
@@ -13,6 +14,9 @@ __all__ = [
     "RunManifest",
     "RunSummary",
     "WindowOutcome",
+    "find_run",
+    "load_image",
+    "load_manifest",
     "run_processing",
     "summarize_run",
 ]
