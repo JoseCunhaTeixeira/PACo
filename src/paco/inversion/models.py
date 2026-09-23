@@ -2,12 +2,17 @@
 agent reads back (InversionStatus)."""
 
 from datetime import datetime
-from typing import Literal, Self
+from typing import Any, Literal, Self, cast
 
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 
 # The descriptions are what the agent reads (see paco.server's inversion_settings). Defaults are
 # PAC's form values.
+
+# sigpipe's sampler keeps one model every 150 iterations after the burn-in (bayesbay's
+# save_every): with fewer left, a chain keeps none, and every window fails with a KeyError. PAC
+# does not check it.
+SAMPLE_EVERY = 150
 
 
 class VsLayer(BaseModel):
@@ -56,11 +61,31 @@ class InversionParameters(BaseModel):
         default=(ThicknessLayer(),),
         description="Thickness bounds of each layer above the half-space: n_layers - 1 of them.",
     )
-    n_iterations: int = Field(default=100_000, gt=0, description="Iterations of each chain.")
+    n_iterations: int = Field(
+        default=100_000,
+        gt=0,
+        description=f"Iterations of each chain; one model is kept every {SAMPLE_EVERY} after the "
+        "burn-in.",
+    )
     n_burnin_iterations: int = Field(
-        default=10_000, gt=0, description="First iterations of each chain, discarded."
+        default=10_000,
+        gt=0,
+        description="First iterations of each chain, discarded. Left out: a tenth of n_iterations.",
     )
     n_chains: int = Field(default=5, gt=0, description="Independent chains per window.")
+
+    @model_validator(mode="before")
+    @classmethod
+    def _burnin_follows_iterations(cls, data: Any) -> Any:  # noqa: ANN401
+        """A tenth of n_iterations, PAC's ratio, when only the iterations are given: asking for
+        2,000 iterations kept PAC's 10,000 of burn-in, and left nothing to sample."""
+        if not isinstance(data, dict):
+            return data
+        values = cast(dict[str, Any], data)
+        iterations = values.get("n_iterations")
+        if "n_burnin_iterations" in values or not isinstance(iterations, int | float):
+            return values
+        return {**values, "n_burnin_iterations": max(1, int(iterations) // 10)}
 
     @model_validator(mode="after")
     def _check(self) -> Self:
@@ -69,6 +94,12 @@ class InversionParameters(BaseModel):
         if len(self.thickness_layers) != self.n_layers - 1:
             raise ValueError(
                 f"thickness_layers must have length n_layers - 1 ({self.n_layers - 1})"
+            )
+        if self.n_iterations - self.n_burnin_iterations < SAMPLE_EVERY:
+            raise ValueError(
+                f"n_iterations ({self.n_iterations}) must exceed n_burnin_iterations "
+                f"({self.n_burnin_iterations}) by at least {SAMPLE_EVERY}: each chain keeps one "
+                f"model every {SAMPLE_EVERY} iterations after the burn-in"
             )
         return self
 

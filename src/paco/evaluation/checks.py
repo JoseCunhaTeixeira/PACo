@@ -44,6 +44,27 @@ def called(tool: str, **arguments: Any) -> Check:  # noqa: ANN401
     return check
 
 
+def only_called(tool: str, **arguments: Any) -> Check:  # noqa: ANN401
+    """`tool` succeeded, and every call of it that succeeded had at least these arguments: the
+    agent kept what the user asked for, even when a tool advised otherwise."""
+    shown = ", ".join(f"{name}={json.dumps(value)}" for name, value in arguments.items())
+    name = f"only {tool}({shown})"
+
+    def check(trial: Trial) -> CheckResult:
+        steps = [step for step in _called(trial) if step.name == tool and not step.is_error]
+        if not steps:
+            return CheckResult(name=name, passed=False, detail=f"{tool} never succeeded")
+        others = [
+            step.arguments
+            for step in steps
+            if not _contains(json.loads(step.arguments or "{}"), arguments)
+        ]
+        detail = f"called with {'; '.join(others)}" if others else ""
+        return CheckResult(name=name, passed=not others, detail=detail)
+
+    return check
+
+
 def succeeded(tool: str) -> Check:
     """At least one call of `tool` succeeded."""
 
@@ -63,6 +84,17 @@ def not_succeeded(tool: str) -> Check:
         passed = not any(step.name == tool and not step.is_error for step in _called(trial))
         detail = "" if passed else f"{tool} succeeded"
         return CheckResult(name=f"{tool} did not succeed", passed=passed, detail=detail)
+
+    return check
+
+
+def never_called(tool: str) -> Check:
+    """`tool` was never called: the user did not ask for what it does."""
+
+    def check(trial: Trial) -> CheckResult:
+        calls = sum(step.name == tool for step in _called(trial))
+        detail = f"called {calls} time(s)" if calls else ""
+        return CheckResult(name=f"{tool} never called", passed=not calls, detail=detail)
 
     return check
 
@@ -133,6 +165,30 @@ def no_inversion_started() -> Check:
     return check
 
 
+def inversion_succeeded() -> Check:
+    """The inversion the agent started ran to its end, with a model for every window.
+
+    `invert` succeeding only means the job started: it can still fail in every window.
+    """
+    name = "the inversion gave every window a model"
+
+    def check(trial: Trial) -> CheckResult:
+        paths = sorted(trial.output_dir.glob("*/*/inversion.json"))
+        if not paths:
+            return CheckResult(name=name, passed=False, detail="no inversion on disk")
+        problems: list[str] = []
+        for path in paths:
+            record = InversionRecord.model_validate_json(path.read_text())
+            failed = sum(window.status == "failed" for window in record.windows)
+            if record.state != "succeeded" or failed or len(record.windows) < record.total:
+                problems.append(
+                    f"{record.job_id} {record.state}, {failed} of {record.total} windows failed"
+                )
+        return CheckResult(name=name, passed=not problems, detail="; ".join(problems))
+
+    return check
+
+
 def good_windows(trial: Trial) -> str:
     """The number of good windows of the latest run the agent judged."""
     paths = sorted(trial.output_dir.glob("*/*/quality.json"), key=lambda path: path.parent.name)
@@ -155,6 +211,12 @@ def _called(trial: Trial) -> list[ToolStep]:
 
 
 def _contains(actual: Any, expected: Any) -> bool:  # noqa: ANN401
+    if isinstance(expected, dict) and isinstance(actual, str):
+        # An object sent as JSON text: the SDK decodes it, and the server gets the object.
+        try:
+            actual = json.loads(actual)
+        except json.JSONDecodeError:
+            return False
     if isinstance(expected, dict):
         return isinstance(actual, dict) and all(
             key in actual and _contains(actual[key], value) for key, value in expected.items()

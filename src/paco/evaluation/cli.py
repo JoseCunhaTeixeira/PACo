@@ -1,8 +1,8 @@
-"""paco-evaluate [scenario ...]: play the suite (or the named scenarios) with the model in .env,
-and print the report."""
+"""paco-evaluate [--repeat N] [scenario ...]: play the suite (or the named scenarios) with the
+model in .env, and print the report."""
 
+import argparse
 import logging
-import sys
 
 import anyio
 from openai import AsyncOpenAI
@@ -16,13 +16,30 @@ from paco.evaluation.scenarios import SCENARIOS
 
 def main() -> None:
     """paco-evaluate: the suite, or the scenarios named on the command line."""
+    parser = argparse.ArgumentParser(
+        prog="paco-evaluate",
+        description="Play PACo's evaluation scenarios with the model in .env, and print the "
+        "report.",
+    )
+    parser.add_argument("scenarios", nargs="*", help="scenarios to play (default: all of them)")
+    parser.add_argument(
+        "-n",
+        "--repeat",
+        type=int,
+        default=1,
+        metavar="N",
+        help="plays of each scenario, for pass rates, since the model samples (default: 1)",
+    )
+    arguments = parser.parse_args()
+    if arguments.repeat < 1:
+        parser.error("--repeat must be at least 1")
     # PACo's server runs in this process, and its SDK logs every request at INFO level: the
     # scenarios' own lines (calls, failures, progress) say what matters.
     logging.getLogger().setLevel(logging.WARNING)
-    anyio.run(evaluate, sys.argv[1:])
+    anyio.run(evaluate, arguments.scenarios, arguments.repeat)
 
 
-async def evaluate(names: list[str]) -> None:
+async def evaluate(names: list[str], repeat: int = 1) -> None:
     try:
         settings = AgentSettings()  # pyright: ignore[reportCallIssue]  # fields come from .env
     except ValidationError as error:
@@ -57,6 +74,7 @@ async def evaluate(names: list[str]) -> None:
         settings.evaluation_dir,
         judge_model,
         settings.judge_model,
+        repeat,
     )
     print()
     print(format_report(report))

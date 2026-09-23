@@ -2,7 +2,7 @@ import json
 from collections.abc import Callable
 from datetime import UTC, datetime
 from pathlib import Path
-from typing import Any
+from typing import Any, Literal
 
 import anyio
 import pytest
@@ -16,6 +16,7 @@ from paco.evaluation import (
     JudgeScore,
     ScenarioResult,
     Trial,
+    cli,
     format_report,
     read_score,
     render,
@@ -29,10 +30,14 @@ from paco.evaluation.checks import (
     called,
     good_windows,
     in_order,
+    inversion_succeeded,
+    never_called,
     no_inversion_started,
     not_succeeded,
+    only_called,
     succeeded,
 )
+from paco.inversion import InversionParameters, InversionRecord, JobState, WindowInversion
 from paco.picking import PickingParameters
 from paco.quality import ImageQuality, QualityParameters, RunQuality, WindowQuality
 from paco.settings import Settings
@@ -40,6 +45,7 @@ from paco.settings import Settings
 SMALL_WINDOWS = {"masw": {"length": 24, "step": 24}}
 
 type Policy = Callable[[list[ChatCompletionMessageParam]], Reply]
+type WindowStatus = Literal["succeeded", "failed"]
 
 
 class PolicyModel:
@@ -138,6 +144,35 @@ def test_called_matches_nested_arguments_that_hold_more() -> None:
     assert not called("run_processing", overrides={"masw": {"length": 12}})(_trial([step])).passed
 
 
+def test_called_reads_objects_sent_as_json_text() -> None:
+    # Qwen3-4B sometimes sends an object as a string: the SDK decodes it for the server.
+    step = _step("run_processing", {"profile": "active_p1", "overrides": json.dumps(SMALL_WINDOWS)})
+
+    assert called("run_processing", overrides=SMALL_WINDOWS)(_trial([step])).passed
+    assert not called("run_processing", overrides=SMALL_WINDOWS)(
+        _trial([_step("run_processing", {"overrides": "{masw"})])
+    ).passed
+
+
+def test_only_called() -> None:
+    kept = _step("run_processing", {"profile": "active_p1", "overrides": SMALL_WINDOWS})
+    refused = _step("run_processing", {"overrides": {"masw": {"lenght": 24}}}, is_error=True)
+    # Qwen3-4B's second run, on the quality advice, instead of the windows the user asked for.
+    changed = _step(
+        "run_processing", {"profile": "active_p1", "overrides": {"masw": {"length": 48}}}
+    )
+    check = only_called("run_processing", overrides=SMALL_WINDOWS)
+
+    # Only what the server ran counts.
+    assert check(_trial([refused, kept])).passed
+    assert check(_trial([kept, changed])) == CheckResult(
+        name='only run_processing(overrides={"masw": {"length": 24, "step": 24}})',
+        passed=False,
+        detail='called with {"profile": "active_p1", "overrides": {"masw": {"length": 48}}}',
+    )
+    assert check(_trial([refused])).detail == "run_processing never succeeded"
+
+
 def test_succeeded_and_not_succeeded() -> None:
     failed_then_passed = _trial([_step("pick", {}, is_error=True), _step("pick", {})])
     only_failed = _trial([_step("pick", {}, is_error=True)])
@@ -146,6 +181,17 @@ def test_succeeded_and_not_succeeded() -> None:
     assert not succeeded("pick")(only_failed).passed
     assert not not_succeeded("pick")(failed_then_passed).passed
     assert not_succeeded("pick")(only_failed).passed
+
+
+def test_never_called() -> None:
+    # Qwen3-4B asked to invert a run nobody wanted inverted; the user declined.
+    declined = _trial([_step("pick", {}), _step("invert", {}, is_error=True)])
+    refused = _trial([_step("invert", {}, called=False)])  # never reached the server
+
+    assert never_called("invert")(declined) == CheckResult(
+        name="invert never called", passed=False, detail="called 1 time(s)"
+    )
+    assert never_called("invert")(refused).passed
 
 
 def test_in_order() -> None:
@@ -228,6 +274,36 @@ def test_facts_read_from_disk(tmp_path: Path) -> None:
     assert no_inversion_started()(trial).passed
     (run / "inversion.json").write_text("{}")
     assert not no_inversion_started()(trial).passed
+
+
+def test_inversion_succeeded(tmp_path: Path) -> None:
+    run = tmp_path / "active_p1" / "20260923-100000-abcd"
+    run.mkdir(parents=True)
+    trial = _trial([], "", tmp_path)
+
+    def record(statuses: tuple[WindowStatus, ...], state: JobState) -> str:
+        windows = tuple(
+            WindowInversion(xmid=float(xmid), folder=f"xmid_{xmid}.00", status=status)
+            for xmid, status in enumerate(statuses)
+        )
+        return InversionRecord(
+            job_id="inv-20260923-100000-abcd",
+            run_id=run.name,
+            parameters=InversionParameters(),
+            state=state,
+            submitted_at=datetime(2026, 9, 23, tzinfo=UTC),
+            total=2,
+            windows=windows,
+        ).model_dump_json()
+
+    assert inversion_succeeded()(trial).detail == "no inversion on disk"
+    (run / "inversion.json").write_text(record(("succeeded", "succeeded"), "succeeded"))
+    assert inversion_succeeded()(trial).passed
+    # Qwen3-4B's jobs before the burn-in fix: started, then failed in every window.
+    (run / "inversion.json").write_text(record(("failed", "failed"), "failed"))
+    assert inversion_succeeded()(trial).detail == (
+        "inv-20260923-100000-abcd failed, 2 of 2 windows failed"
+    )
 
 
 def test_asked_the_user() -> None:
@@ -357,6 +433,11 @@ def test_the_simulated_user_declines_and_nothing_starts(paco_env: Settings, tmp_
     result = _play("inversion_declined", goes_up_to_the_inversion, tmp_path)
 
     assert [(check.name, check.passed) for check in result.checks] == [
+        (
+            'only run_processing(profile="active_p1", overrides={"masw": {"length": 24, '
+            '"step": 24}})',
+            True,
+        ),
         ("called invert()", True),
         ("the user was asked to approve", True),
         ("no inversion started", True),
@@ -386,6 +467,45 @@ def test_an_evaluation_writes_its_report_and_transcripts(tmp_path: Path) -> None
     assert EvaluationReport.model_validate_json((folder / "report.json").read_text()) == report
     assert (folder / "list_profiles" / "transcript.json").exists()
     assert report.judge_model is None
+
+
+@pytest.mark.usefixtures("paco_env")
+def test_an_evaluation_repeats_each_scenario(tmp_path: Path) -> None:
+    async def evaluate() -> EvaluationReport:
+        return await run_evaluation(
+            [_scenario("list_profiles"), _scenario("unknown_profile")],
+            PolicyModel(lists_profiles),
+            "scripted",
+            tmp_path,
+            repeat=2,
+            on_event=lambda _: None,
+        )
+
+    report = anyio.run(evaluate)
+
+    assert report.repeat == 2
+    assert [(result.name, result.attempt) for result in report.results] == [
+        ("list_profiles", 1),
+        ("list_profiles", 2),
+        ("unknown_profile", 1),
+        ("unknown_profile", 2),
+    ]
+    # Each play has its own folder.
+    folder = tmp_path / report.eval_id
+    assert (folder / "list_profiles" / "1" / "transcript.json").exists()
+    assert (folder / "unknown_profile" / "2" / "transcript.json").exists()
+
+
+def test_the_evaluation_refuses_zero_plays(
+    monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    monkeypatch.setattr("sys.argv", ["paco-evaluate", "--repeat", "0"])
+
+    with pytest.raises(SystemExit) as caught:
+        cli.main()
+
+    assert caught.value.code == 2
+    assert "--repeat must be at least 1" in capsys.readouterr().err
 
 
 # ---------------------------------------------------------------- the report
@@ -427,4 +547,53 @@ def test_the_report_table() -> None:
     assert text.endswith(
         "Passed 1 of 2 scenarios.\nMean judge score: 3.5 of 5.\nFailed checks:\n"
         "  describe_profile: answer mentions 96 (missing 96)"
+    )
+
+
+def test_the_report_table_with_repeats() -> None:
+    def play(name: str, attempt: int, passed: bool) -> ScenarioResult:
+        return ScenarioResult(
+            name=name,
+            kind="approval",
+            attempt=attempt,
+            checks=(CheckResult(name="invert succeeded", passed=passed, detail="-"),),
+            judge=None,
+            tool_calls=5,
+            failed_calls=1,
+            max_prompt_tokens=2_444,
+            duration_s=30.4,
+            answer="",
+        )
+
+    report = EvaluationReport(
+        eval_id="eval-20260923-100000-abcd",
+        model="Qwen/Qwen3-4B",
+        judge_model=None,
+        started_at=datetime(2026, 9, 23, tzinfo=UTC),
+        repeat=2,
+        results=(
+            play("list_profiles", 1, True),
+            play("list_profiles", 2, True),
+            play("inversion_approved", 1, True),
+            play("inversion_approved", 2, False),
+        ),
+    )
+
+    text = format_report(report)
+
+    assert text.startswith(
+        "Evaluation eval-20260923-100000-abcd of Qwen/Qwen3-4B (judge: none), "
+        "2 plays of each scenario"
+    )
+    # The column widens for the longest label.
+    assert (
+        "inversion_approved #2 approval             0/1      -     5      1      2,444   30.4s"
+        in text
+    )
+    assert text.endswith(
+        "Passed 3 of 4 plays:\n"
+        "  list_profiles         2/2\n"
+        "  inversion_approved    1/2\n"
+        "Failed checks:\n"
+        "  inversion_approved #2: invert succeeded (-)"
     )

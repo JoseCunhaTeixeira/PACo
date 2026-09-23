@@ -48,7 +48,9 @@ class RunSummary(BaseModel):
     preset: str
     path: str  # run folder, relative to the output directory
     n_windows: int
-    n_succeeded: int
+    # Windows with a dispersion image: not judged yet. Qwen3-4B read "n_succeeded" as good
+    # windows, and answered without calling dispersion_quality.
+    n_processed: int
     n_failed: int
     n_skipped: int  # positions without any valid shot (active profiles only)
     duration_s: float

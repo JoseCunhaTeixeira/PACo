@@ -111,7 +111,7 @@ def test_summary_counts_the_windows(active_run: Run) -> None:
         "preset": "active",
         "path": f"active_p1/{summary.run_id}",
         "n_windows": 4,
-        "n_succeeded": 4,
+        "n_processed": 4,
         "n_failed": 0,
         "n_skipped": 0,
         "errors": (),
@@ -185,7 +185,7 @@ def test_failing_windows_do_not_stop_the_run(failing_run: Run) -> None:
     summary = failing_run.summary
     first_xmid = failing_run.manifest.windows[0].xmid
 
-    assert (summary.n_windows, summary.n_succeeded, summary.n_failed) == (4, 0, 4)
+    assert (summary.n_windows, summary.n_processed, summary.n_failed) == (4, 0, 4)
     # Every window fails for the same reason, which is reported once.
     (error,) = summary.errors
     assert error.startswith(
@@ -306,7 +306,7 @@ def test_summary_reports_a_few_distinct_errors(profiles: dict[str, Profile]) -> 
 
     summary = summarize_run(manifest)
 
-    assert (summary.n_windows, summary.n_succeeded, summary.n_failed) == (6, 1, 5)
+    assert (summary.n_windows, summary.n_processed, summary.n_failed) == (6, 1, 5)
     assert summary.n_skipped == 4
     assert summary.duration_s == 12.3
     # Distinct messages only, at most three, each cut to 200 characters.
