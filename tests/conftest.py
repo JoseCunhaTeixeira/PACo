@@ -2,9 +2,14 @@ import shutil
 from collections.abc import Callable
 from pathlib import Path
 
+import matplotlib
 import pytest
 
+from paco.profiles import Profile, load_profile
 from paco.settings import Settings
+
+# Pipelines save figures to files: use the non-GUI backend, as PAC's API does.
+matplotlib.use("Agg")
 
 # PACo reads PAC's demo profiles in place, so the PAC clone must sit next to the PACo clone.
 PAC_INPUT_DIR = Path(__file__).resolve().parents[2] / "PAC" / "data" / "input"
@@ -17,6 +22,13 @@ def demo_input_dir() -> Path:
     if not (PAC_INPUT_DIR / "active_p1").is_dir():
         pytest.skip(f"PAC demo profiles not found in {PAC_INPUT_DIR}")
     return PAC_INPUT_DIR
+
+
+@pytest.fixture(scope="session")
+def profiles(demo_input_dir: Path) -> dict[str, Profile]:
+    """The demo profiles, loaded once: profiles are frozen, so tests can share them."""
+    settings = Settings(input_dir=demo_input_dir)
+    return {name: load_profile(name, settings) for name in ("active_p1", "passive_p1")}
 
 
 @pytest.fixture
