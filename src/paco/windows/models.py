@@ -9,12 +9,15 @@ from sigpipe.base import LinearAcquisition
 
 
 class MASWParameters(BaseModel):
-    model_config = ConfigDict(frozen=True)
+    """Defaults are PAC's form defaults, so a partial override keeps the other values."""
 
-    length: int = Field(ge=3)  # receivers per window
-    step: int = Field(gt=0)  # receivers between two window starts
-    distance_min: float = Field(ge=0)  # m, from the source to the window middle, exclusive
-    distance_max: float = Field(gt=0)  # m, exclusive
+    # Unknown keys are errors: presets expose these parameters to the agent's overrides.
+    model_config = ConfigDict(frozen=True, extra="forbid")
+
+    length: int = Field(default=3, ge=3)  # receivers per window
+    step: int = Field(default=1, gt=0)  # receivers between two window starts
+    distance_min: float = Field(default=0.0, ge=0)  # m, from the source to the window middle
+    distance_max: float = Field(default=1_000.0, gt=0)  # m; both bounds exclusive
 
     @model_validator(mode="after")
     def _check_distances(self) -> Self:
