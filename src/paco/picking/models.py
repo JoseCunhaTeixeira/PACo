@@ -63,6 +63,11 @@ class PickingParameters(BaseModel):
         description="1 picks M0 only; above 1, each higher mode is searched above the one below.",
     )
     min_frequencies: int = Field(default=5, ge=2, description="Fewest kept points a mode needs.")
+    guide: tuple[tuple[float, float], ...] | None = Field(
+        default=None,
+        description="Points (frequency in Hz, velocity in m/s) the M0 corridor is centred on, "
+        "instead of the lowest ridge: e.g. the neighbouring windows' median curve (G4).",
+    )
 
 
 @dataclass(frozen=True, slots=True)

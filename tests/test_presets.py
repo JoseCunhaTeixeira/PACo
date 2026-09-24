@@ -24,12 +24,14 @@ from paco.windows import MASWParameters
 
 # PAC's form defaults (ActiveConfigForm.tsx and PassiveConfigForm.tsx), except distance_max:
 # 1000 m in PACo, 100 m in PAC.
-MASW_DEFAULTS = {"length": 3, "step": 1, "distance_min": 0.0, "distance_max": 1000.0}
+# PACo's window length is 5 receivers, where PAC's form has 3 (the user, 2026-09-24).
+MASW_DEFAULTS = {"length": 5, "step": 1, "distance_min": 0.0, "distance_max": 1000.0}
 DISPERSION_DEFAULTS = {"fmin": 0.0, "fmax": 100.0, "vmin": 1.0, "vmax": 1000.0, "nv": 1000}
 
 ACTIVE_DEFAULTS = {
     "mode": "active",
     "masw": MASW_DEFAULTS,
+    "trigger": {"t0": 0.0},  # PACo's, not PAC's: a delay G1 measures, none by default
     "muting": {"method": "none"},
     "filtering": {"method": "none"},
     "dispersion": DISPERSION_DEFAULTS,
@@ -156,13 +158,13 @@ INVALID_OVERRIDES = [
         "active",
         {"whitening": {"method": "onebit"}},
         "whitening: not a stage of preset 'active', only of passive. "
-        "Stages: masw, muting, filtering, dispersion.",
+        "Stages: masw, trigger, muting, filtering, dispersion.",
         id="stage of the other preset",
     ),
     pytest.param(
         "active",
         {"filterng": {"method": "iir"}},
-        "filterng: unknown stage. Allowed: masw, muting, filtering, dispersion. "
+        "filterng: unknown stage. Allowed: masw, trigger, muting, filtering, dispersion. "
         "Did you mean filtering?",
         id="stage typo",
     ),
@@ -668,7 +670,10 @@ def test_whitening_band_rule_agrees_with_sigpipe(
 # Characters of each override schema, written compactly: the lean sizes plus a small margin.
 # The schema travels with every request to a model with an 8-16k context, so growing it has to
 # be a deliberate choice: raise the budget here if it is worth it.
-SCHEMA_BUDGET = {"active": 3_000, "passive": 6_600}
+SCHEMA_BUDGET = {
+    "active": 3_300,
+    "passive": 6_600,
+}  # characters; the trigger stage added 170 to the active one
 
 
 @pytest.mark.parametrize("name", ["active", "passive"])

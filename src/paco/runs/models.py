@@ -7,10 +7,23 @@ from pydantic import BaseModel, ConfigDict
 
 from paco.presets import Preset
 from paco.profiles import ProfileSummary
+from paco.windows import Exclusions
 
 
 class RunError(ValueError):
     """A run cannot start. Messages are written to be read by the agent."""
+
+
+class RecordOutcome(BaseModel):
+    """One record's preprocessing, done once for every window that uses it."""
+
+    model_config = ConfigDict(frozen=True)
+
+    name: str  # the record's file name, e.g. 1.dat
+    folder: str  # records/<stem>, inside the run folder: the preprocessed stream and its figure
+    status: Literal["succeeded", "failed"]
+    duration_s: float | None = None
+    error: str | None = None  # "<type>: <message>"; the traceback is in <folder>/error.log
 
 
 class WindowOutcome(BaseModel):
@@ -35,7 +48,11 @@ class RunManifest(BaseModel):
     started_at: datetime
     finished_at: datetime
     n_positions: int  # windows the line allows, before shot selection
+    # In file order; empty in the runs made before the preprocessing split (2026-09-24).
+    records: tuple[RecordOutcome, ...] = ()
     windows: tuple[WindowOutcome, ...]  # sorted by xmid
+    # What G1 took out of the windows: the phase shift done again leaves them out too.
+    exclusions: Exclusions = Exclusions()
 
 
 class RunSummary(BaseModel):

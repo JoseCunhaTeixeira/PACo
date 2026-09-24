@@ -1,10 +1,9 @@
-"""The user's side of the agent, in a terminal: questions from PACo's tools, and the chat."""
+"""The user's side of the agent, in a terminal: the chat. No tool asks the user anything: the go
+or no-go before an inversion is G4's verdict (docs/qc_workflow.md)."""
 
 import anyio
 import anyio.to_thread
 from mcp import Client
-from mcp.client.session import ClientRequestContext
-from mcp.types import ElicitRequestParams, ElicitResult
 from openai import AsyncOpenAI
 from pydantic import ValidationError
 
@@ -12,24 +11,6 @@ from paco.agent.loop import Agent
 from paco.agent.model import OpenAIChat
 from paco.agent.record import save_transcript
 from paco.agent.settings import AgentSettings
-
-
-async def ask_the_user(
-    context: ClientRequestContext,  # noqa: ARG001
-    params: ElicitRequestParams,
-) -> ElicitResult:
-    """A question a tool asks the user (an approval): it goes to the terminal, never to the model."""
-    print(f"\n[PACo asks you] {params.message}")
-    answer = await anyio.to_thread.run_sync(input, "Approve? [y/N] ")
-    if answer.strip().lower() not in ("y", "yes"):
-        return ElicitResult(action="decline")
-    # Yes to every yes-or-no field the question has.
-    schema = getattr(params, "requested_schema", {}) or {}
-    properties = schema.get("properties", {})
-    content: dict[str, str | int | float | bool | list[str] | None] = {
-        name: True for name, field in properties.items() if field.get("type") == "boolean"
-    }
-    return ElicitResult(action="accept", content=content)
 
 
 def main() -> None:
@@ -49,7 +30,7 @@ async def chat() -> None:
         base_url=settings.llm_base_url, api_key=settings.llm_api_key.get_secret_value()
     )
     model = OpenAIChat(client, settings.llm_model)
-    async with Client(settings.mcp_url, elicitation_callback=ask_the_user) as server:
+    async with Client(settings.mcp_url) as server:
         agent = await Agent.start(server, model, settings.max_tool_calls)
         print(f"PACo's agent, with {settings.llm_model}. Type exit to leave.")
         try:

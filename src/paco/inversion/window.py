@@ -3,8 +3,11 @@
 
 import logging
 from pathlib import Path
+from typing import Any
 
 import matplotlib.pyplot as plt
+import numpy as np
+from disba import DispersionError
 from sigpipe.algorithms.inversion.rayleigh.seismic.forward import (
     fwd_seismic_all_modes,
     fwd_seismic_phase,
@@ -28,6 +31,7 @@ logger = logging.getLogger(__name__)
 DZ = 0.01  # m
 VP_VS_RATIO = 1.77
 CURVES_FILE = "DispersionCurves_0000.csv"
+SAMPLES_FILE = "SeismicInversion_Samples_0000.npz"  # PACo's own, next to PAC's files
 M0 = Mode("M", 0)  # the label pick gives the fundamental mode
 
 
@@ -61,22 +65,30 @@ def invert_window(folder: Path, parameters: InversionParameters) -> InversionRes
     )[0]
 
     (folder / "SeismicInversion_Log_0000.log").write_text(result.log)
+    save_samples(result, parameters.n_chains, folder / SAMPLES_FILE)
 
     # The median model's M0 at the picked frequencies, and every mode it supports across the
     # image, drawn over the image (the old Streamlit app's pred_modes and full_pred_modes).
     median = result.median
-    modeled_curves = DispersionCurves(
-        dispersion_curves=tuple(
-            fwd_seismic_phase(
-                thickness_per_layer=list(median.thicknesses),
-                Vs_per_layer=list(median.vs_s),
-                mode=curve.mode.number,
-                fs=curve.fs,
-                Vp_Vs_ratio=VP_VS_RATIO,
+    try:
+        modeled_curves = DispersionCurves(
+            dispersion_curves=tuple(
+                fwd_seismic_phase(
+                    thickness_per_layer=list(median.thicknesses),
+                    Vs_per_layer=list(median.vs_s),
+                    mode=curve.mode.number,
+                    fs=curve.fs,
+                    Vp_Vs_ratio=VP_VS_RATIO,
+                )
+                for curve in curves
             )
-            for curve in curves
         )
-    )
+    except DispersionError:
+        # A layer over a slower half-space has no normal mode faster than the half-space: the
+        # median of the samples can lack one where every sample had it. The figure goes without
+        # (PAC would lose the whole window here).
+        logger.warning("No mode of the median model at the picked frequencies in %s", folder)
+        modeled_curves = None
     full_modeled_curves = fwd_seismic_all_modes(
         thickness_per_layer=list(median.thicknesses),
         Vs_per_layer=list(median.vs_s),
@@ -123,6 +135,25 @@ def invert_window(folder: Path, parameters: InversionParameters) -> InversionRes
         logger.exception("Could not plot the posterior marginals in %s", folder)
 
     return result
+
+
+def save_samples(result: InversionResult, n_chains: int, path: Path) -> None:
+    """The posterior samples, chain after chain as sigpipe concatenates them, with each
+    sample's misfit: what G5 judges convergence and the prior's bounds on. PAC does not keep
+    them."""
+    arrays: dict[str, Any] = {name: np.asarray(values) for name, values in result.samples.items()}
+    np.savez_compressed(
+        path, n_chains=np.array(n_chains), misfits=np.asarray(result.misfits), **arrays
+    )
+
+
+def load_samples(path: Path) -> tuple[dict[str, np.ndarray], int]:
+    """The samples `save_samples` wrote, by parameter (vs1, ..., thick1, ...), and the number
+    of chains they come from."""
+    with np.load(path) as saved:
+        n_chains = int(saved["n_chains"])
+        samples = {name: saved[name] for name in saved.files if name not in ("n_chains", "misfits")}
+    return samples, n_chains
 
 
 def _m0_curve(folder: Path) -> DispersionCurves:

@@ -49,9 +49,7 @@ def pick(run_id: str, settings: Settings) -> PickSummary:
                 f"Run '{run_id}', {window.folder}: the pick no longer matches the run's quality "
                 "assessment. Call dispersion_quality again."
             )
-        curves, replaced = _replace_m0(folder / CURVES_FILE, m0)
-        save_dispersion_curves(curves, path=folder / CURVES_FILE)
-        _draw(folder / FIGURE_FILE, image, curves)
+        replaced = save_pick(folder, image, m0)
         windows.append(
             PickedWindow(
                 xmid=window.xmid,
@@ -77,6 +75,16 @@ def summarize_picks(record: RunPicks, quality: RunQuality, profile: str) -> Pick
         n_skipped=len(quality.windows) - len(record.windows),
         n_replaced=sum(window.replaced for window in record.windows),
     )
+
+
+def save_pick(folder: Path, image: DispersionImage, m0: DispersionCurve) -> bool:
+    """Save `m0` as the window's M0 curve in `folder`, in PAC's layout: it replaces the M0 of
+    DispersionCurves_0000.csv and keeps the other labels, and the window's figure is redrawn
+    with them. Returns whether a curve was replaced."""
+    curves, replaced = _replace_m0(folder / CURVES_FILE, m0)
+    save_dispersion_curves(curves, path=folder / CURVES_FILE)
+    _draw(folder / FIGURE_FILE, image, curves)
+    return replaced
 
 
 def _replace_m0(path: Path, m0: DispersionCurve) -> tuple[DispersionCurvesImage, bool]:

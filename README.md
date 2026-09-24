@@ -4,8 +4,9 @@ PACo lets a language model process MASW seismic profiles the way
 [PAC](https://github.com/JoseCunhaTeixeira/PAC) does: from raw records to dispersion curves and
 layered shear-wave velocity models. The model (Qwen3, served by vLLM) chooses the steps; the
 science is done by [sigpipe](https://github.com/JoseCunhaTeixeira/sigpipe), and the results are
-written in PAC's layout, so PAC's UI can open them. The model never sees the data, only short
-summaries, and an inversion starts only after you approve the curves.
+written in PAC's layout, so PAC's UI can open them. Each stage is checked by a quality gate that
+fixes what it can (G1 to G6, see [Quality control](#quality-control)); the model never sees the
+data, only the gates' short summaries, and asks you only when it is stuck.
 
 ```
 you  <-->  paco-agent  <-- OpenAI API -->  vLLM (Qwen3)
@@ -16,8 +17,9 @@ you  <-->  paco-agent  <-- OpenAI API -->  vLLM (Qwen3)
 ```
 
 - **paco-server** is an [MCP](https://modelcontextprotocol.io) server: it exposes PACo's tools.
-- **paco-agent** is the chat in your terminal: it passes the tools to the model, runs the calls
-  the model asks for, and asks you when a tool needs your approval.
+- **paco-agent** is the chat in your terminal: it passes the tools to the model and runs the
+  calls the model asks for. When the data cannot decide (no curve left, a request the line does
+  not allow), the model asks you, with a few options, in its answer.
 - **paco-evaluate** plays a suite of scenarios with the model, and scores it.
 
 ## Install
@@ -47,8 +49,11 @@ data/input/
 
 The two demo profiles, `active_p1` and `passive_p1`, come with the repository. Results go to
 `PACO_OUTPUT_DIR/<profile>/<run_id>/`: PAC's `xmid_<x>/` folders (dispersion images, picked
-curves, inversion models), plus `run.json`, `quality.json`, `pick.json` and `inversion.json`,
-which record what was done and with which settings.
+curves, inversion models; earlier attempts under `attempts/`), `records/` (the preprocessed
+records), and the run's records: `run.json` (what was processed, with which settings),
+`qc_log.jsonl` (every attempt of every stage, with the gates' verdicts), `qc_report.json`,
+`qc_config.json` (the thresholds used), `coherence.json` (how the window length was chosen) and
+`inversion.json` (the inversion job).
 
 ## Configure
 
@@ -65,7 +70,8 @@ PACO_LLM_MODEL=Qwen/Qwen3-8B
 |---|---|---|
 | `PACO_INPUT_DIR` | `/data/input` | Where the profiles are |
 | `PACO_OUTPUT_DIR` | `data/output` | Where results go |
-| `PACO_WORKERS` | `1` | Windows processed, or inverted, in parallel |
+| `PACO_WORKERS` | `1` | Windows processed, or inverted, in parallel (the evaluation uses 8) |
+| `PACO_QC_CONFIG` | PACo's defaults | A JSON file of the gates' thresholds and retry budgets (`paco.qc.QCConfig`), changed between runs only |
 | `PACO_HOST`, `PACO_PORT` | `127.0.0.1`, `8000` | Where `paco-server` listens |
 | `PACO_ALLOWED_HOSTS` | none | Host names the server accepts, e.g. `["paco-server:*"]`; needed when it listens beyond 127.0.0.1 |
 | `PACO_LLM_BASE_URL` | required | The model's OpenAI-compatible API, e.g. `http://gpu-host:8001/v1` |
@@ -94,16 +100,18 @@ uv run paco-agent
 A session looks like this (an illustration: the answer's wording depends on the model):
 
 ```
-you> Process active_p1 with windows of 24 receivers, every 24 receivers, and tell me how many are good.
+you> Process active_p1 with windows of 24 receivers, every 24 receivers, and pick the curves.
 -> run_processing({"profile": "active_p1", "overrides": {"masw": {"length": 24, "step": 24}}})
    run_processing: 4 of 4 windows
--> dispersion_quality({"run_id": "20260923-142918-38a0"})
+-> pick({"run_id": "20260924-175047-f0a0"})
 
-paco> All 4 windows are good.
+paco> 3 of the 4 curves passed. G1 corrected the records' 19 and 10 ms trigger delays and left
+out traces 1, 89 and 90 of 2.dat; the pick at xmid 14.88 kept jumping onto another mode and was
+rejected after two tries.
 ```
 
 The conversation is saved when you leave (`exit`). To evaluate the model, run
-`uv run paco-evaluate`, or name scenarios: `uv run paco-evaluate list_profiles judge_active`.
+`uv run paco-evaluate`, or name scenarios: `uv run paco-evaluate list_profiles pick_active`.
 The model samples its answers, so one play of a scenario is a noisy measure: `--repeat 3` plays
 each scenario three times and reports pass rates.
 
@@ -114,21 +122,35 @@ each scenario three times and reports pass rates.
 | `list_profiles` | The profiles you can process |
 | `inspect_profile` | One profile: active or passive, receivers, spacing, sampling |
 | `preset_settings` | The processing settings the model may change, for one profile |
-| `run_processing` | Processes a profile into one dispersion image per MASW window; returns a `run_id` |
-| `quality_settings` | The picking parameters and quality thresholds the model may change |
-| `dispersion_quality` | Picks each window's fundamental mode and judges it: good, doubtful or bad, with advice |
-| `pick` | Saves the curves of the good windows, in PAC's layout, for you to review |
-| `inversion_settings` | The inversion's parameters (PAC's defaults: 2 layers, 100,000 iterations, 5 chains) |
-| `invert` | Asks you to approve the curves, then inverts them in the background; returns a `job_id` |
-| `job_status` | Where an inversion stands: windows done, velocities and depths found so far |
+| `run_processing` | Preprocesses the records (G1, its fixes applied), chooses the window length and band from the data unless given, makes one dispersion image per window (G2, retried when it can be fixed); returns a `run_id` and the gates' summary |
+| `pick` | Picks each window's fundamental mode (G3, picked again when it can be fixed), judges the curves over the line (G4, outliers picked again), saves them in PAC's layout |
+| `inversion_settings` | The inversion's parameters; left out, each window's bounds come from its own curve |
+| `invert` | Inverts the curves G4 passed, in the background (G5 on each model, G6 over the line, each retrying what it can); returns a `job_id` |
+| `job_status` | Where an inversion stands, after waiting up to 2 minutes: the smooth median models' Vs at a few depths, their useful depth and misfit; the gates' summary once it ends |
+| `redo` | Goes back to a stage (preprocessing, phase shift, picking, inversion) for some windows, with the changes a gate suggested, and redoes what follows |
+
+## Quality control
+
+Six gates judge the stages (`docs/qc_workflow.md`, the spec, with its decisions): G1 each record,
+G2 each dispersion image, G3 each curve, G4 the curves over the line, G5 each model, G6 the models
+over the line. Each gives a verdict (pass, retry, reject), each metric with its threshold, and for
+each flag the stage at fault and a change that can be applied as it is. The stage tools apply
+their own gate's changes, within budgets (2 retries per gate and window, 2 per window over the
+run); a change of an earlier stage is the model's to make, with `redo`. The window length, the
+band and the inversion's bounds come from the data (`docs/gates/S2_rules.md`,
+`docs/gates/S4_checks.md`). `docs/gates/` documents every gate with its thresholds, the demo's
+real outputs, and what is still to judge.
 
 ## Safety
 
 - `paco-server` listens on 127.0.0.1 by default: only this machine can reach it. Anyone who can
   reach it can run PACo's tools, which write files and start long computations.
-- The model never approves an inversion: the question goes to your terminal. Review the curves
-  first (`DispersionImage_0000.png` in each window folder, or PAC's UI), and correct them in
-  PAC's UI if needed.
+- No tool asks you anything: an inversion starts for the curves G4 passed, the go or no-go before
+  it. Every attempt is in the run's `qc_log.jsonl` and `qc_report.json`, with the curve each
+  model came from: review the curves afterwards (`DispersionImage_0000.png` in each window
+  folder, or PAC's UI), correct them there if needed, and invert again.
+- The gates' thresholds are locked during a run: only you change them, between runs
+  (`PACO_QC_CONFIG`); every run records the ones it used.
 - Profiles are found by name and runs by ID: a tool never takes a path from the model.
 
 ## vLLM
@@ -163,8 +185,13 @@ docker compose -f compose.yaml -f compose.rocm.yaml up -d vllm paco-server
 ```
 
 vLLM's 4-bit formats (AWQ, GPTQ) do not run on AMD GPUs, and Qwen3-8B needs about 16.4 GB for
-its weights: on a 16 GB card, set `PACO_LLM_MODEL=Qwen/Qwen3-4B`, or try an FP8 model such as
-`Qwen/Qwen3-8B-FP8`. With vLLM in Docker and PACo run with uv, point the agent at the container:
+its weights. On a 16 GB card, both of these run (tried on a Radeon RX 9070 XT):
+
+- `PACO_LLM_MODEL=Qwen/Qwen3-4B` (bf16, 7.6 GiB of weights);
+- `PACO_LLM_MODEL=Qwen/Qwen3-8B-FP8` with `VLLM_MAX_MODEL_LEN=12288`: the weights take 8.8 GiB
+  and leave 2.2 GiB for the KV cache, enough for a 12k context, not for 16k.
+
+With vLLM in Docker and PACo run with uv, point the agent at the container:
 `PACO_LLM_BASE_URL=http://127.0.0.1:8001/v1`.
 
 ## Develop

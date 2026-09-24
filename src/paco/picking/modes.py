@@ -44,7 +44,12 @@ def pick_modes(
         if span is None or span.stop - span.start < parameters.min_frequencies:
             break
 
-        ridge = lowest_ridge(values[span], start[span], stop[span], parameters.threshold)
+        if number == 0 and parameters.guide:
+            ridge = _guided_ridge(
+                parameters.guide, frequencies[span], velocities, start[span], stop[span]
+            )
+        else:
+            ridge = lowest_ridge(values[span], start[span], stop[span], parameters.threshold)
         low, high = corridor(velocities, ridge, start[span], stop[span], parameters.corridor)
         path, on_edge = track(
             values[span], velocities, frequencies[span], low, high, parameters.smoothness
@@ -83,6 +88,21 @@ def pick_modes(
         start = next_start
 
     return modes
+
+
+def _guided_ridge(
+    guide: tuple[tuple[float, float], ...],
+    frequencies: np.ndarray,
+    velocities: np.ndarray,
+    start: np.ndarray,
+    stop: np.ndarray,
+) -> np.ndarray:
+    """The guide's velocity at each frequency (interpolated, held flat beyond its ends), as
+    indices on the velocity grid within the search bounds: where the corridor is centred."""
+    points = np.array(sorted(guide), dtype=float)
+    centre = np.interp(frequencies, points[:, 0], points[:, 1])
+    ridge = np.searchsorted(velocities, centre, side="left")
+    return np.clip(ridge, start, stop)
 
 
 def _longest_run(mask: np.ndarray) -> slice | None:

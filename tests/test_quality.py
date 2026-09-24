@@ -339,11 +339,12 @@ def test_active_windows_are_good(outputs: Outputs) -> None:
 
 
 def test_no_passive_window_is_good(outputs: Outputs) -> None:
-    # With the preset's defaults, passive images show no clean ridge: every window raises a flag,
-    # though xmid 2.88 raises only one (constant wavelength), so it is doubtful, not bad.
+    # With the preset's defaults, passive images show no clean ridge: every window raises flags.
+    # (With PAC's padding before the phase shift, dropped on 2026-09-24, xmid 2.88 raised only
+    # one, and was doubtful.)
     summary = outputs.runs["passive"].summary
 
-    assert (summary.n_windows, summary.good, summary.doubtful, summary.bad) == (4, 0, 1, 3)
+    assert (summary.n_windows, summary.good, summary.doubtful, summary.bad) == (4, 0, 0, 4)
     assert summary.good_xmids == ()
 
 

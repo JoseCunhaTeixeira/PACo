@@ -10,7 +10,8 @@ from typing import Any
 from paco.agent.record import ToolStep, Transcript
 from paco.evaluation.models import CheckResult
 from paco.inversion import InversionRecord
-from paco.quality import RunQuality
+from paco.qc import QCConfig, QCReport, Stage, read_attempts
+from paco.runs import RunManifest
 
 
 @dataclass(frozen=True)
@@ -19,7 +20,6 @@ class Trial:
 
     transcript: Transcript
     output_dir: Path  # the server's output directory during the scenario
-    questions_to_user: tuple[str, ...]  # approval questions the simulated user was asked
 
 
 type Check = Callable[[Trial], CheckResult]
@@ -61,6 +61,20 @@ def only_called(tool: str, **arguments: Any) -> Check:  # noqa: ANN401
         ]
         detail = f"called with {'; '.join(others)}" if others else ""
         return CheckResult(name=name, passed=not others, detail=detail)
+
+    return check
+
+
+def any_of(*checks: Check) -> Check:
+    """One of `checks` passes: ways of doing right that the scenario accepts alike."""
+
+    def check(trial: Trial) -> CheckResult:
+        results = [check(trial) for check in checks]
+        name = " or ".join(result.name for result in results)
+        if any(result.passed for result in results):
+            return CheckResult(name=name, passed=True)
+        detail = "; ".join(f"{result.name}: {result.detail}" for result in results)
+        return CheckResult(name=name, passed=False, detail=detail)
 
     return check
 
@@ -148,10 +162,93 @@ def answer_mentions(*facts: Fact) -> Check:
 
 
 def asked_the_user() -> Check:
+    """The final answer asks the user something: the agent was stuck, and said so."""
+
     def check(trial: Trial) -> CheckResult:
-        passed = bool(trial.questions_to_user)
-        detail = "" if passed else "no approval question reached the user"
-        return CheckResult(name="the user was asked to approve", passed=passed, detail=detail)
+        passed = _asks(trial.transcript.answer)
+        detail = "" if passed else "the answer asks nothing"
+        return CheckResult(name="the agent asked the user", passed=passed, detail=detail)
+
+    return check
+
+
+def asked_nothing() -> Check:
+    """The final answer asks the user nothing: the data decided (docs/qc_workflow.md)."""
+
+    def check(trial: Trial) -> CheckResult:
+        passed = not _asks(trial.transcript.answer)
+        detail = "" if passed else "the answer asks the user"
+        return CheckResult(name="the agent asked nothing", passed=passed, detail=detail)
+
+    return check
+
+
+def thresholds_unchanged() -> Check:
+    """Every run used the server's configuration of thresholds: the judge stays fixed."""
+    name = "the thresholds stayed the configuration's"
+
+    def check(trial: Trial) -> CheckResult:
+        expected = QCConfig()
+        changed = [
+            path.parent.name
+            for path in trial.output_dir.glob("*/*/qc_config.json")
+            if QCConfig.model_validate_json(path.read_text()) != expected
+        ]
+        detail = f"changed in {', '.join(changed)}" if changed else ""
+        return CheckResult(name=name, passed=not changed, detail=detail)
+
+    return check
+
+
+def loop_retried(trigger: str) -> Check:
+    """The QC loop retried a unit for `trigger` ("<gate>:<flag>", or "backtrack": the agent
+    went back a stage), in some run of the scenario."""
+    name = f"the loop retried for {trigger}"
+
+    def check(trial: Trial) -> CheckResult:
+        seen = {
+            attempt.triggered_by
+            for path in trial.output_dir.glob("*/*/qc_log.jsonl")
+            for attempt in read_attempts(path.parent)
+        }
+        passed = any(one.startswith(trigger) for one in seen)
+        detail = (
+            "" if passed else f"triggers seen: {', '.join(sorted(seen - {'initial'})) or 'none'}"
+        )
+        return CheckResult(name=name, passed=passed, detail=detail)
+
+    return check
+
+
+def excluded(record: str, trace: int) -> Check:
+    """The latest run left trace `trace` of `record` out of its windows (G1's fix)."""
+    name = f"trace {trace} of {record} left out"
+
+    def check(trial: Trial) -> CheckResult:
+        manifest = _latest_manifest(trial)
+        if manifest is None:
+            return CheckResult(name=name, passed=False, detail="no run on disk")
+        passed = trace in manifest.exclusions.traces.get(record, ())
+        detail = "" if passed else f"exclusions: {manifest.exclusions.model_dump()}"
+        return CheckResult(name=name, passed=passed, detail=detail)
+
+    return check
+
+
+def no_settings_invented(tool: str) -> Check:
+    """Every successful call of `tool` gave no overrides: with no setting from the user, every
+    parameter comes from the data."""
+    name = f"{tool} with no settings"
+
+    def check(trial: Trial) -> CheckResult:
+        steps = [step for step in _called(trial) if step.name == tool and not step.is_error]
+        if not steps:
+            return CheckResult(name=name, passed=False, detail=f"{tool} never succeeded")
+        given = [
+            step.arguments for step in steps if json.loads(step.arguments or "{}").get("overrides")
+        ]
+        detail = f"called with {'; '.join(given)}" if given else ""
+        return CheckResult(name=name, passed=not given, detail=detail)
 
     return check
 
@@ -166,7 +263,7 @@ def no_inversion_started() -> Check:
 
 
 def inversion_succeeded() -> Check:
-    """The inversion the agent started ran to its end, with a model for every window.
+    """The inversion the agent started ran to its end, with a model for every window it took.
 
     `invert` succeeding only means the job started: it can still fail in every window.
     """
@@ -189,13 +286,57 @@ def inversion_succeeded() -> Check:
     return check
 
 
-def good_windows(trial: Trial) -> str:
-    """The number of good windows of the latest run the agent judged."""
-    paths = sorted(trial.output_dir.glob("*/*/quality.json"), key=lambda path: path.parent.name)
-    if not paths:
+def curves(trial: Trial) -> str:
+    """How many curves of the latest run passed G3 and G4."""
+    report = _latest_report(trial)
+    if report is None:
         return "(no judged run)"
-    record = RunQuality.model_validate_json(paths[-1].read_text())
-    return str(sum(window.quality.verdict == "good" for window in record.windows))
+    passed = [
+        unit
+        for unit in report.units
+        if unit.xmid is not None
+        and unit.verdicts.get("G3") == "pass"
+        and unit.verdicts.get("G4") == "pass"
+    ]
+    return str(len(passed))
+
+
+def models(trial: Trial) -> str:
+    """How many windows the latest inversion gave a model."""
+    paths = sorted(trial.output_dir.glob("*/*/inversion.json"))
+    if not paths:
+        return "(no inversion)"
+    record = InversionRecord.model_validate_json(paths[-1].read_text())
+    return str(sum(window.status == "succeeded" for window in record.windows))
+
+
+def retried_value(stage: Stage, *path: str) -> Callable[[Trial], str]:
+    """The value at `path` in the parameters of the first retry of `stage` a gate made (the
+    setting a gate changed, as the summary's example shows it), e.g. ("dispersion", "vmax")."""
+
+    def fact(trial: Trial) -> str:
+        value: Any = None
+        for log in sorted(trial.output_dir.glob("*/*/qc_log.jsonl")):
+            for attempt in read_attempts(log.parent):
+                if (
+                    value is None
+                    and attempt.stage == stage
+                    and attempt.triggered_by.startswith("G")
+                ):
+                    found: Any = attempt.parameters
+                    for key in path:
+                        found = found.get(key) if isinstance(found, dict) else None
+                    if found is not None:
+                        value = found
+        return (
+            "(no retry)"
+            if value is None
+            else f"{value:g}"
+            if isinstance(value, float)
+            else str(value)
+        )
+
+    return fact
 
 
 def job_id(trial: Trial) -> str:
@@ -204,6 +345,21 @@ def job_id(trial: Trial) -> str:
     if not paths:
         return "(no job)"
     return InversionRecord.model_validate_json(paths[-1].read_text()).job_id
+
+
+def _asks(answer: str) -> bool:
+    """Whether an answer asks the user something."""
+    return "?" in answer
+
+
+def _latest_manifest(trial: Trial) -> RunManifest | None:
+    paths = sorted(trial.output_dir.glob("*/*/run.json"), key=lambda path: path.parent.name)
+    return RunManifest.model_validate_json(paths[-1].read_text()) if paths else None
+
+
+def _latest_report(trial: Trial) -> QCReport | None:
+    paths = sorted(trial.output_dir.glob("*/*/qc_report.json"), key=lambda path: path.parent.name)
+    return QCReport.model_validate_json(paths[-1].read_text()) if paths else None
 
 
 def _called(trial: Trial) -> list[ToolStep]:

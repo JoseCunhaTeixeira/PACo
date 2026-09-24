@@ -14,8 +14,10 @@ class MASWParameters(BaseModel):
     # Unknown keys are errors: presets expose these parameters to the agent's overrides.
     model_config = ConfigDict(frozen=True, extra="forbid")
 
-    length: int = Field(default=3, ge=3)  # receivers per window
-    step: int = Field(default=1, gt=0)  # receivers between two window starts
+    # Receivers per window: 5 by default (the user, 2026-09-24), where PAC's form has 3. The
+    # descriptions say "receivers": Qwen3-8B sent 6.0 for 24 receivers 0.25 m apart.
+    length: int = Field(default=5, ge=3, description="receivers, not metres")
+    step: int = Field(default=1, gt=0, description="receivers between starts")
     distance_min: float = Field(default=0.0, ge=0)  # m, from the source to the window middle
     distance_max: float = Field(default=1_000.0, gt=0)  # m; both bounds exclusive
 
@@ -27,6 +29,24 @@ class MASWParameters(BaseModel):
                 f"distance_min ({self.distance_min:g})"
             )
         return self
+
+
+class Exclusions(BaseModel):
+    """What the signal QC (G1) takes out of a run: records no window uses, and traces (receiver
+    indices, by record file name) that the windows holding them leave out, for every record of
+    the window, so that its records keep one geometry."""
+
+    model_config = ConfigDict(frozen=True)
+
+    records: tuple[str, ...] = ()
+    traces: dict[str, tuple[int, ...]] = {}
+
+    def with_traces(self, record: str, traces: tuple[int, ...]) -> Exclusions:
+        merged = tuple(sorted({*self.traces.get(record, ()), *traces}))
+        return self.model_copy(update={"traces": {**self.traces, record: merged}})
+
+    def with_record(self, record: str) -> Exclusions:
+        return self.model_copy(update={"records": tuple(sorted({*self.records, record}))})
 
 
 class MASWWindow(BaseModel):

@@ -6,6 +6,15 @@ PAC's UI before any inversion.
 """
 
 from .models import PickedWindow, PickSummary, RunPicks
-from .saving import pick, summarize_picks
+from .saving import CURVES_FILE, FIGURE_FILE, pick, save_pick, summarize_picks
 
-__all__ = ["PickSummary", "PickedWindow", "RunPicks", "pick", "summarize_picks"]
+__all__ = [
+    "CURVES_FILE",
+    "FIGURE_FILE",
+    "PickSummary",
+    "PickedWindow",
+    "RunPicks",
+    "pick",
+    "save_pick",
+    "summarize_picks",
+]

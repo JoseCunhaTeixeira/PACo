@@ -9,7 +9,7 @@ from sigpipe.transformers import Load
 
 from paco.picking import PickingParameters, pick_modes
 from paco.picking.tracking import corridor, lowest_ridge, track
-from paco.pipelines import build_pipeline
+from paco.pipelines import build_image_pipeline, build_preprocessing_pipeline, record_folder
 from paco.presets import make_preset, resolve_preset
 from paco.profiles import Profile
 from paco.windows import build_windows
@@ -297,14 +297,20 @@ def demo_image(
     profiles: dict[str, Profile], tmp_path_factory: pytest.TempPathFactory
 ) -> DispersionImage:
     """The dispersion image of active_p1's first 24-receiver window, as run_processing makes it."""
-    folder = tmp_path_factory.mktemp("window")
+    root = tmp_path_factory.mktemp("window")
+    folder = root / "window"
+    folder.mkdir()
     profile = profiles["active_p1"]
     preset = resolve_preset(make_preset("active", {"masw": {"length": 24}}), profile)
-    pipeline = build_pipeline(preset, build_windows(profile, preset.masw)[0], folder)
+    window = build_windows(profile, preset.masw)[0]
     with pytest.MonkeyPatch.context() as patch:
         # sigpipe's Pipeline.run creates a logs/ folder in the working directory.
-        patch.chdir(folder)
-        pipeline.run(show_log=False)
+        patch.chdir(root)
+        for record in profile.records:
+            records = record_folder(root / "records", record)
+            records.mkdir(parents=True)
+            build_preprocessing_pipeline(preset, record, profile, records).run(show_log=False)
+        build_image_pipeline(preset, window, root / "records", folder).run(show_log=False)
 
     (image,) = Load(
         file_paths=[folder / "DispersionImage_0000.hdf5"], data_type="dispersion_image"
@@ -325,3 +331,32 @@ def test_m0_of_a_demo_window(demo_image: DispersionImage) -> None:
     ridge = mode.kept & (mode.frequencies >= 20) & (mode.frequencies <= 60)
     velocities = mode.velocities[ridge]
     assert velocities == pytest.approx(np.median(velocities), rel=0.2)
+
+
+def test_a_guide_centres_the_corridor_on_the_curve_given() -> None:
+    """Two ridges of the same height; the lowest is M0 by default, the guide picks the one it
+    follows (G4's re-pick on the neighbouring windows' median curve)."""
+    vs = np.arange(1.0, 1_001.0)
+    noise_floor = 1 / math.sqrt(len(ACQUISITION.receivers))
+
+    def ridge(velocities: np.ndarray) -> np.ndarray:
+        centres = velocities[:, None]
+        return 2.0 * noise_floor * np.exp(-0.5 * ((vs - centres) / (0.1 * centres)) ** 2)
+
+    lower, upper = m0(RIDGE_FREQUENCIES), 1.8 * m0(RIDGE_FREQUENCIES)
+    image = DispersionImage(
+        fv_map=np.maximum(ridge(lower), ridge(upper)),
+        fs=RIDGE_FREQUENCIES,
+        vs=vs,
+        type=VelocityType.PHASE,
+        acquisition=ACQUISITION,
+    )
+    guide = tuple(
+        (float(f), float(v)) for f, v in zip(RIDGE_FREQUENCIES[::5], upper[::5], strict=True)
+    )
+
+    (default,) = pick_modes(image, PickingParameters())
+    (guided,) = pick_modes(image, PickingParameters(guide=guide))
+
+    assert default.velocities[default.kept] == pytest.approx(lower[default.kept], rel=0.05)
+    assert guided.velocities[guided.kept] == pytest.approx(upper[guided.kept], rel=0.05)

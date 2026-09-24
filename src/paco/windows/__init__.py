@@ -3,7 +3,7 @@
 Port of PAC's adapters/windows.py on top of paco.profiles: same windows, same shot selection.
 """
 
-from .building import build_windows
-from .models import MASWParameters, MASWWindow
+from .building import apply_exclusions, build_windows
+from .models import Exclusions, MASWParameters, MASWWindow
 
-__all__ = ["MASWParameters", "MASWWindow", "build_windows"]
+__all__ = ["Exclusions", "MASWParameters", "MASWWindow", "apply_exclusions", "build_windows"]

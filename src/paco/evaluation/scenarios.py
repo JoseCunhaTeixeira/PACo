@@ -1,23 +1,33 @@
-"""The first evaluation suite: two scenarios for each kind of task the agent must handle."""
+"""The evaluation suite of the QC loop (docs/qc_workflow.md, milestone 14): looking around,
+processing and picking with the gates' own fixes, the loop's changes to the settings the user
+typed (said in the answer), the whole line to Vs models with no setting at all, and the cases
+where the agent is stuck and must ask. Every scenario where the data decide checks that the
+agent asked nothing, and that the thresholds stayed the configuration's."""
 
 from dataclasses import dataclass
-from typing import Literal
 
 from paco.evaluation.checks import (
     Check,
     answer_mentions,
+    any_of,
+    asked_nothing,
     asked_the_user,
     at_most_calls,
     called,
-    good_windows,
+    curves,
+    excluded,
     in_order,
     inversion_succeeded,
-    job_id,
+    loop_retried,
+    models,
     never_called,
     no_inversion_started,
+    no_settings_invented,
     not_succeeded,
     only_called,
+    retried_value,
     succeeded,
+    thresholds_unchanged,
 )
 from paco.evaluation.models import Kind
 
@@ -31,8 +41,6 @@ class Scenario:
     questions: tuple[str, ...]  # what the user types, one message after another
     checks: tuple[Check, ...]
     rubric: str  # what the judge model grades
-    # How the simulated user answers an approval question.
-    approval: Literal["accept", "decline"] = "decline"
 
 
 SCENARIOS = (
@@ -45,7 +53,7 @@ SCENARIOS = (
             answer_mentions("active_p1", "passive_p1"),
             at_most_calls(3),
         ),
-        rubric="The answer lists the two profiles, active_p1 and passive_p1, and nothing else.",
+        rubric="The answer lists the profiles PACo offers, and nothing else.",
     ),
     Scenario(
         name="describe_profile",
@@ -61,40 +69,6 @@ SCENARIOS = (
         rubric="The answer gives 96 receivers, 0.25 m apart, read from the profile.",
     ),
     Scenario(
-        name="judge_active",
-        kind="process and judge",
-        questions=(
-            "Process active_p1 with windows of 24 receivers, every 24 receivers, then tell me "
-            "how many windows are good.",
-        ),
-        checks=(
-            only_called("run_processing", profile="active_p1", overrides=SMALL_WINDOWS),
-            in_order("run_processing", "dispersion_quality"),
-            answer_mentions(good_windows),
-            at_most_calls(6),
-            never_called("invert"),
-        ),
-        rubric="The agent processes with the requested windows, judges the run, and reports the "
-        "number of good windows that dispersion_quality returned.",
-    ),
-    Scenario(
-        name="judge_passive",
-        kind="process and judge",
-        questions=(
-            "Process passive_p1 with windows of 24 receivers, every 24 receivers, judge the "
-            "windows, and pick the good ones.",
-        ),
-        checks=(
-            only_called("run_processing", profile="passive_p1", overrides=SMALL_WINDOWS),
-            succeeded("dispersion_quality"),
-            not_succeeded("pick"),
-            never_called("invert"),
-        ),
-        rubric="No window is good, so there is nothing to pick: the agent says so plainly, "
-        "gives the main reasons (flags) and the advice dispersion_quality returned, and does not "
-        "claim any curve was picked.",
-    ),
-    Scenario(
         name="unknown_profile",
         kind="recover",
         questions=("Describe the profile active_p2.",),
@@ -107,54 +81,150 @@ SCENARIOS = (
         "and does not describe a profile it made up.",
     ),
     Scenario(
-        name="windows_too_long",
-        kind="recover",
-        questions=("Process active_p1 with windows of 120 receivers.",),
-        # Qwen3-4B went on to judge, pick, and ask to invert.
-        checks=(called("run_processing"), answer_mentions("96"), never_called("invert")),
-        rubric="The line has only 96 receivers: the agent explains the limit and asks which "
-        "length to use, or uses a shorter one and says so. It never reports a run with windows "
-        "of 120 receivers.",
-    ),
-    Scenario(
-        name="inversion_declined",
-        kind="approval",
+        name="pick_active",
+        kind="the loop",
         questions=(
-            "Process active_p1 with windows of 24 receivers, every 24 receivers, judge and pick "
-            "the curves, then invert them.",
+            "Process active_p1 with windows of 24 receivers, every 24 receivers, and pick the "
+            "curves.",
         ),
         checks=(
             only_called("run_processing", profile="active_p1", overrides=SMALL_WINDOWS),
-            called("invert"),
-            asked_the_user(),
-            no_inversion_started(),
+            in_order("run_processing", "pick"),
+            # The demo's records start 20 ms before the shot: G1 corrects it. The pick of xmid
+            # 14.88 jumps between modes: G3 picks it again.
+            loop_retried("G1:shifted_trigger"),
+            loop_retried("G3:mode_jump"),
+            answer_mentions(curves),
+            never_called("invert"),
+            asked_nothing(),
+            thresholds_unchanged(),
         ),
-        rubric="The user declined the inversion when asked: the agent reports that no inversion "
-        "started, does not claim otherwise, and asks what to change.",
-        approval="decline",
+        rubric="The agent processes with the requested windows and picks the curves, then says "
+        "how many curves passed and what the gates fixed or rejected (the trigger delay, the "
+        "window whose pick jumped), without asking anything.",
     ),
     Scenario(
-        name="inversion_approved",
-        kind="approval",
+        name="dead_trace",
+        kind="the loop",
         questions=(
-            "Process active_p1 with windows of 24 receivers, every 24 receivers, judge and pick "
-            "the curves, then invert them quickly, with 2,000 iterations and a single chain.",
+            "Process active_dead with windows of 24 receivers, every 24 receivers, and pick the "
+            "curves.",
         ),
         checks=(
-            # Qwen3-4B once processed with the default length, then chose 48 receivers on the
-            # quality advice, and inverted those windows without a word.
-            only_called("run_processing", profile="active_p1", overrides=SMALL_WINDOWS),
-            called("invert", parameters={"n_iterations": 2000, "n_chains": 1}),
-            asked_the_user(),
-            succeeded("invert"),
-            # A job can start and still fail in every window: Qwen3-4B's 2,000 iterations
-            # kept PAC's 10,000 of burn-in, and left nothing to sample.
+            succeeded("pick"),
+            excluded("1.mseed", 40),
+            any_of(answer_mentions("40"), answer_mentions("dead")),
+            asked_nothing(),
+            thresholds_unchanged(),
+        ),
+        rubric="Trace 40 of the first record is dead: the agent reports that G1 left it out, "
+        "and how many curves passed, without asking anything.",
+    ),
+    Scenario(
+        name="narrow_velocities",
+        kind="the loop",
+        questions=(
+            "Process active_p1 with windows of 24 receivers, every 24 receivers, and velocities "
+            "up to 250 m/s, and pick the curves.",
+        ),
+        checks=(
+            succeeded("pick"),
+            # The ground is faster than 250 m/s in places: G2 widens the range, and the agent
+            # must say that a setting the user typed changed.
+            loop_retried("G2:ridge_at_vmax"),
+            answer_mentions(retried_value("phase_shift", "dispersion", "vmax")),
+            asked_nothing(),
+            thresholds_unchanged(),
+        ),
+        rubric="The velocity range the user typed is too narrow for the ground: the agent says "
+        "the gates widened it (to what) and any other setting that changed, and how many curves "
+        "passed, without asking anything.",
+    ),
+    Scenario(
+        name="few_iterations",
+        kind="the loop",
+        questions=(
+            "Process active_p1 with windows of 24 receivers, every 24 receivers, pick the curves "
+            "and invert them quickly, with 2,000 iterations.",
+        ),
+        checks=(
+            called("invert", parameters={"n_iterations": 2000}),
+            # 12 models a chain: G5 asks the iterations that give enough.
+            loop_retried("G5:not_converged"),
             inversion_succeeded(),
-            answer_mentions(job_id),
+            answer_mentions(retried_value("inversion", "n_iterations")),
+            asked_nothing(),
+            thresholds_unchanged(),
         ),
-        rubric="The user approved: the agent starts the inversion with the requested effort, "
-        "gives the job ID, and says how to follow it; it does not invent results the job has "
-        "not reported.",
-        approval="accept",
+        rubric="2,000 iterations are too few: the agent starts the inversion as asked, follows "
+        "the job to its end, and says that G5 raised the iterations (to what) and what the "
+        "models are, without asking anything.",
+    ),
+    Scenario(
+        name="tight_bounds",
+        kind="the loop",
+        questions=(
+            "Process active_p1 with windows of 24 receivers, every 24 receivers, pick the curves "
+            "and invert them with shear-wave velocities between 100 and 180 m/s, 20,000 "
+            "iterations.",
+        ),
+        checks=(
+            called("invert"),
+            inversion_succeeded(),
+            # The curves reach 290 m/s: the checks before S4 widen the upper bound.
+            answer_mentions("180"),
+            asked_nothing(),
+            thresholds_unchanged(),
+        ),
+        rubric="The bounds the user typed do not bracket the curves: the agent says the checks "
+        "before the inversion widened them (to what), and what the models are, without asking "
+        "anything.",
+    ),
+    Scenario(
+        name="zero_settings",
+        kind="the loop",
+        questions=("Process active_p1 and give me the Vs models.",),
+        checks=(
+            no_settings_invented("run_processing"),
+            in_order("run_processing", "pick", "invert"),
+            inversion_succeeded(),
+            answer_mentions(models),
+            asked_nothing(),
+            thresholds_unchanged(),
+        ),
+        rubric="With no setting at all, the agent runs the whole loop (processing, picking, the "
+        "inversion, followed to its end) and gives the Vs models and why some windows have "
+        "none, without asking anything.",
+    ),
+    Scenario(
+        name="no_curve",
+        kind="stuck",
+        questions=(
+            "Process passive_p1 with windows of 24 receivers, every 24 receivers, pick the "
+            "curves and invert them.",
+        ),
+        checks=(
+            succeeded("run_processing"),
+            not_succeeded("invert"),
+            no_inversion_started(),
+            asked_the_user(),
+            thresholds_unchanged(),
+        ),
+        rubric="No curve of the passive line passes the gates, so there is nothing to invert: "
+        "the agent says so with the main reasons, and asks the user which to try, with a few "
+        "concrete options.",
+    ),
+    Scenario(
+        name="windows_too_long",
+        kind="stuck",
+        questions=("Process active_p1 with windows of 120 receivers.",),
+        checks=(
+            answer_mentions("96"),
+            asked_the_user(),
+            never_called("invert"),
+        ),
+        rubric="The line has only 96 receivers: the agent explains the limit and asks the user "
+        "which length to use, with a few concrete options. It never reports a run with windows "
+        "of 120 receivers.",
     ),
 )

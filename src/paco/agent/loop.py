@@ -17,10 +17,17 @@ from paco.agent.record import ModelStep, Step, ToolStep, Transcript
 
 ROLE = (
     "You are PACo's assistant. You help a geophysicist turn MASW seismic profiles into "
-    "dispersion curves and velocity models, with the tools you have. Do what the user asks, all "
-    "of it and nothing more, calling the tools yourself one after another, then answer: the user "
-    "cannot call the tools. Keep the settings the user gave: ask before changing any. Answer "
-    "briefly. Report only what the tools return: never invent a result."
+    "dispersion curves and velocity models, with the tools you have. Work in a loop: plan the "
+    "stages the request needs, act by calling a tool, observe its summary, adapt (go on, or go "
+    "back with redo when a gate asks a change of an earlier stage), until the request is done. "
+    "Do what the user asks, all of it and nothing more; the user cannot call the tools. Decide "
+    "from the summaries. In your answer, report every item of the results' changed lists (the "
+    "settings the gates changed, the user's among them) and the windows left without a result. "
+    "Ask the user only when the request cannot be finished: no image or no curve left, the "
+    "run's retry budget spent before the request is done, or a request the data do not allow; "
+    "then ask one short question with 2 or 3 concrete options, your choice first, and wait. "
+    "Rejected windows are gaps to report, not a reason to ask. Otherwise end with the answer: "
+    "no offer, no question. Report only what the tools return: never invent a result."
 )
 
 # What the loop does, for the user to follow: tool calls, progress, failures.
@@ -61,6 +68,7 @@ class Agent:
         """The model's answer to `question`, after every tool call it asked for."""
         self.messages.append({"role": "user", "content": question})
         calls = 0
+        failed: dict[tuple[str, str], str] = {}  # calls that failed in this answer: their error
         while True:
             start = time.perf_counter()
             reply = await self._model(self.messages, self._tools)
@@ -77,7 +85,14 @@ class Agent:
                 return reply.content
             for call in reply.tool_calls:
                 calls += 1
-                step = await self._call(call, over_budget=calls > self._max_tool_calls)
+                key = (call.name, _canonical(call.arguments))
+                step = await self._call(
+                    call, over_budget=calls > self._max_tool_calls, failed_before=failed.get(key)
+                )
+                if step.is_error:
+                    failed[key] = step.result
+                else:
+                    failed.pop(key, None)
                 self.steps.append(step)
                 self.messages.append(
                     {"role": "tool", "tool_call_id": call.id, "content": step.result}
@@ -92,7 +107,9 @@ class Agent:
             steps=list(self.steps),
         )
 
-    async def _call(self, call: ToolCall, over_budget: bool) -> ToolStep:
+    async def _call(
+        self, call: ToolCall, over_budget: bool, failed_before: str | None = None
+    ) -> ToolStep:
         start = time.perf_counter()
 
         def refused(result: str) -> ToolStep:
@@ -109,6 +126,15 @@ class Agent:
             return refused(
                 f"Not called: this answer already made {self._max_tool_calls} tool calls. "
                 "Answer the user with what you have, and say what is left to do."
+            )
+        if failed_before is not None:
+            # Qwen3-8B sent the same wrong invert call three times; Qwen3-4B looped ten times on
+            # one, then invented a result.
+            self._on_event(f"-> {call.name}({call.arguments}) refused: the same call just failed")
+            return refused(
+                "Not called: this exact call just failed, and would fail again: "
+                f"{failed_before[:300]} Change the arguments, call another tool, or answer the "
+                "user with what you have."
             )
         try:
             parsed: Any = json.loads(call.arguments or "{}")
@@ -154,3 +180,12 @@ def _assistant_message(reply: Reply) -> ChatCompletionMessageParam:
             for call in reply.tool_calls
         ],
     }
+
+
+def _canonical(arguments: str) -> str:
+    """Tool arguments as a key: the same JSON object written with other spacing or key order is
+    the same call."""
+    try:
+        return json.dumps(json.loads(arguments or "{}"), sort_keys=True)
+    except json.JSONDecodeError:
+        return arguments

@@ -6,7 +6,7 @@ from pathlib import Path
 from sigpipe.base import Coordinate, LinearAcquisition
 
 from paco.profiles import Profile
-from paco.windows.models import MASWParameters, MASWWindow
+from paco.windows.models import Exclusions, MASWParameters, MASWWindow
 
 logger = logging.getLogger(__name__)
 
@@ -71,3 +71,37 @@ def build_windows(profile: Profile, params: MASWParameters) -> list[MASWWindow]:
     logger.info("Built %d valid MASW windows", len(windows))
 
     return windows
+
+
+def apply_exclusions(window: MASWWindow, exclusions: Exclusions) -> MASWWindow | None:
+    """`window` without the records and traces G1 excluded; None when fewer than 3 receivers or
+    no record are left. The xmid stays: an exclusion never moves a window."""
+    kept = [
+        index
+        for index, path in enumerate(window.selected_files)
+        if path.name not in exclusions.records
+    ]
+    files = [window.selected_files[index] for index in kept]
+    dropped = {trace for path in files for trace in exclusions.traces.get(path.name, ())}
+    positions = [
+        position
+        for position, receiver in enumerate(window.receiver_indices)
+        if receiver not in dropped
+    ]
+    if not files or len(positions) < 3:
+        return None
+    acquisitions = [
+        LinearAcquisition(
+            source=window.acquisitions[index].source,
+            receivers=tuple(
+                window.acquisitions[index].receivers[position] for position in positions
+            ),
+        )
+        for index in kept
+    ]
+    return MASWWindow(
+        xmid=window.xmid,
+        selected_files=files,
+        receiver_indices=[window.receiver_indices[position] for position in positions],
+        acquisitions=acquisitions,
+    )

@@ -123,7 +123,12 @@ def test_run_folder_has_pacs_layout(request: pytest.FixtureRequest, kind: str) -
     run: Run = request.getfixturevalue(f"{kind}_run")
     window_folders = {window.folder for window in run.manifest.windows}
 
-    assert {path.name for path in run.folder.iterdir()} == {"run.json", "logs", *window_folders}
+    assert {path.name for path in run.folder.iterdir()} == {
+        "run.json",
+        "logs",
+        "records",
+        *window_folders,
+    }
     for window in run.manifest.windows:
         assert window.folder == f"xmid_{window.xmid:.2f}"
         files = {path.name for path in (run.folder / window.folder).iterdir()}
@@ -212,7 +217,8 @@ def test_failed_windows_keep_their_traceback(failing_run: Run) -> None:
 def test_no_valid_shot_is_refused_before_writing(demo_settings: Settings) -> None:
     overrides = {"masw": {"distance_min": 50, "distance_max": 60}}
 
-    with pytest.raises(RunError, match=r"all 94 positions were skipped\. Widen masw\.distance_min"):
+    # 92 positions of 5 receivers along the 96.
+    with pytest.raises(RunError, match=r"all 92 positions were skipped\. Widen masw\.distance_min"):
         run_processing("active_p1", "active", overrides, demo_settings)
     assert not demo_settings.output_dir.exists()
 
@@ -373,3 +379,55 @@ def test_load_manifest_reads_run_json(active_run: Run, demo_input_dir: Path) -> 
     settings = Settings(input_dir=demo_input_dir, output_dir=active_run.folder.parents[1])
 
     assert load_manifest(active_run.summary.run_id, settings) == active_run.manifest
+
+
+# ---------------------------------------------------------------- preprocessed records
+
+
+@pytest.mark.parametrize("kind", ["active", "passive"])
+def test_every_record_is_preprocessed_once(
+    request: pytest.FixtureRequest, profiles: dict[str, Profile], kind: str
+) -> None:
+    run: Run = request.getfixturevalue(f"{kind}_run")
+    profile = profiles[f"{kind}_p1"]
+
+    assert [record.name for record in run.manifest.records] == [
+        record.path.name for record in profile.records
+    ]
+    for record in run.manifest.records:
+        assert record.status == "succeeded"
+        assert record.duration_s is not None
+        assert record.folder == f"records/{Path(record.name).stem}"
+        files = {path.name for path in (run.folder / record.folder).iterdir()}
+        assert files == {"Stream_0000.hdf5", "Stream_0000.png"}
+
+
+def test_a_record_that_fails_preprocessing_fails_its_windows(
+    profiles: dict[str, Profile], tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.chdir(tmp_path)
+    profile = profiles["active_p1"]
+    # load_profile reads every record, so a broken file never reaches a run: a record that
+    # disappears between the two does.
+    missing = profile.records[1].model_copy(update={"path": profile.folder / "missing.dat"})
+    broken = profile.model_copy(update={"records": (profile.records[0], missing)})
+    preset = resolve_preset(make_preset("active", SMALL_WINDOWS), broken)
+    windows = build_windows(broken, preset.masw)
+    run_folder = tmp_path / "run"
+    run_folder.mkdir()
+
+    records = processing.preprocess_records(preset, broken, run_folder, workers=2)
+    outcomes = processing.process_windows(preset, windows, records, run_folder, workers=2)
+
+    assert [(record.name, record.status) for record in records] == [
+        ("1.dat", "succeeded"),
+        ("missing.dat", "failed"),
+    ]
+    assert records[1].error is not None
+    assert (run_folder / "records" / "missing" / "error.log").exists()
+    # Every window of active_p1 uses both records: none can run.
+    assert len(outcomes) == 4
+    for outcome in outcomes:
+        assert outcome.status == "failed"
+        assert outcome.error == f"record missing.dat failed preprocessing: {records[1].error}"
+        assert not (run_folder / outcome.folder / "DispersionImage_0000.hdf5").exists()
