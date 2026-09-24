@@ -2,7 +2,7 @@ import json
 from collections.abc import Callable
 from datetime import UTC, datetime
 from pathlib import Path
-from typing import Any, Literal
+from typing import Any, Literal, cast
 
 import anyio
 import pytest
@@ -25,21 +25,39 @@ from paco.evaluation import (
 )
 from paco.evaluation.checks import (
     answer_mentions,
+    any_of,
+    asked_nothing,
     asked_the_user,
     at_most_calls,
     called,
-    good_windows,
+    curves,
+    excluded,
     in_order,
     inversion_succeeded,
+    loop_retried,
+    models,
     never_called,
     no_inversion_started,
+    no_settings_invented,
     not_succeeded,
     only_called,
+    retried_value,
     succeeded,
+    thresholds_unchanged,
 )
-from paco.inversion import InversionParameters, InversionRecord, JobState, WindowInversion
-from paco.picking import PickingParameters
-from paco.quality import ImageQuality, QualityParameters, RunQuality, WindowQuality
+from paco.evaluation.defects import build_inputs
+from paco.inversion import InversionRecord, JobState, WindowInversion
+from paco.profiles import load_profile
+from paco.qc import (
+    Attempt,
+    Budgets,
+    QCConfig,
+    QCReport,
+    UnitReport,
+    append_attempt,
+    snapshot_qc_config,
+)
+from paco.runs import RunManifest
 from paco.settings import Settings
 
 SMALL_WINDOWS = {"masw": {"length": 24, "step": 24}}
@@ -87,19 +105,14 @@ def _step(
     )
 
 
-def _trial(
-    steps: list[Step],
-    answer: str = "",
-    output_dir: Path = Path("/nowhere"),
-    asked: tuple[str, ...] = (),
-) -> Trial:
+def _trial(steps: list[Step], answer: str = "", output_dir: Path = Path("/nowhere")) -> Trial:
     transcript = Transcript(
         started_at=datetime(2026, 9, 23, tzinfo=UTC),
         model="qwen",
         messages=[{"role": "user", "content": "?"}, {"role": "assistant", "content": answer}],
         steps=steps,
     )
-    return Trial(transcript, output_dir, asked)
+    return Trial(transcript, output_dir)
 
 
 # ---------------------------------------------------------------- rule checks
@@ -183,6 +196,23 @@ def test_succeeded_and_not_succeeded() -> None:
     assert not_succeeded("pick")(only_failed).passed
 
 
+def test_any_of() -> None:
+    # Qwen3-4B answers with the job ID; Qwen3-8B follows the job and reports its models.
+    gave_the_id = _trial([_step("invert", {})], "Started inv-20260924-130000-abcd.")
+    followed = _trial([_step("invert", {}), _step("job_status", {})], "Vs 190 to 250 m/s.")
+    neither = _trial([_step("invert", {})], "Started.")
+    check = any_of(answer_mentions("inv-20260924-130000-abcd"), succeeded("job_status"))
+
+    assert check(gave_the_id).passed
+    assert check(followed).passed
+    assert check(neither) == CheckResult(
+        name="answer mentions inv-20260924-130000-abcd or job_status succeeded",
+        passed=False,
+        detail="answer mentions inv-20260924-130000-abcd: missing inv-20260924-130000-abcd; "
+        "job_status succeeded: 0 call(s), none succeeded",
+    )
+
+
 def test_never_called() -> None:
     # Qwen3-4B asked to invert a run nobody wanted inverted; the user declined.
     declined = _trial([_step("pick", {}), _step("invert", {}, is_error=True)])
@@ -196,14 +226,14 @@ def test_never_called() -> None:
 
 def test_in_order() -> None:
     steps: list[Step] = [
-        _step("dispersion_quality", {}, is_error=True),  # a failed call does not count
+        _step("pick", {}, is_error=True),  # a failed call does not count
         _step("run_processing", {}),
-        _step("dispersion_quality", {}),
+        _step("pick", {}),
     ]
 
-    assert in_order("run_processing", "dispersion_quality")(_trial(steps)).passed
-    assert not in_order("dispersion_quality", "run_processing")(_trial(steps)).passed
-    assert not in_order("run_processing", "pick")(_trial(steps)).passed
+    assert in_order("run_processing", "pick")(_trial(steps)).passed
+    assert not in_order("pick", "run_processing")(_trial(steps)).passed
+    assert in_order("run_processing", "invert")(_trial(steps)).detail == "invert never succeeded"
 
 
 def test_at_most_calls_counts_every_call() -> None:
@@ -245,35 +275,162 @@ def test_the_last_answer_counts() -> None:
     assert transcript.answer == "Finally, 4."
 
 
+def _report(run: Path, verdicts: dict[str, dict[str, str]]) -> None:
+    units = tuple(
+        UnitReport(
+            unit=unit,
+            xmid=float(unit[5:]) if unit.startswith("xmid_") else None,
+            verdicts=cast(Any, gates),
+            flags={},
+            attempts=1,
+            parameters={},
+            rejected_for=(),
+            curve=None,
+        )
+        for unit, gates in verdicts.items()
+    )
+    report = QCReport(
+        run_id=run.name, budgets=Budgets(), n_xmids=3, retries=0, units=units, counts={}
+    )
+    (run / "qc_report.json").write_text(report.model_dump_json())
+
+
 def test_facts_read_from_disk(tmp_path: Path) -> None:
     run = tmp_path / "active_p1" / "20260923-100000-abcd"
     run.mkdir(parents=True)
-
-    def window(xmid: float, verdict: str) -> WindowQuality:
-        quality = ImageQuality.model_validate(
-            {
-                "verdict": verdict,
-                "flags": () if verdict == "good" else ("sharpness",),
-                "n_points": 9,
-                "band_hz": None,
-            }
-        )
-        return WindowQuality(xmid=xmid, folder=f"xmid_{xmid:.2f}", quality=quality)
-
-    record = RunQuality(
-        run_id=run.name,
-        picking=PickingParameters(),
-        thresholds=QualityParameters(),
-        windows=(window(1.0, "good"), window(2.0, "doubtful"), window(3.0, "good")),
+    _report(
+        run,
+        {
+            "xmid_1.00": {"G3": "pass", "G4": "pass"},
+            "xmid_2.00": {"G3": "retry"},
+            "xmid_3.00": {"G3": "pass", "G4": "pass"},
+            "line": {"G4": "pass"},
+        },
     )
-    (run / "quality.json").write_text(record.model_dump_json())
-    trial = _trial([], "2 windows are good.", tmp_path)
+    trial = _trial([], "2 curves passed.", tmp_path)
 
-    assert good_windows(trial) == "2"
-    assert answer_mentions(good_windows)(trial).passed
+    assert curves(trial) == "2"
+    assert answer_mentions(curves)(trial).passed
+    assert models(trial) == "(no inversion)"
     assert no_inversion_started()(trial).passed
     (run / "inversion.json").write_text("{}")
     assert not no_inversion_started()(trial).passed
+
+
+def _attempt(unit: str, stage: str, triggered_by: str, parameters: dict[str, Any]) -> Attempt:
+    return Attempt.model_validate(
+        {
+            "unit": unit,
+            "stage": stage,
+            "attempt": 2 if triggered_by != "initial" else 1,
+            "parameters": parameters,
+            "triggered_by": triggered_by,
+            "started_at": datetime(2026, 9, 24, tzinfo=UTC),
+            "status": "succeeded",
+        }
+    )
+
+
+def test_the_loops_retries_are_read_from_the_qc_log(tmp_path: Path) -> None:
+    run = tmp_path / "active_p1" / "20260924-100000-abcd"
+    run.mkdir(parents=True)
+    append_attempt(run, _attempt("xmid_2.88", "phase_shift", "initial", {}))
+    append_attempt(
+        run,
+        _attempt("xmid_2.88", "phase_shift", "G2:ridge_at_vmax", {"dispersion": {"vmax": 375.0}}),
+    )
+    trial = _trial([], "G2 widened the range to 375 m/s.", tmp_path)
+
+    assert loop_retried("G2:ridge_at_vmax")(trial).passed
+    missing = loop_retried("G5:not_converged")(trial)
+    assert (missing.passed, missing.detail) == (False, "triggers seen: G2:ridge_at_vmax")
+    assert retried_value("phase_shift", "dispersion", "vmax")(trial) == "375"
+    assert retried_value("inversion", "n_iterations")(trial) == "(no retry)"
+
+
+def test_thresholds_must_stay_the_configurations(tmp_path: Path) -> None:
+    run = tmp_path / "active_p1" / "20260924-100000-abcd"
+    run.mkdir(parents=True)
+    snapshot_qc_config(QCConfig(), run)
+    trial = _trial([], "", tmp_path)
+
+    assert thresholds_unchanged()(trial).passed
+    changed = QCConfig.model_validate({"curve": {"max_jump": 0.5}})
+    snapshot_qc_config(changed, run)
+    assert thresholds_unchanged()(trial).detail == f"changed in {run.name}"
+
+
+def test_excluded_traces_are_read_from_the_run(tmp_path: Path, demo_input_dir: Path) -> None:
+    run = tmp_path / "active_p1" / "20260924-100000-abcd"
+    run.mkdir(parents=True)
+    manifest = RunManifest.model_validate(
+        {
+            "run_id": run.name,
+            "profile": {
+                "name": "active_p1",
+                "kind": "active",
+                "n_records": 2,
+                "n_receivers": 96,
+                "receiver_x_range_m": [0.0, 23.75],
+                "receiver_spacing_m": 0.25,
+                "sampling_rate_hz": 2000.0,
+                "nyquist_hz": 1000.0,
+                "record_duration_range_s": [2.0, 2.0],
+                "source_x_range_m": [-0.75, 24.5],
+            },
+            "preset": {"mode": "active"},
+            "versions": {},
+            "started_at": "2026-09-24T10:00:00Z",
+            "finished_at": "2026-09-24T10:00:10Z",
+            "n_positions": 4,
+            "windows": [],
+            "exclusions": {"traces": {"1.mseed": [40]}},
+        }
+    )
+    (run / "run.json").write_text(manifest.model_dump_json())
+    trial = _trial([], "", tmp_path)
+
+    assert excluded("1.mseed", 40)(trial).passed
+    assert not excluded("2.mseed", 1)(trial).passed
+    assert demo_input_dir.exists()
+
+
+def test_the_agent_asks_or_not() -> None:
+    asking = _trial([], "No curve passed. Which should I try: longer windows, or stopping here?")
+    telling = _trial([], "3 curves passed; G1 corrected the trigger delay.")
+
+    assert asked_the_user()(asking).passed and not asked_the_user()(telling).passed
+    assert asked_nothing()(telling).passed and not asked_nothing()(asking).passed
+
+
+def test_no_settings_invented() -> None:
+    bare = _trial([_step("run_processing", {"profile": "active_p1"})])
+    invented = _trial(
+        [_step("run_processing", {"profile": "active_p1", "overrides": {"masw": {"length": 48}}})]
+    )
+
+    assert no_settings_invented("run_processing")(bare).passed
+    assert not no_settings_invented("run_processing")(invented).passed
+
+
+def test_the_dead_trace_profile_is_the_demo_with_one_trace_zeroed(
+    demo_input_dir: Path, tmp_path: Path
+) -> None:
+    inputs = build_inputs(demo_input_dir, tmp_path / "inputs")
+
+    assert sorted(path.name for path in inputs.iterdir()) == [
+        "active_dead",
+        "active_p1",
+        "passive_p1",
+    ]
+    profile = load_profile("active_dead", Settings(input_dir=inputs))
+    assert [record.path.name for record in profile.records] == ["1.mseed", "2.mseed"]
+    import obspy
+
+    dead = obspy.read(str(inputs / "active_dead" / "1.mseed"))
+    assert not dead[40].data.any() and dead[39].data.any()
+    # Built once: a second call keeps it.
+    assert build_inputs(demo_input_dir, tmp_path / "inputs") == inputs
 
 
 def test_inversion_succeeded(tmp_path: Path) -> None:
@@ -289,7 +446,6 @@ def test_inversion_succeeded(tmp_path: Path) -> None:
         return InversionRecord(
             job_id="inv-20260923-100000-abcd",
             run_id=run.name,
-            parameters=InversionParameters(),
             state=state,
             submitted_at=datetime(2026, 9, 23, tzinfo=UTC),
             total=2,
@@ -304,11 +460,6 @@ def test_inversion_succeeded(tmp_path: Path) -> None:
     assert inversion_succeeded()(trial).detail == (
         "inv-20260923-100000-abcd failed, 2 of 2 windows failed"
     )
-
-
-def test_asked_the_user() -> None:
-    assert asked_the_user()(_trial([], asked=("Approve?",))).passed
-    assert not asked_the_user()(_trial([])).passed
 
 
 # ---------------------------------------------------------------- the judge
@@ -396,15 +547,14 @@ def invents_an_answer(_messages: list[ChatCompletionMessageParam]) -> Reply:
     return _says("active_p2 has 48 receivers, 0.5 m apart.")
 
 
-def goes_up_to_the_inversion(messages: list[ChatCompletionMessageParam]) -> Reply:
+def picks_active(messages: list[ChatCompletionMessageParam]) -> Reply:
     results = _results(messages)
     if not results:
         return _calls("run_processing", {"profile": "active_p1", "overrides": SMALL_WINDOWS})
-    run_id = json.loads(results[0])["run_id"]
-    steps = ["dispersion_quality", "pick", "invert"]
-    if len(results) <= len(steps):
-        return _calls(steps[len(results) - 1], {"run_id": run_id})
-    return _says("You declined the inversion, so none started. What should I change?")
+    if len(results) == 1:
+        return _calls("pick", {"run_id": json.loads(results[0])["run_id"]})
+    passed = json.loads(results[1])["next"].split(" curves")[0]
+    return _says(f"{passed} curves passed; G1 corrected the trigger delay, G3 re-picked 14.88.")
 
 
 @pytest.mark.usefixtures("paco_env")
@@ -429,8 +579,8 @@ def test_an_invented_answer_fails(tmp_path: Path) -> None:
     assert result.judge is None
 
 
-def test_the_simulated_user_declines_and_nothing_starts(paco_env: Settings, tmp_path: Path) -> None:
-    result = _play("inversion_declined", goes_up_to_the_inversion, tmp_path)
+def test_the_loops_checks_read_a_real_run(paco_env: Settings, tmp_path: Path) -> None:
+    result = _play("pick_active", picks_active, tmp_path)
 
     assert [(check.name, check.passed) for check in result.checks] == [
         (
@@ -438,11 +588,14 @@ def test_the_simulated_user_declines_and_nothing_starts(paco_env: Settings, tmp_
             '"step": 24}})',
             True,
         ),
-        ("called invert()", True),
-        ("the user was asked to approve", True),
-        ("no inversion started", True),
+        ("in order: run_processing, pick", True),
+        ("the loop retried for G1:shifted_trigger", True),
+        ("the loop retried for G3:mode_jump", True),
+        ("answer mentions 3", True),
+        ("invert never called", True),
+        ("the agent asked nothing", True),
+        ("the thresholds stayed the configuration's", True),
     ]
-    assert result.failed_calls == 1  # invert, declined
     # The server wrote into the scenario's folder, and got its settings back afterwards.
     assert list((tmp_path / "outputs" / "active_p1").iterdir())
     assert Settings().output_dir == paco_env.output_dir
@@ -554,7 +707,7 @@ def test_the_report_table_with_repeats() -> None:
     def play(name: str, attempt: int, passed: bool) -> ScenarioResult:
         return ScenarioResult(
             name=name,
-            kind="approval",
+            kind="the loop",
             attempt=attempt,
             checks=(CheckResult(name="invert succeeded", passed=passed, detail="-"),),
             judge=None,
@@ -587,7 +740,7 @@ def test_the_report_table_with_repeats() -> None:
     )
     # The column widens for the longest label.
     assert (
-        "inversion_approved #2 approval             0/1      -     5      1      2,444   30.4s"
+        "inversion_approved #2 the loop             0/1      -     5      1      2,444   30.4s"
         in text
     )
     assert text.endswith(

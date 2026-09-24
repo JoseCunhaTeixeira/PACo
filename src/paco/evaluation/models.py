@@ -5,7 +5,7 @@ from typing import Literal
 
 from pydantic import BaseModel, ConfigDict, Field
 
-type Kind = Literal["look around", "process and judge", "recover", "approval"]
+type Kind = Literal["look around", "process and judge", "recover", "the loop", "stuck"]
 
 
 class CheckResult(BaseModel):

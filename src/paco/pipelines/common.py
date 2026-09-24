@@ -1,20 +1,39 @@
-"""Pieces shared by the active and passive pipelines."""
+"""Pieces shared by the preprocessing and image pipelines."""
 
+from pathlib import Path
 from typing import Any
 
+from sigpipe.base import LinearAcquisition, Pipeline
 from sigpipe.transformers import Load
 
 from paco.presets import ActivePreset, PassivePreset
+from paco.profiles import Profile, Record
+from paco.transformers import SelectReceivers
 from paco.windows import MASWWindow
 
+# A preprocessed record, as sigpipe's Save names a single stream.
+PREPROCESSED = "Stream_0000.hdf5"
 
-def load_window(window: MASWWindow) -> Load:
-    """Load the window's records, keeping only the window's receivers."""
-    return Load(
-        file_paths=window.selected_files,
-        acquisitions=window.acquisitions,
-        data_type="seismic",
-        receivers_to_load=window.receiver_indices,
+
+def record_folder(records_folder: Path, record: Record) -> Path:
+    """Where a record's preprocessed stream and figure go: <records_folder>/<its file's stem>."""
+    return records_folder / record.path.stem
+
+
+def load_record(record: Record, profile: Profile) -> Load:
+    """Load a whole record: every receiver of the profile."""
+    # A passive record has no source: the first receiver stands in, as in build_windows.
+    source = record.source if record.source is not None else profile.receivers[0]
+    acquisition = LinearAcquisition(source=source, receivers=profile.receivers)
+    return Load(file_paths=[record.path], acquisitions=[acquisition], data_type="seismic")
+
+
+def load_preprocessed(window: MASWWindow, records_folder: Path) -> Pipeline:
+    """The window's records, preprocessed, cut to the window's receivers: what Load did on the
+    raw records with receivers_to_load."""
+    paths = [records_folder / path.stem / PREPROCESSED for path in window.selected_files]
+    return Load(file_paths=paths, data_type="stream") >> SelectReceivers(
+        window.receiver_indices, window.acquisitions
     )
 
 

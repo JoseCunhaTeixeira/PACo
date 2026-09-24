@@ -19,6 +19,8 @@ from sigpipe.algorithms import (
 )
 from sigpipe.transformers import Slice
 
+from paco.transformers import ShiftTrigger
+
 
 @dataclass(frozen=True, slots=True)
 class Parameter:
@@ -55,6 +57,16 @@ def pac_methods(
         )
     return {method: registry[method] for method in methods}
 
+
+# Not in PAC: the correction of a trigger delay G1 measures (2026-09-24); 0 leaves the record
+# as it is.
+TRIGGER = Stage(
+    functions={"shift": ShiftTrigger.__init__},
+    parameters={"shift": {"t0": Parameter("s", default=0.0)}},
+    default="shift",
+    none=False,
+    selectable=False,
+)
 
 MUTING = Stage(
     functions=pac_methods(MUTTING_METHODS, "mute"),
@@ -144,7 +156,12 @@ DISPERSION = Stage(
 )
 
 # In pipeline order.
-ACTIVE_STAGES = {"muting": MUTING, "filtering": FILTERING, "dispersion": DISPERSION}
+ACTIVE_STAGES = {
+    "trigger": TRIGGER,
+    "muting": MUTING,
+    "filtering": FILTERING,
+    "dispersion": DISPERSION,
+}
 PASSIVE_STAGES = {
     "muting": MUTING,
     "filtering": FILTERING,

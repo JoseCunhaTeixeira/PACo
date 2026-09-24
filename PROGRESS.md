@@ -1,6 +1,6 @@
 # PACo progress
 
-Last updated 2026-09-23. Read this first at the start of each session.
+Last updated 2026-09-24. Read this first at the start of each session.
 
 ## Working agreement
 
@@ -23,8 +23,14 @@ Last updated 2026-09-23. Read this first at the start of each session.
 | 4. MCP server | Done: 7 tools over Streamable HTTP, errors the model reads, progress, instructions; 267 tests |
 | 5. Background jobs | Done: PAC's inversion ported, run as a background job after the user's approval; 294 tests |
 | 6. Agent loop | Done: runs with Qwen3 on vLLM, on this machine's AMD GPU; fixed from what Qwen did (see "With Qwen on the GPU") |
-| 7. Evaluation | Done: run with Qwen3-4B, 5 of 8 at first, RESULT_4B after the fixes; RESULT_8B |
+| 7. Evaluation | Done: 3 plays per scenario; Qwen3-4B 23 of 24 plays, Qwen3-8B-FP8 21 of 24, on the same code |
 | 8. Packaging | Done: commands, Docker image (tried), Compose file with vLLM (tried on AMD with `compose.rocm.yaml`), CI (passes on GitHub after a tag fix), README |
+| 9. Preprocessing and phase shift split | Done: records preprocessed once, bit-identical images for 24-receiver windows, padding dropped, default windows of 5; 364 tests |
+| 10. Gate framework | Done: verdicts, flags and actions, the QC log, budgets, the configuration, attempts kept in the run, the phase shift done again per window, the report; 385 tests |
+| 11. G1 signal QC, G2 image QC, metrics moved to G3 | Done: three gates with measured thresholds, the trigger stage, `judge_run`, docs per gate; 415 tests |
+| 12. G3 extensions, G4 curve profile QC | Done: the curve's own rules, the pick saved as judged, the picking done again per window, G4 over the line with its pseudo-section; 433 tests |
+| 13. Checks before S4, smooth model, G5, G6 | Done: S2's coherence rules (the band, the ladder), the checks before S4, the smooth median monitored, G5, G6, the inversion done again per window, G3's near field; 492 tests |
+| 14. Tools, no approval, role and policy, scenarios, README | Built: stage tools with their gates' retries, redo, the job with G5 and G6, the approval removed, the agent asks only when stuck, the suite on synthetic defects; evaluation running |
 
 Check questions: milestone 1 asked, answer pending. Milestone 2 (what happens when sigpipe renames
 a parameter): answered with hints on 2026-09-23, up to the plain-words rung. Worth revisiting:
@@ -411,7 +417,433 @@ Also:
 - The evaluation's output is now quiet (logging at WARNING; the SDK had set INFO), and the loop
   shows each failure as a `failed:` line, in the chat too.
 
-RESULTS_TABLE
+### Results with 3 plays per scenario (final code, 2026-09-24)
+
+| Scenario | Qwen3-4B | Qwen3-8B-FP8 |
+|---|---|---|
+| list_profiles | 3/3 | 3/3 |
+| describe_profile | 3/3 | 3/3 |
+| judge_active | 3/3 | 3/3 |
+| judge_passive | 3/3 | 2/3 |
+| unknown_profile | 3/3 | 3/3 |
+| windows_too_long | 2/3 | 1/3 |
+| inversion_declined | 3/3 | 3/3 |
+| inversion_approved | 3/3 | 3/3 |
+| **plays passed** | **23/24** | **21/24** |
+| tool calls, all plays | 92 | 104 |
+| time, all plays | 19 min | 19 min |
+
+- Runs `eval-20260923-200656-08bc` (4B) and `eval-20260924-130503-1c59` (8B), the latter with a
+  12k context (`VLLM_MAX_MODEL_LEN=12288`: on this 16 GB card the FP8 model leaves 2.17 GiB for the
+  KV cache, and 16k needs 2.25). The 8B's three approved inversions were first scored as failed
+  because the answer had no job ID: it had followed the job with `job_status` to its end and
+  reported the models, a better answer. The check now accepts either (`any_of`); both runs are
+  re-scored with it here.
+- The 8B's misses: twice it used windows of 96 receivers without saying so (`windows_too_long`),
+  once it reprocessed the passive line with windows of its own. The 4B's one miss: it looped ten
+  times on an inversion nobody asked for, hit the 15-call budget, and then wrote "Job started":
+  the only invented result seen, and the most serious failure of the suite.
+- The 8B follows jobs to their end (9–10 calls per approved inversion, against 5–8), and
+  runs about as fast in total: FP8 on this card is not slower than the 4B in bf16.
+- After milestone 9 (`eval-20260924-135443-ec28`, Qwen3-8B-FP8): 20 of 24. The same two
+  weaknesses (the passive windows changed twice, 96 unsaid once), and one play where it read
+  the profile, saw 96 receivers and asked which length to use, without processing: what the
+  rubric allows, and what the check `called("run_processing")` refused. That check is gone.
+  Milestone 10 changed no tool: not run again.
+
+## QC workflow (milestones 9 to 14, from 2026-09-24)
+
+The spec is `docs/qc_workflow.md` (the user's, saved verbatim), with its decisions appended. The
+plan: one milestone at a time, ruff, pyright and pytest green before the next, then
+`paco-evaluate --repeat 3`; each gate documented with real examples under `docs/gates/`.
+
+### Milestone 9: preprocessing and phase shift split
+
+- Today one sigpipe pipeline per window does everything, from the raw records (the window's
+  receivers only) to the stacked image. Both presets share the same first steps: detrend
+  (constant, linear), mute, filter; everything after depends on the window (the passive
+  cross-correlation uses the window's first receiver as its virtual source).
+- S1, per record: PAC's trace editing, mute and filter on the whole record, saved as
+  `records/<record>/Stream_0000.hdf5` (sigpipe's stream format, with its figure). S2, per window:
+  the window's receivers taken from the preprocessed records, then today's remaining steps, in
+  the window folder as today.
+- Parity: the pipeline works in float32 from the loader on, and sigpipe's stream files keep
+  float32, so the split must give bit-identical images. The test keeps a frozen copy of today's
+  single pipeline and compares the two paths on demo windows.
+- A record that fails S1 fails the windows that use it, with its name in their error; the other
+  windows run.
+- Built on 2026-09-24. `paco.pipelines`: `build_preprocessing_pipeline` (S1, one per record),
+  `build_image_pipeline` (S2, one per window, per preset mode), `SelectReceivers` (PACo's own
+  transformer: the window's receivers of a loaded stream, with the window's acquisition), and
+  `record_folder`. `paco.runs.processing`: `preprocess_records` then `process_windows`, each
+  with its own worker pool; `run.json` gains `records` (empty in older runs).
+- **Padding dropped** (the user's decision, made by editing both image pipelines; recorded in
+  the spec's decisions): PAC's `Pad(n=1000, taper=25)` before the phase shift is gone. "Today's
+  results" are PAC's steps minus that one.
+- **Parity, measured.** For windows of 24 receivers, the split's images are bit-identical to the
+  frozen single pipeline's (every dataset of `DispersionImage_0000.hdf5`; for passive, the
+  correlation's `Stream_0000.hdf5` too). For PAC's default 3-receiver windows they are not:
+  scipy's linear detrend solves all traces of an array at once, and LAPACK rounds a 3-trace batch
+  differently from the 96-trace record (2e-4 on values of 1,000, the last float32 bit; batches
+  of 4, 8, 12, 16, 24 and 48 traces come out the same, 3, 5 and 6 do not). The same holds for the
+  default of 5. The images then agree to 1e-6 except at 0 Hz, a sum of the signs
+  of near-zero DC terms, which flips with that bit. Before the split, the last bits of a trace
+  thus depended on the window it was in; now a record is preprocessed once for every window.
+- With PAC's padding still in, the two paths also differed in the last float32 digits for
+  24-receiver windows (seen once, not chased: the padding went).
+
+### Milestone 10: the gate framework
+
+Built on 2026-09-24, `src/paco/qc/`, domain code only (no mcp, no openai):
+
+- `models.py`: one language for every gate (rules 1 and 2). `GateResult` per unit (a record or
+  a window): verdict `pass`, `retry` or `reject`; each `Metric` with its threshold and bound;
+  `Flag`s with the stage at fault, a message, and an `Action` (`Override` with overrides ready
+  to apply, `ExcludeTraces`, `ExcludeRecord`, `Reject`), fixable or not; `Kept` (band,
+  wavelength range, points, traces, records: rule 6). `Attempt` is one line of the log (rule 8):
+  unit, stage, attempt number, parameters, what triggered it, times, status, the gate's result.
+- `log.py`: `qc_log.jsonl` in the run folder, appended one attempt per line: safe against a crash
+  and readable during a run; a unit's state (attempts, retries spent) is read back from it and
+  kept nowhere else. `ensure_initial_attempts` writes the run's first attempts from `run.json`
+  (`paco.runs` never imports `paco.qc`: the import would be circular through `paco.quality`).
+- `budgets.py`: retries, not attempts (rule 4): 2 per gate and unit, 2 x xmids per run, shared;
+  `can_retry`; `budget_spent` rejects with a `budget_spent` flag ahead of the last attempt's.
+- `config.py`: `QCConfig`, every threshold and budget in one place (rule 9): the budgets, and
+  `curve`, today's `QualityParameters` (G3); each gate adds its own model at its milestone.
+  Loaded from the JSON file `PACO_QC_CONFIG` names, else the defaults; snapshotted into the run
+  as `qc_config.json`. Locked during a run: the tools will stop taking thresholds (milestone 14).
+- `attempts.py`: `invalidate(window, stage, n)` moves the results of that stage and the later
+  ones into `xmid_<x>/attempts/<n>_<stage>/` (rule 3), by stage: the image and the window's
+  figures (S2), the curve and `quality.json` (S3), PAC's inversion files (S4). The final result
+  stays at the top, in PAC's layout.
+- `rerun.py`: `rerun_phase_shift(run_id, units, overrides, settings, triggered_by)`: the
+  windows named are invalidated from S2 on, the phase shift runs again with the run's preset
+  plus the overrides (`presets.apply_overrides`: a stage given with another method is replaced
+  whole, otherwise merged; then resolved against the profile again), and the log gets the
+  attempts. `masw` cannot change (the windows would move); unknown windows are refused with
+  the run's. Re-running the picking and the inversion per window comes with their gates
+  (milestones 11 and 13), when their records become per window.
+- `report.py`: `QCReport` per run, from the log: per unit, the latest verdict and flags of each
+  gate, the attempts, the final parameters of each stage, the reasons of a reject, and what the
+  latest curve kept (rule 8); counts per gate; `qc_report.json`. `summarize_report` for the
+  agent: counts, retries, then each flag with the stretches of xmids raising it and the change
+  it suggests ("G2 ridge_at_vmax, xmid 12.00-13.00 (3), 14.00 (1): … -> phase_shift
+  {"dispersion":{"vmax":1500}}"), never one line per xmid.
+- Tests (`tests/test_qc.py`, 21): the models round-trip, the log and its counts, both budgets,
+  the configuration from a file and its snapshot, the archive of a stage and the stages after
+  it, the report and its summary, and the phase shift done again on a real run (the archived
+  image is the first one, the new one has the new velocity range, the other windows are
+  untouched, the log holds the initial attempts then the new ones, and again counts on).
+- Open: `run.json`'s window statuses are the initial run's; after a re-run the log is the truth
+  (`dispersion_quality` still reads `run.json`; it moves to G3 in milestone 11).
+
+### Milestone 11: G1, G2 and G3
+
+Built on 2026-09-24 (`src/paco/qc/g1_signal.py`, `g2_image.py`, `g3_curve.py`, `judging.py`;
+documented in `docs/gates/`, with the demo's real outputs and figures):
+
+- **G1, signal QC per record.** Dead, clipped and NaN traces; RMS off the decay with offset
+  (Theil–Sen fit in log-log, 3 MADs and a factor 2: a smooth decay has tiny MADs); SNR and the
+  usable band from a surface-wave window (arrivals at vg_max to vg_min, padded) against a noise
+  window (before the trigger, else after the slowest arrival), the band within 6 dB of the noise
+  and 20 dB of the peak (after the wave, the noise window is quieter at every frequency); lateral
+  coherence and reversed polarity from neighbours' cross-correlations; the trigger from first
+  breaks (a 5 ms envelope above 5 x the noise RMS, on traces whose SNR passes, fitted robustly).
+  Passive records get the three trigger-free checks.
+- **The trigger decision.** Both demo records are triggered late (+18.8 and +10.4 ms; the first
+  break at 0.75 m comes at 19 to 21 ms). The spec's rule (reject) would have rejected the whole
+  demo line: the user chose to correct it in S1. The active preset gained a `trigger` stage
+  (`t0`, 0 by default; `paco.transformers.ShiftTrigger`, in a module the presets can import),
+  G1's flag is a retry with the measured t0 as its override, and breaks that are no line
+  (scatter beyond 50 ms) still reject. The active schema grew by 170 characters (budget 3,300).
+- **G2, image QC per window.** Coherent columns by a level between the floor 1/sqrt(N) and 1
+  (a multiple of the floor is impossible with 5 receivers); ridges on the grid's edges (a vmin
+  below 30 m/s is an artifact to start above); the band reaching the image's edges; competing
+  ridges (a higher mode -> pick two modes; below the aliasing limit 2 dx f -> cut the band);
+  a band narrower than G1's usable one.
+- **G3, curve QC per window.** Today's metrics wrapped as a gate: sharpness rejects (not
+  fixable at this window length), prominence filters to the band or mutes, on_data narrows the
+  band, constant wavelength cuts at 2 window lengths, no ridge loosens the mode rule.
+- **`judge_run`:** G1 on the records, G2 on the images, then the picking as an attempt of its
+  own with G3; results against the log's attempts (`record_result` appends the attempt again
+  with its result; the last line of an attempt is its current one); `qc_config.json` and
+  `qc_report.json` written. On active_p1 (24-receiver windows): G1 2 retry, G2 4 retry, G3
+  4 pass; the summary names the trigger corrections, the three traces to exclude, and the
+  band that reaches PAC's default 100 Hz while the records are usable to 324 Hz.
+- **Thresholds**, measured then accepted by the user (`docs/gates/*.md`, "To judge" lists what
+  is still open). Findings: with the default windows of 5 receivers, prominence is 1.03 to
+  1.35 on all 92 windows and sharpness rejects 33; no threshold separates them. The window
+  length must come from the data (the coherence rules).
+- Tests: G1 on synthetic causal shots with one defect each (14), G2 on analytic images (8),
+  G3 on the quality tests' images with exact picks (6), `judge_run` on a real run.
+- Not yet: the coherence rules (S2 parameters from G1's band and the geometry), G1's
+  actions applied by the loop (exclude traces, exclude a record), re-running the picking and
+  the inversion per window, and the gates' documentation of G4 to G6.
+
+### Milestone 12: G3's curve rules and G4
+
+Built on 2026-09-24 (`src/paco/qc/g3_curve.py` rewritten, `g4_profile.py`, `judging.py`'s
+`judge_picking` and `judge_line`, `rerun.py`'s `rerun_picking`, `picks.saving.save_pick`;
+documented in `docs/gates/G3.md` and `G4.md` with the dense demo line's pseudo-section):
+
+- **G3's curve rules**, on the curve saved for the inversion (resampled in wavelength):
+  wavelengths beyond 2 window lengths are cut (the run's picking starts with `max_wavelength`
+  2, in `qc_config.json`'s `picking`), points below 2 dx reported, at least 5 points, a mode
+  jump above 30 % between consecutive points (half the corridor), the air wave at 330–345 m/s
+  (a mute to 320 m/s), an inverse trend by Spearman's rank correlation (kept, never rejected),
+  uncertainties above 50 % of the velocity rejected (the array's geometry: only longer windows
+  help). `CurveThresholds` wraps today's `QualityParameters` under `metrics`. `kept.n_points`
+  is now the resampled curve's count (5 to 10 on 24-receiver windows), what the inversion gets.
+- **The pick saved as judged.** `judge_picking` picks, writes `DispersionCurves_0000.csv` (and
+  redraws the figure) through `save_pick`, then judges with G3 and logs the attempt with its
+  parameters and result; a pick done again archives the previous curve and inversion under
+  `attempts/<n>_picking/`. `rerun_picking(run_id, units, overrides, settings)` starts from each
+  window's latest pick (G4's guide differs per window), refuses unknown windows and parameters.
+- **G4, the curve profile QC**, `judge_line`: the curves whose latest pick passed G3, read back
+  from their files, each against two neighbours a side at the union of their wavelengths. An
+  outlier is off neighbours that agree with each other (within 7.5 % of their median) and fits
+  no side (15 %): re-picked with the neighbours' median as the picking's `guide`. Off one side
+  and fitting the other: a shared change, geology, kept. Sides that disagree among themselves
+  or share fewer than 3 wavelengths judge nothing. The line's own result (unit `line`): the
+  gaps, the spread of the depths of investigation; rejected only without any curve.
+- **Measured on active_p1.** 19 windows of 24 receivers every 4: G3 17 pass, 2 `mode_jump`
+  (steps of 53 and 31 %; the good curves step by up to 26 %), inverse trend on 11 (kept),
+  uncertainties 8 to 15 %; G4: the 17 curves within 2 to 13 % of their neighbours, no outlier,
+  the two jumping windows as gaps. The tests' 4 windows every 24 receivers: one neighbour a
+  side is no evidence (`no_neighbours`), where a first version called xmid 8.88, 28 % off both,
+  an outlier. Default 5-receiver windows: 67 windows without a ridge within 2 m (frequencies
+  above the image's 100 Hz), 25 with one point, 4 with 56 % uncertainties: no curve for the
+  line. The window length must come from the data (coherence rules, milestone 13).
+- Rejected on the way: the spec's "1 or 2 xmids" as an isolated outlier (two changed windows
+  make their neighbours disagree; a k-neighbour median flagged both edges of a step as
+  outliers), a side of one curve as evidence, a `_limits` registry keyed by `id()` in a frozen
+  dataclass (a field instead).
+- Tests: G3's curve rules on curves given with the pick (8 more), G4 on synthetic lines (9),
+  `judge_run` with G4 and `rerun_picking` on a real run.
+- Evaluation after milestone 11 (Qwen3-8B-FP8, 3 plays): 20 of 24. `judge_passive` 0/3: told
+  by `dispersion_quality` that every 24-receiver window is bad, the model changed the window
+  length the user chose (48, 64, 96 receivers) instead of asking; `windows_too_long` 2/3 (one
+  answer without the number 96). Both checks enforce the "ask before changing" rule that
+  milestone 14 replaces (the agent changes and says so).
+- Evaluation after milestone 12 (`eval-20260924-153639-5e5b`, Qwen3-8B-FP8, 3 plays): 23 of
+  24. The one miss is the same: on `judge_passive` it reprocessed the passive line with windows
+  of 48 receivers instead of the user's 24. No tool changed since milestone 11, so 20 and 23
+  are the same code: three plays per scenario are that noisy.
+- Not yet: the coherence rules (S2 parameters from G1's band and the geometry), G1's actions
+  applied by the loop, the inversion re-run per window, `invert` reading G4's verdict.
+
+### Milestone 13: parameters from the data, the inversion's gates
+
+Started on 2026-09-24. Measured first on active_p1, then the design brought as four options
+(recorded in `docs/qc_workflow.md`, "Taken during milestone 13"; the user chose Claude's
+recommendation each time):
+
+- **Window length.** G3 on active_p1 every 4 receivers, fmax 100 Hz: 0 of 23 windows pass at
+  5 and 8 receivers, 0 of 22 at 12, 12 of 21 at 16, 17 of 19 at 24, 15 of 17 at 32, 13 of 13
+  at 48; the kept curves reach 7, 11, 15 and 21 m. Chosen: the shortest length at which two
+  thirds of a few trial xmids pass G3, found by a ladder before S2.
+- **The band.** Opening the image to G1's usable 324 Hz made G3 worse at every length (24
+  receivers: 17 pass at 100 Hz, 15 at 150 Hz, 6 at 324 Hz; 16 receivers: 12, 8, 4): above
+  100 Hz a second ridge competes and the picker jumps. So G2's `band_at_fmax` retry (1.5 x
+  fmax) would have made the loop worse. Chosen: fmax capped by G1 and Nyquist, never widened;
+  G2's two band flags kept, not retried.
+- **Priors.** Inverting the dense line's 17 good curves with PAC's bounds: chains converge
+  (split R-hat at most 1.08, acceptance 22 to 40 %), but the interface sits at 6 to 7.5 m,
+  beyond the resolved depth (about half the longest wavelength, 5.5 m), and the half-space's
+  Vs is the prior's (posterior spread 60 to 110 % of the prior's at 7 to 10 m). With bounds
+  from each curve (Vs 0.8 Vr_min to 1.5 Vr_max, half-space top at most λmax/2): interface at
+  1.9 to 3.9 m, chain medians within 2 to 11 %, misfits 0.23 to 1.08 (normalised by the
+  uncertainties) against 0.29 to 1.28. Chosen: derived per window.
+- **G5's model.** The smooth median misfits 2.3 to 3.2 where its layered median fits within
+  1.0 to 1.3, on the three windows with a thin stiff top layer (8.88, 12.88, 13.88): PAC's
+  smoothing spreads the boundary over about 3.5 m. Chosen: G5 judges the smooth median by band,
+  and keeps with a flag a window where only the smoothing loses the fit.
+- **The near-offset rule, measured** (the spec's "nearest source offset >= λmax/2", as
+  `masw.distance_min` = 1.5 window lengths): it drops the near shot from the windows at both
+  ends of active_p1, and G3 falls from 17 to 11 passes of 19 at 24 receivers (8 mode jumps),
+  from 12 to 5 of 21 at 16. Not applied; to bring to the user with the thresholds.
+- **Found:** `invert_window` (ported from PAC) forward-models the median model for its figure
+  without a guard; on xmid 13.88 with derived bounds, disba found no fundamental mode for a
+  274 m/s layer over a 202 m/s half-space (the picked 291 m/s at 97 Hz is faster than any
+  normal mode of that model), and the window failed after its inversion had succeeded.
+  Guarded: the figure goes without that curve.
+
+Built on 2026-09-24 (`src/paco/qc/coherence.py`, `line.py`, `priors.py`, `g5_model.py`,
+`g6_models.py`, `sides.py`, `inverting.py`; `src/paco/inversion/measuring.py`; documented in
+`docs/gates/S2_rules.md`, `S4_checks.md`, `G5.md`, `G6.md`, with `G2.md` updated):
+
+- **The coherence rules for S2** (`coherence.py`, `line.py`). `cap_band`: fmax capped at every
+  record's usable fmax (G1) and Nyquist, fmin raised to the highest usable fmin, never widened.
+  `choose_length`: the ladder 5, 8, 12, 16, 24, 32, 48, 64, 96, 128 receivers (at most half the
+  line), from the user's length when given, each tried on 5 windows spread along the line (S2,
+  the picking, G3; their folders in `coherence/<length>/`, the trials in `coherence.json`); the
+  first where 2/3 pass is kept, else the best tried. `process_line`: S1, G1, these rules, S2 on
+  the whole line, then `judge_run` (G2 to G4); the rules' changes are notes of a `line` phase
+  shift attempt. `run_processing` was split into steps it shares (`new_run_folder`,
+  `write_manifest`, `process_windows` reading another folder's records).
+- **G2's band flags kept** (the decision on the band): `band_at_fmax` and `narrower_than_usable`
+  are information now, and G2's verdict ignores kept flags (the four demo windows pass G2).
+- **The checks before S4** (`priors.py`, `derive_inversion`): Vs bounds 0.8 x to 1.5 x the
+  curve's velocities, layers at least λmin/3 thick, the half-space's top at most λmax/2 (shared
+  by the layers above), PAC's steps in proportion; values given are kept when they pass (Vs
+  bounds reaching the slowest velocity and 1.09 x the fastest, thicknesses within the limits,
+  no more layers than the curve resolves) and changed with notes otherwise.
+- **The smooth median, monitored** (`paco.inversion.measuring`). An inversion now saves its
+  posterior samples (`SeismicInversion_Samples_0000.npz`); `measure_inversion` reads the fit of
+  the smooth and layered medians by band (RMS of residuals over the uncertainties, PAC's
+  residual), the split R-hat per parameter (chains cut back apart from sigpipe's
+  concatenation), the acceptance rates (from the log), the share of samples at each bound,
+  the useful depth (posterior against prior spread of Vs by depth, the prior drawn with a seed)
+  and the smooth median's Vs at round depths (1 to 5 m on the demo). `job_status` reports those
+  depths' Vs ranges, the useful depth and the misfit, instead of the layered model's.
+- **G5** (`g5_model.py`): misfit by band (at most 2), the layered median's misfit (the
+  smoothing told apart), R-hat 1.1, acceptance 10 %, 100 models a chain, 10 % of samples at a
+  bound, the useful depth reported. Actions, cheapest first: sample twice as long, widen a Vs
+  bound (x0.8, x1.25), a thickness bound below the curve's reach, one layer fewer when a layer
+  piles at its thinnest, one more layer (up to 4) when the model misfits; kept: the smoothing's
+  misfit, an interface at the depth limit; rejected: points no fundamental mode reaches.
+- **G6** (`g6_models.py`): the smooth medians' Vs at the report depths, down to each useful
+  depth, each against two neighbours a side with G4's side logic (moved to `sides.py`, shared);
+  a model off agreeing neighbours while its curve fits theirs is non-unique (invert again,
+  twice as long); the curves showing the change keep it; the line's gaps and useful depths.
+- **S4 the QC way** (`inverting.py`): `judge_inversions` inverts the windows G4 passed (refuses a
+  run G4 has not judged, or a line it rejected), each with derived bounds, in workers, logs each
+  as an `inversion` attempt with its parameters and notes, then G5 and G6;
+  `rerun_inversion` starts again from a window's latest parameters, archives the previous
+  attempt, and derives every bound again for another number of layers.
+- **The report**: the checks' notes and the failed attempts in the summary, grouped by stretches
+  of xmids; stretches follow the line's spacing (xmids named to 2 decimals sat 0.24 and 0.26 m
+  apart and broke every run of a 0.25 m line; two windows far apart printed as a stretch).
+- **Measured on active_p1** (dense line, 17 curves, PAC's effort, derived bounds): G5 17 pass,
+  four `smoothing_misfit` kept (2.2 to 2.8 against layered 1.03 to 1.41); R-hat at most 1.012,
+  acceptance 47 to 75 %, at most 8.9 % of samples at a bound (the inverse windows' half-space
+  wants to go softer); useful depth 2.3 to 4.3 m or the whole model; G6 16 fit, xmid 13.88 a
+  change shared with one side, kept. `process_line` with no settings: the ladder keeps 16
+  receivers (4 of 5 trials pass), 50 of the line's 81 windows pass G3 (33 s).
+- **Synthetic defects** (a curve from 200 m/s over 350 m/s at 3 m, uncertainties 10 %): derived
+  bounds recover 202 over 341 at 3.1 m; 3,000 iterations: `not_converged`; bounds 10 to 50 %
+  wrong (Vs2 at most 320, thickness at most 2 or 1.5 m, at least 4 m) still fit within the
+  errors, with 4 to 8 % of samples at the bound, where the demo's own inverse windows put 5 to
+  9 %: G5 cannot see them on this data, the derived bounds are the protection. A Vs1 minimum
+  above the curve's slowest velocity is changed by the checks before S4.
+- **Found in sigpipe:** with Vs2 at most 300 m/s, `inversion_mcmc` fails after sampling
+  (`operands could not be broadcast together with shapes (600,) (480,)`): bayesbay saves a
+  model's predicted curve only once its likelihood has been computed, so a chain stuck on its
+  first model keeps none, and sigpipe sums misfits over both. PACo logs the window as a failed
+  attempt, and the summary says so. Not fixed at the source (the user's call).
+- **Thresholds, brought with the measurements after the build, accepted by the user** (recorded
+  in `docs/qc_workflow.md`): the ladder at 9 trial windows and 80 % (as first built, 5 trials at
+  two thirds kept 16 receivers on active_p1, where 50 of the line's 81 windows passed G3; now it
+  keeps 24, where 66 of 73 pass); the near-offset rule reported, not applied (G3's
+  `near_offset` metric and kept `near_field` flag: the ten windows at the dense line's ends,
+  38 of 73 on the whole line at 24 receivers); G5's and G6's defaults as proposed.
+- Tests: 492 (priors 9, measures 17, G5 14, G6 6, S4 on a real run 5, the S2 rules and a line
+  6, G3's near field, the summary's notes, failures and stretches).
+- Evaluation after milestone 13 (`eval-20260924-164113-aef5`, Qwen3-8B-FP8, 3 plays, run before
+  the ladder's and G3's last changes, which no tool uses yet): 20 of 24. `judge_passive` 1/3
+  (the model replaced the user's 24 receivers by 48 and 72 on the passive line, as before);
+  `windows_too_long` 2/3 (an answer without 96); `inversion_approved` 2/3, a new miss: the
+  model turned 24 receivers into 6 m and sent `{"masw": {"length": 6.0, "step": 6.0}}`,
+  accepted as 6 receivers, before processing again with 24; it then sent the same wrong
+  `invert` call three times. The schema says nothing of `length` being receivers: for
+  milestone 14. The ideal scripted agent passes 8 of 8.
+- Not yet: the loop that applies the gates' changes, and the tools over `process_line`,
+  `judge_inversions` and the reruns (milestone 14).
+
+### Milestone 14: the tools, the loop, the agent's policy
+
+Started on 2026-09-24. Brought as options before building (recorded in `docs/qc_workflow.md`,
+"Taken at the start of milestone 14"; the user chose Claude's recommendation each time): stage
+tools with their gates' retries and `redo`; synthetic defects in the data where physical; the
+evaluation at 8 workers and PAC's effort; the host refusing a repeat of a failed call. During the
+build the user added: the agent may ask, "if it is needed, so I can help him choose" (brought
+as options: it asks only when stuck); and asked whether the model should build its own pipelines
+from sigpipe's transformers (Claude's answer: not with Qwen3-8B; validated optional stages per
+preset later, if wanted).
+
+Built (`src/paco/qc/line.py`, `curves.py`, `inverting.py`, `redo.py`, `loops.py`;
+`src/paco/server.py`; `src/paco/agent/loop.py`; `src/paco/evaluation/`; documented in
+`docs/gates/loop.md`, the README, `G2.md`):
+
+- **The stage loops.** `process_line` (run_processing): S1, G1 with its fixes (a record
+  preprocessed again with its own trigger correction, the traces and records it excludes left
+  out of the windows, `Exclusions` in `paco.windows` and `run.json`), the S2 rules, S2, G2
+  with its retries in groups of windows sharing a change. `pick_line` (pick): S3 and G3 with
+  its re-picks, G4 and its outliers re-picked along the neighbours' guide. The inversion job
+  (`submit_inversion`, `run_inversion_job`): S4 on the windows G4 passed, G5's and G6's retries,
+  each window recorded as it ends, the gates' summary at the end. `redo_stage` and the job for
+  the inversion: back to a stage for windows by xmid or flag, then what follows up to G4.
+  `RetryBudget` counts each retry as it is granted; `redo` is refused once the run's budget is
+  spent.
+- **The summary says what the loops did**: each retry trigger with its windows, the change it
+  made ("with phase_shift {"dispersion":{"vmax":375.0}}") and the verdicts now; the checks'
+  changes and exclusions as notes, grouped by text; failed attempts.
+- **The tools** (9, 5,424 characters of cards): `run_processing`, `pick`, `invert`,
+  `job_status` (waits up to 2 minutes for the job), `redo`, and the four unchanged ones;
+  `dispersion_quality`, `quality_settings` and the approval are gone (thresholds locked, G4 the
+  go or no-go). Each stage tool returns the run, the gates' summary and what to do next, "you
+  are stuck, ask the user" included. The server's instructions (534 characters) and the role
+  (845): plan, act, observe, adapt; say which settings the gates changed; ask only when stuck,
+  one question with 2 or 3 options, its choice first. The host refuses a call identical to one
+  that just failed. The terminal no longer relays approvals.
+- **Fixes found on the way**: G2 fooled by a grid too narrow (the artifact at 1 m/s read as an
+  alias, the band cut to 12 Hz): the edge, competing-ridge and alias checks look above the
+  30 m/s floor, and the grid comes first; the ladder's trial windows get G2's grid fix; a band
+  wholly below the usable one now goes up instead of failing; G5 asks at once the iterations
+  100 models a chain need (2,000 iterations doubled twice left 48); the job records its depths
+  and the final verdicts; batches of retries overshot the run's budget.
+- **The evaluation** (`paco.evaluation`): 11 scenarios, the approval ones gone. Built per
+  evaluation from the demo: `active_dead` (trace 40 of the first record zeroed, as MiniSEED).
+  Scenarios: looking around (3), the loop (`pick_active`: G1's trigger, G3's mode jump;
+  `dead_trace`; `narrow_velocities`: vmax 250 m/s; `few_iterations`: 2,000; `tight_bounds`:
+  Vs 100-180 m/s; `zero_settings`: the whole line to Vs models with no setting), stuck
+  (`no_curve`: the passive line; `windows_too_long`). New checks: the agent asked nothing / asked,
+  the thresholds stayed the configuration's, the loop retried for a trigger, a trace excluded,
+  no settings invented, the value a gate set. The ideal scripted agent passes 11 of 11
+  (zero_settings: 12 minutes on 8 workers).
+- **Defects that could not be built** from the demo's records: an air wave the picker follows
+  (the demo's soil is slower than the air wave; scaling the geometry or compressing the time
+  axis broke G1's windows and band), and an isolated G4 outlier (overlapping windows spread any
+  receiver defect over several windows: geology to G4). Both stay covered by the unit tests.
+
+**First evaluation** (`eval-20260924-184935-a154`, Qwen3-8B-FP8, 3 plays, 8 workers): 14 of 33
+plays. Looking around 9 of 9, `no_curve` 3 of 3, `windows_too_long` 2 of 3 (once it answered
+without asking); every loop scenario 0 of 3. What failed, read from the transcripts:
+
+- **Questions at the end** (15 plays): "Would you like me to invert them?", or asking what to do
+  about a rejected window. The role said "ask only when stuck" but not what is not stuck.
+- **The gates' changes not said** (vmax 375, 17,000 iterations, the bounds past 180 m/s, trace
+  40): they were in the summary, as JSON inside a retry line, and the model did not pick them
+  out.
+- **The next step pushed too far**: `pick`'s hint said "call invert", and the agent inverted
+  when the user asked for curves only (2 plays).
+- **Setting names guessed**: `velocity_limit` or `velocity` at the top of the overrides, or
+  vmax left out and given to `invert` as `max_velocity` (`narrow_velocities`; once it read
+  `preset_settings` after the refusal and stopped). In `tight_bounds`, up to six calls to
+  `invert` before one passed: `layers.bounds`, `sampler.iterations`, then one Vs range for two
+  layers, refused.
+- **sigpipe's sampler failed** on 1 window of 66 (`zero_settings`: "operands could not be
+  broadcast together with shapes (3000,) (2975,)", a chain that kept no predicted curve for some
+  models), so the check "every window a model" failed.
+
+Fixed after it:
+
+- The tools return `changed`, the settings the gates and the checks changed in words: "dispersion
+  vmax 250 -> 375 at xmid 3.88-15.88 (3), by G2:ridge_at_vmax", the notes of the checks
+  ("line: masw length 32 for the whole line: ..."). The job's status has it too, once ended.
+- The role (1,051 characters) says what stuck is (no image or curve left, the budget spent
+  before the request is done, a request the data do not allow), that rejected windows are gaps
+  to report, that the answer ends without an offer or a question, and to report every item of
+  `changed` and the windows left without a result.
+- The hints are conditional: "pick comes next for run_id ..., if the user asked for curves or
+  models"; "3 curves passed G3 and G4. invert can run on run_id ..., if the user asked for
+  models; otherwise answer."
+- The settings' descriptions show their shape with placeholders (`{"dispersion": {"vmax":
+  <m/s>}}`, `{"vs_layers": [{"vs_min": <m/s>, "vs_max": <m/s>}]}`), the window length says
+  "receivers, not metres", and one Vs or thickness range stands for every layer.
+- A failed inversion is tried once more with the same parameters (trigger `S4:failed`, from the
+  gate budget "S4"): the sampler is not seeded, and the failure does not come back every time.
+  The fix at the source belongs in sigpipe (open issue).
 
 ## Decisions (2026-09-23)
 
@@ -671,10 +1103,15 @@ RESULTS_TABLE
   - the metric works on medians, so a few wrong points do not change a verdict: the approval step
     must look at the curve itself.
 - **PAC's defaults:** its form defaults give 3-receiver windows, which make flat passive images
-  with nothing to pick.
+  with nothing to pick. PACo's default is 5 receivers since 2026-09-24 (the user's choice).
 
 ## Next
 
-Every milestone is built. What is left needs the model: with vLLM's address, key and model name
-in `.env` (or the Compose stack on a GPU host), run `paco-agent` on the demo profiles, then
-`paco-evaluate`, and fix what they show.
+The evaluation of milestone 14 (running), then the user's review of `docs/gates/` (each page
+ends with "To judge", `loop.md` included) and of the decision to keep fixed pipelines (optional
+validated stages per preset, if wanted).
+
+Still open from before: a guard in the agent loop against repeating the same failing call
+(Qwen3-4B looped ten times on `invert`, then invented "Job started"); the judge model; the NVIDIA
+path of `compose.yaml`; committing the burn-in fixes in `../sigpipe` and `../PAC`; sigpipe's
+`inversion_mcmc` failing when a chain keeps no predicted curve (milestone 13).

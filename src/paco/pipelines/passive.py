@@ -1,4 +1,5 @@
-"""PAC's passive pipeline: noise segments cross-correlated and stacked, then a dispersion image."""
+"""PAC's passive pipeline, from the preprocessed records: noise segments cross-correlated and
+stacked, then a dispersion image."""
 
 from pathlib import Path
 
@@ -6,12 +7,8 @@ from sigpipe.base import Pipeline
 from sigpipe.transformers import (
     Apodize,
     Correlate,
-    Detrend,
     Dispersion,
-    Filter,
-    Mute,
     Normalize,
-    Pad,
     Plot,
     Save,
     Selection,
@@ -20,20 +17,16 @@ from sigpipe.transformers import (
     Whiten,
 )
 
-from paco.pipelines.common import load_window, stage_kwargs
+from paco.pipelines.common import load_preprocessed, stage_kwargs
 from paco.presets import PassivePreset
 from paco.windows import MASWWindow
 
 
 def build_passive_pipeline(
-    preset: PassivePreset, window: MASWWindow, output_folder: Path
+    preset: PassivePreset, window: MASWWindow, records_folder: Path, output_folder: Path
 ) -> Pipeline:
     return (
-        load_window(window)
-        >> Detrend(method="constant")
-        >> Detrend(method="linear")
-        >> Mute(**stage_kwargs(preset, "muting"))
-        >> Filter(**stage_kwargs(preset, "filtering"))
+        load_preprocessed(window, records_folder)
         >> Slice(**stage_kwargs(preset, "slicing"))
         >> Selection(**stage_kwargs(preset, "selection"), flip_negatives=True)
         >> Whiten(**stage_kwargs(preset, "whitening"))
@@ -43,7 +36,6 @@ def build_passive_pipeline(
         >> Stack(**stage_kwargs(preset, "stacking"))
         >> Plot(folder_path=output_folder)
         >> Save(folder_path=output_folder)
-        >> Pad(n=1_000, taper=25)
         >> Dispersion(method="phase", **stage_kwargs(preset, "dispersion"))
         >> Plot(folder_path=output_folder, normalize=True)
         >> Save(folder_path=output_folder)

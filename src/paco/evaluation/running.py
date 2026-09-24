@@ -11,19 +11,21 @@ from pathlib import Path
 
 import anyio
 from mcp import Client
-from mcp.client.session import ClientRequestContext
-from mcp.types import ElicitRequestParams, ElicitResult
 
 from paco import server
 from paco.agent import Agent, ChatModel
 from paco.evaluation.checks import Trial
+from paco.evaluation.defects import build_inputs
 from paco.evaluation.judging import judge
 from paco.evaluation.models import EvaluationReport, ScenarioResult
 from paco.evaluation.scenarios import Scenario
 from paco.inversion import InversionRecord
 from paco.settings import get_settings
 
-_JOBS_TIMEOUT_S = 1_800  # an approved inversion, left running when the conversation ends
+_JOBS_TIMEOUT_S = 1_800  # an inversion left running when the conversation ends
+# Worker processes of the server during an evaluation (the user's choice of milestone 14): the
+# zero-settings scenario inverts the whole demo line at PAC's effort, about 6 minutes on 8.
+EVALUATION_WORKERS = 8
 
 type OnEvent = Callable[[str], None]
 
@@ -46,6 +48,7 @@ async def run_evaluation(
     started_at = datetime.now(UTC)
     eval_id = f"eval-{started_at:%Y%m%d-%H%M%S}-{secrets.token_hex(2)}"
     folder = root / eval_id
+    inputs = build_inputs(get_settings().input_dir, folder / "inputs")
     results: list[ScenarioResult] = []
     for scenario in scenarios:
         for attempt in range(1, repeat + 1):
@@ -57,7 +60,7 @@ async def run_evaluation(
                 where = folder / scenario.name / str(attempt)
             results.append(
                 await run_scenario(
-                    scenario, model, model_name, where, judge_model, on_event, attempt
+                    scenario, model, model_name, where, judge_model, on_event, attempt, inputs
                 )
             )
     report = EvaluationReport(
@@ -81,24 +84,15 @@ async def run_scenario(
     judge_model: ChatModel | None = None,
     on_event: OnEvent = print,
     attempt: int = 1,
+    inputs: Path | None = None,
 ) -> ScenarioResult:
-    """Play `scenario` with the server writing into `folder`/outputs, and score it; the
-    conversation is saved as `folder`/transcript.json. `attempt` numbers the play."""
-    questions_to_user: list[str] = []
-
-    async def simulated_user(
-        context: ClientRequestContext,  # noqa: ARG001
-        params: ElicitRequestParams,
-    ) -> ElicitResult:
-        questions_to_user.append(params.message)
-        if scenario.approval == "accept":
-            return ElicitResult(action="accept", content={"approve": True})
-        return ElicitResult(action="decline")
-
+    """Play `scenario` with the server reading `inputs` (the settings' input_dir by default) and
+    writing into `folder`/outputs, with EVALUATION_WORKERS, and score it; the conversation is
+    saved as `folder`/transcript.json. `attempt` numbers the play."""
     outputs = folder / "outputs"
     start = time.perf_counter()
-    with _server_writes_into(outputs):
-        async with Client(server.server, elicitation_callback=simulated_user) as client:
+    with _server_settings(outputs, inputs):
+        async with Client(server.server) as client:
             agent = await Agent.start(client, model, on_event=on_event)
             for question in scenario.questions:
                 await agent.answer(question)
@@ -109,7 +103,7 @@ async def run_scenario(
     # A scenario that never processed a profile left no folder behind.
     folder.mkdir(parents=True, exist_ok=True)
     (folder / "transcript.json").write_text(transcript.model_dump_json(indent=2))
-    trial = Trial(transcript, outputs, tuple(questions_to_user))
+    trial = Trial(transcript, outputs)
     tokens = [step.prompt_tokens for step in transcript.steps if step.kind == "model"]
     known_tokens = [count for count in tokens if count is not None]
     return ScenarioResult(
@@ -127,18 +121,23 @@ async def run_scenario(
 
 
 @contextmanager
-def _server_writes_into(outputs: Path) -> Generator[None]:
-    """The in-process server reads its settings from the environment: point its outputs here."""
-    previous = os.environ.get("PACO_OUTPUT_DIR")
-    os.environ["PACO_OUTPUT_DIR"] = str(outputs)
+def _server_settings(outputs: Path, inputs: Path | None) -> Generator[None]:
+    """The in-process server reads its settings from the environment: point its outputs (and
+    inputs) here, with the evaluation's workers."""
+    values = {"PACO_OUTPUT_DIR": str(outputs), "PACO_WORKERS": str(EVALUATION_WORKERS)}
+    if inputs is not None:
+        values["PACO_INPUT_DIR"] = str(inputs)
+    previous = {name: os.environ.get(name) for name in values}
+    os.environ.update(values)
     get_settings.cache_clear()
     try:
         yield
     finally:
-        if previous is None:
-            del os.environ["PACO_OUTPUT_DIR"]
-        else:
-            os.environ["PACO_OUTPUT_DIR"] = previous
+        for name, value in previous.items():
+            if value is None:
+                del os.environ[name]
+            else:
+                os.environ[name] = value
         get_settings.cache_clear()
 
 

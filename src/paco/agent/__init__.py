@@ -10,7 +10,7 @@ from .loop import Agent
 from .model import ChatModel, OpenAIChat, Reply, ToolCall, without_thinking
 from .record import ModelStep, Step, ToolStep, Transcript, save_transcript
 from .settings import AgentSettings
-from .terminal import ask_the_user, chat
+from .terminal import chat
 
 __all__ = [
     "Agent",
@@ -23,7 +23,6 @@ __all__ = [
     "ToolCall",
     "ToolStep",
     "Transcript",
-    "ask_the_user",
     "chat",
     "result_for_model",
     "save_transcript",

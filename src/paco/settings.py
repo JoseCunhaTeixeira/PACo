@@ -33,6 +33,9 @@ class Settings(BaseSettings):
     # Host headers the server accepts, e.g. ["paco-server:*", "localhost:*"]: protection against
     # DNS rebinding, which the SDK only turns on by itself when the host is 127.0.0.1.
     allowed_hosts: tuple[str, ...] = ()
+    # The QC thresholds and retry budgets, a JSON file (paco.qc.QCConfig); PACo's defaults if
+    # none. Changed between runs only: a run records the values it used.
+    qc_config: Path | None = None
 
     @field_validator("input_dir", "output_dir")
     @classmethod

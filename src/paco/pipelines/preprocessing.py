@@ -1,0 +1,35 @@
+"""The first steps of PAC's pipelines, on a whole record: trace editing, mute and filter, saved
+as a stream for the windows to read."""
+
+from pathlib import Path
+
+from sigpipe.base import Pipeline
+from sigpipe.transformers import Detrend, Filter, Mute, Plot, Save
+
+from paco.pipelines.common import load_record, stage_kwargs
+from paco.presets import ActivePreset, PassivePreset
+from paco.profiles import Profile, Record
+from paco.transformers import ShiftTrigger
+
+
+def build_preprocessing_pipeline(
+    preset: ActivePreset | PassivePreset, record: Record, profile: Profile, output_folder: Path
+) -> Pipeline:
+    """The preprocessing of one record, written to `output_folder`: the same for every window
+    that uses the record, since each step works trace by trace. An active record's trigger is
+    corrected first (t0 = 0 by default: no change)."""
+    load = load_record(record, profile)
+    head = (
+        load >> ShiftTrigger(**stage_kwargs(preset, "trigger"))
+        if isinstance(preset, ActivePreset)
+        else Pipeline([load])
+    )
+    return (
+        head
+        >> Detrend(method="constant")
+        >> Detrend(method="linear")
+        >> Mute(**stage_kwargs(preset, "muting"))
+        >> Filter(**stage_kwargs(preset, "filtering"))
+        >> Plot(folder_path=output_folder)
+        >> Save(folder_path=output_folder)
+    )

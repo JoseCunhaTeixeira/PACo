@@ -17,24 +17,25 @@ from paco.inversion import (
     ThicknessLayer,
     VsLayer,
     WindowInversion,
-    check_inversion,
     find_job,
-    invert_run,
     read_record,
-    submit_inversion,
     summarize_inversion,
     write_record,
 )
 from paco.jobs import JobManager
-from paco.picks import pick
-from paco.quality import dispersion_quality
-from paco.runs import run_processing
+from paco.qc import QCConfig, run_inversion_job, submit_inversion
+from paco.qc.curves import pick_line
+from paco.qc.line import process_line
+from paco.runs import RunError
 from paco.settings import Settings
 
-# Four 24-receiver windows along the active demo line, as in test_runs.py; all four are picked.
+# Four 24-receiver windows along the active demo line, as in test_runs.py; G3 sends xmid 14.88
+# back (a mode jump) until its budget is spent, so G4 passes three curves.
 SMALL_WINDOWS = {"masw": {"length": 24, "step": 24}}
-# A short sampler: every step of an inversion, in about a second per window.
-SHORT = InversionParameters(n_iterations=500, n_burnin_iterations=50, n_chains=1)
+# A short sampler: every step of an inversion, in about a second per window; far too short for
+# G5, whose retries (twice the iterations, twice) are then spent.
+SHORT = {"n_iterations": 500, "n_burnin_iterations": 50, "n_chains": 1}
+PICKED = ("xmid_2.88", "xmid_8.88", "xmid_20.88")
 # The files PAC's invert_position writes in a window folder (compared with PAC on 2026-09-23).
 PAC_FILES = {
     "SeismicInversion_DensityCurves_0000.png",
@@ -68,15 +69,16 @@ class Inverted:
     progress: list[tuple[int, int]]
 
 
-# The real runs are the slow part: one run is processed, judged and picked, and inverted once
-# with a short sampler. Tests that change a run work on a copy.
+# The real runs are the slow part: one run is processed and picked the QC way, and inverted
+# once with a short sampler. Tests that change a run work on a copy.
 @pytest.fixture(scope="module")
 def picked(demo_input_dir: Path, tmp_path_factory: pytest.TempPathFactory) -> Picked:
     root = tmp_path_factory.mktemp("inversion")
     settings = Settings(input_dir=demo_input_dir, output_dir=root / "outputs", workers=2)
-    run_id = run_processing("active_p1", "active", SMALL_WINDOWS, settings).run_id
-    dispersion_quality(run_id, settings)
-    pick(run_id, settings)
+    with pytest.MonkeyPatch.context() as patch:
+        patch.chdir(root)
+        run_id = process_line("active_p1", SMALL_WINDOWS, settings, QCConfig()).run_id
+        pick_line(run_id, settings)
     return Picked(settings, run_id, settings.output_dir / "active_p1" / run_id)
 
 
@@ -85,7 +87,7 @@ def inverted(picked: Picked, tmp_path_factory: pytest.TempPathFactory) -> Invert
     settings, folder = _copy(picked, tmp_path_factory.mktemp("inverted"))
     progress: list[tuple[int, int]] = []
     record = submit_inversion(picked.run_id, SHORT, settings)
-    record = invert_run(record, settings, lambda done, total: progress.append((done, total)))
+    record = run_inversion_job(record, settings, lambda done, total: progress.append((done, total)))
     return Inverted(record, folder, progress)
 
 
@@ -101,7 +103,7 @@ def _record(**changes: object) -> InversionRecord:
     fields: dict[str, object] = {
         "job_id": "inv-20260923-100000-abcd",
         "run_id": "20260923-090000-abcd",
-        "parameters": SHORT,
+        "given": SHORT,
         "state": "running",
         "submitted_at": datetime(2026, 9, 23, 10, 0, tzinfo=UTC),
         "started_at": datetime(2026, 9, 23, 10, 0, tzinfo=UTC),
@@ -110,13 +112,23 @@ def _record(**changes: object) -> InversionRecord:
     return InversionRecord.model_validate(fields | changes)
 
 
-def _window(xmid: float, vs: tuple[float, ...], thicknesses: tuple[float, ...]) -> WindowInversion:
+def _window(
+    xmid: float,
+    vs: tuple[float, ...],
+    thicknesses: tuple[float, ...],
+    smooth: tuple[float, ...] = (),
+    useful_depth: float | None = None,
+    misfit: float | None = None,
+) -> WindowInversion:
     return WindowInversion(
         xmid=xmid,
         folder=f"xmid_{xmid:.2f}",
         status="succeeded",
         vs_m_s=vs,
         thicknesses_m=thicknesses,
+        vs_at_depths_m_s=smooth or None,
+        useful_depth_m=useful_depth,
+        misfit=misfit,
     )
 
 
@@ -174,27 +186,43 @@ def test_the_burnin_follows_the_iterations() -> None:
 # ---------------------------------------------------------------- starting a job
 
 
-def test_submit_records_a_queued_job(picked: Picked, tmp_path: Path) -> None:
+def test_submit_records_a_queued_job_of_the_windows_g4_passed(
+    picked: Picked, tmp_path: Path
+) -> None:
     settings, folder = _copy(picked, tmp_path)
 
     record = submit_inversion(picked.run_id, SHORT, settings)
 
     assert re.fullmatch(r"inv-\d{8}-\d{6}-[0-9a-f]{4}", record.job_id)
-    assert (record.run_id, record.state, record.total, record.windows) == (
+    assert (record.run_id, record.state, record.total, record.windows, record.given) == (
         picked.run_id,
         "queued",
-        4,
+        3,
         (),
+        SHORT,
     )
     assert read_record(folder) == record
 
 
-def test_an_inversion_needs_picks(picked: Picked, tmp_path: Path) -> None:
+def test_an_inversion_needs_g4(picked: Picked, tmp_path: Path) -> None:
     settings, folder = _copy(picked, tmp_path)
-    (folder / "pick.json").unlink()
+    lines = (folder / "qc_log.jsonl").read_text().splitlines()
+    kept = [line for line in lines if '"stage":"picking"' not in line]
+    (folder / "qc_log.jsonl").write_text("\n".join(kept) + "\n")
 
-    with pytest.raises(InversionError, match=r"has no picks yet: call pick first\.$"):
-        check_inversion(picked.run_id, settings)
+    with pytest.raises(RunError, match=r"has not been judged up to G4: judge it"):
+        submit_inversion(picked.run_id, SHORT, settings)
+
+
+def test_values_that_cannot_hold_are_refused_at_once(picked: Picked, tmp_path: Path) -> None:
+    settings, _ = _copy(picked, tmp_path)
+
+    with pytest.raises(InversionError, match="must exceed n_burnin_iterations"):
+        submit_inversion(
+            picked.run_id, {"n_iterations": 1_000, "n_burnin_iterations": 900}, settings
+        )
+    with pytest.raises(InversionError, match="Extra inputs are not permitted"):
+        submit_inversion(picked.run_id, {"iterations": 5}, settings)
 
 
 @pytest.mark.parametrize("state", ["queued", "running"])
@@ -209,18 +237,44 @@ def test_one_inversion_per_run_at_a_time(picked: Picked, tmp_path: Path, state: 
 # ---------------------------------------------------------------- running a job
 
 
-def test_every_picked_window_is_inverted(inverted: Inverted) -> None:
+def test_every_window_g4_passed_is_inverted(inverted: Inverted) -> None:
     record = inverted.record
 
-    assert (record.state, record.total, record.error) == ("succeeded", 4, None)
+    assert (record.state, record.total, record.error) == ("succeeded", 3, None)
     assert record.started_at is not None and record.finished_at is not None
+    assert [window.folder for window in record.windows] == list(PICKED)
+    # The smooth median is reported at round depths down to half the longest wavelength.
+    assert record.depths_m and record.depths_m[0] > 0
     for window in record.windows:
         assert window.status == "succeeded"
         assert window.vs_m_s is not None and len(window.vs_m_s) == 2
         assert window.thicknesses_m is not None and len(window.thicknesses_m) == 1
-    assert inverted.progress == [(done, 4) for done in range(5)]
+        assert window.vs_at_depths_m_s is not None
+        assert len(window.vs_at_depths_m_s) == len(record.depths_m)
+        assert window.useful_depth_m is not None and window.useful_depth_m > 0
+        assert window.misfit is not None and window.misfit >= 0
+    # The first pass reports its progress; the gates' retries follow.
+    assert inverted.progress == [(done, 3) for done in range(4)]
     # What job_status reads is what the job returned.
     assert read_record(inverted.folder) == record
+
+
+def test_g5s_retries_are_in_the_jobs_summary(inverted: Inverted) -> None:
+    summary = inverted.record.summary
+
+    assert summary is not None and summary.startswith("G5: ")
+    # 3 models a chain: G5 asks, at once, the iterations 100 models a chain need. What comes of
+    # it depends on the unseeded sampler.
+    assert (
+        'Retried G5:not_converged, xmid 2.88-8.88 (2), 20.88 (1) with inversion {"n_iterations":'
+        '17000,"n_burnin_iterations":1700}: now '
+    ) in summary
+    assert all(window.verdict in ("pass", "retry", "reject") for window in inverted.record.windows)
+    # The settings the gates changed, from -> to, for the agent to report.
+    assert inverted.record.changed[0] == (
+        "n_iterations 500 -> 17000; n_burnin_iterations 50 -> 1700 at xmid 2.88-8.88 (2), "
+        "20.88 (1), by G5:not_converged"
+    )
 
 
 def test_windows_get_pacs_files(inverted: Inverted) -> None:
@@ -229,64 +283,37 @@ def test_windows_get_pacs_files(inverted: Inverted) -> None:
         assert files >= PAC_FILES
 
 
-def test_a_window_without_m0_fails_alone(picked: Picked, tmp_path: Path) -> None:
+def test_a_window_whose_curve_is_gone_is_left_out(picked: Picked, tmp_path: Path) -> None:
     settings, folder = _copy(picked, tmp_path)
     (folder / "xmid_8.88" / "DispersionCurves_0000.csv").unlink()
 
-    record = invert_run(submit_inversion(picked.run_id, SHORT, settings), settings)
+    record = run_inversion_job(submit_inversion(picked.run_id, SHORT, settings), settings)
 
     assert record.state == "succeeded"
-    statuses = {window.folder: window.status for window in record.windows}
-    assert statuses == {
-        "xmid_2.88": "succeeded",
-        "xmid_8.88": "failed",
-        "xmid_14.88": "succeeded",
-        "xmid_20.88": "succeeded",
-    }
-    (failed,) = [window for window in record.windows if window.status == "failed"]
-    assert (
-        failed.error == "ValueError: No M0 curve in xmid_8.88: pick it, or pick it again by hand."
-    )
-    assert (folder / "xmid_8.88" / "inversion_error.log").exists()
+    assert [window.folder for window in record.windows] == ["xmid_2.88", "xmid_20.88"]
 
 
 def test_150_iterations_after_the_burnin_are_enough(picked: Picked, tmp_path: Path) -> None:
     settings, _ = _copy(picked, tmp_path)
     # One model kept per chain (SAMPLE_EVERY is sigpipe's save_every).
-    parameters = InversionParameters(n_iterations=300, n_burnin_iterations=150, n_chains=1)
+    given = {"n_iterations": 300, "n_burnin_iterations": 150, "n_chains": 1}
 
-    record = invert_run(submit_inversion(picked.run_id, parameters, settings), settings)
+    record = run_inversion_job(submit_inversion(picked.run_id, given, settings), settings)
 
     assert record.state == "succeeded"
     assert {window.status for window in record.windows} == {"succeeded"}
 
 
-def test_a_job_whose_every_window_failed_is_failed(picked: Picked, tmp_path: Path) -> None:
-    settings, _ = _copy(picked, tmp_path)
-    parameters = InversionParameters(n_iterations=300, n_burnin_iterations=150, n_chains=1)
-    record = submit_inversion(picked.run_id, parameters, settings)
-    # 149 iterations after the burn-in keep no model, which the parameters' check now refuses:
-    # this is how "2,000 iterations" with PAC's 10,000 of burn-in ended, before it.
-    unchecked = parameters.model_copy(update={"n_iterations": 299})
-
-    record = invert_run(record.model_copy(update={"parameters": unchecked}), settings)
-
-    assert (record.state, record.error) == ("failed", "Every window failed: see errors.")
-    assert {window.error for window in record.windows} == {"KeyError: 'space.vs1'"}
-    assert len(record.windows) == 4
-
-
 def test_a_job_that_cannot_run_is_failed(picked: Picked, tmp_path: Path) -> None:
     settings, folder = _copy(picked, tmp_path)
     record = submit_inversion(picked.run_id, SHORT, settings)
-    (folder / "pick.json").unlink()
+    # 149 iterations after the burn-in keep no model, which the checks before S4 refuse.
+    record = record.model_copy(update={"given": {"n_iterations": 299, "n_burnin_iterations": 150}})
 
-    record = invert_run(record, settings)
+    record = run_inversion_job(record, settings)
 
     assert record.state == "failed"
-    assert (
-        record.error == f"InversionError: Run '{picked.run_id}' has no picks yet: call pick first."
-    )
+    assert record.error is not None and "must exceed n_burnin_iterations" in record.error
     assert read_record(folder) == record
 
 
@@ -319,9 +346,10 @@ def test_summary_gives_the_range_of_the_models() -> None:
         state="succeeded",
         finished_at=datetime(2026, 9, 23, 10, 2, 5, tzinfo=UTC),
         total=3,
+        depths_m=(1.0, 2.0),
         windows=(
-            _window(1.0, (200.0, 400.0), (3.0,)),
-            _window(2.0, (220.0, 500.0), (5.0,)),
+            _window(1.0, (200.0, 400.0), (3.0,), (200.0, 260.0), 4.0, 0.8),
+            _window(2.0, (220.0, 500.0), (5.0,), (220.0, 240.0), 5.5, 1.26),
             WindowInversion(xmid=3.0, folder="xmid_3.00", status="failed", error="ValueError: x"),
         ),
     )
@@ -334,17 +362,26 @@ def test_summary_gives_the_range_of_the_models() -> None:
         "total": 3,
         "n_failed": 1,
         "elapsed_s": 125.0,
-        "vs_m_s": ((200.0, 220.0), (400.0, 500.0)),
-        "depths_m": ((3.0, 5.0),),
+        "depths_m": (1.0, 2.0),
+        "vs_m_s": ((200.0, 220.0), (240.0, 260.0)),
+        "useful_depth_m": (4.0, 5.5),
+        "misfit": (0.8, 1.26),
         "errors": ("xmid 3.00: ValueError: x",),
         "error": None,
+        "summary": None,
+        "changed": (),
     }
 
 
-def test_depths_add_up_the_thicknesses() -> None:
-    record = _record(windows=(_window(1.0, (150.0, 300.0, 600.0), (2.0, 4.0)),), total=1)
+def test_the_summary_reports_nothing_of_models_before_any_window() -> None:
+    status = summarize_inversion(_record(depths_m=(1.0, 2.0, 3.0)), live=True)
 
-    assert summarize_inversion(record, live=True).depths_m == ((2.0, 2.0), (6.0, 6.0))
+    assert (status.depths_m, status.vs_m_s, status.useful_depth_m, status.misfit) == (
+        (1.0, 2.0, 3.0),
+        (),
+        None,
+        None,
+    )
 
 
 def test_summary_reports_a_few_distinct_errors() -> None:

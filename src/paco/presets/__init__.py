@@ -7,7 +7,7 @@ preset is then fitted to a profile, which fills the values PAC derives from the 
 """
 
 from .explaining import explain_parameters
-from .making import PRESETS, make_preset
+from .making import PRESETS, apply_overrides, make_preset
 from .models import ActivePreset, PassivePreset, Preset, PresetBase, PresetError
 from .resolving import IIR_FMAX_NYQUIST_FRACTION, resolve_preset
 from .schemas import override_schema, schema_size, without_titles
@@ -20,6 +20,7 @@ __all__ = [
     "Preset",
     "PresetBase",
     "PresetError",
+    "apply_overrides",
     "explain_parameters",
     "make_preset",
     "override_schema",

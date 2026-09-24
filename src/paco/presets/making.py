@@ -30,3 +30,28 @@ def make_preset(
         return preset.model_validate(dict(overrides or {}))
     except ValidationError as error:
         raise PresetError(explain(error, name, PRESETS)) from error
+
+
+def apply_overrides[P: ActivePreset | PassivePreset](
+    preset: P, overrides: Mapping[str, object]
+) -> P:
+    """`preset` with `overrides` applied on top of its values, for a stage done again.
+
+    A stage given with another method is replaced whole; otherwise its fields are merged. The
+    result is not resolved: derive its values against the profile again.
+    """
+    values = preset.model_dump()
+    for stage, given in overrides.items():
+        current = values.get(stage)
+        if (
+            isinstance(given, Mapping)
+            and isinstance(current, dict)
+            and given.get("method", current.get("method")) == current.get("method")
+        ):
+            values[stage] = {**current, **given}
+        else:
+            values[stage] = given
+    try:
+        return type(preset).model_validate(values)
+    except ValidationError as error:
+        raise PresetError(explain(error, preset.mode, PRESETS)) from error

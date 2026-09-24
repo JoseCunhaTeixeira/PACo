@@ -1,4 +1,4 @@
-"""Which pipeline each preset builds, as in PAC's adapters/registry.py."""
+"""Which image pipeline each preset builds, as in PAC's adapters/registry.py."""
 
 from collections.abc import Callable
 from pathlib import Path
@@ -17,9 +17,15 @@ PIPELINE_BUILDERS: dict[str, Callable[..., Pipeline]] = {
 }
 
 
-def build_pipeline(
-    preset: ActivePreset | PassivePreset, window: MASWWindow, output_folder: Path
+def build_image_pipeline(
+    preset: ActivePreset | PassivePreset,
+    window: MASWWindow,
+    records_folder: Path,
+    output_folder: Path,
 ) -> Pipeline:
-    """The pipeline of `preset` for one window, writing its figures and results to `output_folder`."""
+    """The pipeline of `preset` for one window, from the preprocessed records in
+    `records_folder`, writing its figures and results to `output_folder`."""
     builder = PIPELINE_BUILDERS[preset.mode]
-    return builder(preset=preset, window=window, output_folder=output_folder)
+    return builder(
+        preset=preset, window=window, records_folder=records_folder, output_folder=output_folder
+    )

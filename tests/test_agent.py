@@ -1,14 +1,11 @@
-import builtins
 import json
 from pathlib import Path
-from typing import Any, cast
+from typing import Any
 
 import anyio
 import httpx2
 import pytest
 from mcp import Client
-from mcp.client.session import ClientRequestContext, ElicitationFnT
-from mcp.types import ElicitRequestFormParams, ElicitRequestParams, ElicitResult
 from openai import AsyncOpenAI
 from openai.types.chat import ChatCompletionFunctionToolParam, ChatCompletionMessageParam
 
@@ -18,7 +15,6 @@ from paco.agent import (
     OpenAIChat,
     Reply,
     ToolCall,
-    ask_the_user,
     chat,
     result_for_model,
     without_thinking,
@@ -103,12 +99,11 @@ def test_the_model_gets_every_tool_card_and_the_workflow() -> None:
         "inspect_profile",
         "preset_settings",
         "run_processing",
-        "quality_settings",
-        "dispersion_quality",
         "pick",
         "inversion_settings",
         "invert",
         "job_status",
+        "redo",
     ]
     assert messages[0] == {"role": "system", "content": f"{ROLE}\n\n{server.INSTRUCTIONS}"}
 
@@ -196,81 +191,50 @@ def test_an_answer_has_a_tool_call_budget() -> None:
     )
 
 
-# ---------------------------------------------------------------- the user's approval
+# ---------------------------------------------------------------- a call that just failed
 
 
 @pytest.mark.usefixtures("paco_env")
-def test_the_model_never_sees_the_approval_question() -> None:
-    asked: list[str] = []
-
-    async def user(
-        context: ClientRequestContext,  # noqa: ARG001
-        params: ElicitRequestParams,
-    ) -> ElicitResult:
-        asked.append(params.message)
-        return ElicitResult(action="accept", content={"approve": True})
-
-    async def conversation() -> tuple[str, list[ChatCompletionMessageParam]]:
-        async with Client(server.server, elicitation_callback=user) as client:
-            processed = await client.call_tool(
-                "run_processing", {"profile": "active_p1", "overrides": SMALL_WINDOWS}
-            )
-            run_id = (processed.structured_content or {})["run_id"]
-            await client.call_tool("dispersion_quality", {"run_id": run_id})
-            await client.call_tool("pick", {"run_id": run_id})
-
-            model = ScriptedModel(
-                _calls(("invert", {"run_id": run_id, "parameters": SHORT})),
-                _says("The inversion has started."),
-            )
-            agent = await Agent.start(client, model, on_event=lambda _: None)
-            await agent.answer("Invert the run.")
-            job = json.loads(_tool_results(agent.messages)[0])
-            # Let the job end before its folder is deleted.
-            while True:
-                status = await client.call_tool("job_status", {"job_id": job["job_id"]})
-                if (status.structured_content or {})["state"] not in ("queued", "running"):
-                    break
-                await anyio.sleep(0.2)
-            return job["state"], agent.messages
-
-    state, messages = anyio.run(conversation)
-
-    assert state == "queued"
-    (question,) = asked
-    assert question.startswith("The agent asks to invert run")
-    assert all(question not in str(message.get("content")) for message in messages)
-
-
-def _question() -> ElicitRequestFormParams:
-    return ElicitRequestFormParams(
-        message="Approve?",
-        requested_schema={"type": "object", "properties": {"approve": {"type": "boolean"}}},
+def test_a_call_that_just_failed_is_not_made_again() -> None:
+    model = ScriptedModel(
+        _calls(("inspect_profile", {"profile": "active_p2"})),
+        # The same call again, its JSON written otherwise: refused, unmade.
+        _calls(("inspect_profile", '{ "profile" :"active_p2" }')),
+        _calls(("inspect_profile", {"profile": "active_p1"})),
+        _says("active_p2 does not exist; active_p1 has 96 receivers."),
     )
 
+    _, events, messages = _converse(model, "Inspect active_p2.")
 
-@pytest.mark.parametrize(
-    ("typed", "result"),
-    [
-        ("y", ElicitResult(action="accept", content={"approve": True})),
-        ("yes", ElicitResult(action="accept", content={"approve": True})),
-        ("n", ElicitResult(action="decline")),
-        ("", ElicitResult(action="decline")),
-    ],
-)
-def test_the_terminal_asks_the_user(
-    monkeypatch: pytest.MonkeyPatch, typed: str, result: ElicitResult
-) -> None:
-    def type_it(_prompt: str) -> str:
-        return typed
+    results = _tool_results(messages)
+    assert results[1].startswith(
+        "Not called: this exact call just failed, and would fail again: Error executing tool "
+        "inspect_profile: Unknown profile 'active_p2'."
+    )
+    assert results[1].endswith(
+        "Change the arguments, call another tool, or answer the user with what you have."
+    )
+    assert (
+        events[2]
+        == '-> inspect_profile({ "profile" :"active_p2" }) refused: the same call just failed'
+    )
+    # Another call goes through.
+    assert json.loads(results[2])["name"] == "active_p1"
 
-    monkeypatch.setattr(builtins, "input", type_it)
-    callback: ElicitationFnT = ask_the_user
 
-    async def ask() -> ElicitResult:
-        return await callback(cast(ClientRequestContext, None), _question())  # type: ignore[return-value]
+# ---------------------------------------------------------------- no question for the user
 
-    assert anyio.run(ask) == result
+
+def test_the_agent_asks_only_when_stuck() -> None:
+    # The go or no-go before an inversion is G4's verdict (docs/qc_workflow.md): no tool asks
+    # the user anything; the model asks, in its answer, only when the data cannot decide.
+    assert "Ask the user only when the request cannot be finished" in ROLE
+    assert "2 or 3 concrete options, your choice first" in ROLE
+    # Rejected windows are gaps to report; the answer ends without an offer.
+    assert "Rejected windows are gaps to report, not a reason to ask" in ROLE
+    assert "no offer, no question" in ROLE
+    assert "report every item of the results' changed lists" in ROLE
+    assert "Ask the user only when stuck" in server.INSTRUCTIONS
 
 
 # ---------------------------------------------------------------- the model behind vLLM's API
