@@ -72,16 +72,26 @@ class LengthTrial(BaseModel):
     verdicts: tuple[str, ...]  # G3's, in the order of xmids
     flags: tuple[str, ...]  # G3's flags over the trials, most frequent first
     passed: int
+    metres: float = 0.0  # the window's span
+    windows: int = 0  # windows the line gets at this length, at the run's step
+    # The median shortest and longest wavelengths of the curves G3 passed, m: the depth the
+    # length reaches is about half the longest.
+    wavelengths_m: tuple[float, float] | None = None
+    compared: bool = False  # tried past the kept length, for the agent to compare
 
 
 class LengthChoice(BaseModel):
-    """The window length the ladder kept, and why."""
+    """The window length the ladder kept, and why: its proposal, the agent's to change (the
+    user's decision of 2026-09-25)."""
 
     model_config = ConfigDict(frozen=True)
 
     length: int
     trials: tuple[LengthTrial, ...]
     notes: tuple[str, ...]
+    receivers: int = 0  # the line's
+    spacing_m: float = 0.0
+    longest: int = 0  # the longest length allowed, in receivers
 
 
 def cap_band(
@@ -130,36 +140,102 @@ def choose_length(
     first: int | None = None,
     exclusions: Exclusions | None = None,
 ) -> LengthChoice:
-    """The shortest window length, from `first` (the user's) up the ladder, at which G3 passes
-    `min_pass_share` of the trial windows spread along the line; the longest tried when none
-    does. Trial windows go to <run_folder>/coherence/<length>/, on the run's records."""
+    """The shortest window length up the ladder at which G3 passes `min_pass_share` of the
+    trial windows spread along the line (the most passes when none does), and one length more
+    for comparison; or `first`, a length given (by the user or the agent), kept as it is with
+    its trial windows' result (the user's decision of 2026-09-25: the ladder proposes, a
+    length given decides). Trial windows go to <run_folder>/coherence/<length>/, on the run's
+    records."""
     rules = judge.rules
     longest = max(3, int(len(profile.receivers) * rules.max_line_share))
-    start = first if first is not None else rules.lengths[0]
-    ladder = [start] + [length for length in rules.lengths if start < length <= longest]
+
+    def attempt(length: int) -> LengthTrial | None:
+        return _try_length(profile, preset, records, run_folder, judge, workers, length, exclusions)
+
+    def passes(trial: LengthTrial) -> bool:
+        return trial.passed >= math.ceil(rules.min_pass_share * len(trial.xmids))
+
     trials: list[LengthTrial] = []
-    for length in ladder:
-        trial = _try_length(
-            profile, preset, records, run_folder, judge, workers, length, exclusions
-        )
-        if trial is None:
-            continue
-        trials.append(trial)
-        if trial.passed >= math.ceil(rules.min_pass_share * len(trial.xmids)):
-            break
-    if not trials:
-        raise RunError("No window length gives a window with a shot: check masw's distances.")
-    kept = trials[-1]
-    if kept.passed < math.ceil(rules.min_pass_share * len(kept.xmids)):
-        kept = max(trials, key=lambda trial: (trial.passed, -trial.length))
-    tried = ", ".join(f"{trial.passed}/{len(trial.xmids)} at {trial.length}" for trial in trials)
-    note = (
-        f"masw length {kept.length} for the whole line: trial windows G3 passed, by length in "
-        f"receivers: {tried}."
+    if first is not None:
+        given = attempt(first)
+        if given is None:
+            raise RunError(
+                f"No window of {first} receivers has a shot: check masw's length and distances."
+            )
+        trials.append(given)
+        kept = given
+    else:
+        for length in [length for length in rules.lengths if length <= longest]:
+            trial = attempt(length)
+            if trial is None:
+                continue
+            trials.append(trial)
+            if passes(trial):
+                break
+        if not trials:
+            raise RunError("No window length gives a window with a shot: check masw's distances.")
+        kept = trials[-1]
+        if not passes(kept):
+            kept = max(trials, key=lambda trial: (trial.passed, -trial.length))
+        else:
+            # One length more, for the agent to weigh the depth it reaches against detail.
+            longer = next(
+                (length for length in rules.lengths if kept.length < length <= longest), None
+            )
+            compared = attempt(longer) if longer is not None else None
+            if compared is not None:
+                trials.append(compared.model_copy(update={"compared": True}))
+    tried = ", ".join(
+        f"{trial.passed}/{len(trial.xmids)} at {trial.length}{' (compared)' if trial.compared else ''}"
+        for trial in trials
     )
-    choice = LengthChoice(length=kept.length, trials=tuple(trials), notes=(note,))
+    how = "as given" if first is not None else "by length in receivers"
+    note = f"masw length {kept.length} for the whole line: trial windows G3 passed, {how}: {tried}."
+    receivers = profile.receivers
+    choice = LengthChoice(
+        length=kept.length,
+        trials=tuple(trials),
+        notes=(note,),
+        receivers=len(receivers),
+        spacing_m=_spacing(profile),
+        longest=longest,
+    )
     (run_folder / COHERENCE_FILE).write_text(choice.model_dump_json(indent=2))
     return choice
+
+
+def read_length_choice(run_folder: Path) -> LengthChoice | None:
+    """The ladder's choice for the run in `run_folder`, when it made one."""
+    path = run_folder / COHERENCE_FILE
+    return LengthChoice.model_validate_json(path.read_text()) if path.exists() else None
+
+
+def describe_lengths(choice: LengthChoice) -> tuple[str, ...]:
+    """The ladder's trials in words, for the agent to choose the window length from: the line,
+    then each length tried with what its trial windows gave."""
+    span = (choice.receivers - 1) * choice.spacing_m
+    said = [
+        f"line: {choice.receivers} receivers {choice.spacing_m:g} m apart ({span:.2f} m); "
+        f"windows of up to {choice.longest} receivers (half the line)"
+    ]
+    for trial in choice.trials:
+        text = (
+            f"{trial.length} receivers ({trial.metres:.2f} m): {trial.passed}/{len(trial.xmids)} "
+            "trial windows passed G3"
+        )
+        if trial.wavelengths_m is not None:
+            text += f", wavelengths {trial.wavelengths_m[0]:.1f}-{trial.wavelengths_m[1]:.1f} m"
+        text += f", {trial.windows} windows on the line"
+        if trial.length == choice.length:
+            text += " (proposed)"
+        said.append(text)
+    return tuple(said)
+
+
+def _spacing(profile: Profile) -> float:
+    """The receivers' spacing along the line, m."""
+    positions = sorted(receiver.x for receiver in profile.receivers)
+    return round(float(np.median(np.diff(positions))), 3) if len(positions) > 1 else 0.0
 
 
 def _try_length(
@@ -208,6 +284,7 @@ def _try_length(
     )
     verdicts: list[str] = []
     flags: dict[str, int] = {}
+    ranges: list[tuple[float, float]] = []
     for outcome in outcomes:
         if outcome.status != "succeeded":
             verdicts.append("failed")
@@ -220,12 +297,25 @@ def _try_length(
         verdicts.append(g3.verdict)
         for flag in g3.flags:
             flags[flag.name] = flags.get(flag.name, 0) + 1
+        if g3.verdict == "pass" and g3.kept.wavelength_m is not None:
+            ranges.append(g3.kept.wavelength_m)
+    on_line = resolve_preset(apply_overrides(preset, {"masw": {"length": length}}), profile)
     return LengthTrial(
         length=length,
         xmids=tuple(outcome.xmid for outcome in outcomes),
         verdicts=tuple(verdicts),
         flags=tuple(sorted(flags, key=lambda name: -flags[name])),
         passed=verdicts.count("pass"),
+        metres=round((length - 1) * _spacing(profile), 2),
+        windows=len(build_windows(profile, on_line.masw)),
+        wavelengths_m=(
+            (
+                round(float(np.median([low for low, _ in ranges])), 1),
+                round(float(np.median([high for _, high in ranges])), 1),
+            )
+            if ranges
+            else None
+        ),
     )
 
 

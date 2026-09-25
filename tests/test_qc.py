@@ -4,6 +4,7 @@ from pathlib import Path
 import pytest
 from pydantic import TypeAdapter, ValidationError
 
+from paco.picking import PickingParameters
 from paco.picks import CURVES_FILE
 from paco.presets import PresetError, apply_overrides, make_preset
 from paco.qc import (
@@ -30,6 +31,7 @@ from paco.qc import (
     build_report,
     can_retry,
     changed_settings,
+    check_budget,
     describe,
     downstream,
     invalidate,
@@ -206,12 +208,34 @@ def test_a_spent_budget_rejects_with_the_last_flags() -> None:
 # ---------------------------------------------------------------- the configuration
 
 
+def test_going_back_is_refused_once_the_runs_budget_is_spent(tmp_path: Path) -> None:
+    started = datetime(2026, 9, 25, 12, 0, tzinfo=UTC)
+    for attempt in range(2, 6):  # four retries: the budget of a run of two windows
+        append_attempt(
+            tmp_path,
+            Attempt(
+                unit="xmid_1.00",
+                stage="picking",
+                attempt=attempt,
+                parameters={},
+                triggered_by="backtrack",
+                started_at=started,
+                status="succeeded",
+            ),
+        )
+
+    with pytest.raises(RunError, match=r"The retry budget of run 'r' is spent \(4 of 4\): you"):
+        check_budget("r", tmp_path, QCConfig(), 2)
+    check_budget("r", tmp_path, QCConfig(), 3)  # 4 of 6: not spent
+
+
 def test_the_configuration_defaults_hold_todays_thresholds_and_the_budgets() -> None:
     config = QCConfig()
 
     assert config.budgets == Budgets()
     assert config.curve == CurveThresholds()
-    assert config.picking.max_wavelength == 2.0  # the run's picking starts there
+    # The run's picking starts there: as far as the ridge holds (2026-09-25).
+    assert config.picking == PickingParameters()
     assert load_qc_config(None) == config
 
 
@@ -603,17 +627,18 @@ def test_judge_run_puts_the_four_gates_in_the_log_and_the_report(
         assert "shifted_trigger" in flags
         t0 = flags["shifted_trigger"].action.model_dump()["overrides"]["trigger"]["t0"]
         assert 0.005 < t0 < 0.03
-    # G2 and G3 on the four windows: G3 passes three 24-receiver windows; the pick of xmid 14.88
-    # jumps between modes (a 53 % step), which dispersion_quality's metrics did not see.
+    # G2 and G3 on the four windows: G3 passes three 24-receiver windows; the pick of xmid 20.88,
+    # the line's last window, keeps 2 points where its ridge holds, before its trigger is
+    # corrected (judge_run only judges).
     windows = [unit for unit in report.units if unit.xmid is not None]
     assert {unit.unit: unit.verdicts["G3"] for unit in windows} == {
         "xmid_2.88": "pass",
         "xmid_8.88": "pass",
-        "xmid_14.88": "retry",
-        "xmid_20.88": "pass",
+        "xmid_14.88": "pass",
+        "xmid_20.88": "retry",
     }
-    jumped = next(unit for unit in windows if unit.unit == "xmid_14.88")
-    assert [flag.name for flag in jumped.flags["G3"]] == ["mode_jump"]
+    short = next(unit for unit in windows if unit.unit == "xmid_20.88")
+    assert [flag.name for flag in short.flags["G3"]] == ["too_few_points", "near_field"]
     # The band reaches the image's 100 Hz: kept, not widened (the decision of milestone 13).
     assert all(unit.verdicts["G2"] == "pass" for unit in windows)
     assert all(
@@ -625,8 +650,8 @@ def test_judge_run_puts_the_four_gates_in_the_log_and_the_report(
     assert all((run_folder / unit.unit / CURVES_FILE).exists() for unit in windows)
     # G4 over the line: three curves 6 m apart, one neighbour a side, are no evidence against
     # each other; the window without a curve is a gap.
-    assert all(unit.verdicts["G4"] == "pass" for unit in windows if unit is not jumped)
-    assert "G4" not in jumped.verdicts
+    assert all(unit.verdicts["G4"] == "pass" for unit in windows if unit is not short)
+    assert "G4" not in short.verdicts
     line = next(unit for unit in report.units if unit.unit == "line")
     assert line.verdicts == {"G4": "pass"}
     assert [flag.name for flag in line.flags["G4"]] == ["gaps"]
@@ -635,24 +660,27 @@ def test_judge_run_puts_the_four_gates_in_the_log_and_the_report(
     assert latest(attempts, "xmid_2.88", "picking") is not None
     picked = latest(attempts, "xmid_2.88", "picking")
     assert picked is not None and "G3" in picked.results
-    assert picked.parameters["max_wavelength"] == 2.0  # the configuration's picking
+    # The configuration's picking: as far as the ridge holds, no wavelength limit.
+    assert (picked.parameters["max_gap_hz"], picked.parameters["max_wavelength"]) == (2.0, None)
     text = summarize_report(report)
     assert text.splitlines()[0].startswith("G1: 2 retry")
     assert "G2 band_at_fmax, xmid 2.88-20.88 (4)" in text
     assert "G1 shifted_trigger, 1.dat, 2.dat" in text
-    assert "G3 mode_jump, xmid 14.88 (1)" in text
-    assert "G4 gaps, line: No curve at xmid 14.88 (1)" in text
+    assert "G3 too_few_points, xmid 20.88 (1)" in text
+    assert "G4 gaps, line: No curve at xmid 20.88 (1)" in text
 
-    # The picking again for the jumping window, with the flag's override: a second attempt, the
-    # first curve archived, G3 on the new one.
-    (result,) = rerun_picking(run_id, ["xmid_14.88"], {"corridor": 0.1}, settings)
-    assert result.gate == "G3" and result.unit == "xmid_14.88"
-    second = latest(read_attempts(run_folder), "xmid_14.88", "picking")
+    # The picking again for that window, with the flag's override: a second attempt, the first
+    # curve archived, G3 on the new one.
+    looser = {"min_relative_coherence": 0.3}
+    (result,) = rerun_picking(run_id, ["xmid_20.88"], looser, settings)
+    assert result.gate == "G3" and result.unit == "xmid_20.88"
+    second = latest(read_attempts(run_folder), "xmid_20.88", "picking")
     assert second is not None and second.attempt == 2 and second.triggered_by == "backtrack"
-    assert second.parameters["corridor"] == 0.1 and second.parameters["max_wavelength"] == 2.0
+    assert second.parameters["min_relative_coherence"] == 0.3
+    assert second.parameters["max_gap_hz"] == 2.0
     assert second.results["G3"] == result
-    assert [path.name for path in archived_attempts(run_folder / "xmid_14.88")] == ["1_picking"]
-    assert (run_folder / "xmid_14.88" / "attempts" / "1_picking" / CURVES_FILE).exists()
+    assert [path.name for path in archived_attempts(run_folder / "xmid_20.88")] == ["1_picking"]
+    assert (run_folder / "xmid_20.88" / "attempts" / "1_picking" / CURVES_FILE).exists()
     with pytest.raises(RunError, match=r"no processed window xmid_1\.00"):
         rerun_picking(run_id, ["xmid_1.00"], {}, settings)
     with pytest.raises(RunError, match="Unknown picking parameter"):

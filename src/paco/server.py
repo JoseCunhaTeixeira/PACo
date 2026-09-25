@@ -117,9 +117,13 @@ def run_processing(
 
     settings = get_settings()
     result = qc.process_line(profile, overrides, settings, _qc_config(settings), report)
-    return _stage_result(
-        result, ("G1", "G2"), ("preprocessing", "phase_shift"), _after_processing(result)
+    choice = qc.read_length_choice(runs.find_run(result.run_id, settings))
+    given = qc.given_length(overrides) is not None
+    processed = _stage_result(
+        result, ("G1", "G2"), ("preprocessing", "phase_shift"), _after_processing(result, given)
     )
+    lengths = qc.describe_lengths(choice) if choice is not None else ()
+    return processed.model_copy(update={"lengths": lengths})
 
 
 @server.tool()
@@ -240,7 +244,7 @@ def _stage_result(
     )
 
 
-def _after_processing(report: qc.QCReport) -> str:
+def _after_processing(report: qc.QCReport, length_given: bool = False) -> str:
     imaged = [
         unit
         for unit in report.units
@@ -251,7 +255,14 @@ def _after_processing(report: qc.QCReport) -> str:
             "No image passed G2: you are stuck. Ask the user which to try, with options: redo "
             "with a change the flags suggest, a new run with other settings, or stopping here."
         )
-    return f"pick comes next for run_id {report.run_id}, if the user asked for curves or models."
+    step = f"pick comes next for run_id {report.run_id}, if the user asked for curves or models."
+    if length_given:
+        return step
+    return (
+        f"{step} The window length is the ladder's proposal (lengths): if the request needs "
+        "more depth (longer windows) or lateral detail (shorter), run_processing again with "
+        "masw.length, and say why."
+    )
 
 
 def _after_picking(report: qc.QCReport) -> str:

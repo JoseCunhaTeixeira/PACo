@@ -8,6 +8,7 @@ from sigpipe.algorithms.picking.dispersion.curve import resample_wavelength
 from sigpipe.base import DispersionCurve, DispersionImage, Mode
 
 from paco.picking.models import PickedMode, PickingParameters
+from paco.picking.plane_waves import plane_wave_columns, prominences
 from paco.picking.tracking import corridor, lowest_ridge, track
 
 
@@ -64,6 +65,17 @@ def pick_modes(
         # Points far below the mode's typical coherence are sidelobes or noise, not its ridge.
         if kept.any():
             kept &= coherence >= parameters.min_relative_coherence * np.median(coherence[kept])
+        # Where even a perfect plane wave barely varies over the grid, the window resolves no
+        # velocity: the pick there is the tracker's, not the data's.
+        if parameters.min_contrast is not None and kept.any():
+            kept &= _resolved(
+                image,
+                frequencies[span],
+                velocities[path],
+                kept,
+                noise_floor,
+                parameters.min_contrast,
+            )
         # Where the ridge breaks, at either end, the pick stops: its longest continuous run.
         if parameters.max_gap_hz is not None:
             kept = _continuous_run(
@@ -112,6 +124,26 @@ def _guided_ridge(
     centre = np.interp(frequencies, points[:, 0], points[:, 1])
     ridge = np.searchsorted(velocities, centre, side="left")
     return np.clip(ridge, start, stop)
+
+
+def _resolved(
+    image: DispersionImage,
+    frequencies: np.ndarray,
+    velocities: np.ndarray,
+    kept: np.ndarray,
+    floor: float,
+    contrast: float,
+) -> np.ndarray:
+    """Where a perfect plane wave at the pick's frequency and velocity stands at least
+    `contrast` above its column's median, through the window's receivers (only the kept points
+    are computed). Measured on the demo (2026-09-25): at 1 %, the picks of 5- to 24-receiver
+    windows end at 8.5 to 10 Hz at the lowest, where some drifted smoothly to 5 Hz or below."""
+    resolved = np.zeros_like(kept)
+    indices = np.flatnonzero(kept)
+    columns = plane_wave_columns(image, frequencies[indices], velocities[indices], floor)
+    peaks = np.minimum(np.searchsorted(image.vs, velocities[indices]), image.vs.size - 1)
+    resolved[indices] = prominences(columns, peaks) >= 1 + contrast
+    return resolved
 
 
 def _continuous_run(

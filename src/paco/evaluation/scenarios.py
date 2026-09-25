@@ -1,8 +1,9 @@
 """The evaluation suite of the QC loop (docs/qc_workflow.md, milestone 14): looking around,
 processing and picking with the gates' own fixes, the loop's changes to the settings the user
-typed (said in the answer), the whole line to Vs models with no setting at all, and the cases
-where the agent is stuck and must ask. Every scenario where the data decide checks that the
-agent asked nothing, and that the thresholds stayed the configuration's."""
+typed (said in the answer), the window length the agent chooses for depth or lateral detail
+(2026-09-25), the whole line to Vs models with no setting at all, and the cases where the agent
+is stuck and must ask. Every scenario where the data decide checks that the agent asked
+nothing, and that the thresholds stayed the configuration's."""
 
 from dataclasses import dataclass
 
@@ -28,6 +29,7 @@ from paco.evaluation.checks import (
     retried_value,
     succeeded,
     thresholds_unchanged,
+    windows_than_proposed,
 )
 from paco.evaluation.models import Kind
 
@@ -90,18 +92,18 @@ SCENARIOS = (
         checks=(
             only_called("run_processing", profile="active_p1", overrides=SMALL_WINDOWS),
             in_order("run_processing", "pick"),
-            # The demo's records start 20 ms before the shot: G1 corrects it. The pick of xmid
-            # 14.88 jumps between modes: G3 picks it again.
+            # The demo's records start 20 ms before the shot: G1 corrects it, and leaves out
+            # three traces of the second record off the amplitude decay.
             loop_retried("G1:shifted_trigger"),
-            loop_retried("G3:mode_jump"),
+            excluded("2.dat", 89),
             answer_mentions(curves),
             never_called("invert"),
             asked_nothing(),
             thresholds_unchanged(),
         ),
         rubric="The agent processes with the requested windows and picks the curves, then says "
-        "how many curves passed and what the gates fixed or rejected (the trigger delay, the "
-        "window whose pick jumped), without asking anything.",
+        "how many curves passed and what the gates fixed (the trigger delay, the traces left "
+        "out), without asking anything.",
     ),
     Scenario(
         name="dead_trace",
@@ -139,6 +141,40 @@ SCENARIOS = (
         rubric="The velocity range the user typed is too narrow for the ground: the agent says "
         "the gates widened it (to what) and any other setting that changed, and how many curves "
         "passed, without asking anything.",
+    ),
+    Scenario(
+        name="deeper",
+        kind="the loop",
+        questions=("Process active_p1 and pick the curves, reaching as deep as this line allows.",),
+        checks=(
+            # The ladder proposes the shortest length most trial windows pass; longer windows
+            # keep longer wavelengths, which reach deeper.
+            windows_than_proposed("longer"),
+            succeeded("pick"),
+            never_called("invert"),
+            asked_nothing(),
+            thresholds_unchanged(),
+        ),
+        rubric="The agent reads the lengths run_processing tried, runs the line again with "
+        "longer windows for depth, and says which length it chose and why (the wavelengths it "
+        "reaches), and how many curves passed, without asking anything.",
+    ),
+    Scenario(
+        name="detail",
+        kind="the loop",
+        questions=(
+            "Process active_p1 and pick the curves, with as much lateral detail as the data allow.",
+        ),
+        checks=(
+            windows_than_proposed("shorter"),
+            succeeded("pick"),
+            never_called("invert"),
+            asked_nothing(),
+            thresholds_unchanged(),
+        ),
+        rubric="The agent reads the lengths run_processing tried, runs the line again with "
+        "shorter windows for lateral detail, and says which length it chose and why (how many "
+        "trial windows it passed), and how many curves passed, without asking anything.",
     ),
     Scenario(
         name="few_iterations",

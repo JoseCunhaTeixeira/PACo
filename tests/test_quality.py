@@ -103,8 +103,8 @@ def test_a_clean_ridge_is_good() -> None:
         "on_data": 1.0,
         "constant_wavelength": 0.0,
     }
-    # The ridge's width, to within the velocity step.
-    assert quality.sharpness == pytest.approx(1.5, abs=0.03)
+    # 1.5 resolutions wide, against a perfect plane wave's 1.09 on this array (48 receivers, 47 m).
+    assert quality.sharpness == pytest.approx(1.5 / 1.085, abs=0.03)
 
 
 @pytest.mark.parametrize(
@@ -114,14 +114,14 @@ def test_a_clean_ridge_is_good() -> None:
             _image(_ridge(M0, height=0.8, width=0.5)),
             M0,
             "sharpness",
-            0.5,
+            0.5 / 1.085,
             id="narrower-than-the-window-resolves",
         ),
         pytest.param(
             _image(_ridge(M0, height=0.8, width=1.5), background=0.6),
             M0,
             "prominence",
-            0.8 / 0.6,
+            0.8 / 0.6 / 4,  # a long array's plane wave counts as prominent enough: 4
             id="barely-above-the-rest",
         ),
         pytest.param(

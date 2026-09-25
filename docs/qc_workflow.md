@@ -303,6 +303,40 @@ Claude's):
   the agent side above. Rejected: asking before changing a setting the user typed (the rule
   before milestone 14, which Qwen broke either way), and asking before every step back.
 
+Taken on 2026-09-25, after milestone 14 (the user: "the windows should be smaller 5 7 9 11, you
+are using too bigger windows", then "maybe it is better to let the agent think and find out the
+best window size, depending on the profile length"; each brought as options with measurements
+on active_p1, the user's choice, and Claude's):
+
+- **The pick goes as far as its ridge holds, at both ends.** The cut at 2 window lengths goes
+  (the user: "that rule is not good, I like the Nyquist limit"); the aliasing limit (2 x the
+  spacing) stays. The pick is the longest continuous run of kept points: a step steeper than
+  |d ln v / d ln f| = 2, or more than 2 Hz of columns too weak to keep, ends it. On the demo it
+  ends at 12.5 to 16 Hz (medians) on 5- to 11-receiver windows, and under the 50 Hz mains line
+  at the high end. Rejected: no bridged gap (ends at 18 to 22 Hz), a fixed 10 Hz floor, the
+  continuity at the low end only.
+- **A point is kept only where the window resolves velocity at all**: a perfect plane wave for
+  the window, at the pick's frequency and velocity, must stand at least 1 % above its column's
+  median. Some picks otherwise drifted smoothly to 5 Hz (160 m wavelengths on 3.75 m windows),
+  0.5 Hz after a G4 re-pick. At 1 % the lowest points are 8.5 to 10 Hz on every length.
+  Rejected: 0.5 %, 2 %, no floor.
+- **G3 judges sharpness and prominence against a perfect plane wave for the same window.** On
+  the demo both equal a plane wave's (ratio 1.00) at every length from 5 to 24 receivers, where
+  the fixed limits failed every 5- to 11-receiver window: they measured the array, not the
+  data. Prominence must reach half a plane wave's, counted up to 4 (beyond, any ridge stands
+  out: the old fixed limit, 2, is half of it); sharpness 0.8 of its width. Rejected: prominence
+  only, both as they were.
+- **The ladder: 5, 7, 9, 11 receivers, then 16, 24, 32 ...** for a line where none of the
+  short ones passes. Rejected: 5, 7, 9, 11 only.
+- **The ladder proposes, the agent decides.** `run_processing` keeps the ladder's length when
+  none is given, and returns every length tried (trial windows passing G3, the wavelengths
+  their curves reach, windows on the line), one length past the proposed one included, for
+  comparison; the agent runs again with another length when the request needs more depth or
+  lateral detail, and says why. A length given, by the user or the agent, is kept as it is:
+  the ladder no longer climbs past it. Rejected: the agent choosing from the trials on every
+  run (a call more each time), the agent exploring whole runs freely, and climbing past a
+  length given (the rule of milestone 13).
+
 Added by the user with the decisions:
 
 - The fit between the inverted model's forward-modelled dispersion curve and the picked one is a

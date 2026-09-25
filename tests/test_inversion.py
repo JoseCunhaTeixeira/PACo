@@ -29,13 +29,13 @@ from paco.qc.line import process_line
 from paco.runs import RunError
 from paco.settings import Settings
 
-# Four 24-receiver windows along the active demo line, as in test_runs.py; G3 sends xmid 14.88
-# back (a mode jump) until its budget is spent, so G4 passes three curves.
+# Four 24-receiver windows along the active demo line, as in test_runs.py; G3 and G4 pass the
+# four curves (each pick stops where its ridge breaks).
 SMALL_WINDOWS = {"masw": {"length": 24, "step": 24}}
 # A short sampler: every step of an inversion, in about a second per window; far too short for
 # G5, whose retries (twice the iterations, twice) are then spent.
 SHORT = {"n_iterations": 500, "n_burnin_iterations": 50, "n_chains": 1}
-PICKED = ("xmid_2.88", "xmid_8.88", "xmid_20.88")
+PICKED = ("xmid_2.88", "xmid_8.88", "xmid_14.88", "xmid_20.88")
 # The files PAC's invert_position writes in a window folder (compared with PAC on 2026-09-23).
 PAC_FILES = {
     "SeismicInversion_DensityCurves_0000.png",
@@ -197,7 +197,7 @@ def test_submit_records_a_queued_job_of_the_windows_g4_passed(
     assert (record.run_id, record.state, record.total, record.windows, record.given) == (
         picked.run_id,
         "queued",
-        3,
+        4,
         (),
         SHORT,
     )
@@ -240,7 +240,7 @@ def test_one_inversion_per_run_at_a_time(picked: Picked, tmp_path: Path, state: 
 def test_every_window_g4_passed_is_inverted(inverted: Inverted) -> None:
     record = inverted.record
 
-    assert (record.state, record.total, record.error) == ("succeeded", 3, None)
+    assert (record.state, record.total, record.error) == ("succeeded", 4, None)
     assert record.started_at is not None and record.finished_at is not None
     assert [window.folder for window in record.windows] == list(PICKED)
     # The smooth median is reported at round depths down to half the longest wavelength.
@@ -254,7 +254,7 @@ def test_every_window_g4_passed_is_inverted(inverted: Inverted) -> None:
         assert window.useful_depth_m is not None and window.useful_depth_m > 0
         assert window.misfit is not None and window.misfit >= 0
     # The first pass reports its progress; the gates' retries follow.
-    assert inverted.progress == [(done, 3) for done in range(4)]
+    assert inverted.progress == [(done, 4) for done in range(5)]
     # What job_status reads is what the job returned.
     assert read_record(inverted.folder) == record
 
@@ -267,14 +267,14 @@ def test_g5s_retries_are_in_the_jobs_summary(inverted: Inverted) -> None:
     # it depends on the unseeded sampler: a window may need twice as many again, and the line
     # then says "(each its own)".
     assert (
-        'Retried G5:not_converged, xmid 2.88-8.88 (2), 20.88 (1) with inversion {"n_iterations":'
-        '17000,"n_burnin_iterations":1700}'
+        'Retried G5:not_converged, xmid 2.88-20.88 (4) with inversion {"n_iterations":17000,'
+        '"n_burnin_iterations":1700}'
     ) in summary
     assert all(window.verdict in ("pass", "retry", "reject") for window in inverted.record.windows)
     # The settings the gates changed, from -> to, for the agent to report.
     first = inverted.record.changed[0]
     assert first.startswith(
-        "n_iterations 500 -> 17000; n_burnin_iterations 50 -> 1700 at xmid 2.88-8.88 (2), 20.88 (1)"
+        "n_iterations 500 -> 17000; n_burnin_iterations 50 -> 1700 at xmid 2.88-20.88 (4)"
     )
     assert first.endswith(", by G5:not_converged")
 
@@ -292,7 +292,7 @@ def test_a_window_whose_curve_is_gone_is_left_out(picked: Picked, tmp_path: Path
     record = run_inversion_job(submit_inversion(picked.run_id, SHORT, settings), settings)
 
     assert record.state == "succeeded"
-    assert [window.folder for window in record.windows] == ["xmid_2.88", "xmid_20.88"]
+    assert [window.folder for window in record.windows] == ["xmid_2.88", "xmid_14.88", "xmid_20.88"]
 
 
 def test_150_iterations_after_the_burnin_are_enough(picked: Picked, tmp_path: Path) -> None:

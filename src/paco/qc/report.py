@@ -52,6 +52,8 @@ class StageResult(BaseModel):
     summary: str
     next: str
     job_id: str | None = None  # an inversion done again runs as a job
+    # run_processing: the window lengths the ladder tried, for the agent to choose from.
+    lengths: tuple[str, ...] = ()
 
 
 class QCReport(BaseModel):

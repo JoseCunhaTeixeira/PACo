@@ -31,6 +31,7 @@ Last updated 2026-09-24. Read this first at the start of each session.
 | 12. G3 extensions, G4 curve profile QC | Done: the curve's own rules, the pick saved as judged, the picking done again per window, G4 over the line with its pseudo-section; 433 tests |
 | 13. Checks before S4, smooth model, G5, G6 | Done: S2's coherence rules (the band, the ladder), the checks before S4, the smooth median monitored, G5, G6, the inversion done again per window, G3's near field; 492 tests |
 | 14. Tools, no approval, role and policy, scenarios, README | Built: stage tools with their gates' retries, redo, the job with G5 and G6, the approval removed, the agent asks only when stuck, the suite on synthetic defects; first evaluation 14 of 33, fixed; 498 tests, the ideal agent 11 of 11; second evaluation to record |
+| After 14: windows and picks (2026-09-25) | Built: picks as far as the ridge holds, G3 against a plane wave, the ladder of short lengths proposing and the agent deciding; 502 tests; evaluation to run |
 
 Check questions: milestone 1 asked, answer pending. Milestone 2 (what happens when sigpipe renames
 a parameter): answered with hints on 2026-09-23, up to the plain-words rung. Worth revisiting:
@@ -1127,49 +1128,58 @@ The clean clone then passes 498 of 498 on 4 cores.
 - **PAC's defaults:** its form defaults give 3-receiver windows, which make flat passive images
   with nothing to pick. PACo's default is 5 receivers since 2026-09-24 (the user's choice).
 
+## After milestone 14: the windows and the picks (2026-09-25)
+
+Asked by the user after the pause: "the windows should be smaller 5 7 9 11, you are using too
+bigger windows"; "that rule is not good [2 window lengths], I like the Nyquist limit ... we
+should pick where we can at low frequencies and stop when it becomes weird ... around 10 Hz
+maybe"; "maybe it is better to let the agent think and find out the best window size, depending
+on the profile length". Each point brought as options with measurements on active_p1 (the
+user's choice, and Claude's, each time), recorded in `docs/qc_workflow.md` ("Taken on
+2026-09-25") and in `docs/gates/G3.md` and `S2_rules.md`:
+
+- **The pick goes as far as its ridge holds, at both ends** (`paco.picking.modes`): the longest
+  continuous run of kept points, a step steeper than |d ln v / d ln f| = 2 or over 2 Hz of
+  weak columns ending it; and no point where a perfect plane wave for the window stands less
+  than 1 % above its column's median (the window resolves no velocity there;
+  `paco.picking.plane_waves`). The cut at 2 window lengths is gone from the picking's defaults
+  and from G3 (`long_wavelengths`; `points_within` became `curve_points`); G3's
+  `constant_wavelength` now cuts where its stretch starts.
+- **G3 judges sharpness and prominence against a perfect plane wave for the same window**
+  (`paco.quality.measuring`): on the demo both equal a plane wave's at every length, where the
+  fixed limits failed every window of 5 to 11 receivers (a 5-receiver plane wave's prominence
+  is 1.06). Prominence counted up to 4, so that long arrays keep the old limit (2).
+- **The ladder: 5, 7, 9, 11, then 16, 24, 32 ...; it proposes, the agent decides.**
+  `run_processing` returns `lengths`, every length tried (trial windows passing G3, the
+  wavelengths their curves reach, windows on the line), one past the proposed one included;
+  its `next` and the role say the length is the agent's to change for depth or lateral detail,
+  saying why. A length given, by the user or the agent, is kept (the ladder climbed past it
+  before: the agent's 7 receivers became 16 again).
+- **G4's guide** for an outlier is thinned to 12 points: longer curves made it about 200, past
+  the token budget of a tool result.
+- **The evaluation**: `deeper` and `detail`, the agent choosing a longer or a shorter length
+  than proposed; `zero_settings` lets it choose the length; `pick_active` checks G1's trace
+  exclusion instead of the mode jump, gone with the picks above 50 Hz.
+
+On the demo: the four 24-receiver windows every 24 all pass G3 and G4 (the mode jump of xmid
+14.88 sat above the 50 Hz line, where the pick now stops); with no settings the ladder proposes
+16 receivers (8/9 trials; 5/9 at 5, 6/9 at 7 and 9, 7/9 at 11, 9/9 at 24), and 79 of the
+line's 81 curves pass G3 and G4. The report depths go deeper with the longer curves (2 to 10 m
+where they were 1 to 4 m).
+
+Also on 2026-09-25: **CI failed on `05cc650`** (see milestone 14) and **on `24e80b2`**,
+committed while this work was half done (the new rules in, the demo's facts in the tests not
+yet); the working tree was then checked as CI builds it (a fresh clone, 4 cores, no `.env`).
+
 ## Next
 
-0. **The windows should be smaller: 5, 7, 9, 11 receivers** (the user, 2026-09-24: "you are
-   using too bigger windows"). Today the ladder is 5, 8, 12, 16, 24, 32, ... and keeps 24 on
-   the demo, and the scenarios ask for 24. The conflict to settle with the user first: measured
-   in milestone 13 (`docs/gates/S2_rules.md`), at PAC's 100 Hz G3 passed 0 of 23 windows at 5
-   and 8 receivers and 0 of 22 at 12 (1 of 22 with the band open to G1's 324 Hz), for want of
-   a curve: G3 keeps wavelengths up to 2 window lengths (2 m for 5 receivers, 0.25 m apart,
-   frequencies above about 100 Hz at 200 m/s), and the band is capped at 100 Hz (the decision
-   of milestone 13). PAC's own curves reached 33 to 81 m before the cut.
-   **The user's direction (2026-09-24, to build on 2026-09-25):** the 2-window-lengths rule
-   goes; the Nyquist limit stays (to confirm which: the aliasing limit at short wavelengths,
-   2 x the spacing, where the picker starts, or the band's cap at the Nyquist frequency); pick
-   down in frequency as far as the ridge holds and stop where it turns weird going lower,
-   "around 10 Hz maybe" in the user's tests. To bring as options: what "weird" is, measured
-   from the high frequencies down (the ridge's coherence or sharpness falling, a jump, the pick
-   turning to constant wavelength, which G3's `constant_wavelength` already sees); then
-   measure 5, 7, 9 and 11 receivers with it, change the ladder, the picking's and G3's
-   wavelength rules, the scenarios (24 receivers today) and the docs. Then carry on where
-   this session stopped (items 1 and 2).
-   **Measured on 2026-09-25** (active_p1, windows every 4 receivers, the pick uncut; figure
-   `docs/gates/figures/active_p1_short_picks.png`): on every length the M0 pick runs smooth
-   from about 15 to 45 Hz; below 12-15 Hz it scatters (columns too weak to keep, points at
-   300-500 m/s), above 50 Hz (the mains line, several branches) too. The picker alone keeps
-   points down to 5-8 Hz (median; a few windows to 0.5 Hz). A continuity rule (the longest
-   run of kept columns, broken by a step steeper than |d ln v / d ln f| = 2 or by weak
-   columns) ends the pick at:
-
-   | Weak columns bridged | 5 receivers | 7 | 9 | 11 | 24 |
-   |---|---|---|---|---|---|
-   | none | 22.5 Hz | 22.5 | 20.0 | 18.2 | 13.0 |
-   | up to 1 Hz | 16.5 | 16.0 | 15.8 | 14.5 | 12.5 |
-   | up to 2 Hz | 16.0 | 13.0 | 15.2 | 12.5 | 10.5 |
-
-   (medians of the low end; the high end at 43-45 Hz for every length, under the 50 Hz line).
-   Rules that failed: going down from the band's top, a jump, a log-slope or a peak-width rule
-   trips at once at 90-99 Hz, where short windows' picks are already erratic; the Lorentzian
-   uncertainty stays under 50 % down to the lowest point on most windows.
-1. Run the second evaluation of milestone 14 again (above), record it and close the milestone;
-   fix what it shows first.
+1. Run the evaluation again, with the 13 scenarios (the second of milestone 14 was stopped),
+   record it and close the milestone; fix what it shows first.
 2. The review of the "To judge" lists (the user's choice for after milestone 14), prepared on
    2026-09-24 and not yet brought: one round of four questions, below, then apply and prune the
-   lists.
+   lists. Settled since, by the decisions of 2026-09-25: the tracked-point jumps, a length the
+   user gave climbing (it no longer climbs), the mode jump of xmid 14.88 (gone); the inverse
+   trend is now 1 of 4 windows at 24 receivers, 10 of 81 at 16, all below 50 Hz.
 3. The decision to keep fixed pipelines (optional validated stages per preset, if wanted).
 
 ### Prepared for the To-judge review (2026-09-24)
