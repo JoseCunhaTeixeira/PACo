@@ -32,9 +32,8 @@ NOISE_FLOOR = 1 / math.sqrt(48)
 THRESHOLDS = CurveThresholds()
 QUALITY_METRICS = {"sharpness", "prominence", "on_data", "constant_wavelength", "n_points"}
 CURVE_METRICS = {
-    "long_wavelengths",
     "aliased_points",
-    "points_within",
+    "curve_points",
     "max_jump",
     "air_wave_share",
     "trend",
@@ -178,10 +177,12 @@ def test_a_pick_following_the_resolution_edge_asks_to_cut_long_wavelengths() -> 
 
     assert result.verdict == "retry"
     (flag,) = result.flags
+    # Cut below where the stretch starts: 6 m, 0.12 of the 47 m window.
+    assert "0.12 window lengths" in flag.message
     assert flag.action.model_dump() == {
         "kind": "override",
         "stage": "picking",
-        "overrides": {"max_wavelength": 2.0},
+        "overrides": {"max_wavelength": 0.12},
     }
 
 
@@ -209,8 +210,8 @@ def test_a_curve_given_with_the_pick_passes_the_curve_rules() -> None:
 
     assert result.verdict == "pass" and result.flags == ()
     values = {metric.name: metric.value for metric in result.metrics}
-    assert values["long_wavelengths"] == 0.0 and values["aliased_points"] == 0.0
-    assert values["points_within"] == 61
+    assert values["aliased_points"] == 0.0
+    assert values["curve_points"] == 61
     jump = values["max_jump"]
     assert jump is not None and jump < 0.1
     assert values["air_wave_share"] == 0.0
@@ -218,25 +219,6 @@ def test_a_curve_given_with_the_pick_passes_the_curve_rules() -> None:
     assert values["uncertainty"] is None  # none given with the curve
     assert result.kept.wavelength_m is not None
     assert math.isclose(result.kept.wavelength_m[1], 27.85, rel_tol=0.01)  # M0(10 Hz) / 10 Hz
-
-
-def test_points_beyond_twice_the_window_length_are_cut() -> None:
-    image = _image(_ridge(M0, 0.8, 1.5))
-    vs = M0.copy()
-    vs[0] = 990.0  # 99 m at 10 Hz, beyond 2 x 47 m
-    result = judge_curve("xmid_12.50", image, _picked(image, M0, vs=vs), THRESHOLDS)
-
-    assert result.verdict == "retry"
-    (flag,) = result.flags
-    assert flag.name == "long_wavelengths" and flag.stage == "picking"
-    assert "94.0 m" in flag.message
-    assert flag.action.model_dump() == {
-        "kind": "override",
-        "stage": "picking",
-        "overrides": {"max_wavelength": 2.0},
-    }
-    assert result.kept.n_points == 60  # the point beyond is not in what the curve keeps
-    assert result.kept.wavelength_m is not None and result.kept.wavelength_m[1] < 94
 
 
 def test_a_jump_between_consecutive_points_means_another_mode() -> None:
@@ -350,6 +332,5 @@ def test_the_thresholds_are_the_configuration_of_the_gate() -> None:
     thresholds = CurveThresholds(min_points=10, max_jump=0.5)
 
     assert thresholds.metrics.min_sharpness == 0.8
-    assert thresholds.max_wavelength_lengths == 2.0
     assert thresholds.air_wave_band == (330.0, 345.0)
     assert CurveThresholds.model_validate_json(thresholds.model_dump_json()) == thresholds

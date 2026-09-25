@@ -35,10 +35,9 @@ class QCConfig(BaseModel):
     model: ModelThresholds = Field(default_factory=ModelThresholds)  # G5
     models: ModelProfileThresholds = Field(default_factory=ModelProfileThresholds)  # G6
     # Where a run's picking starts: not thresholds (the loop changes the picking), but the
-    # values a run begins with. Points beyond twice the window length are cut from the start.
-    picking: PickingParameters = Field(
-        default_factory=lambda: PickingParameters(max_wavelength=2.0)
-    )
+    # values a run begins with. The pick goes as far as its ridge holds (the user's decision of
+    # 2026-09-25, replacing a cut at twice the window length).
+    picking: PickingParameters = Field(default_factory=PickingParameters)
 
 
 def load_qc_config(path: Path | None) -> QCConfig:

@@ -12,7 +12,7 @@ from .assessing import (
     load_quality,
     summarize_quality,
 )
-from .measuring import measure_quality
+from .measuring import constant_wavelength_start, measure_quality
 from .models import (
     Flag,
     ImageQuality,
@@ -32,6 +32,7 @@ __all__ = [
     "RunQuality",
     "Verdict",
     "WindowQuality",
+    "constant_wavelength_start",
     "dispersion_quality",
     "good_stretches",
     "load_quality",

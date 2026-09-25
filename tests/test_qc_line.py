@@ -76,7 +76,8 @@ def test_the_ladder_keeps_the_shortest_length_that_passes(
     assert twenty_four["passed"] >= 2
     assert choice["length"] == 24
     # The line is processed with it, and the rules' change is logged with its reason.
-    manifest = load_manifest(report.run_id, Settings(output_dir=run_folder.parents[1]))
+    settings = Settings(input_dir=demo_input_dir, output_dir=run_folder.parents[1])
+    manifest = load_manifest(report.run_id, settings)
     assert (manifest.preset.masw.length, manifest.preset.masw.step) == (24, 24)
     assert len(manifest.windows) == 4
     line = latest(read_attempts(run_folder), "line", "phase_shift")

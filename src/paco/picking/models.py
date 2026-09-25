@@ -57,6 +57,18 @@ class PickingParameters(BaseModel):
         description="Longest wavelength searched, as a multiple of the window length; null: no "
         "limit.",
     )
+    max_gap_hz: float | None = Field(
+        default=2.0,
+        ge=0,
+        description="The pick is its longest continuous run: columns too weak to keep are "
+        "bridged over at most this many Hz, a wider gap ends the run; null: every kept point.",
+    )
+    break_slope: float = Field(
+        default=2.0,
+        gt=0,
+        description="A step between consecutive kept points steeper than this |d ln v / d ln f| "
+        "ends the run: the ridge broke.",
+    )
     max_modes: int = Field(
         default=1,
         ge=1,
@@ -81,7 +93,9 @@ class PickedMode:
     # The bound, not the data, decided: the pick is on its corridor's edge, or its column's ridge
     # is cut by the search bounds.
     pinned: np.ndarray
-    kept: np.ndarray  # not pinned, not 0 Hz, above the noise floor and near the mode's coherence
+    # Not pinned, not 0 Hz, above the noise floor, near the mode's coherence, and within the
+    # pick's continuous run.
+    kept: np.ndarray
     noise_floor: float  # 1/sqrt(N) for the N receivers of the window
     curve: DispersionCurve | None  # kept points, resampled over wavelength; None below 2 points
 
