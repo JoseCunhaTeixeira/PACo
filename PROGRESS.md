@@ -30,7 +30,7 @@ Last updated 2026-09-24. Read this first at the start of each session.
 | 11. G1 signal QC, G2 image QC, metrics moved to G3 | Done: three gates with measured thresholds, the trigger stage, `judge_run`, docs per gate; 415 tests |
 | 12. G3 extensions, G4 curve profile QC | Done: the curve's own rules, the pick saved as judged, the picking done again per window, G4 over the line with its pseudo-section; 433 tests |
 | 13. Checks before S4, smooth model, G5, G6 | Done: S2's coherence rules (the band, the ladder), the checks before S4, the smooth median monitored, G5, G6, the inversion done again per window, G3's near field; 492 tests |
-| 14. Tools, no approval, role and policy, scenarios, README | Built: stage tools with their gates' retries, redo, the job with G5 and G6, the approval removed, the agent asks only when stuck, the suite on synthetic defects; evaluation running |
+| 14. Tools, no approval, role and policy, scenarios, README | Built: stage tools with their gates' retries, redo, the job with G5 and G6, the approval removed, the agent asks only when stuck, the suite on synthetic defects; first evaluation 14 of 33, fixed; 498 tests, the ideal agent 11 of 11; second evaluation to record |
 
 Check questions: milestone 1 asked, answer pending. Milestone 2 (what happens when sigpipe renames
 a parameter): answered with hints on 2026-09-23, up to the plain-words rung. Worth revisiting:
@@ -845,6 +845,28 @@ Fixed after it:
   gate budget "S4"): the sampler is not seeded, and the failure does not come back every time.
   The fix at the source belongs in sigpipe (open issue).
 
+Checked after the fixes: 498 tests pass, ruff and pyright clean; the ideal scripted agent passes
+11 of 11 (`zero_settings` in 530 s). The second evaluation (`eval-20260924-211019-73d5`, Qwen3-8B-FP8,
+3 plays), started on 2026-09-24 at 23:10, was stopped unfinished at the user's request (the
+computer going to sleep): run it again, after the window change below.
+
+**CI failed on the commit of milestones 9 to 14** (`05cc650`, GitHub's Tests step; lint,
+format and types passed). Reproduced on 2026-09-25 in a fresh clone of the commit, without
+`.env`, on 4 cores like GitHub's runners (all passed here, on 12 cores with `.env`); three
+tests, fixed:
+
+- `test_the_ladder_keeps_the_shortest_length_that_passes` built `Settings` without
+  `input_dir`: `.env` supplied it here, CI fell back to the container's `/data/input`.
+- `test_the_split_runs_and_gives_todays_results`, passive: bit for bit on 12 cores, but on 4
+  the correlations round some values differently in the last float32 bit (at most 1.3e-7 of
+  the largest value), as LAPACK's batches do for the default windows. Floats are now compared
+  within a millionth of the largest value, the rest exactly.
+- `test_g5s_retries_are_in_the_jobs_summary` (seen in one clean run of three): the unseeded
+  sampler sometimes needs a second G5 retry for a window, and the line then says "(each its
+  own)"; the test now checks only the part that does not depend on the draws.
+
+The clean clone then passes 498 of 498 on 4 cores.
+
 ## Decisions (2026-09-23)
 
 - **PAC's role (option A):** PACo depends on sigpipe only; PAC is the reference and the source of
@@ -1107,11 +1129,94 @@ Fixed after it:
 
 ## Next
 
-The evaluation of milestone 14 (running), then the user's review of `docs/gates/` (each page
-ends with "To judge", `loop.md` included) and of the decision to keep fixed pipelines (optional
-validated stages per preset, if wanted).
+0. **The windows should be smaller: 5, 7, 9, 11 receivers** (the user, 2026-09-24: "you are
+   using too bigger windows"). Today the ladder is 5, 8, 12, 16, 24, 32, ... and keeps 24 on
+   the demo, and the scenarios ask for 24. The conflict to settle with the user first: measured
+   in milestone 13 (`docs/gates/S2_rules.md`), at PAC's 100 Hz G3 passed 0 of 23 windows at 5
+   and 8 receivers and 0 of 22 at 12 (1 of 22 with the band open to G1's 324 Hz), for want of
+   a curve: G3 keeps wavelengths up to 2 window lengths (2 m for 5 receivers, 0.25 m apart,
+   frequencies above about 100 Hz at 200 m/s), and the band is capped at 100 Hz (the decision
+   of milestone 13). PAC's own curves reached 33 to 81 m before the cut.
+   **The user's direction (2026-09-24, to build on 2026-09-25):** the 2-window-lengths rule
+   goes; the Nyquist limit stays (to confirm which: the aliasing limit at short wavelengths,
+   2 x the spacing, where the picker starts, or the band's cap at the Nyquist frequency); pick
+   down in frequency as far as the ridge holds and stop where it turns weird going lower,
+   "around 10 Hz maybe" in the user's tests. To bring as options: what "weird" is, measured
+   from the high frequencies down (the ridge's coherence or sharpness falling, a jump, the pick
+   turning to constant wavelength, which G3's `constant_wavelength` already sees); then
+   measure 5, 7, 9 and 11 receivers with it, change the ladder, the picking's and G3's
+   wavelength rules, the scenarios (24 receivers today) and the docs. Then carry on where
+   this session stopped (items 1 and 2).
+   **Measured on 2026-09-25** (active_p1, windows every 4 receivers, the pick uncut; figure
+   `docs/gates/figures/active_p1_short_picks.png`): on every length the M0 pick runs smooth
+   from about 15 to 45 Hz; below 12-15 Hz it scatters (columns too weak to keep, points at
+   300-500 m/s), above 50 Hz (the mains line, several branches) too. The picker alone keeps
+   points down to 5-8 Hz (median; a few windows to 0.5 Hz). A continuity rule (the longest
+   run of kept columns, broken by a step steeper than |d ln v / d ln f| = 2 or by weak
+   columns) ends the pick at:
 
-Still open from before: a guard in the agent loop against repeating the same failing call
-(Qwen3-4B looped ten times on `invert`, then invented "Job started"); the judge model; the NVIDIA
-path of `compose.yaml`; committing the burn-in fixes in `../sigpipe` and `../PAC`; sigpipe's
-`inversion_mcmc` failing when a chain keeps no predicted curve (milestone 13).
+   | Weak columns bridged | 5 receivers | 7 | 9 | 11 | 24 |
+   |---|---|---|---|---|---|
+   | none | 22.5 Hz | 22.5 | 20.0 | 18.2 | 13.0 |
+   | up to 1 Hz | 16.5 | 16.0 | 15.8 | 14.5 | 12.5 |
+   | up to 2 Hz | 16.0 | 13.0 | 15.2 | 12.5 | 10.5 |
+
+   (medians of the low end; the high end at 43-45 Hz for every length, under the 50 Hz line).
+   Rules that failed: going down from the band's top, a jump, a log-slope or a peak-width rule
+   trips at once at 90-99 Hz, where short windows' picks are already erratic; the Lorentzian
+   uncertainty stays under 50 % down to the lowest point on most windows.
+1. Run the second evaluation of milestone 14 again (above), record it and close the milestone;
+   fix what it shows first.
+2. The review of the "To judge" lists (the user's choice for after milestone 14), prepared on
+   2026-09-24 and not yet brought: one round of four questions, below, then apply and prune the
+   lists.
+3. The decision to keep fixed pipelines (optional validated stages per preset, if wanted).
+
+### Prepared for the To-judge review (2026-09-24)
+
+Measured for it, on the dense line (active_p1, 24 receivers every 4, 19 windows):
+
+- **Mode jumps on the tracked points** (G3's question): between consecutive kept columns
+  (every 0.5 Hz) the good windows step by up to 47 % (at low frequencies and across gaps), the
+  bad ones by 35 and 69 %: no separation. On the resampled curve G3 uses, 26 % at most against
+  31 and 53 %. Settled: keep the resampled curve.
+- **The 50 Hz mains line and the inverse trend** (G3's and G4's question; figure
+  `docs/gates/figures/active_p1_dense_picks.png`). Every image has a dark column at 50 Hz: the
+  hum is in phase on every geophone, so its peak sits at the grid's top velocity, and the pick
+  breaks there. A notch would not change the image (the phase shift normalizes each trace's
+  spectrum, so a filter common to all traces cancels). Below 48 Hz the curves are nearly flat
+  (±7 %, within their 8-15 % uncertainties) and 5 windows stay inverse (3.88, 8.88-10.88,
+  20.88) where 11 were; the points above 52 Hz sit 5 to 45 % faster, on branches bending
+  upward, and make the models' thin stiff top (each of G5's four `smoothing_misfit` windows,
+  2.88, 8.88, 12.88, 13.88, has one).
+- **Why the ladder took 32 receivers for the user's 24** with vmax 250 m/s: its 24-receiver
+  trials failed on prominence (a narrow grid raises each column's median, which lowers G3's
+  prominence) and mode jumps; 1 of 9 on a length flag (sharpness). 32 passed 9 of 9.
+- **Already decided in milestone 13**, to prune from the lists: G2's band (capped, reported),
+  G5's misfit 2.0 and at-bound 10 %, G6's action for `non_unique` (longer sampling) and its
+  15 %, S2's band, 9 trials at 80 %, and the near field (reported). G3's sharpness and
+  uncertainty per window: the ladder now picks the length for the line.
+
+The questions, Claude's picks marked:
+
+1. **Loop changes** (several): G1's retries against a budget per record, not the windows' run
+   budget (picked); a length the user gave climbs only when the trials fail on length flags
+   (picked); a mode jump's first move is the band cut where the jump starts, the corridor
+   halved second (picked: halving twice never fixed xmid 14.88, whose jump sits at 62-70 Hz).
+2. **Gate changes** (several): G1 leaves the near field (under half the longest wavelength)
+   out of its decay fit (picked: 2 of record 2's 3 excluded traces are the nearest); G4 says
+   an inverse trend over the line once, kept (picked); G5 reports PAC's residual in % of the
+   velocity, not judged (picked); G5's `no_mode` suggests a phase-shift fmax below the points
+   faster than any mode, for the agent's `redo` (picked).
+3. **The stiff top**: unsure, keep the flag and record that the trend rests on the points above
+   50 Hz, re-judge on another line (picked); real, a stiff crust; not real, a G3 rule keeping
+   the part of a pick below a gap when it resumes more than 15 % off.
+4. **The rest kept as they are** (G1's 10 and 50 ms and no lower band edge, G2's 70 %, G3's
+   prominence filter and 5 points, G4's 15 % and its budget-spent rejection, G6 without
+   interface depths, S4's 0.8x, λmax/2 and one set of bounds) and the decided items pruned
+   (picked); or each gate's kept items as options.
+
+Still open from before: the judge model; the NVIDIA path of `compose.yaml`; committing the
+burn-in fixes in `../sigpipe` and `../PAC`; sigpipe's `inversion_mcmc` failing when a chain
+keeps no predicted curve (milestone 13; PACo now tries such a window once more). The guard
+against repeating a failed call is built (milestone 14).

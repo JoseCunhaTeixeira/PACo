@@ -38,17 +38,18 @@ def m1(frequencies: np.ndarray) -> np.ndarray:
 
 
 def _shot(
-    modes: Sequence[tuple[Dispersion, float]], noise: float, seed: int = 0
+    modes: Sequence[tuple[Dispersion, float | Dispersion]], noise: float, seed: int = 0
 ) -> DispersionImage:
     """The dispersion image of a synthetic shot: each mode a plane wave with phase velocity c(f)
-    and amplitude a, plus white noise, through sigpipe's phase shift."""
+    and amplitude a (or a(f)), plus white noise, through sigpipe's phase shift."""
     rng = np.random.default_rng(seed)
     offsets = ACQUISITION.offsets.astype(float)
     frequencies = np.fft.rfftfreq(N_SAMPLES, 1 / SAMPLING_FREQ)
     shape = (offsets.size, frequencies.size)
     spectra = noise * (rng.standard_normal(shape) + 1j * rng.standard_normal(shape)) / math.sqrt(2)
     for velocity, amplitude in modes:
-        spectra += amplitude * np.exp(
+        scale = amplitude(frequencies) if callable(amplitude) else amplitude
+        spectra += scale * np.exp(
             -2j * np.pi * offsets[:, None] * frequencies / velocity(frequencies)
         )
     traces = np.fft.irfft(spectra, n=N_SAMPLES, axis=1)
@@ -94,6 +95,37 @@ def test_the_default_is_m0_only() -> None:
     modes = pick_modes(_shot([(m0, 0.8), (m1, 1.0)], noise=0.3))
 
     assert [mode.label for mode in modes] == ["M0"]
+
+
+def test_the_pick_stops_where_its_ridge_breaks() -> None:
+    # At 40 Hz the ridge jumps onto a branch 60 % faster: two runs, and the wider one is kept.
+    def jumping(frequencies: np.ndarray) -> np.ndarray:
+        return np.where(frequencies < 40, m0(frequencies), 1.6 * m0(frequencies))
+
+    image = _shot([(jumping, 1.0)], noise=0.3)
+
+    (mode,) = pick_modes(image)
+    (everything,) = pick_modes(image, PickingParameters(max_gap_hz=None))
+
+    assert mode.frequencies[mode.kept].min() >= 40
+    assert everything.frequencies[everything.kept].min() < 40
+
+
+def _silent(low: float, high: float) -> Dispersion:
+    """An amplitude of 1 except between `low` and `high` Hz, where the wave carries nothing."""
+    return lambda frequencies: np.where((frequencies >= low) & (frequencies < high), 0.0, 1.0)
+
+
+def test_a_short_gap_in_the_ridge_is_bridged_a_wide_one_ends_it() -> None:
+    (short,) = pick_modes(_shot([(m0, _silent(30.0, 30.5))], noise=0.3))
+    (wide,) = pick_modes(_shot([(m0, _silent(30.0, 36.0))], noise=0.3))
+
+    # One silent column drops 1.5 Hz of them, under 2 Hz: one run on both sides.
+    kept = short.frequencies[short.kept]
+    assert kept.min() < 20 and kept.max() > 60
+    # 6 Hz: the run ends there, and the wider side (36 to 100 Hz) is the pick.
+    kept = wide.frequencies[wide.kept]
+    assert kept.min() >= 36
 
 
 def test_the_search_stays_between_the_aliasing_floor_and_the_longest_wavelength() -> None:
@@ -146,7 +178,9 @@ def test_points_below_the_noise_floor_are_dropped() -> None:
     # above half the mode's median coherence, so only the noise floor drops them.
     faint = (RIDGE_FREQUENCIES >= 30) & (RIDGE_FREQUENCIES <= 40)
 
-    (mode,) = pick_modes(_ridge_image(np.where(faint, 0.9, 1.6)))
+    # The ridge's continuity aside: 10 Hz of dropped points would end the pick's run.
+    parameters = PickingParameters(max_gap_hz=None)
+    (mode,) = pick_modes(_ridge_image(np.where(faint, 0.9, 1.6)), parameters)
 
     assert not mode.kept[faint].any()
     assert mode.kept[~faint].all()

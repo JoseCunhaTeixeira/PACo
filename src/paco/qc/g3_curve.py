@@ -1,7 +1,9 @@
 """G3, the QC of a picked curve (docs/qc_workflow.md): today's dispersion_quality metrics on
-the M0 pick, said in the gates' language, and the curve's own rules: wavelengths within what
-the window resolves (from twice the spacing to a few window lengths), no jump onto another
+the M0 pick, said in the gates' language, and the curve's own rules: wavelengths above twice
+the spacing (the picker stops where its ridge breaks, at either end), no jump onto another
 mode, no air wave, the trend, enough points, uncertainties the inversion can use."""
+
+import math
 
 import numpy as np
 from pydantic import BaseModel, ConfigDict, Field
@@ -10,7 +12,12 @@ from sigpipe.base import DispersionImage
 
 from paco.picking import PickedMode, PickingParameters
 from paco.qc.models import Flag, GateResult, Keep, Kept, Metric, Override, Reject
-from paco.quality import ImageQuality, QualityParameters, measure_quality
+from paco.quality import (
+    ImageQuality,
+    QualityParameters,
+    constant_wavelength_start,
+    measure_quality,
+)
 
 GATE = "G3"
 
@@ -23,12 +30,6 @@ class CurveThresholds(BaseModel):
     metrics: QualityParameters = Field(
         default_factory=QualityParameters,
         description="Sharpness, prominence, on_data and constant wavelength, as before.",
-    )
-    max_wavelength_lengths: float = Field(
-        default=2.0,
-        gt=0,
-        description="Points beyond this many window lengths are cut (the picking's "
-        "max_wavelength): the window does not resolve them.",
     )
     max_jump: float = Field(
         default=0.3,
@@ -48,7 +49,7 @@ class CurveThresholds(BaseModel):
         description="m/s, the mute that removes the air wave: faster arrivals go",
     )
     mute_vmin: float = Field(default=80.0, gt=0, description="m/s, the slowest wave the mute keeps")
-    min_points: int = Field(default=5, ge=2, description="Points within the wavelength range.")
+    min_points: int = Field(default=5, ge=2, description="Points of the resampled curve.")
     near_offset_wavelengths: float = Field(
         default=0.5,
         gt=0,
@@ -79,47 +80,24 @@ def judge_curve(
     quality = measure_quality(image, m0, thresholds.metrics)
     metrics = _metrics(quality, thresholds)
     band = band or quality.band_hz
-    flags = [_flag(name, quality, band, thresholds) for name in quality.flags]
-    n_traces = len(image.acquisition.receivers)
+    receivers = image.acquisition.receivers
+    length = abs(receivers[-1].x - receivers[0].x)
+    cut = _constant_wavelength_cut(m0, length)
+    flags = [_flag(name, quality, band, thresholds, cut) for name in quality.flags]
+    n_traces = len(receivers)
     if m0 is None or m0.curve is None:
         kept = Kept(band_hz=quality.band_hz, n_points=quality.n_points, n_traces=n_traces)
         return _result(unit, metrics, flags, kept)
 
-    receivers = image.acquisition.receivers
-    length = abs(receivers[-1].x - receivers[0].x)
     spacing = abs(receivers[1].x - receivers[0].x) if len(receivers) > 1 else 0.0
     curve = m0.curve
     fs, vs = np.asarray(curve.fs, dtype=float), np.asarray(curve.vs, dtype=float)
     wavelengths = vs / fs
     order = np.argsort(wavelengths)
     fs, vs, wavelengths = fs[order], vs[order], wavelengths[order]
-    longest = thresholds.max_wavelength_lengths * length
-    within = wavelengths <= longest
 
-    # Wavelengths: below twice the spacing they are aliased (the picker starts above), beyond a
-    # few window lengths the window does not resolve them: cut them.
-    long_share = float(np.mean(~within))
-    metrics.append(
-        Metric(
-            name="long_wavelengths",
-            value=round(long_share, 3),
-            threshold=0,
-            bound="max",
-            passed=long_share == 0,
-        )
-    )
-    if long_share > 0:
-        flags.append(
-            Flag(
-                name="long_wavelengths",
-                message=f"{long_share:.0%} of the points lie beyond {thresholds.max_wavelength_lengths:g} "
-                f"window lengths ({longest:.1f} m), which the window does not resolve: cut them.",
-                stage="picking",
-                action=Override(
-                    stage="picking", overrides={"max_wavelength": thresholds.max_wavelength_lengths}
-                ),
-            )
-        )
+    # Below twice the spacing wavelengths are aliased: the picker starts above; a check that it
+    # did. At the long end the pick stops where its ridge breaks (the picking's continuity).
     aliased = float(np.mean(wavelengths < 2 * spacing)) if spacing else 0.0
     metrics.append(
         Metric(
@@ -131,11 +109,11 @@ def judge_curve(
         )
     )
 
-    kept_vs, kept_fs, kept_wl = vs[within], fs[within], wavelengths[within]
-    n_points = int(within.sum())
+    kept_vs, kept_fs, kept_wl = vs, fs, wavelengths
+    n_points = int(vs.size)
     metrics.append(
         Metric(
-            name="points_within",
+            name="curve_points",
             value=n_points,
             threshold=thresholds.min_points,
             bound="min",
@@ -146,8 +124,8 @@ def judge_curve(
         flags.append(
             Flag(
                 name="too_few_points",
-                message=f"{n_points} point{'s' if n_points != 1 else ''} within {longest:.1f} m: "
-                "too few for a curve. Keep more of the ridge's points.",
+                message=f"{n_points} point{'s' if n_points != 1 else ''} in the curve: too few. "
+                "Keep more of the ridge's points.",
                 stage="picking",
                 action=Override(
                     stage="picking",
@@ -237,7 +215,7 @@ def judge_curve(
         )
 
     uncertainty = (
-        float(np.median(np.asarray(curve.vs_err, dtype=float)[order][within] / kept_vs))
+        float(np.median(np.asarray(curve.vs_err, dtype=float)[order] / kept_vs))
         if curve.vs_err is not None and n_points
         else None
     )
@@ -363,8 +341,24 @@ def _metrics(quality: ImageQuality, thresholds: CurveThresholds) -> list[Metric]
     ]
 
 
+def _constant_wavelength_cut(m0: PickedMode | None, length: float) -> float | None:
+    """The longest wavelength to search, in window lengths, that leaves out the stretch where
+    the pick follows the edge of what the window resolves; None without such a stretch."""
+    if m0 is None or length <= 0:
+        return None
+    kept = m0.kept & (m0.frequencies > 0)
+    if kept.sum() < 2:
+        return None
+    start = constant_wavelength_start(m0.frequencies[kept], m0.velocities[kept])
+    return None if start is None else math.floor(start / length * 100) / 100
+
+
 def _flag(
-    name: str, quality: ImageQuality, band: tuple[float, float] | None, thresholds: CurveThresholds
+    name: str,
+    quality: ImageQuality,
+    band: tuple[float, float] | None,
+    thresholds: CurveThresholds,
+    cut: float | None,
 ) -> Flag:
     match name:
         case "no_ridge":
@@ -407,14 +401,23 @@ def _flag(
                 action=Override(stage="phase_shift", overrides=overrides),
             )
         case _:
+            message = (
+                f"{quality.constant_wavelength:.0%} of the points follow the edge of what the "
+                "window resolves, not a dispersion curve"
+            )
+            if cut is None or cut <= 0:
+                return Flag(
+                    name="constant_wavelength",
+                    message=f"{message}, away from its long wavelengths: no cut removes them.",
+                    stage="picking",
+                    action=Keep(note="not at the long wavelengths: a cut would not remove it"),
+                )
             return Flag(
                 name="constant_wavelength",
-                message=f"{quality.constant_wavelength:.0%} of the points follow the edge of what "
-                "the window resolves, not a dispersion curve: cut the long wavelengths.",
+                message=f"{message}: cut the long wavelengths where it starts, "
+                f"{cut:g} window lengths.",
                 stage="picking",
-                action=Override(
-                    stage="picking", overrides={"max_wavelength": thresholds.max_wavelength_lengths}
-                ),
+                action=Override(stage="picking", overrides={"max_wavelength": cut}),
             )
 
 

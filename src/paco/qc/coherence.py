@@ -35,8 +35,9 @@ class CoherenceRules(BaseModel):
     model_config = ConfigDict(frozen=True, extra="forbid")
 
     lengths: tuple[int, ...] = Field(
-        default=(5, 8, 12, 16, 24, 32, 48, 64, 96, 128),
-        description="Window lengths tried, in receivers, shortest first.",
+        default=(5, 7, 9, 11, 16, 24, 32, 48, 64, 96, 128),
+        description="Window lengths tried, in receivers, shortest first: the short ones the "
+        "user works with, then longer ones for a line where none of them passes.",
     )
     trials: int = Field(default=9, ge=1, description="Trial windows per length, along the line.")
     min_pass_share: float = Field(

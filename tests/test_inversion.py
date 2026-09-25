@@ -264,17 +264,19 @@ def test_g5s_retries_are_in_the_jobs_summary(inverted: Inverted) -> None:
 
     assert summary is not None and summary.startswith("G5: ")
     # 3 models a chain: G5 asks, at once, the iterations 100 models a chain need. What comes of
-    # it depends on the unseeded sampler.
+    # it depends on the unseeded sampler: a window may need twice as many again, and the line
+    # then says "(each its own)".
     assert (
         'Retried G5:not_converged, xmid 2.88-8.88 (2), 20.88 (1) with inversion {"n_iterations":'
-        '17000,"n_burnin_iterations":1700}: now '
+        '17000,"n_burnin_iterations":1700}'
     ) in summary
     assert all(window.verdict in ("pass", "retry", "reject") for window in inverted.record.windows)
     # The settings the gates changed, from -> to, for the agent to report.
-    assert inverted.record.changed[0] == (
-        "n_iterations 500 -> 17000; n_burnin_iterations 50 -> 1700 at xmid 2.88-8.88 (2), "
-        "20.88 (1), by G5:not_converged"
+    first = inverted.record.changed[0]
+    assert first.startswith(
+        "n_iterations 500 -> 17000; n_burnin_iterations 50 -> 1700 at xmid 2.88-8.88 (2), 20.88 (1)"
     )
+    assert first.endswith(", by G5:not_converged")
 
 
 def test_windows_get_pacs_files(inverted: Inverted) -> None:

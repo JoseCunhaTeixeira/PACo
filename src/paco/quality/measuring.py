@@ -96,9 +96,28 @@ def _prominence(above: np.ndarray, peaks: np.ndarray) -> float:
 
 def _constant_wavelength(frequencies: np.ndarray, velocities: np.ndarray) -> float:
     """Share of points where the local log-log slope of the pick is close to 1."""
+    return float(np.mean(local_slopes(frequencies, velocities) > _CONSTANT_WAVELENGTH_SLOPE))
+
+
+def constant_wavelength_start(frequencies: np.ndarray, velocities: np.ndarray) -> float | None:
+    """The shortest wavelength (m) of the stretch at the pick's long-wavelength end where
+    velocity grows like frequency (the edge of what the window resolves): where to cut it.
+    None when the longest wavelengths do not follow it."""
+    wavelengths = velocities / frequencies
+    along = local_slopes(frequencies, velocities) > _CONSTANT_WAVELENGTH_SLOPE
+    start: float | None = None
+    for index in np.argsort(wavelengths)[::-1]:
+        if not along[index]:
+            break
+        start = float(wavelengths[index])
+    return start
+
+
+def local_slopes(frequencies: np.ndarray, velocities: np.ndarray) -> np.ndarray:
+    """The pick's local log-log slope at each point, fitted over its neighbours."""
     log_f, log_v = np.log(frequencies), np.log(velocities)
     half = _SLOPE_POINTS // 2
-    slopes = np.array(
+    return np.array(
         [
             np.polyfit(
                 log_f[max(0, k - half) : k + half + 1], log_v[max(0, k - half) : k + half + 1], 1
@@ -106,4 +125,3 @@ def _constant_wavelength(frequencies: np.ndarray, velocities: np.ndarray) -> flo
             for k in range(frequencies.size)
         ]
     )
-    return float(np.mean(slopes > _CONSTANT_WAVELENGTH_SLOPE))

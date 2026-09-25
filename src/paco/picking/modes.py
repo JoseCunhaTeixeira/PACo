@@ -64,6 +64,15 @@ def pick_modes(
         # Points far below the mode's typical coherence are sidelobes or noise, not its ridge.
         if kept.any():
             kept &= coherence >= parameters.min_relative_coherence * np.median(coherence[kept])
+        # Where the ridge breaks, at either end, the pick stops: its longest continuous run.
+        if parameters.max_gap_hz is not None:
+            kept = _continuous_run(
+                frequencies[span],
+                velocities[path],
+                kept,
+                parameters.max_gap_hz,
+                parameters.break_slope,
+            )
         if kept.sum() < parameters.min_frequencies:
             break
         if float(np.median(ratio[kept])) < parameters.mode_min_ratio:
@@ -103,6 +112,40 @@ def _guided_ridge(
     centre = np.interp(frequencies, points[:, 0], points[:, 1])
     ridge = np.searchsorted(velocities, centre, side="left")
     return np.clip(ridge, start, stop)
+
+
+def _continuous_run(
+    frequencies: np.ndarray,
+    velocities: np.ndarray,
+    kept: np.ndarray,
+    max_gap_hz: float,
+    break_slope: float,
+) -> np.ndarray:
+    """`kept` reduced to its longest continuous run (the widest band; the lowest on a tie):
+    consecutive kept points stay in one run while the columns between them that are not kept
+    span at most `max_gap_hz`, and the step between them is at most `break_slope` in
+    |d ln v / d ln f|. Measured on the demo (2026-09-25): the pick is smooth from about 15 to
+    45 Hz, and scatters below and above; the user's rule is to pick down as far as the ridge
+    holds."""
+    indices = np.flatnonzero(kept)
+    if indices.size < 2:
+        return kept
+    column = float(np.min(np.diff(frequencies)))
+    runs: list[tuple[int, int]] = []
+    start = int(indices[0])
+    for before, after in zip(indices[:-1].tolist(), indices[1:].tolist(), strict=True):
+        gap = frequencies[after] - frequencies[before] - column
+        slope = abs(math.log(velocities[after] / velocities[before])) / math.log(
+            frequencies[after] / frequencies[before]
+        )
+        if gap > max_gap_hz + 1e-9 or slope > break_slope:
+            runs.append((start, before))
+            start = after
+    runs.append((start, int(indices[-1])))
+    first, last = max(runs, key=lambda run: frequencies[run[1]] - frequencies[run[0]])
+    within = np.zeros_like(kept)
+    within[first : last + 1] = kept[first : last + 1]
+    return within
 
 
 def _longest_run(mask: np.ndarray) -> slice | None:
