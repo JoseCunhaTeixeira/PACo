@@ -5,7 +5,16 @@ processed and inverted the QC way, and the stages done again."""
 
 from .attempts import ATTEMPTS_FOLDER, STAGE_FILES, archived_attempts, downstream, invalidate
 from .budgets import budget_spent, can_retry, run_budget
-from .coherence import CoherenceRules, LengthChoice, LengthTrial, cap_band, choose_length
+from .coherence import (
+    CoherenceRules,
+    LengthChoice,
+    LengthTrial,
+    cap_band,
+    choose_length,
+    describe_lengths,
+    given_length,
+    read_length_choice,
+)
 from .config import CONFIG_FILE, QCConfig, load_qc_config, read_qc_config, snapshot_qc_config
 from .curves import pick_line, settle_curves
 from .g3_curve import CurveThresholds
@@ -122,8 +131,10 @@ __all__ = [
     "choose_length",
     "derive_inversion",
     "describe",
+    "describe_lengths",
     "downstream",
     "ensure_initial_attempts",
+    "given_length",
     "invalidate",
     "invertible",
     "judge_inversions",
@@ -141,6 +152,7 @@ __all__ = [
     "pick_line",
     "process_line",
     "read_attempts",
+    "read_length_choice",
     "read_qc_config",
     "read_report",
     "record_result",

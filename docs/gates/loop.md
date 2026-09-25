@@ -94,8 +94,10 @@ else the agent decides from the summaries, and says which settings the gates cha
 
 - The run's budget (2 retries per window) counts G1's per-record retries too, and a narrow
   velocity range spends it all on G2: should G1 have its own, per record?
-- The ladder climbs past the user's length when the trial windows fail for another setting's
-  sake (a narrow grid): should a length the user gave only climb when G3's flags point at the
-  length (too few points, uncertainty, no ridge)?
-- Halving the corridor does not fix the demo's mode jump at xmid 14.88: is a narrower band (cut
-  where the jump starts) the better first move?
+- Halving the corridor did not fix the demo's mode jump at xmid 14.88: is a narrower band (cut
+  where the jump starts) the better first move? Since 2026-09-25 the pick stops where its
+  ridge breaks, and that jump (above the 50 Hz line) is gone; the question stays for jumps the
+  continuity does not catch.
+
+Settled on 2026-09-25: a length given, by the user or the agent, is kept; the ladder no longer
+climbs past it (`S2_rules.md`).

@@ -44,6 +44,7 @@ from paco.evaluation.checks import (
     retried_value,
     succeeded,
     thresholds_unchanged,
+    windows_than_proposed,
 )
 from paco.evaluation.defects import build_inputs
 from paco.inversion import InversionRecord, JobState, WindowInversion
@@ -51,12 +52,14 @@ from paco.profiles import load_profile
 from paco.qc import (
     Attempt,
     Budgets,
+    LengthChoice,
     QCConfig,
     QCReport,
     UnitReport,
     append_attempt,
     snapshot_qc_config,
 )
+from paco.qc.coherence import COHERENCE_FILE
 from paco.runs import RunManifest
 from paco.settings import Settings
 
@@ -405,12 +408,69 @@ def test_the_agent_asks_or_not() -> None:
 
 def test_no_settings_invented() -> None:
     bare = _trial([_step("run_processing", {"profile": "active_p1"})])
+    # The window length is the agent's to choose; any other setting is invented.
+    length = _trial(
+        [_step("run_processing", {"profile": "active_p1", "overrides": {"masw": {"length": 24}}})]
+    )
     invented = _trial(
-        [_step("run_processing", {"profile": "active_p1", "overrides": {"masw": {"length": 48}}})]
+        [
+            _step(
+                "run_processing",
+                {"profile": "active_p1", "overrides": {"masw": {"length": 24, "step": 4}}},
+            )
+        ]
     )
 
     assert no_settings_invented("run_processing")(bare).passed
+    assert no_settings_invented("run_processing")(length).passed
     assert not no_settings_invented("run_processing")(invented).passed
+
+
+def _run_on_disk(root: Path, run_id: str, length: int, proposed: int | None = None) -> None:
+    """A run of active_p1 in `root` with windows of `length` receivers, and the ladder's
+    choice when it proposed one."""
+    run = root / "active_p1" / run_id
+    run.mkdir(parents=True)
+    manifest = RunManifest.model_validate(
+        {
+            "run_id": run_id,
+            "profile": {
+                "name": "active_p1",
+                "kind": "active",
+                "n_records": 2,
+                "n_receivers": 96,
+                "receiver_x_range_m": [0.0, 23.75],
+                "receiver_spacing_m": 0.25,
+                "sampling_rate_hz": 2000.0,
+                "nyquist_hz": 1000.0,
+                "record_duration_range_s": [2.0, 2.0],
+                "source_x_range_m": [-0.75, 24.5],
+            },
+            "preset": {"mode": "active", "masw": {"length": length}},
+            "versions": {},
+            "started_at": "2026-09-25T10:00:00Z",
+            "finished_at": "2026-09-25T10:00:10Z",
+            "n_positions": 4,
+            "windows": [],
+        }
+    )
+    (run / "run.json").write_text(manifest.model_dump_json())
+    if proposed is not None:
+        choice = LengthChoice(length=proposed, trials=(), notes=())
+        (run / COHERENCE_FILE).write_text(choice.model_dump_json())
+
+
+def test_the_window_length_the_agent_chose_is_read_from_the_runs(tmp_path: Path) -> None:
+    _run_on_disk(tmp_path, "20260925-100000-abcd", 16, proposed=16)
+    trial = _trial([], "", tmp_path)
+    # One run, the ladder's length: the agent chose nothing.
+    assert not windows_than_proposed("longer")(trial).passed
+    assert windows_than_proposed("longer")(trial).detail == "proposed 16, last run 16"
+
+    _run_on_disk(tmp_path, "20260925-100100-abcd", 24)
+
+    assert windows_than_proposed("longer")(trial).passed
+    assert not windows_than_proposed("shorter")(trial).passed
 
 
 def test_the_dead_trace_profile_is_the_demo_with_one_trace_zeroed(
@@ -554,7 +614,7 @@ def picks_active(messages: list[ChatCompletionMessageParam]) -> Reply:
     if len(results) == 1:
         return _calls("pick", {"run_id": json.loads(results[0])["run_id"]})
     passed = json.loads(results[1])["next"].split(" curves")[0]
-    return _says(f"{passed} curves passed; G1 corrected the trigger delay, G3 re-picked 14.88.")
+    return _says(f"{passed} curves passed; G1 corrected the trigger delay, left out 3 traces.")
 
 
 @pytest.mark.usefixtures("paco_env")
@@ -590,8 +650,8 @@ def test_the_loops_checks_read_a_real_run(paco_env: Settings, tmp_path: Path) ->
         ),
         ("in order: run_processing, pick", True),
         ("the loop retried for G1:shifted_trigger", True),
-        ("the loop retried for G3:mode_jump", True),
-        ("answer mentions 3", True),
+        ("trace 89 of 2.dat left out", True),
+        ("answer mentions 4", True),
         ("invert never called", True),
         ("the agent asked nothing", True),
         ("the thresholds stayed the configuration's", True),

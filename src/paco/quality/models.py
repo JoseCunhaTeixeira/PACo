@@ -10,10 +10,12 @@ from paco.picking import PickingParameters
 class QualityParameters(BaseModel):
     """Limits past which a measurement raises a flag.
 
-    Tuned on the 14 demo windows only (active_p1 and passive_p1, 24-receiver windows), so they
-    separate those perfectly by construction: recalibrate them on a reference set of windows judged
-    by hand before trusting them. min_sharpness sits below the score of a perfect plane wave,
-    0.98 to 1.08 depending on the array, to leave room for noise.
+    Tuned on the demo windows only, so recalibrate them on a reference set of windows judged by
+    hand before trusting them. Sharpness and prominence are measured against a perfect plane
+    wave for the same window, frequency and velocity (the user's decision of 2026-09-25): the
+    demo's windows score 1.00 on both at every length from 5 to 24 receivers, where fixed
+    limits measured the array, not the data (a 5-receiver window cannot be as prominent as a
+    24-receiver one).
     """
 
     model_config = ConfigDict(frozen=True, extra="forbid")
@@ -22,14 +24,15 @@ class QualityParameters(BaseModel):
     min_sharpness: float = Field(
         default=0.8,
         gt=0,
-        description="Flag when the median peak width is below this multiple of the width the "
-        "window can resolve (a perfect plane wave scores about 1).",
+        description="Flag when the median peak width is below this multiple of a perfect plane "
+        "wave's width for the same window (a plane wave scores 1).",
     )
     min_prominence: float = Field(
-        default=2.0,
+        default=0.5,
         gt=0,
-        description="Flag when the median peak height above the noise floor is below this "
-        "multiple of its column's median height.",
+        description="Flag when the median peak prominence (height above the noise floor over "
+        "its column's median height) is below this multiple of a perfect plane wave's for the "
+        "same window (a plane wave scores 1).",
     )
     min_on_data: float = Field(
         default=0.6,
@@ -55,11 +58,12 @@ class ImageQuality(BaseModel):
     """How much the M0 pick of one dispersion image can be trusted, and why.
 
     Every measurement is a median over the pick's kept points:
-    - sharpness: peak width above the noise floor, over the width the window can resolve at that
-      wavelength (v * wavelength / window length). A perfect plane wave scores about 1, and a
-      propagating wave cannot be much narrower: well below 1, the peak is a fringe or an edge, not
-      a ridge.
-    - prominence: peak height above the floor, over the column's median height above the floor.
+    - sharpness: peak width at half its height above the noise floor, over the same width for a
+      perfect plane wave at that frequency and velocity, through the window's receivers and on
+      the same grid. A propagating wave cannot be much narrower: well below 1, the peak is a
+      fringe or an edge, not a ridge.
+    - prominence: peak height above the floor over the column's median height above the floor,
+      over the same ratio for the perfect plane wave: 1 is as prominent as the window allows.
     - on_data: share of points on their column's brightest value (within 10 %), so the data and not
       the tracker's smoothing drew the curve.
     - constant_wavelength: share of points where velocity grows like frequency, the signature of the

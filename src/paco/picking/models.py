@@ -57,6 +57,13 @@ class PickingParameters(BaseModel):
         description="Longest wavelength searched, as a multiple of the window length; null: no "
         "limit.",
     )
+    min_contrast: float | None = Field(
+        default=0.01,
+        gt=0,
+        description="A point is kept only where a perfect plane wave for the window varies by "
+        "at least this share over the velocity grid (below, the window resolves no velocity: "
+        "short windows at low frequencies); null: no floor.",
+    )
     max_gap_hz: float | None = Field(
         default=2.0,
         ge=0,

@@ -63,9 +63,10 @@ def test_the_windows_g4_passed_are_inverted_with_bounds_from_their_curves(
     _, _, run_folder = inverted
     attempts = read_attempts(run_folder)
 
-    # G3 sent xmid 14.88 back (a mode jump): not a curve for the line, not inverted.
+    # G3 sent xmid 20.88 back (2 points where its ridge holds): not a curve for the line, not
+    # inverted.
     inversions = [a for a in attempts if a.stage == "inversion" and a.unit.startswith("xmid_")]
-    assert sorted({a.unit for a in inversions}) == ["xmid_2.88", "xmid_20.88", "xmid_8.88"]
+    assert sorted({a.unit for a in inversions}) == ["xmid_14.88", "xmid_2.88", "xmid_8.88"]
     for attempt in inversions:
         assert (attempt.attempt, attempt.status, attempt.triggered_by) == (
             1,
@@ -89,8 +90,9 @@ def test_the_windows_g4_passed_are_inverted_with_bounds_from_their_curves(
         assert (folder / SAMPLES_FILE).exists()
         measures = InversionMeasures.model_validate_json((folder / MEASURES_FILE).read_text())
         assert measures.samples_per_chain == 9
-        # Round depths down to half the line's median longest wavelength (9 m here).
-        assert [depth for depth, _ in measures.vs_at_depths] == [1.0, 2.0, 3.0, 4.0]
+        # Round depths down to half the line's median longest wavelength (about 11 m here: the
+        # picks go down to where their ridge breaks).
+        assert [depth for depth, _ in measures.vs_at_depths] == [2.0, 4.0, 6.0, 8.0, 10.0]
 
 
 def test_g5_finds_the_chains_too_short_and_g6_has_no_model(
@@ -100,7 +102,7 @@ def test_g5_finds_the_chains_too_short_and_g6_has_no_model(
     report = read_report(run_folder)
     attempts = read_attempts(run_folder)
 
-    for unit in ("xmid_2.88", "xmid_8.88", "xmid_20.88"):
+    for unit in ("xmid_2.88", "xmid_8.88", "xmid_14.88"):
         attempt = latest(attempts, unit, "inversion")
         assert attempt is not None
         g5 = attempt.results["G5"]
@@ -166,8 +168,8 @@ def test_what_cannot_be_inverted_is_refused(
 ) -> None:
     settings, run_id, _ = inverted
 
-    with pytest.raises(RunError, match=r"has no window xmid_14\.88 that G4 passed"):
-        rerun_inversion(run_id, ["xmid_14.88"], {}, settings)
+    with pytest.raises(RunError, match=r"has no window xmid_20\.88 that G4 passed"):
+        rerun_inversion(run_id, ["xmid_20.88"], {}, settings)
     with pytest.raises(RunError, match=r"Unknown inversion parameter\(s\) iterations"):
         rerun_inversion(run_id, ["xmid_2.88"], {"iterations": 5}, settings)
     # A run G4 has not judged.

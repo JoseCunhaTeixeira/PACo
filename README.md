@@ -105,10 +105,15 @@ you> Process active_p1 with windows of 24 receivers, every 24 receivers, and pic
    run_processing: 4 of 4 windows
 -> pick({"run_id": "20260924-175047-f0a0"})
 
-paco> 3 of the 4 curves passed. G1 corrected the records' 19 and 10 ms trigger delays and left
-out traces 1, 89 and 90 of 2.dat; the pick at xmid 14.88 kept jumping onto another mode and was
-rejected after two tries.
+paco> The 4 curves passed G3 and G4. G1 corrected the records' 19 and 10 ms trigger delays and
+left out traces 1, 89 and 90 of 2.dat.
 ```
+
+Given no window length, `run_processing` proposes one: the shortest at which most trial windows
+along the line give a curve G3 passes, with a table of every length it tried (trial windows
+passed, the wavelengths their curves reach, windows on the line). The model keeps it, or runs
+again with another length when the request asks for more depth (longer windows) or lateral
+detail (shorter), and says why; a length you or the model give is kept as it is.
 
 The conversation is saved when you leave (`exit`). To evaluate the model, run
 `uv run paco-evaluate`, or name scenarios: `uv run paco-evaluate list_profiles pick_active`.
@@ -122,7 +127,7 @@ each scenario three times and reports pass rates.
 | `list_profiles` | The profiles you can process |
 | `inspect_profile` | One profile: active or passive, receivers, spacing, sampling |
 | `preset_settings` | The processing settings the model may change, for one profile |
-| `run_processing` | Preprocesses the records (G1, its fixes applied), chooses the window length and band from the data unless given, makes one dispersion image per window (G2, retried when it can be fixed); returns a `run_id` and the gates' summary |
+| `run_processing` | Preprocesses the records (G1, its fixes applied), proposes a window length from trial windows unless given (the lengths tried listed for the model to choose from) and caps the band to the data, makes one dispersion image per window (G2, retried when it can be fixed); returns a `run_id` and the gates' summary |
 | `pick` | Picks each window's fundamental mode (G3, picked again when it can be fixed), judges the curves over the line (G4, outliers picked again), saves them in PAC's layout |
 | `inversion_settings` | The inversion's parameters; left out, each window's bounds come from its own curve |
 | `invert` | Inverts the curves G4 passed, in the background (G5 on each model, G6 over the line, each retrying what it can); returns a `job_id` |
@@ -136,9 +141,11 @@ G2 each dispersion image, G3 each curve, G4 the curves over the line, G5 each mo
 over the line. Each gives a verdict (pass, retry, reject), each metric with its threshold, and for
 each flag the stage at fault and a change that can be applied as it is. The stage tools apply
 their own gate's changes, within budgets (2 retries per gate and window, 2 per window over the
-run); a change of an earlier stage is the model's to make, with `redo`. The window length, the
-band and the inversion's bounds come from the data (`docs/gates/S2_rules.md`,
-`docs/gates/S4_checks.md`). `docs/gates/` documents every gate with its thresholds, the demo's
+run); a change of an earlier stage is the model's to make, with `redo`. The band and the
+inversion's bounds come from the data, the window length is proposed from it, for the model to
+choose (`docs/gates/S2_rules.md`, `docs/gates/S4_checks.md`). Each pick goes as far as its ridge
+holds, at both ends, and G3 judges sharpness and prominence against a perfect plane wave for the
+same window, so that short windows are judged fairly (`docs/gates/G3.md`). `docs/gates/` documents every gate with its thresholds, the demo's
 real outputs, and what is still to judge.
 
 ## Safety

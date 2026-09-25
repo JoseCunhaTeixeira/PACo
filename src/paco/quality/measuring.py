@@ -4,6 +4,7 @@ import numpy as np
 from sigpipe.base import DispersionImage
 
 from paco.picking import PickedMode
+from paco.picking.plane_waves import plane_wave_columns, prominences
 from paco.quality.models import Flag, ImageQuality, QualityParameters
 
 # A point is on the data when its velocity is within this fraction of its column's brightest one.
@@ -12,6 +13,10 @@ _ON_DATA_TOLERANCE = 0.1
 _CONSTANT_WAVELENGTH_SLOPE = 0.7
 # The local slope is fitted over this many neighbouring points.
 _SLOPE_POINTS = 7
+# Prominence is counted up to this: beyond, any ridge stands out enough. A long array's perfect
+# plane wave has its sidelobes under the noise floor and would rise far above it, making any
+# real image look weak; the old fixed limit, 2, is half of it.
+_PROMINENT_ENOUGH = 4.0
 
 
 def measure_quality(
@@ -34,11 +39,9 @@ def measure_quality(
     rows = np.searchsorted(image.fs, frequencies)
     peaks = np.searchsorted(grid_v, velocities)
     above = np.clip(image.fv_map[rows].astype(float) - m0.noise_floor, 0, None)
-    receivers = image.acquisition.receivers
-    window_length = abs(receivers[-1].x - receivers[0].x)
-
-    sharpness = _sharpness(above, peaks, grid_v, frequencies, velocities, window_length)
-    prominence = _prominence(above, peaks)
+    perfect = plane_wave_columns(image, frequencies, velocities, m0.noise_floor)
+    sharpness = _sharpness(above, perfect, peaks, grid_v)
+    prominence = _prominence(above, perfect, peaks)
     brightest = grid_v[np.argmax(above, axis=1)]
     on_data = float(np.mean(np.abs(brightest - velocities) / velocities < _ON_DATA_TOLERANCE))
     constant_wavelength = _constant_wavelength(frequencies, velocities)
@@ -65,33 +68,35 @@ def measure_quality(
     )
 
 
+def _half_width(column: np.ndarray, peak: int, grid_v: np.ndarray) -> float:
+    """The width of the peak at `peak`, at half its height."""
+    level = column[peak] / 2
+    low = high = peak
+    while low > 0 and column[low - 1] >= level:
+        low -= 1
+    while high < column.size - 1 and column[high + 1] >= level:
+        high += 1
+    return float(grid_v[high] - grid_v[low])
+
+
 def _sharpness(
-    above: np.ndarray,
-    peaks: np.ndarray,
-    grid_v: np.ndarray,
-    frequencies: np.ndarray,
-    velocities: np.ndarray,
-    window_length: float,
+    above: np.ndarray, perfect: np.ndarray, peaks: np.ndarray, grid_v: np.ndarray
 ) -> float:
-    """Median peak width at half its height above the floor, over the resolution width."""
-    widths = np.empty(peaks.size)
-    for k, peak in enumerate(peaks):
-        column, level = above[k], above[k, peak] / 2
-        low = high = int(peak)
-        while low > 0 and column[low - 1] >= level:
-            low -= 1
-        while high < column.size - 1 and column[high + 1] >= level:
-            high += 1
-        widths[k] = grid_v[high] - grid_v[low]
-    resolution = velocities * (velocities / frequencies) / window_length
-    return float(np.median(widths / resolution))
+    """Median peak width at half its height above the floor, over a perfect plane wave's."""
+    ratios = [
+        _half_width(above[k], int(peak), grid_v) / width
+        for k, peak in enumerate(peaks)
+        if (width := _half_width(perfect[k], int(peak), grid_v)) > 0
+    ]
+    return float(np.median(ratios)) if ratios else 1.0
 
 
-def _prominence(above: np.ndarray, peaks: np.ndarray) -> float:
-    """Median peak height above the floor, over its column's median height above the floor."""
-    heights = above[np.arange(peaks.size), peaks]
-    background = np.maximum(np.median(above, axis=1), 1e-3)
-    return float(np.median(heights / background))
+def _prominence(above: np.ndarray, perfect: np.ndarray, peaks: np.ndarray) -> float:
+    """Median prominence (peak height above the floor over its column's median height above
+    the floor, counted up to _PROMINENT_ENOUGH), over a perfect plane wave's."""
+    measured = np.minimum(prominences(above, peaks), _PROMINENT_ENOUGH)
+    reference = np.minimum(prominences(perfect, peaks), _PROMINENT_ENOUGH)
+    return float(np.median(measured / np.maximum(reference, 1e-3)))
 
 
 def _constant_wavelength(frequencies: np.ndarray, velocities: np.ndarray) -> float:

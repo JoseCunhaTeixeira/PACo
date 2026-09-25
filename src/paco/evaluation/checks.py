@@ -5,12 +5,12 @@ import re
 from collections.abc import Callable
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Any
+from typing import Any, Literal
 
 from paco.agent.record import ToolStep, Transcript
 from paco.evaluation.models import CheckResult
 from paco.inversion import InversionRecord
-from paco.qc import QCConfig, QCReport, Stage, read_attempts
+from paco.qc import QCConfig, QCReport, Stage, read_attempts, read_length_choice
 from paco.runs import RunManifest
 
 
@@ -236,19 +236,57 @@ def excluded(record: str, trace: int) -> Check:
 
 
 def no_settings_invented(tool: str) -> Check:
-    """Every successful call of `tool` gave no overrides: with no setting from the user, every
-    parameter comes from the data."""
-    name = f"{tool} with no settings"
+    """Every successful call of `tool` gave no overrides but the window length: with no setting
+    from the user, every parameter comes from the data, and the length is the agent's to
+    choose (the user's decision of 2026-09-25)."""
+    name = f"{tool} with no settings but the window length"
 
     def check(trial: Trial) -> CheckResult:
         steps = [step for step in _called(trial) if step.name == tool and not step.is_error]
         if not steps:
             return CheckResult(name=name, passed=False, detail=f"{tool} never succeeded")
         given = [
-            step.arguments for step in steps if json.loads(step.arguments or "{}").get("overrides")
+            step.arguments
+            for step in steps
+            if _beyond_length(json.loads(step.arguments or "{}").get("overrides"))
         ]
         detail = f"called with {'; '.join(given)}" if given else ""
         return CheckResult(name=name, passed=not given, detail=detail)
+
+    return check
+
+
+def _beyond_length(overrides: Any) -> bool:  # noqa: ANN401
+    """Whether `overrides` set anything but masw's window length."""
+    if isinstance(overrides, str):
+        overrides = json.loads(overrides)
+    if not overrides:
+        return False
+    if not isinstance(overrides, dict) or set(overrides) != {"masw"}:
+        return True
+    masw = overrides["masw"]
+    return not isinstance(masw, dict) or set(masw) - {"length"} != set()
+
+
+def windows_than_proposed(longer: Literal["longer", "shorter"]) -> Check:
+    """The agent ran the line again with windows `longer` (or shorter) than the ladder
+    proposed in the first run: it chose the length for what the user asked (depth, or lateral
+    detail)."""
+    name = f"windows {longer} than the ladder proposed"
+
+    def check(trial: Trial) -> CheckResult:
+        folders = sorted(
+            (path.parent for path in trial.output_dir.glob("*/*/run.json")),
+            key=lambda folder: folder.name,
+        )
+        first = read_length_choice(folders[0]) if folders else None
+        if first is None:
+            return CheckResult(name=name, passed=False, detail="no run proposed a length")
+        last = RunManifest.model_validate_json((folders[-1] / "run.json").read_text())
+        chosen = last.preset.masw.length
+        passed = chosen > first.length if longer == "longer" else chosen < first.length
+        detail = f"proposed {first.length}, last run {chosen}"
+        return CheckResult(name=name, passed=passed, detail="" if passed else detail)
 
     return check
 

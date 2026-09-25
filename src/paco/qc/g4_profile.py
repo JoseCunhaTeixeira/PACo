@@ -15,6 +15,7 @@ from paco.qc.sides import Series, median_series, neighbourhoods, spread
 
 GATE = "G4"
 LINE = "line"  # the unit of the line-level result
+GUIDE_POINTS = 12  # the neighbours' median curve given to the picker for an outlier
 
 
 class ProfileThresholds(BaseModel):
@@ -79,11 +80,22 @@ def judge_profile(
         flags: list[Flag] = []
         if near.standing == "outlier":
             grid, median = median_series([other for side in near.off for other in side.series])
+            known = ~np.isnan(median)
+            wavelengths, velocities = grid[known], median[known]
+            # Thinned: the picker interpolates between the guide's points, and the summary the
+            # agent reads shows them all.
+            chosen = np.unique(
+                np.linspace(0, wavelengths.size - 1, min(wavelengths.size, GUIDE_POINTS))
+                .round()
+                .astype(int)
+            )
             guide = sorted(
                 {
-                    (round(float(v / w), 2), round(float(v), 1))
-                    for w, v in zip(grid, median, strict=True)
-                    if not np.isnan(v)
+                    (
+                        round(float(velocities[i] / wavelengths[i]), 2),
+                        round(float(velocities[i]), 1),
+                    )
+                    for i in chosen
                 }
             )
             flags.append(
