@@ -10,31 +10,28 @@ from pathlib import Path
 import h5py
 import pytest
 from pydantic import ValidationError
-
-from paco.inversion import (
-    InversionError,
-    InversionParameters,
-    InversionRecord,
-    ThicknessLayer,
-    VsLayer,
-    WindowInversion,
-    find_job,
-    read_record,
-    summarize_inversion,
-    write_record,
-)
-from paco.inversion.section import (
+from sigpipe.masw.inversion import InversionError, InversionParameters, ThicknessLayer, VsLayer
+from sigpipe.masw.inversion.section import (
     COMPARISON_FIGURE,
     SECTION_FIGURE,
     SECTION_FILE,
     save_comparison,
     save_section,
 )
+from sigpipe.masw.runs import RunError
+
+from paco.inversion import (
+    InversionRecord,
+    WindowInversion,
+    find_job,
+    read_record,
+    summarize_inversion,
+    write_record,
+)
 from paco.jobs import JobManager
 from paco.qc import QCConfig, run_inversion_job, submit_inversion
 from paco.qc.curves import pick_line
 from paco.qc.line import process_line
-from paco.runs import RunError
 from paco.settings import Settings
 
 # Four 24-receiver windows along the active demo line, as in test_runs.py; G3 and G4 pass the

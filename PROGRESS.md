@@ -30,7 +30,7 @@ Last updated 2026-09-25. Read this first at the start of each session.
 | 11. G1 signal QC, G2 image QC, metrics moved to G3 | Done: three gates with measured thresholds, the trigger stage, `judge_run`, docs per gate; 415 tests |
 | 12. G3 extensions, G4 curve profile QC | Done: the curve's own rules, the pick saved as judged, the picking done again per window, G4 over the line with its pseudo-section; 433 tests |
 | 13. Checks before S4, smooth model, G5, G6 | Done: S2's coherence rules (the band, the ladder), the checks before S4, the smooth median monitored, G5, G6, the inversion done again per window, G3's near field; 492 tests |
-| 14. Tools, no approval, role and policy, scenarios, README | Built: stage tools with their gates' retries, redo, the job with G5 and G6, the approval removed, the agent asks only when stuck, the suite on synthetic defects; first evaluation 14 of 33, fixed; 498 tests, the ideal agent 11 of 11; second evaluation to record |
+| 14. Tools, no approval, role and policy, scenarios, README | Built: stage tools with their gates' retries, redo, the job with G5 and G6, the approval removed, the agent asks only when stuck, the suite on synthetic defects; first evaluation 14 of 33, fixed; 498 tests, the ideal agent 11 of 11; evaluated again on 2026-09-26 (35 of 45 plays on the final code, see the overnight section): to close once the user has reviewed the overnight decisions |
 | After 14: windows and picks (2026-09-25) | Built: picks as far as the ridge holds, G3 against a plane wave, the ladder of short lengths proposing and the agent deciding; 502 tests; evaluated (17 of 39 checks) |
 | A real survey, the host, the layers (2026-09-25) | Built: `active_p2` processed (81 of 92 windows with a curve), the reach and the median band from the data, per-record exclusions, the host's three guarantees, at least 3 layers |
 | Overnight (2026-09-26, Claude alone, to review) | Built: the layer study (4 kept), G6 on the depth of investigation, PAC's passive-active mode (with two fixes of PAC's chain), passive defaults that work on real noise (`passive_p2`: 56 curves, from 1), G2's top edge counted where resolved, the line's velocity section as PAC writes it, fixes from the night's evaluations (31 of 42 plays, then 35 of 45 on the final code, about 38 of 45 with the last fixes); 543 tests, passing also as CI runs them (a clean copy, 4 cores, no `.env`) |
@@ -1372,16 +1372,213 @@ the measurements it rests on, the options set aside, and the change kept small e
    the length, gets there. Counting these plays in place of the earlier ones, the suite
    stands at about 38 of 45 (an estimate across runs, not one run).
 
+## Milestone 15: one tool (from 2026-09-26)
+
+The user: "sigpipe must be where algorithms are, you can change it, I just want to avoid
+redundance"; "adding a page to PAC where I can talk to the LLM and launch an automatic
+processing. My goal is to have only one tool, PAC"; "PAC and PACo should stay interfaces". The
+CNN picker comes later, once trained. Two surveys (sigpipe, PAC) mapped the ground first.
+
+**The user's decisions** (one round of options, each the user's choice and Claude's):
+
+- The quality measures go to sigpipe (SNR, reach, usable band, sharpness and prominence,
+  lateral consistency, misfit by band, R-hat ...); the gates' thresholds, flags, retries and
+  run log stay in PACo, the automatic processing's policy.
+- PAC runs PACo's agent in its own process, PACo's tools called in-process (as PACo's
+  evaluation does): one server, one UI; PACo stays a package, its commands kept.
+- Runs everywhere: PAC's own processing keeps runs too (`data/output/<profile>/<run_id>/`), as
+  PACo does; PAC's visualization pages choose a run, the latest by default.
+- One processing schema in sigpipe, PAC's form defaults with the changes decided for PACo;
+  PAC's API and forms move to it.
+
+**Where things go.** sigpipe keeps its pattern (algorithm functions in registries, transformers
+wrapping them, base types, dataio) and gains a MASW layer, `sigpipe.masw`: profiles, windows,
+the settings schema, pipelines, runs, picking, inversion per window and per line (sections,
+comparison), and the QC measures. PACo keeps the agent, the MCP server, the evaluation and the
+gates (thresholds, flags, retries, the run log and report). PAC keeps its API and UI, and gains
+the chat page.
+
+**Phases**, each ended with every test suite green:
+
+1. sigpipe's fixes: the MCMC chains that never move (start every chain inside its prior; a
+   chain that kept no predicted curve dropped with a log line, not a crash);
+   `ActiveShotCorrelation`'s flipped geometry; `pick_curves`' duplicated modes and its
+   smoothing of 2 to 5 points; `smooth_laterally`'s one-sided blur; one shortest-wavelength
+   rule. PACo's transformers (`ShiftTrigger`, `SelectReceivers`, the surface-wave window) into
+   sigpipe.
+2. `sigpipe.masw`, from PACo's tested code and PAC's extras (the arc-length midpoint, the lasso
+   picker, the petro outputs where they belong); unit tests move with the code, the tests on
+   the demo profiles stay in PACo (sigpipe carries no demo data).
+3. PACo on `sigpipe.masw`: its copies deleted, the gates calling sigpipe's measures.
+4. PAC on `sigpipe.masw`: its copies deleted, runs, the one schema in its API and forms.
+5. The chat page in PAC: a router running PACo's agent (sessions, events polled like PAC's
+   jobs), a React page, the model server in PAC's Docker setup. **PACo optional** (the user,
+   the same day: "PACo should be optional at install for PAC, depending on the user's GPU"):
+   an extra (`agent`) of PAC's package and an opt-in profile of its Docker setup; without it,
+   or without a model server (local, or remote for a machine whose GPU cannot serve Qwen), PAC
+   works as before and its chat page says what is missing.
+6. Docs in the three repositories, every suite, the evaluation.
+
+**While it is built**: `../sigpipe` is installed editable in PAC's and PACo's environments
+(their `pyproject.toml` and `uv.lock` untouched). To commit: sigpipe first, pushed; then
+`uv lock --upgrade-package sigpipe` in PAC and PACo, and their commits.
+
+**Done so far** (2026-09-26):
+
+- Phase 1, in sigpipe (each with a test that fails without the fix):
+  - **MCMC:** every chain starts inside its own prior. A chain that saved models before computing a likelihood has them left out, with a log line, instead of the crash.
+  - **Correlation composites:** `ActiveShotCorrelation` and `BidirectionalCorrelate` put the virtual source at the first receiver after a flip (`composites/virtual_source.py`).
+  - **`pick_curves`:**
+    - a mode picked again replaces its curve (the re-pick used to raise "Duplicate modes");
+    - 2 to 5 points are smoothed or kept, no longer an error;
+    - the median filter pads the ends with their own values: zero padding took the two lowest frequencies for outliers, 548 m/s picked for 600;
+    - the bounds default to one per label.
+  - **`clean_picks`:** the outlier replacement and smoothing, shared by `pick_curves` and PAC's lasso.
+  - **`smooth_laterally`:** its even windows lean opposite ways, so an edge no longer moves one position.
+  - **One wavelength rule:** `min_resolvable_wavelength` is twice the smallest receiver spacing along the ground (PAC's API rule). `max_resolvable_wavelength` is the line's length along the ground. `receiver_spacings` is new.
+  - **`mute`:** a taper cut by the trace's start or end keeps its width.
+  - **`Mode`:** gains `label` and `from_label`.
+  - **New:**
+    - `shift` and `Shift` (PACo's trigger correction);
+    - `Load` of saved streams takes `acquisitions` and `receivers_to_load`, the same for every file or one list per file (PACo's `SelectReceivers`). `load_seismic` takes the same forms.
+  - **Surface-wave window:** PACo's is now sigpipe's `Mute` (vmin, vmax, a taper in samples derived from the profile: 0.05 s).
+  - **`FromFirstReceiver`:** gone, since the composites are fixed.
+  - pydantic is now a sigpipe dependency.
+- Phase 2, `sigpipe.masw`:
+  - `workspace` (a `Workspace` protocol, which PAC's and PACo's settings satisfy, and `Folders`);
+  - `profiles`, `windows` and `presets` (the one schema);
+  - `pipelines` and `runs` (`run_processing` returns the manifest, which records the versions of sigpipe and of the `packages` given);
+  - `picking` (the automatic picker, and PAC's lasso as `pick_lasso`, taking a `Mode`);
+  - `picks` (`load_curves`, `save_curves`, `save_pick`, `remove_pick`: PAC's and PACo's saving in one);
+  - `inversion` (the parameters, `invert_window` for any modes, `measuring`, `section`, `priors`);
+  - `quality` (the measures of `signal`, `image`, `pick` and `line`).
+  - Tests: the unit tests moved from PACo, plus new synthetic ones. A synthetic profile written with obspy gives an end-to-end run in each mode, picks, two inversions and a section. sigpipe has no demo data.
+- Phase 3, PACo on `sigpipe.masw`:
+  - Its copies are deleted.
+  - It keeps:
+    - the agent's summaries (`paco.runs`: `RunSummary`, `PACKAGES`);
+    - the inversion job records and status (`paco.inversion`);
+    - G3's thresholds and flags on sigpipe's pick measures (`paco.quality`);
+    - the gates, which now call sigpipe's measures.
+  - Dead code removed: the pre-gate `dispersion_quality` and `pick` flows, which no tool used any more.
+- Phase 4, PAC on `sigpipe.masw`:
+  - Deleted from PAC:
+    - the adapters (windows, pipelines, inversion);
+    - the lasso picker;
+    - the computing, stage and inversion parameter models;
+    - `io/acquisition.py` and `io/yaml.py`;
+    - the unused `project` loader and saver.
+  - The API:
+    - `GET /presets/{mode}?profile=` gives the preset fitted to the profile, and each method's values (`method_defaults`);
+    - `/run` and `/config` take `{profile, mode, overrides, workers}`;
+    - a run job reports its run (`profile/run_id`);
+    - `/windows` takes `{profile, masw}`;
+    - `/acquisitions/{folder}` keeps its shape, built from sigpipe's `Profile`;
+    - every output route takes a run path (`{folder:path}`). `output_folder` refuses paths leading out of the output directory; a test checks it.
+  - `/output_folders` lists the runs, newest first, then the folders of the older layout, which stay viewable.
+  - The frontend's forms start from `/presets` (the one schema, so PACo's defaults: 5-receiver windows, 2 s passive segments). The shot forms gain the trigger shift; the passive-active form gains the surface-wave window.
+  - The output pages open on the latest run.
+  - The data folders can be overridden with `MASW_INPUT_DIR` and `MASW_OUTPUT_DIR`.
+  - Tests: 19 in all. `tests/test_api.py` goes page by page on synthetic profiles: profiles, presets, windows, a run, the picks (box, lasso, delete), an inversion and its section.
+  - pyright, ruff, tsc and eslint are clean.
+  - A headless browser check on the demo profiles, on 127.0.0.1: the forms start from the schema, and a run saved and was listed first.
+  - Left: the petrophysical inversion (PAC only, needing the `silex` and `santiludo` extras) still has its own section code in PAC.
+- Phase 5, the assistant in PAC:
+  - **`masw/agent.py`**, the only PAC module importing PACo: `status()` names what is missing (PACo not installed, model not set, model server silent). Each conversation runs its agent in its own thread, PACo's tools called in-process (`Client(server.server)`) on PAC's folders (`PACO_INPUT_DIR` and `PACO_OUTPUT_DIR` set to PAC's). Tool progress is a live line, not events; conversations are saved in `output/agent_logs`.
+  - **Router:** `/agent/installed`, `/agent/status`, sessions, messages and polled events.
+  - **Page:** "Assistant", shown in the menu only when installed. Answers render the model's Markdown as elements (never HTML); tool calls are small lines that can be hidden.
+  - **Checked in a browser:**
+    - with a fake OpenAI-compatible server;
+    - with the real Qwen3-8B-FP8 (vLLM restarted: the user's GPU is free, 2026-09-26). The agent processed and picked active_p1 in PAC (86 windows of 11 receivers, 74 curves through G3/G4), and PAC's pages opened its run.
+  - **Install:**
+    - PACo is PAC's `agent` extra (from GitHub; the three repositories are public). CI installs it.
+    - `Dockerfile` takes a `PAC_EXTRAS` build argument; `docker-compose.yml` has an opt-in `model` service (vLLM, profile `agent`, 127.0.0.1 only, `MODEL_BIND` and `VLLM_API_KEY` for HTTPS setups); `docker-compose.rocm.yml` covers AMD.
+  - **The user's decisions** (two options, both the recommended ones):
+    - an install step that checks the GPU: `install_assistant.py`, the standard library only, Python 3.9 or newer (tested with uv's 3.9);
+    - compatible from 16 GB: NVIDIA with compute capability 8.0 or newer, or AMD on Linux; Qwen3-8B-FP8 from 15 GiB, Qwen3-8B from 23 GiB. It also checks Docker's access to the GPU.
+    - The step writes compose's `.env` (`PAC_EXTRAS`, `COMPOSE_PROFILES`, the model, its context, the ROCm file) and keeps the user's other lines.
+  - **The model on another machine** (the user: "the LLM agent on the cloud (only GPU) but everything else in local"):
+    - `install_assistant.py --tunnel user@host`. The SSH tunnel runs in a `tunnel` container on PAC's network: a tunnel on the host failed here, where ufw drops containers' connections to the host.
+    - Tested against a disposable SSH server with a stand-in model: the check, its advice when the host is unknown or the key refused, the forward from PAC's network, and the reconnection after the server restarted. `--remote URL --api-key` covers HTTPS servers.
+  - **PAC on a server:** `PAC_API_URL` and `PAC_WEB_URL`.
+  - **README:** "The assistant (optional)" (the user: "document all those use cases very precisely so even non experienced users can run it"): which setup is yours, compatible GPUs, setups A, B and C step by step, troubleshooting, developers.
+  - **Tests:** PAC 33, including 5 for the chat backend and 9 for the GPU check.
+- **The redundancies** (the user, 2026-09-26: "make it non redundant ... I really like the way transformers work and want to maximize that way of doing"):
+  - Kept: frozen dataclasses for data (streams, images, curves, models: arrays), pydantic for parameters, settings and records (JSON, schemas). Only pydantic would validate every array at every step, for nothing.
+  - **Every transformer is `method` plus `**params`** over a registry. New registries: padding (`zeros`), flipping, shifting, segmentation (`slice`) and the residual phase (`arrival`). `Correlate` and `Forward` take their parameters the same way.
+  - **The pickers are methods of `Pick`:**
+    - `maximum`;
+    - `lasso` (PAC's);
+    - `tracking` (PACo's, moved from `sigpipe.masw.picking` to `sigpipe.algorithms.picking.dispersion.tracking`, its parameters validated by `PickingParameters`).
+    - The CNN will be a fourth.
+  - **The inversion's parameters, defined once, next to the MCMC** (`algorithms/inversion/rayleigh/seismic/parameters.py`: `InversionParameters`, `VsLayer`, `ThicknessLayer`, `SAVE_EVERY`):
+    - `inversion_mcmc` takes them as keywords and validates them with the model. It took six parallel tuples, which `sigpipe.masw` rebuilt from its own copy of the model, and checked the lengths and `SAVE_EVERY` a second time.
+    - `sigpipe.masw.inversion` re-exports the model, so PAC's and PACo's imports did not change. `InversionError` moved to `priors`.
+    - Changed from the plan (generating the model from the MCMC's signature, as the presets are): G5, the measures and PAC read the model's fields, so pyright would have needed them declared a second time. The MCMC takes its model instead, as the tracking picker does.
+    - PAC's inversion form loads its defaults from `GET /inversion/defaults`, instead of repeating them in TypeScript. A layer it adds starts from them too.
+  - **Left apart: the job managers.** They serve different ends:
+    - PAC's keeps its jobs in memory for the pages to poll;
+    - PACo's jobs keep their progress and results in a record on disk, which the agent reads with `job_status` and which shows a job a stopped server left behind as interrupted.
+  - Tests: sigpipe 240, PAC 34 (pyright, ruff, tsc, eslint clean). In a browser, the inversion form starts from sigpipe's defaults, and a short inversion runs.
+  - sigpipe's README documents the pattern and the MASW layer; its MASW example ran on a synthetic line.
+- **The petrophysical inversion** (the user, 2026-09-26: "the agent could also use petrophysical inversion (choosing the right model even though right now there is only one) and then invert the dispersion curves, when the user asks for it"; then "and the quality that goes with the petro"):
+  - **Into sigpipe**, from PAC:
+    - `sigpipe.masw.petro`: a window's Silex inversion and its rock-physics profiles (`window`), a line's windows in worker processes (`line`), the sections (`section`), the measures (`measuring`).
+    - The forward model's rock-physics chain is public (`petro.forward.rock_physics`): PAC ran a copy of it with copied constants.
+    - `silex_catalog`, which needs no keras: the bundled models, a `SilexCard` of what each was trained on, and `range_gaps`, how a curve falls outside. Silex's model holds its card in place of eight copied fields.
+    - Silex runs on the CPU unless `KERAS_TORCH_DEVICE` says otherwise: in PAC the GPU serves the agent's model.
+  - **PAC** keeps thin wrappers (`io/petro_inversion.py`); its runner calls `invert_line_petro`; its adapter is gone. An API test runs Silex on the synthetic line.
+  - **The user's decision** (one question, the recommended option): "Range, fit, line":
+    - the range check before inverting;
+    - G7 per window, the soil column's curve against the pick, by band, with G5's limit;
+    - G8 along the line, the rock-physics Vs (G6's rule) and the water table against the neighbours;
+    - windows failing either are left out of the sections;
+    - no retry, since a model gives one column per curve.
+  - **G8 calibrated on `active_p2`**, the real line, where the model covers 6 of 85 curves:
+    - neighbours are windows within 3 line steps; windows 75 m apart were compared;
+    - the water table is compared in metres, at most 1 m, one of the model's steps; relatively, 0.5 m against 1.5 m was 67 %.
+    - Now all 6 pass, and the 6 section files are written.
+  - **`fit_by_band`** (G5's and G7's) leaves out a point without an uncertainty: the agent's picks can end on one, and it made a band's misfit NaN.
+  - **PACo:**
+    - tools `petro_models` (each model's training, its coverage of the run's G4-passed curves, and a `next` step naming the best model) and `invert_petro` (with progress);
+    - a `petro_inversion` stage in the QC log, which a redo of the seismic inversion leaves alone;
+    - the host refuses `invert_petro` unless the user asks for soils or the water table, as it refuses `invert`;
+    - a `petro` extra (sigpipe's `silex` and `santiludo`), installed by CI;
+    - docs `gates/G7.md` and `G8.md`, and the QC spec's branch.
+  - **The evaluation's `soils` scenario:**
+    - First plays, 0 of 3: Qwen3-8B took `petro_models`' card, the soils and water tables a model was trained on, for the result, and read "covers": 1, "curves": 6 as all six. It never inverted.
+    - The card is now in words ("trained_on", "1 of the 6 curves G4 passed; 5 end below 43 Hz") with a `next` step. Then 2 of 3: one answer left out why the model covered 1 curve of 6.
+    - With `invert_petro`'s next step asking for the coverage and its reason: 3 of 3 plays pass all 8 checks.
+    - `pick_active` 9 of 9 checks: the agent leaves the petro tools alone when not asked.
+  - **In PAC's chat, with the real model:** the same request processed, picked, chose the model and inverted. The answer: 95 % clay, 5 % loam, water table 2 m, and 1 of 6 curves covered because the others end below 43 Hz. The Petrophysical Inversion page opens on the agent's run; the Visualization page shows a run's petrophysical sections when two models passed.
+  - On the demo line the model covers few curves: they end below the 43 Hz it needs (1 of 6 with 24-receiver windows).
+- **To do next:** nothing left in milestone 15's plan; the CNN picker when trained.
+
 ## Next
 
 1. For the user to review: the overnight decisions above (items 1 to 9), each separate and
    undoable; then milestone 14 closes (its evaluation is item 9: 35 of 45 plays on the final
    code, the misses the model's own apart from those fixed after).
-2. Before committing: the new files `src/paco/agent/host.py`, `src/paco/inversion/section.py`
-   and `src/paco/pipelines/passive_active.py` are untracked and must go in with the rest; the
-   `.gitignore` change (the user's) makes `data/input/active_p2` and `passive_p2`, about 570 MB,
-   committable.
-3. Left for later, outside this project: sigpipe's `inversion_mcmc` failing when a chain keeps
+2. Committing milestone 15, in this order, since PAC and PACo lock sigpipe from GitHub:
+   1. sigpipe, pushed. Its new files are untracked: `src/sigpipe/masw/`, the new registries, `parameters.py`, `silex_catalog.py`, `tracking/`, `lasso.py` and the tests.
+   2. PACo: `uv lock --upgrade-package sigpipe`, which also locks the new `petro` extra that CI installs. Then commit, with the new `src/paco/quality.py`, `src/paco/runs.py`, `src/paco/qc/g7_petro.py`, `g8_petro_line.py`, `petro.py`, `docs/gates/G7.md`, `G8.md` and `tests/test_qc_petro.py`, and push.
+   3. PAC: `uv lock --upgrade-package sigpipe`, which also locks the `agent` extra on PACo's pushed commit, then commit. Its new files are untracked: the chat, the GPU check, the tunnel and the tests.
+3. **The user's roadmap after PACo (2026-09-26, "not now, but after")**, in the user's order:
+   1. Fix sigpipe's `inversion_mcmc` when a chain keeps no predicted curve (item 4 below).
+   2. PACo inside PAC: a PAC page to talk to the LLM and launch an automatic processing, so
+      that PAC is the one tool.
+   3. Clean the PAC, PACo and sigpipe interactions: algorithms in sigpipe, PAC and PACo only
+      interfaces, the redundancies gone, made coherent. Candidates seen so far, to confirm:
+      PACo's ports of PAC's windows, pipelines, inversion and section code; the burn-in rule
+      kept in both (`SAVE_EVERY`); PACo's picker, curve quality, signal measures (SNR, reach,
+      usable band, trigger), its transformers (`ShiftTrigger`, `SelectReceivers`,
+      `SurfaceWaveWindow`), and the fix of `ActiveShotCorrelation`'s flipped geometry
+      (`FromFirstReceiver`), which belongs in sigpipe itself.
+   4. The user's CNN that picks dispersion curves (in training): into sigpipe (as Silex is),
+      then in PAC, and as a tool for PACo.
+   Claude's note for when it starts (to bring as options then): the cleanup before, or with,
+   PACo's move into PAC, so that the move does not carry the duplicates along.
+4. Left for later, outside this project: sigpipe's `inversion_mcmc` failing when a chain keeps
    no predicted curve (a `KeyError: 'rayleigh_M0.dpred'` too, seen with the tests' short
    sampler and 4 layers); a passive QC beyond G1's three checks; the judge model; the NVIDIA
    path of `compose.yaml`; layers the sampler chooses itself (transdimensional); whether to

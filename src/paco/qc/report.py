@@ -26,6 +26,7 @@ _FIRST_GATE: dict[Stage, str] = {
     "phase_shift": "G2",
     "picking": "G3",
     "inversion": "G5",
+    "petro_inversion": "G7",
 }
 
 
@@ -254,6 +255,7 @@ def _only(report: QCReport, gates: set[str]) -> QCReport:
     the stages those gates judge stay."""
     judged = {"G1": "preprocessing", "G2": "phase_shift", "G3": "picking", "G4": "picking"}
     judged |= {"G5": "inversion", "G6": "inversion"}
+    judged |= {"G7": "petro_inversion", "G8": "petro_inversion"}
     stages = {judged[gate] for gate in gates if gate in judged}
     units = tuple(
         unit.model_copy(

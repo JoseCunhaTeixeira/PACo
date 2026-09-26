@@ -6,7 +6,21 @@ from typing import Any
 import h5py
 import numpy as np
 import pytest
-from sigpipe.base import Coordinate, LinearAcquisition, Pipeline, Stream, Transformer
+from sigpipe.base import LinearAcquisition, Pipeline, Transformer
+from sigpipe.masw.pipelines import (
+    PIPELINE_BUILDERS,
+    PREPROCESSED,
+    build_active_pipeline,
+    build_image_pipeline,
+    build_passive_active_pipeline,
+    build_passive_pipeline,
+    build_preprocessing_pipeline,
+    record_folder,
+)
+from sigpipe.masw.pipelines.common import stage_kwargs
+from sigpipe.masw.presets import ActivePreset, PassivePreset, make_preset, resolve_preset
+from sigpipe.masw.profiles import Profile, Record
+from sigpipe.masw.windows import MASWWindow, build_windows
 from sigpipe.transformers import (
     ActiveShotCorrelation,
     Apodize,
@@ -26,44 +40,28 @@ from sigpipe.transformers import (
     Whiten,
 )
 
-from paco.pipelines import (
-    PIPELINE_BUILDERS,
-    PREPROCESSED,
-    SelectReceivers,
-    build_active_pipeline,
-    build_image_pipeline,
-    build_passive_active_pipeline,
-    build_passive_pipeline,
-    build_preprocessing_pipeline,
-    record_folder,
-)
-from paco.pipelines.common import stage_kwargs
-from paco.presets import ActivePreset, PassivePreset, make_preset, resolve_preset
-from paco.profiles import Profile, Record
-from paco.transformers import FromFirstReceiver, ShiftTrigger, SurfaceWaveWindow
-from paco.windows import MASWWindow, build_windows
-
 # The steps of PAC's adapters/active.py and adapters/passive.py, cut at the window (the
 # preprocessing works on whole records, the rest on the window's receivers), without PAC's
 # Pad(n=1000, taper=25) before the phase shift: a frequency step finer than 1/T only interpolates
 # (the user's decision, 2026-09-24).
 PREPROCESSING_CHAIN = {
     # The trigger correction (t0 = 0 by default) is PACo's, for shots only.
-    "active": ["Load", "ShiftTrigger", "Detrend", "Detrend", "Mute", "Filter", "Plot", "Save"],
+    "active": ["Load", "Shift", "Detrend", "Detrend", "Mute", "Filter", "Plot", "Save"],
     "passive-active": [
-        "Load", "ShiftTrigger", "Detrend", "Detrend", "Mute", "Filter", "Plot", "Save",
+        "Load", "Shift", "Detrend", "Detrend", "Mute", "Filter", "Plot", "Save",
     ],
     "passive": ["Load", "Detrend", "Detrend", "Mute", "Filter", "Plot", "Save"],
 }  # fmt: skip
-ACTIVE_CHAIN = ["Load", "SelectReceivers", "Plot", "Dispersion", "Stack", "Plot", "Save"]
+ACTIVE_CHAIN = ["Load", "Plot", "Dispersion", "Stack", "Plot", "Save"]
 PASSIVE_CHAIN = [
-    "Load", "SelectReceivers", "Slice", "Selection", "Whiten", "Normalize", "Apodize",
+    "Load", "Slice", "Selection", "Whiten", "Normalize", "Apodize",
     "Correlate", "Stack", "Plot", "Save", "Dispersion", "Plot", "Save",
 ]  # fmt: skip
-# PAC's adapters/passive_active.py, with PACo's geometry of the flipped gathers.
+# PAC's adapters/passive_active.py, with PACo's surface-wave window (a mute) before the
+# correlation.
 PASSIVE_ACTIVE_CHAIN = [
-    "Load", "SelectReceivers", "SurfaceWaveWindow", "Apodize", "ActiveShotCorrelation",
-    "FromFirstReceiver", "Stack", "Plot", "Save", "Dispersion", "Plot", "Save",
+    "Load", "Mute", "Apodize", "ActiveShotCorrelation", "Stack", "Plot", "Save", "Dispersion",
+    "Plot", "Save",
 ]  # fmt: skip
 
 # Every tunable stage switched on, with values moved away from the defaults.
@@ -248,8 +246,9 @@ def test_pacs_fixed_steps_of_the_passive_active_pipeline(
     assert vars(_only(built.image, Apodize)) == {"method": "hanning", "params": {"frac": 0.1}}
     assert _only(built.image, ActiveShotCorrelation).method == "cross"
     assert vars(_only(built.image, Stack)) == {"method": "linear", "params": {}}
-    window = _only(built.image, SurfaceWaveWindow)
-    assert (window.vmin, window.vmax, window.pad) == (80.0, 1500.0, 0.05)
+    window = _only(built.image, Mute)
+    # Ramps of 50 ms at the demo's 2,000 Hz.
+    assert (window.method, window.params) == ("mute", {"vmin": 80.0, "vmax": 1500.0, "taper": 100})
     # Switched off, the shots are correlated whole, as in PAC.
     whole = _build(
         profiles["active_p1"],
@@ -257,47 +256,7 @@ def test_pacs_fixed_steps_of_the_passive_active_pipeline(
         {"correlation_window": {"method": "none"}},
         tmp_path,
     )
-    assert not [step for step in whole.image.steps if isinstance(step, SurfaceWaveWindow)]
-
-
-def test_the_surface_wave_window_keeps_the_waves_between_the_two_velocities() -> None:
-    receivers = (Coordinate(10.0, 0.0, 0.0), Coordinate(20.0, 0.0, 0.0))
-    shot = Stream(
-        xt=np.ones((2, 1001), dtype=np.float32),
-        ts=np.arange(1001, dtype=np.float32) / 1000,
-        sampling_freq=1000.0,
-        acquisition=LinearAcquisition(source=Coordinate(0.0, 0.0, 0.0), receivers=receivers),
-    )
-
-    (kept,) = SurfaceWaveWindow(vmin=100.0, vmax=1000.0, pad=0.05).transform([shot])
-
-    # At 10 m: from 10 ms (1,000 m/s) to 100 ms (100 m/s), ramps of 50 ms around.
-    first = kept.xt[0]
-    assert (first[10:101] == 1).all() and (first[151:] == 0).all()
-    assert first[125] == pytest.approx(0.5)  # halfway down the ramp after 100 ms
-    assert first[0] == pytest.approx(0.5 * (1 + np.cos(np.pi * 0.01 / 0.05)))
-    # At 20 m: from 20 to 200 ms.
-    assert (kept.xt[1][20:201] == 1).all() and (kept.xt[1][251:] == 0).all()
-
-
-def test_flipped_correlation_gathers_are_seen_from_their_first_receiver() -> None:
-    # A shot past the window's far end: sigpipe correlates with the last receiver and flips the
-    # traces, not the acquisition, so the phase shift would read the offsets backwards.
-    receivers = tuple(Coordinate(float(x), 0.0, 0.0) for x in range(4))
-    shot = Stream(
-        xt=np.eye(4, 8, dtype=np.float32),
-        ts=np.arange(8, dtype=np.float32),
-        sampling_freq=1.0,
-        acquisition=LinearAcquisition(source=Coordinate(5.0, 0.0, 0.0), receivers=receivers),
-    )
-    (flipped,) = ActiveShotCorrelation(method="cross").transform([shot])
-    assert flipped.acquisition.source == receivers[-1]
-
-    (seen,) = FromFirstReceiver().transform([flipped])
-
-    assert seen.acquisition == LinearAcquisition(source=receivers[0], receivers=receivers)
-    assert np.array_equal(seen.xt, flipped.xt)
-    assert list(seen.acquisition.offsets) == [0.0, 1.0, 2.0, 3.0]
+    assert _only(whole.image, Mute).method == "none"
 
 
 @BOTH_MODES
@@ -323,16 +282,16 @@ def test_the_image_pipeline_reads_the_preprocessed_records(
 ) -> None:
     built = _build(profiles[profile], name, {}, tmp_path)
     load = _only(built.image, Load)
-    select = _only(built.image, SelectReceivers)
 
     assert load.file_paths == [
         built.records_folder / path.stem / PREPROCESSED for path in built.window.selected_files
     ]
     assert load.data_type == "stream"
-    assert load.params == {}
-    # The window's receivers, as Load's receivers_to_load took them from the raw records.
-    assert select.indices == built.window.receiver_indices
-    assert select.acquisitions == built.window.acquisitions
+    # The window's receivers, as Load's receivers_to_load takes them from the raw records.
+    assert load.params == {
+        "acquisitions": built.window.acquisitions,
+        "receivers_to_load": built.window.receiver_indices,
+    }
 
 
 @BOTH_MODES
@@ -382,39 +341,9 @@ def test_pacs_fixed_steps_of_the_passive_pipeline(
     assert vars(_only(built.image, Apodize)) == {"method": "hanning", "params": {"frac": 0.1}}
     assert vars(_only(built.image, Correlate)) == {
         "method": "cross",
-        "virtual_source_index": 0,
-        "params": {"part": "causal"},
+        "params": {"virtual_source_index": 0, "part": "causal"},
     }
     assert _only(built.image, Selection).params == {"flip_negatives": True}
-
-
-def test_select_receivers_keeps_the_rows_and_sets_the_acquisition() -> None:
-    receivers = tuple(Coordinate(float(x), 0.0, 0.0) for x in range(4))
-    whole = LinearAcquisition(source=Coordinate(-1.0, 0.0, 0.0), receivers=receivers)
-    stream = Stream(
-        xt=np.arange(12, dtype=np.float32).reshape(4, 3),
-        ts=np.arange(3, dtype=np.float32),
-        sampling_freq=1.0,
-        acquisition=whole,
-    )
-    part = LinearAcquisition(source=whole.source, receivers=receivers[1:3])
-
-    (selected,) = SelectReceivers([1, 2], [part]).transform([stream])
-
-    assert np.array_equal(selected.xt, stream.xt[1:3])
-    assert selected.xt.dtype == np.float32
-    assert (selected.ts, selected.sampling_freq) == (stream.ts, 1.0)
-    assert selected.acquisition == part
-    with pytest.raises(ValueError, match="2 streams for 1 acquisition"):
-        SelectReceivers([1, 2], [part]).transform([stream, stream])
-    # Each stream its own receivers: a shot's image without its own excluded traces.
-    other = LinearAcquisition(source=whole.source, receivers=(receivers[0], receivers[2]))
-    first, second = SelectReceivers([1, 2], [part, other], [[1, 2], [0, 2]]).transform(
-        [stream, stream]
-    )
-    assert np.array_equal(first.xt, stream.xt[[1, 2]])
-    assert np.array_equal(second.xt, stream.xt[[0, 2]])
-    assert second.acquisition == other
 
 
 # ---------------------------------------------------------------- preset values
@@ -427,11 +356,7 @@ def test_active_preset_values_reach_the_transformers(
 
     assert vars(_only(built.preprocessing, Mute)) == {
         "method": "mute",
-        "tmin": 0.0,
-        "tmax": 2.0,
-        "vmin": 0.0,
-        "vmax": 800.0,
-        "taper": 0,
+        "params": {"tmin": 0.0, "tmax": 2.0, "vmin": 0.0, "vmax": 800.0, "taper": 0},
     }
     assert vars(_only(built.preprocessing, Filter)) == {
         "method": "iir",
@@ -450,20 +375,15 @@ def test_passive_preset_values_reach_the_transformers(
 
     assert vars(_only(built.preprocessing, Mute)) == {
         "method": "mute",
-        "tmin": 0.0,
-        "tmax": 130.0,
-        "vmin": 0.0,
-        "vmax": 100_000.0,
-        "taper": 0,
+        "params": {"tmin": 0.0, "tmax": 130.0, "vmin": 0.0, "vmax": 100_000.0, "taper": 0},
     }
     assert vars(_only(built.preprocessing, Filter)) == {
         "method": "iir",
         "params": {"fmin": 5.0, "fmax": 237.5, "order": 4},
     }
     assert vars(_only(built.image, Slice)) == {
-        "segment_duration": 0.2,
-        "segment_step": 0.1,
-        "params": {},
+        "method": "slice",
+        "params": {"segment_duration": 0.2, "segment_step": 0.1},
     }
     assert vars(_only(built.image, Selection)) == {
         "method": "fk",
@@ -589,20 +509,3 @@ def test_default_windows_agree_within_rounding(
     assert np.array_equal(split["fs"], todays["fs"])
     assert np.array_equal(split["vs"], todays["vs"])
     assert np.allclose(split["fv_map"][1:], todays["fv_map"][1:], rtol=1e-5, atol=1e-6)
-
-
-def test_shift_trigger_moves_the_time_origin_and_keeps_the_length() -> None:
-    receivers = tuple(Coordinate(float(x), 0.0, 0.0) for x in range(2))
-    acquisition = LinearAcquisition(source=Coordinate(-1.0, 0.0, 0.0), receivers=receivers)
-    xt = np.arange(20, dtype=np.float32).reshape(2, 10)
-    stream = Stream(xt=xt, ts=np.arange(10) / 100.0, sampling_freq=100.0, acquisition=acquisition)
-
-    (late,) = ShiftTrigger(0.03).transform([stream])  # triggered 30 ms late: 3 samples
-    (early,) = ShiftTrigger(-0.02).transform([stream])
-    (same,) = ShiftTrigger(0.0).transform([stream])
-
-    assert late.xt.shape == xt.shape and late.xt.dtype == np.float32
-    assert np.array_equal(late.xt[0], [3, 4, 5, 6, 7, 8, 9, 0, 0, 0])
-    assert np.array_equal(early.xt[0], [0, 0, 0, 1, 2, 3, 4, 5, 6, 7])
-    assert same is stream
-    assert late.acquisition == stream.acquisition and np.array_equal(late.ts, stream.ts)

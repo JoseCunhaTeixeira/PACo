@@ -8,10 +8,17 @@ from typing import Annotated, Any, Literal
 
 from pydantic import BaseModel, ConfigDict, Field
 
-# The stages, in pipeline order: S1 to S4 of the spec. Going back to one invalidates the later
-# ones, for the affected xmids only.
-type Stage = Literal["preprocessing", "phase_shift", "picking", "inversion"]
-STAGES: tuple[Stage, ...] = ("preprocessing", "phase_shift", "picking", "inversion")
+# The stages, in pipeline order: S1 to S4 of the spec, then the petrophysical inversion, which
+# reads the picks as S4 does. Going back to one invalidates the later ones that use it, for the
+# affected xmids only (attempts.downstream).
+type Stage = Literal["preprocessing", "phase_shift", "picking", "inversion", "petro_inversion"]
+STAGES: tuple[Stage, ...] = (
+    "preprocessing",
+    "phase_shift",
+    "picking",
+    "inversion",
+    "petro_inversion",
+)
 
 type Verdict = Literal["pass", "retry", "reject"]
 

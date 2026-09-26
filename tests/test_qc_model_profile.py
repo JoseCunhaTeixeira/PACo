@@ -2,11 +2,11 @@
 do not show (non-uniqueness), one they show, a step in the ground, gaps and uneven depths."""
 
 import numpy as np
+from sigpipe.masw.inversion import InversionParameters
+from sigpipe.masw.quality.line import Series
 
-from paco.inversion import InversionParameters
 from paco.qc.g6_models import LINE, ModelProfileThresholds, judge_model_profile
 from paco.qc.models import Flag, GateResult, Keep
-from paco.qc.sides import Series
 
 THRESHOLDS = ModelProfileThresholds()
 DEPTHS = np.array([1.0, 2.0, 3.0, 4.0, 5.0])

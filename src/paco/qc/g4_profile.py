@@ -9,10 +9,10 @@ from collections.abc import Sequence
 import numpy as np
 from pydantic import BaseModel, ConfigDict, Field
 from scipy.stats import rankdata
+from sigpipe.masw.quality.line import Series, median_series, neighbourhoods, spread
 
 from paco.qc.models import Flag, GateResult, Keep, Kept, Metric, Override
 from paco.qc.report import line_step, stretches
-from paco.qc.sides import Series, median_series, neighbourhoods, spread
 
 GATE = "G4"
 LINE = "line"  # the unit of the line-level result

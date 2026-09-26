@@ -3,10 +3,11 @@
 PACo lets a language model process MASW seismic profiles the way
 [PAC](https://github.com/JoseCunhaTeixeira/PAC) does: from raw records to dispersion curves and
 layered shear-wave velocity models. The model (Qwen3, served by vLLM) chooses the steps; the
-science is done by [sigpipe](https://github.com/JoseCunhaTeixeira/sigpipe), and the results are
-written in PAC's layout, so PAC's UI can open them. Each stage is checked by a quality gate that
-fixes what it can (G1 to G6, see [Quality control](#quality-control)); the model never sees the
-data, only the gates' short summaries, and asks you only when it is stuck.
+science is done by [sigpipe](https://github.com/JoseCunhaTeixeira/sigpipe) and its MASW layer,
+`sigpipe.masw`, which PAC uses too; the results are written in PAC's layout, so PAC's UI can
+open them. Each stage is checked by a quality gate that fixes what it can (G1 to G8, see
+[Quality control](#quality-control)); the model never sees the data, only the gates' short
+summaries, and asks you only when it is stuck.
 
 ```
 you  <-->  paco-agent  <-- OpenAI API -->  vLLM (Qwen3)
@@ -22,6 +23,18 @@ you  <-->  paco-agent  <-- OpenAI API -->  vLLM (Qwen3)
   not allow), the model asks you, with a few options, in its answer.
 - **paco-evaluate** plays a suite of scenarios with the model, and scores it.
 
+PACo holds the agent, the MCP server, the quality gates (their thresholds, retries and log) and
+the evaluation. Profiles, windows, the processing settings, runs, picks, the inversion and the
+quality measures are sigpipe's (`sigpipe.masw`), shared with PAC.
+
+## In PAC
+
+PAC, the web application, has an Assistant page that runs PACo's agent: installed with PAC's
+`agent` extra, the agent calls PACo's tools inside PAC, on PAC's folders, and its runs open in
+PAC's pages. [PAC's README](https://github.com/JoseCunhaTeixeira/PAC#the-assistant-optional)
+says how to install it, with the model on your own GPU or on another machine's. The rest of this
+README is PACo on its own: its server, its chat in a terminal, and its evaluation.
+
 ## Install
 
 PACo needs Python 3.14 and [uv](https://docs.astral.sh/uv/). The agent and the evaluation also
@@ -30,7 +43,7 @@ need a Qwen3 model behind an OpenAI-compatible API, such as vLLM (see [vLLM](#vl
 ```sh
 git clone https://github.com/JoseCunhaTeixeira/PACo.git
 cd PACo
-uv sync
+uv sync                  # or: uv sync --extra petro, for the petrophysical inversion
 ```
 
 ## Data
@@ -119,7 +132,8 @@ changed after the answer, as the tools gave them; once the work has started, ask
 once more for an answer without a question or an offer, unless a tool said it is stuck (a
 question before any work, such as an impossible request, reaches you); and refuses `invert` (and a
 `redo` of the inversion) unless your message asks for models (invert, inversion, model, Vs,
-shear).
+shear), and `invert_petro` unless it asks for soils or the water table (soil, sol, water table,
+nappe, N value, SPT, clay, sand, silt, loam, petro...).
 
 PACo processes a profile in PAC's three modes: an active profile as shots (`active`, the
 default) or by interferometry on its shots (`passive-active`: each shot's surface waves
@@ -154,13 +168,15 @@ each scenario three times and reports pass rates.
 | `inversion_settings` | The inversion's parameters; left out, each window's bounds come from its own curve |
 | `invert` | Inverts the curves G4 passed, in the background (G5 on each model, G6 over the line, each retrying what it can), then writes the line's velocity section and the picked curves against the predicted ones, as PAC does (`SeismicInversion_VelocitySection_0000.png` and `.hdf5`, `SeismicInversion_PseudoSectionComparison_0000_M0.png`, in the run folder, over the models G5 passed); returns a `job_id` |
 | `job_status` | Where an inversion stands, after waiting up to 2 minutes: the smooth median models' Vs at a few depths, the depth their curves inform them down to (half the longest wavelength) and their misfit; the gates' summary once it ends |
+| `petro_models` | Only when you ask for soils or the water table: the Silex models of the petrophysical inversion, what each was trained on, and how many of the run's curves it covers |
+| `invert_petro` | Inverts the curves G4 passed that the chosen model covers into soils, N values and the water table (G7 on each, G8 over the line), then writes PAC's petrophysical sections over the models both passed; needs the `petro` extra |
 | `redo` | Goes back to a stage (preprocessing, phase shift, picking, inversion) for some windows, with the changes a gate suggested, and redoes what follows |
 
 ## Quality control
 
-Six gates judge the stages (`docs/qc_workflow.md`, the spec, with its decisions): G1 each record,
-G2 each dispersion image, G3 each curve, G4 the curves over the line, G5 each model, G6 the models
-over the line. Each gives a verdict (pass, retry, reject), each metric with its threshold, and for
+Eight gates judge the stages (`docs/qc_workflow.md`, the spec, with its decisions): G1 each
+record, G2 each dispersion image, G3 each curve, G4 the curves over the line, G5 each model, G6
+the models over the line, G7 each petrophysical model, G8 those over the line. Each gives a verdict (pass, retry, reject), each metric with its threshold, and for
 each flag the stage at fault and a change that can be applied as it is. The stage tools apply
 their own gate's changes, within budgets (2 retries per gate and window, 2 per window over the
 run); a change of an earlier stage is the model's to make, with `redo`. The band (the records'
@@ -173,12 +189,21 @@ perfect plane wave for the same window, so that short windows are judged fairly
 what each curve resolves. `docs/gates/` documents every gate with its thresholds, the demo's
 real outputs, and what is still to judge.
 
+The petrophysical inversion runs only when you ask for soils or the water table: the host
+refuses it otherwise, as it refuses an inversion you did not ask for. A Silex model predicts
+each window's soil column from its curve; it applies only to curves within the band and
+velocities it was trained on (the bundled one: 15 to 50 Hz, so curves reaching 43 Hz), and the
+others are left out with the reason. G7 judges how well each column gives its curve back (G5's
+limit), and G8 compares the columns' Vs and water tables with their neighbours
+(`docs/gates/G7.md`, `G8.md`).
+
 ## Safety
 
 - `paco-server` listens on 127.0.0.1 by default: only this machine can reach it. Anyone who can
   reach it can run PACo's tools, which write files and start long computations.
 - No tool asks you anything: when your message asks for models, an inversion starts for the
-  curves G4 passed, the go or no-go before it. Every attempt is in the run's `qc_log.jsonl` and
+  curves G4 passed, the go or no-go before it; when it asks for soils or the water table, the
+  petrophysical inversion does. Every attempt is in the run's `qc_log.jsonl` and
   `qc_report.json`, with the curve each model came from: review the curves afterwards
   (`DispersionImage_0000.png` in each window folder, or PAC's UI), correct them there if
   needed, and invert again.

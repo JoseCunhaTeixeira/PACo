@@ -6,8 +6,9 @@ from collections import Counter
 from collections.abc import Iterable
 from pathlib import Path
 
+from sigpipe.masw.runs.models import RunManifest
+
 from paco.qc.models import Attempt, GateResult, Stage
-from paco.runs.models import RunManifest
 
 LOG_FILE = "qc_log.jsonl"
 

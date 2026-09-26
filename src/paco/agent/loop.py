@@ -71,12 +71,12 @@ class Agent:
     async def answer(self, question: str) -> str:
         """The model's answer to `question`, after every tool call it asked for, with what the
         host guarantees (paco.agent.host): the settings the gates changed listed after it, an
-        answer that asks or offers asked again once, no inversion the user did not ask for."""
+        answer that asks or offers asked again once, no inversion the user did not ask for,
+        seismic or petrophysical."""
         self.messages.append({"role": "user", "content": question})
         calls = 0
         failed: dict[tuple[str, str], str] = {}  # calls that failed in this answer: their error
         changes: list[str] = []
-        models_asked = host.asks_for_models(question)
         stuck = asked_again = worked = False
         while True:
             start = time.perf_counter()
@@ -106,7 +106,7 @@ class Agent:
                     call,
                     over_budget=calls > self._max_tool_calls,
                     failed_before=failed.get(key),
-                    unasked=not models_asked and host.starts_inversion(call.name, call.arguments),
+                    unasked=host.unasked(call.name, call.arguments, question),
                 )
                 for item in host.changed_items(step.result):
                     if item not in changes:
@@ -136,7 +136,7 @@ class Agent:
         call: ToolCall,
         over_budget: bool,
         failed_before: str | None = None,
-        unasked: bool = False,
+        unasked: str | None = None,
     ) -> ToolStep:
         start = time.perf_counter()
 
@@ -150,13 +150,10 @@ class Agent:
                 result=result,
             )
 
-        if unasked:
+        if unasked is not None:
             # Qwen3-8B inverted in 6 of 39 plays where the user asked for curves only.
-            self._on_event(f"-> {call.name}({call.arguments}) refused: no model was asked for")
-            return refused(
-                "Not called: the user asked for no velocity model, so no inversion starts. "
-                "Answer with what the request asked for."
-            )
+            self._on_event(f"-> {call.name}({call.arguments}) refused: not asked for")
+            return refused(unasked)
         if over_budget:
             return refused(
                 f"Not called: this answer already made {self._max_tool_calls} tool calls. "

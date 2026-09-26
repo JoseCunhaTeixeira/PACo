@@ -17,9 +17,10 @@ from mcp.server.mcpserver import Context
 from mcp.server.mcpserver.exceptions import ToolError
 from mcp.server.transport_security import TransportSecuritySettings
 from pydantic import BaseModel, Field, ValidationError
+from sigpipe.masw import presets, profiles, runs
+from sigpipe.masw.inversion import InversionParameters, priors
 
-from paco import inversion, presets, profiles, qc, runs
-from paco.inversion import InversionParameters
+from paco import inversion, qc
 from paco.jobs import JobManager
 from paco.qc import StageResult
 from paco.settings import Settings, get_settings
@@ -35,7 +36,7 @@ INSTRUCTIONS = (
     "verdicts, what was fixed or changed, flags with a suggested change; a change asked of an "
     "earlier stage is yours to make with redo. preset_settings and inversion_settings describe "
     "the settings. Say which settings the gates changed. Ask the user only when stuck, with 2 "
-    "or 3 options."
+    "or 3 options. For soils or the water table, only if asked: petro_models, then invert_petro."
 )
 
 server = MCPServer("paco", instructions=INSTRUCTIONS)
@@ -174,7 +175,7 @@ def invert(
     curve (values given are checked), G5 on each model and G6 on the line, retrying what they
     can. Returns a job_id: follow it with job_status."""
     settings = get_settings()
-    checked = qc.checkable(parameters, qc.PriorRules().n_layers) if parameters else None
+    checked = priors.checkable(parameters, priors.PriorRules().n_layers) if parameters else None
     _parse(InversionParameters, checked, "parameters", "inversion_settings")
     record = qc.submit_inversion(run_id, parameters, settings)
     JOBS.submit(record.job_id, functools.partial(qc.run_inversion_job, record, settings))
@@ -192,6 +193,34 @@ def job_status(job_id: JobId) -> inversion.InversionStatus:
     JOBS.wait(job_id, JOB_WAIT_S)
     _, record = inversion.find_job(job_id, settings)
     return inversion.summarize_inversion(record, live=JOBS.is_live(job_id))
+
+
+@server.tool()
+@_agent_errors
+def petro_models(run_id: RunId) -> qc.PetroChoice:
+    """Only if the user asks for soils or the water table: the Silex models of the
+    petrophysical inversion, what each was trained on, and how many of the run's curves G4
+    passed it covers (why not the others). Choose the one covering the most."""
+    return qc.petro_models(run_id, get_settings())
+
+
+@server.tool()
+@_agent_errors
+def invert_petro(
+    run_id: RunId,
+    model: Annotated[str, Field(description="A Silex model name from petro_models.")],
+    ctx: Context,
+) -> StageResult:
+    """Only if the user asks: invert the run's curves G4 passed that `model` covers into soils,
+    N values and the water table, checked by G7 per window and G8 along the line; writes PAC's
+    petrophysical sections. Returns the gates' summary and what the models say."""
+
+    def report(done: int, total: int) -> None:
+        anyio.from_thread.run(ctx.report_progress, done, total, f"{done} of {total} windows")
+
+    result, described = qc.invert_petro_line(run_id, model, get_settings(), report)
+    judged = _stage_result(result, ("G7", "G8"), ("petro_inversion",), _after_petro(result))
+    return judged.model_copy(update={"summary": f"{described}\n{judged.summary}"})
 
 
 @server.tool()
@@ -295,6 +324,21 @@ def _after_picking(report: qc.QCReport) -> str:
         f"{len(curves)} curves passed G3 and G4. invert can run on run_id {report.run_id}, if the "
         "user asked for models; otherwise answer."
     )
+
+
+def _after_petro(report: qc.QCReport) -> str:
+    # Qwen3-8B left out why the model covered 1 curve of 6 in 1 play of 3 (2026-09-26).
+    covered = (
+        "the soils and water table the summary gives, how many curves the model covered and why "
+        "it left the others out"
+    )
+    line = next((unit for unit in report.units if unit.unit == qc.LINE), None)
+    if line is None or line.verdicts.get("G8") != "pass":
+        return (
+            f"Fewer than two petrophysical models passed G7 and G8: no section. Answer with "
+            f"{covered}, and the flags."
+        )
+    return f"Answer with {covered}, and the sections."
 
 
 def _preset(profile: str, mode: str | None = None) -> str:

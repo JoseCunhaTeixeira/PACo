@@ -7,7 +7,9 @@ from collections.abc import Mapping, Sequence
 from pathlib import Path
 from typing import Any
 
-from paco.picking import PickingParameters
+from sigpipe.algorithms.picking.dispersion.tracking import PickingParameters
+from sigpipe.masw.runs import RunError, RunManifest, find_run, load_image, load_manifest
+
 from paco.qc.budgets import budget_spent
 from paco.qc.config import QCConfig, read_qc_config
 from paco.qc.g4_profile import LINE
@@ -16,7 +18,6 @@ from paco.qc.log import latest, read_attempts, record_result
 from paco.qc.loops import RetryBudget, deep_merge, next_try, spent, stage_changes
 from paco.qc.models import GateResult
 from paco.qc.report import QCReport, build_report, write_report
-from paco.runs import RunError, RunManifest, find_run, load_image, load_manifest
 from paco.settings import Settings
 
 

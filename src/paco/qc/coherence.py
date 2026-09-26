@@ -13,17 +13,17 @@ from typing import Any, cast
 
 import numpy as np
 from pydantic import BaseModel, ConfigDict, Field
+from sigpipe.algorithms.picking.dispersion.tracking import PickingParameters, pick_modes
+from sigpipe.masw.presets import ActivePreset, PassivePreset, apply_overrides, resolve_preset
+from sigpipe.masw.profiles import Profile
+from sigpipe.masw.runs import RecordOutcome, RunError, WindowOutcome, load_image
+from sigpipe.masw.runs.processing import RECORDS_FOLDER, process_windows
+from sigpipe.masw.windows import Exclusions, MASWWindow, build_windows
 
-from paco.picking import PickingParameters, pick_modes
-from paco.presets import ActivePreset, PassivePreset, apply_overrides, resolve_preset
-from paco.profiles import Profile
 from paco.qc.g2_image import ImageThresholds, judge_image
 from paco.qc.g3_curve import CurveThresholds, judge_curve
 from paco.qc.loops import deep_merge
 from paco.qc.models import Override
-from paco.runs import RecordOutcome, RunError, WindowOutcome, load_image
-from paco.runs.processing import RECORDS_FOLDER, process_windows
-from paco.windows import Exclusions, MASWWindow, build_windows
 
 TRIALS_FOLDER = "coherence"  # inside the run folder: the ladder's trial windows, by length
 COHERENCE_FILE = "coherence.json"

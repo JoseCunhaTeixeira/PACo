@@ -8,12 +8,12 @@ import math
 from typing import Any
 
 from pydantic import BaseModel, ConfigDict, Field
+from sigpipe.algorithms.inversion.rayleigh.seismic.parameters import SAVE_EVERY
+from sigpipe.masw.inversion import InversionParameters
+from sigpipe.masw.inversion.measuring import InversionMeasures, ModelFit
+from sigpipe.masw.inversion.priors import MIN_LAYERS
 
-from paco.inversion import InversionParameters
-from paco.inversion.measuring import InversionMeasures, ModelFit
-from paco.inversion.models import SAMPLE_EVERY
 from paco.qc.models import Flag, GateResult, Keep, Kept, Metric, Override, Reject
-from paco.qc.priors import MIN_LAYERS
 
 GATE = "G5"
 BAND_NAMES = {3: ("short", "middle", "long")}
@@ -192,9 +192,9 @@ def judge_model(
     if not converged:
         iterations = 2 * parameters.n_iterations
         if measures.samples_per_chain < thresholds.min_samples_per_chain:
-            # Enough models a chain at once (sigpipe keeps one every SAMPLE_EVERY iterations after
+            # Enough models a chain at once (sigpipe keeps one every SAVE_EVERY iterations after
             # a burn-in of a tenth): doubling 2,000 iterations twice still left too few.
-            enough = thresholds.min_samples_per_chain * SAMPLE_EVERY / 0.9
+            enough = thresholds.min_samples_per_chain * SAVE_EVERY / 0.9
             iterations = max(iterations, math.ceil(enough / 1_000) * 1_000)
         flags.append(
             Flag(

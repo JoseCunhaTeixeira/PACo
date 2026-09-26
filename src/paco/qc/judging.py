@@ -6,13 +6,16 @@ line at the end, each verdict recorded in the QC log, and the report written. Wh
 from datetime import UTC, datetime
 from pathlib import Path
 
+from sigpipe.algorithms.picking.dispersion.tracking import PickingParameters, pick_modes
 from sigpipe.base import DispersionCurve, DispersionImage, Stream
 from sigpipe.dataio.dispersion.loading import load_dispersion_curves
+from sigpipe.masw.picks import CURVES_FILE, save_pick
+from sigpipe.masw.pipelines import PREPROCESSED
+from sigpipe.masw.quality.line import Series
+from sigpipe.masw.runs import RunManifest, find_run, load_image, load_manifest
+from sigpipe.masw.windows import MASWWindow
 from sigpipe.transformers import Load
 
-from paco.picking import PickingParameters, pick_modes
-from paco.picks import CURVES_FILE, save_pick
-from paco.pipelines import PREPROCESSED
 from paco.qc.attempts import invalidate
 from paco.qc.coherence import nearest_offset
 from paco.qc.config import QCConfig, snapshot_qc_config
@@ -30,10 +33,7 @@ from paco.qc.log import (
 )
 from paco.qc.models import Attempt, GateResult, Stage
 from paco.qc.report import QCReport, build_report, write_report
-from paco.qc.sides import Series
-from paco.runs import RunManifest, find_run, load_image, load_manifest
 from paco.settings import Settings
-from paco.windows import MASWWindow
 
 
 def judge_run(

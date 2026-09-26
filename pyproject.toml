@@ -15,6 +15,11 @@ dependencies = [
     "sigpipe @ git+https://github.com/JoseCunhaTeixeira/sigpipe",
 ]
 
+[project.optional-dependencies]
+# The petrophysical inversion (invert_petro): sigpipe's Silex models and santiludo's rock physics,
+# with torch. PAC installs them itself; PACo alone needs this extra.
+petro = ["sigpipe[silex,santiludo] @ git+https://github.com/JoseCunhaTeixeira/sigpipe"]
+
 [project.scripts]
 paco-server = "paco.server:main"
 paco-agent = "paco.agent.terminal:main"

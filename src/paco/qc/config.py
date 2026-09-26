@@ -4,8 +4,9 @@ and recorded with it. Loaded from the JSON file `PACO_QC_CONFIG` names, else PAC
 from pathlib import Path
 
 from pydantic import BaseModel, ConfigDict, Field
+from sigpipe.algorithms.picking.dispersion.tracking import PickingParameters
+from sigpipe.masw.inversion.priors import PriorRules
 
-from paco.picking import PickingParameters
 from paco.qc.coherence import CoherenceRules
 from paco.qc.g1_signal import SignalThresholds
 from paco.qc.g2_image import ImageThresholds
@@ -13,8 +14,9 @@ from paco.qc.g3_curve import CurveThresholds
 from paco.qc.g4_profile import ProfileThresholds
 from paco.qc.g5_model import ModelThresholds
 from paco.qc.g6_models import ModelProfileThresholds
+from paco.qc.g7_petro import PetroThresholds
+from paco.qc.g8_petro_line import PetroLineThresholds
 from paco.qc.models import Budgets
-from paco.qc.priors import PriorRules
 
 CONFIG_FILE = "qc_config.json"  # the snapshot in a run folder
 
@@ -34,6 +36,8 @@ class QCConfig(BaseModel):
     priors: PriorRules = Field(default_factory=PriorRules)  # the checks before S4
     model: ModelThresholds = Field(default_factory=ModelThresholds)  # G5
     models: ModelProfileThresholds = Field(default_factory=ModelProfileThresholds)  # G6
+    petro: PetroThresholds = Field(default_factory=PetroThresholds)  # G7
+    petro_line: PetroLineThresholds = Field(default_factory=PetroLineThresholds)  # G8
     # Where a run's picking starts: not thresholds (the loop changes the picking), but the
     # values a run begins with. The pick goes as far as its ridge holds (the user's decision of
     # 2026-09-25, replacing a cut at twice the window length).

@@ -2,7 +2,8 @@
 Qwen3-8B missed them in 12, 7 and 6 of 39 evaluation plays): the settings the gates changed are
 printed after the answer, an answer that asks or offers once a stage tool has run is asked again
 once (unless a tool said the agent is stuck), and no inversion starts unless the user asked for
-models. A question before any stage tool is the request's clarification, not an offer of more:
+models, no petrophysical inversion unless they asked for soils or the water table (the user,
+2026-09-26: "when the user asks for it"). A question before any stage tool is the request's clarification, not an offer of more:
 Qwen3-8B saw 96 receivers where 120 were asked and asked which to use; asked again, it ran 96
 unasked (2 of 3 plays, 2026-09-26)."""
 
@@ -14,7 +15,7 @@ STUCK = "you are stuck"
 
 # The tools that do the request's work: an answer that asks or offers after one of them ran is
 # asked again (before, the question is the request's clarification).
-STAGE_TOOLS = frozenset({"run_processing", "pick", "invert", "redo", "job_status"})
+STAGE_TOOLS = frozenset({"run_processing", "pick", "invert", "redo", "job_status", "invert_petro"})
 
 # The host's own turn, when an answer asks or offers without being stuck.
 ANSWER_AGAIN = (
@@ -24,6 +25,12 @@ ANSWER_AGAIN = (
 
 # Invert, inversion, inverse, inverser; a model, modèle; Vs; shear.
 _MODELS = re.compile(r"\binver[ts]|\bmod[eè]les?\b|\bmodels?\b|\bvs\b|\bshear", re.IGNORECASE)
+# Soils, sols; the water table, la nappe; N values, SPT; the soil types; petrophysics.
+_SOILS = re.compile(
+    r"\bsoils?\b|\bsols?\b|water[ -]table|\bnappe\b|\bN[ -]values?\b|\bSPT\b|\bclay|\bsand"
+    r"|\bsilt|\bloam|\bargiles?\b|\bsables?\b|\blimons?\b|\bp[eé]tro",
+    re.IGNORECASE,
+)
 
 _ASKS = re.compile(
     r"\?|\bchoose\b|\bwhich (one|option)\b|<options>|<offer>|\bwould you like\b|\bdo you want\b|"
@@ -35,6 +42,28 @@ _ASKS = re.compile(
 def asks_for_models(question: str) -> bool:
     """Whether the user's message asks for velocity models (an inversion may run)."""
     return _MODELS.search(question) is not None
+
+
+def asks_for_soils(question: str) -> bool:
+    """Whether the user's message asks for soils or the water table (a petrophysical inversion
+    may run)."""
+    return _SOILS.search(question) is not None
+
+
+def unasked(name: str, arguments: str, question: str) -> str | None:
+    """Why the call `name(arguments)` is not made for `question`: an inversion the user did not
+    ask for, said to the model; None when it may run."""
+    if starts_inversion(name, arguments) and not asks_for_models(question):
+        return (
+            "Not called: the user asked for no velocity model, so no inversion starts. Answer "
+            "with what the request asked for."
+        )
+    if name == "invert_petro" and not asks_for_soils(question):
+        return (
+            "Not called: the user asked for no soils or water table, so no petrophysical "
+            "inversion starts. Answer with what the request asked for."
+        )
+    return None
 
 
 def starts_inversion(name: str, arguments: str) -> bool:

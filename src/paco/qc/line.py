@@ -11,14 +11,32 @@ from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
 
-from paco.pipelines import PREPROCESSED, record_folder
-from paco.presets import ActivePreset, PassivePreset, apply_overrides, make_preset, resolve_preset
-from paco.profiles import Profile, load_profile
+from sigpipe.masw.pipelines import PREPROCESSED, record_folder
+from sigpipe.masw.presets import (
+    ActivePreset,
+    PassivePreset,
+    apply_overrides,
+    make_preset,
+    resolve_preset,
+)
+from sigpipe.masw.profiles import Profile, load_profile
+from sigpipe.masw.quality.signal import snr_reach, trace_snrs
+from sigpipe.masw.runs import RecordOutcome, RunError, RunManifest, load_image
+from sigpipe.masw.runs.processing import (
+    RECORDS_FOLDER,
+    ProgressCallback,
+    new_run_folder,
+    preprocess_records,
+    process_windows,
+    write_manifest,
+)
+from sigpipe.masw.windows import Exclusions, build_windows
+
 from paco.qc.attempts import invalidate_record
 from paco.qc.budgets import budget_spent
 from paco.qc.coherence import TrialJudge, cap_band, choose_length, given_length
 from paco.qc.config import QCConfig, snapshot_qc_config
-from paco.qc.g1_signal import judge_signal, snr_reach, trace_snrs
+from paco.qc.g1_signal import judge_signal
 from paco.qc.g2_image import judge_image
 from paco.qc.g4_profile import LINE
 from paco.qc.judging import shared_band, stream_of
@@ -27,17 +45,8 @@ from paco.qc.loops import RetryBudget, deep_merge, next_try, spent
 from paco.qc.models import Attempt, ExcludeRecord, ExcludeTraces, GateResult, Stage
 from paco.qc.report import QCReport, build_report, write_report
 from paco.qc.rerun import rerun_phase_shift
-from paco.runs import RecordOutcome, RunError, RunManifest, load_image
-from paco.runs.processing import (
-    RECORDS_FOLDER,
-    ProgressCallback,
-    new_run_folder,
-    preprocess_records,
-    process_windows,
-    write_manifest,
-)
+from paco.runs import PACKAGES
 from paco.settings import Settings
-from paco.windows import Exclusions, build_windows
 
 type Bands = dict[str, tuple[float, float] | None]  # each record's usable band, from G1
 
@@ -105,7 +114,15 @@ def process_line(
         preset, windows, records, run_folder, settings.workers, on_progress, exclusions=exclusions
     )
     manifest = write_manifest(
-        run_id, run_folder, loaded, preset, started_at, records, outcomes, exclusions
+        run_id,
+        run_folder,
+        loaded,
+        preset,
+        started_at,
+        records,
+        outcomes,
+        exclusions,
+        packages=PACKAGES,
     )
     for outcome in outcomes:
         append_attempt(
@@ -155,7 +172,12 @@ def line_reach(
         for record in records
         if record.status == "succeeded"
         and (
-            found := trace_snrs(stream_of(run_folder / record.folder / PREPROCESSED), config.signal)
+            found := trace_snrs(
+                stream_of(run_folder / record.folder / PREPROCESSED),
+                config.signal.vg_min,
+                config.signal.vg_max,
+                config.signal.pad_s,
+            )
         )
         is not None
     ]

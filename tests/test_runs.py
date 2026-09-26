@@ -1,26 +1,26 @@
 import re
+import secrets
 from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta, tzinfo
 from pathlib import Path
 from typing import Any
 
 import pytest
-
-from paco.presets import PresetError, make_preset, resolve_preset
-from paco.profiles import Profile, ProfileError, summarize
-from paco.runs import (
+from sigpipe.masw.presets import PresetError, make_preset, resolve_preset
+from sigpipe.masw.profiles import Profile, ProfileError, summarize
+from sigpipe.masw.runs import (
     RunError,
     RunManifest,
-    RunSummary,
     WindowOutcome,
     find_run,
     load_manifest,
     processing,
     run_processing,
-    summarize_run,
 )
+from sigpipe.masw.windows import MASWWindow, build_windows
+
+from paco.runs import PACKAGES, RunSummary, summarize_run
 from paco.settings import Settings
-from paco.windows import MASWWindow, build_windows
 
 # Four 24-receiver windows along the 96-receiver demo lines.
 SMALL_WINDOWS = {"masw": {"length": 24, "step": 24}}
@@ -65,12 +65,15 @@ def _run(
 
     with pytest.MonkeyPatch.context() as patch:
         patch.chdir(working_dir)
-        summary = run_processing(
-            profile,
-            preset,
-            overrides,
-            settings,
-            on_progress=lambda done, total: progress.append((done, total)),
+        summary = summarize_run(
+            run_processing(
+                profile,
+                preset,
+                overrides,
+                settings,
+                on_progress=lambda done, total: progress.append((done, total)),
+                packages=PACKAGES,
+            )
         )
 
     folder = settings.output_dir / summary.path
@@ -273,7 +276,7 @@ def test_run_ids_stay_unique_within_one_second(
         return next(suffixes)
 
     monkeypatch.setattr(processing, "datetime", _FrozenClock)
-    monkeypatch.setattr(processing.secrets, "token_hex", token_hex)
+    monkeypatch.setattr(secrets, "token_hex", token_hex)
     # A single 3-receiver window, with a dispersion band that makes it fail: cheap to run.
     overrides = {"masw": {"length": 3, "step": 94}, "dispersion": {"fmin": 10.1, "fmax": 10.2}}
 

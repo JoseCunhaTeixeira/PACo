@@ -8,10 +8,11 @@ from types import SimpleNamespace
 from typing import Any, cast
 
 import pytest
+from sigpipe.algorithms.picking.dispersion.tracking import PickingParameters
+from sigpipe.masw.presets import make_preset
+from sigpipe.masw.profiles import Profile
+from sigpipe.masw.runs import find_run, load_manifest
 
-from paco.picking import PickingParameters
-from paco.presets import make_preset
-from paco.profiles import Profile
 from paco.qc import QCConfig, coherence, latest, read_attempts, summarize_report
 from paco.qc.coherence import (
     COHERENCE_FILE,
@@ -31,7 +32,6 @@ from paco.qc.g3_curve import CurveThresholds
 from paco.qc.line import process_line
 from paco.qc.models import Budgets
 from paco.qc.report import QCReport
-from paco.runs import find_run, load_manifest
 from paco.settings import Settings
 
 # Three rungs and three trial windows: the ladder of the demo in a few seconds.

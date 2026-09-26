@@ -30,6 +30,7 @@ from paco.evaluation.checks import (
     retried_value,
     succeeded,
     thresholds_unchanged,
+    water_table,
     windows_than_proposed,
 )
 from paco.evaluation.models import Kind
@@ -99,12 +100,40 @@ SCENARIOS = (
             excluded("2.dat", 89),
             answer_mentions(curves),
             never_called("invert"),
+            never_called("invert_petro"),
             asked_nothing(),
             thresholds_unchanged(),
         ),
         rubric="The agent processes with the requested windows and picks the curves, then says "
         "how many curves passed and what the gates fixed (the trigger delay, the traces left "
         "out), without asking anything.",
+    ),
+    Scenario(
+        name="soils",
+        kind="the loop",
+        questions=(
+            "Process active_p1 with windows of 24 receivers, every 12 receivers, pick the curves "
+            "and give me the soil types and the water table.",
+        ),
+        checks=(
+            only_called(
+                "run_processing",
+                profile="active_p1",
+                overrides={"masw": {"length": 24, "step": 12}},
+            ),
+            in_order("run_processing", "pick", "petro_models", "invert_petro"),
+            # The one bundled model, which covers 1 of the 6 curves (the others end below 43 Hz).
+            called("invert_petro", model="grand_est_15-50hz_193-415mps"),
+            succeeded("invert_petro"),
+            answer_mentions(water_table, "43"),
+            never_called("invert"),
+            asked_nothing(),
+            thresholds_unchanged(),
+        ),
+        rubric="The user asks for soils and the water table, not Vs models: the agent processes "
+        "and picks, chooses the Silex model petro_models lists, inverts the curves it covers, and "
+        "reports the soils and the water table the gates passed, and that the model covers only "
+        "one curve (the others end below the 43 Hz it needs), without asking anything.",
     ),
     Scenario(
         name="pick_passive",
