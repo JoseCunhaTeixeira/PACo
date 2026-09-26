@@ -156,13 +156,10 @@ def judge_image(
 
     rows = np.flatnonzero(coherent)
     at_fmin, at_fmax = rows[0] == 0, rows[-1] == fs.size - 1
-    # A band reaching fmax is kept, not widened (a decision of milestone 13): on the demo line,
-    # a wider band let a second ridge compete, and fewer curves passed G3 (17 of 19 at 100 Hz,
-    # 15 at 150 Hz, 6 at 324 Hz). The coherence rules cap fmax at the records' usable band.
+    # A band reaching fmax is kept, not widened: a wider band lets a second ridge compete, and
+    # fewer curves pass G3. The coherence rules cap fmax at the records' usable band.
     for name, touches, action in (
-        # Kept too since 2026-09-25 (the user's decision): the picker stops where its ridge
-        # breaks and where the window resolves no velocity; on active_p2 every short window's
-        # band reached fmin, and lowering it to 1 Hz spent the run's budget on 68 rejections.
+        # Kept too: the picker stops where its ridge breaks or the window resolves no velocity.
         (
             "band_at_fmin",
             at_fmin,
@@ -203,8 +200,7 @@ def judge_image(
         )
     )
     # On a grid too narrow, a truncated ridge makes second ridges and aliases of its own: the
-    # velocity range first (on active_p1 with vmax 150 m/s, G2 cut the band to 16.5 Hz for an
-    # alias the truncation made).
+    # velocity range first.
     grid_first = any(flag.name in ("ridge_at_vmin", "ridge_at_vmax") for flag in flags)
     if competing_share > thresholds.max_competing_columns and not grid_first:
         alias = aliased(image, competing, thresholds.vmin_floor)

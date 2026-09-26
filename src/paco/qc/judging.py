@@ -1,7 +1,6 @@
 """The gates on a whole run: G1 on its preprocessed records, G2 on its images, then the picking
 as an attempt of its own (the curve saved in PAC's layout) and G3 on its curve, G4 over the
-line at the end, each verdict recorded in the QC log, and the report written. What milestone
-14's tools call."""
+line at the end, each verdict recorded in the QC log, and the report written."""
 
 from datetime import UTC, datetime
 from pathlib import Path

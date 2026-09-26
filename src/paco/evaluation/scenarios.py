@@ -1,9 +1,9 @@
-"""The evaluation suite of the QC loop (docs/qc_workflow.md, milestone 14): looking around,
-processing and picking with the gates' own fixes in PAC's three modes, the loop's changes to the
-settings the user typed (said in the answer), the window length the agent chooses for depth or
-lateral detail (2026-09-25), the whole line to Vs models with no setting at all, and the cases
-where the agent is stuck and must ask. Every scenario where the data decide checks that the
-agent asked nothing, and that the thresholds stayed the configuration's."""
+"""The evaluation suite of the QC loop (docs/qc_workflow.md): looking around, processing and
+picking with the gates' own fixes in PAC's three modes, the loop's changes to the settings the
+user typed (said in the answer), the window length the agent chooses for depth or lateral detail,
+the whole line to Vs models with no setting at all, and the cases where the agent is stuck and
+must ask. Every scenario where the data decide checks that the agent asked nothing, and that the
+thresholds stayed the configuration's."""
 
 from dataclasses import dataclass
 

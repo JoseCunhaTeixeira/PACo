@@ -23,8 +23,8 @@ from paco.inversion import InversionRecord
 from paco.settings import get_settings
 
 _JOBS_TIMEOUT_S = 1_800  # an inversion left running when the conversation ends
-# Worker processes of the server during an evaluation (the user's choice of milestone 14): the
-# zero-settings scenario inverts the whole demo line at PAC's effort, about 6 minutes on 8.
+# Worker processes of the server during an evaluation: the zero-settings scenario inverts the
+# whole demo line at PAC's effort, about 6 minutes on 8.
 EVALUATION_WORKERS = 8
 
 type OnEvent = Callable[[str], None]
@@ -43,7 +43,7 @@ async def run_evaluation(
     """Play every scenario `repeat` times, then write report.json in a new folder of `root`.
 
     Each play has its own folder: the scenario's name, or with repeats, one numbered folder per
-    play inside it (judge_active/1, judge_active/2, ...).
+    play inside it (pick_active/1, pick_active/2, ...).
     """
     started_at = datetime.now(UTC)
     eval_id = f"eval-{started_at:%Y%m%d-%H%M%S}-{secrets.token_hex(2)}"

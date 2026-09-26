@@ -41,9 +41,9 @@ SMALL_WINDOWS = {"masw": {"length": 24, "step": 24}}
 # G5, whose retries (twice the iterations, twice) are then spent.
 SHORT = {"n_iterations": 500, "n_burnin_iterations": 50, "n_chains": 1}
 # xmid 2.88 has no curve: 2 points once G1 leaves trace 13 out of its image (the decay fitted
-# within the reach, 2026-09-25).
+# within the reach).
 PICKED = ("xmid_8.88", "xmid_14.88", "xmid_20.88")
-# The files PAC's invert_position writes in a window folder (compared with PAC on 2026-09-23).
+# The files PAC's invert_position writes in a window folder.
 PAC_FILES = {
     "SeismicInversion_DensityCurves_0000.png",
     "SeismicInversion_DispersionCurves_0000_best.csv",
@@ -181,7 +181,7 @@ def test_parameters_are_checked(build: Callable[[], object], message: str) -> No
 
 
 def test_the_burnin_follows_the_iterations() -> None:
-    # A tenth, PAC's ratio: "2,000 iterations" used to keep 10,000 of burn-in.
+    # A tenth, PAC's ratio: 2,000 iterations do not keep the default 10,000 of burn-in.
     assert InversionParameters(n_iterations=2_000).n_burnin_iterations == 200
     assert InversionParameters.model_validate({"n_iterations": 2e3}).n_burnin_iterations == 200
     # A burn-in the user gives is kept.
@@ -213,7 +213,7 @@ def test_submit_records_a_queued_job_of_the_windows_g4_passed(
 
 def test_one_vs_range_is_submitted_for_every_layer(picked: Picked, tmp_path: Path) -> None:
     # The form invert's card offers, on a run G4 judged: checked as the job reads it, not
-    # against PAC's default of 2 layers (refused twice, 2026-09-26).
+    # against PAC's default of 2 layers.
     settings, _ = _copy(picked, tmp_path)
 
     record = submit_inversion(
@@ -273,8 +273,7 @@ def test_every_window_g4_passed_is_inverted(inverted: Inverted) -> None:
     for window in record.windows:
         if window.status == "failed":
             continue
-        # 4 layers asked, never fewer than 3 (the user, 2026-09-25): fewer when the curve
-        # resolves fewer.
+        # 4 layers asked, never fewer than 3: fewer when the curve resolves fewer.
         assert window.vs_m_s is not None and 3 <= len(window.vs_m_s) <= 4
         assert window.thicknesses_m is not None
         assert len(window.thicknesses_m) == len(window.vs_m_s) - 1
@@ -331,7 +330,7 @@ def test_a_section_needs_two_models(tmp_path: Path) -> None:
 
 
 def _sigpipes_known_failure(error: str | None) -> bool:
-    """sigpipe's inversion_mcmc when a chain kept no predicted curve (PROGRESS.md, open)."""
+    """sigpipe's inversion_mcmc when a chain kept no predicted curve."""
     return error is not None and ("dpred" in error or "could not be broadcast" in error)
 
 

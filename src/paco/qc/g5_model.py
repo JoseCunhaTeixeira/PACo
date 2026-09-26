@@ -1,8 +1,8 @@
 """G5, the model QC per window (docs/qc_workflow.md): the fit of the monitored smooth median to
-the picked curve, by band of wavelength (a misfit only PAC's smoothing causes is kept: a
-decision of milestone 13), whether the chains agree, whether the posterior piles at a bound of
-the prior, and down to which depth the data inform the model (reported, never failed). The
-cheapest fix first: sampling longer before widening a bound, both before another layer."""
+the picked curve, by band of wavelength (a misfit only PAC's smoothing causes is kept), whether
+the chains agree, whether the posterior piles at a bound of the prior, and down to which depth
+the data inform the model (reported, never failed). The cheapest fix first: sampling longer
+before widening a bound, both before another layer."""
 
 import math
 from typing import Any
@@ -96,7 +96,7 @@ def judge_model(
         for name, band in zip(names, smooth.bands, strict=True)
     ]
     # PAC's residual, (modelled - picked) / modelled in %, by band: reported, never judged (the
-    # user's decision of 2026-09-25: the misfit divides by the Lorentzian uncertainties).
+    # misfit divides by the Lorentzian uncertainties).
     metrics += [
         Metric(
             name=f"residual_{name}",
@@ -166,7 +166,7 @@ def judge_model(
             "higher mode may be picked there"
         )
         # The model is rejected either way; the suggested change is the agent's to make with
-        # redo (the user's decision of 2026-09-25), a band stopping under those points.
+        # redo, a band stopping under those points.
         flags.append(
             Flag(
                 name="no_mode",
@@ -193,7 +193,7 @@ def judge_model(
         iterations = 2 * parameters.n_iterations
         if measures.samples_per_chain < thresholds.min_samples_per_chain:
             # Enough models a chain at once (sigpipe keeps one every SAVE_EVERY iterations after
-            # a burn-in of a tenth): doubling 2,000 iterations twice still left too few.
+            # a burn-in of a tenth): doubling 2,000 iterations twice still leaves too few.
             enough = thresholds.min_samples_per_chain * SAVE_EVERY / 0.9
             iterations = max(iterations, math.ceil(enough / 1_000) * 1_000)
         flags.append(

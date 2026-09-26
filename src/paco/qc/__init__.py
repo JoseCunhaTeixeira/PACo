@@ -1,8 +1,8 @@
 """The gate framework (docs/qc_workflow.md): one language for every gate's verdicts, flags and
-advice; the QC log of a run; retry budgets; the configuration of thresholds and budgets. The gates
-G1 to G6 (milestones 11 to 13), the coherence rules for S2 and the checks before S4, a line
-processed and inverted the QC way, and the stages done again; the petrophysical inversion's
-range check and gates, G7 and G8 (milestone 15)."""
+advice; the QC log of a run; retry budgets; the configuration of thresholds and budgets. The
+gates G1 to G6, the coherence rules for S2 and the checks before S4, a line processed and
+inverted the QC way, and the stages done again; the petrophysical inversion's range check and
+gates, G7 and G8."""
 
 from .attempts import ATTEMPTS_FOLDER, STAGE_FILES, archived_attempts, downstream, invalidate
 from .budgets import budget_spent, can_retry, run_budget

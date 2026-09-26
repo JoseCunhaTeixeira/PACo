@@ -163,7 +163,7 @@ def test_called_matches_nested_arguments_that_hold_more() -> None:
 
 
 def test_called_reads_objects_sent_as_json_text() -> None:
-    # Qwen3-4B sometimes sends an object as a string: the SDK decodes it for the server.
+    # A model sometimes sends an object as a string: the SDK decodes it for the server.
     step = _step("run_processing", {"profile": "active_p1", "overrides": json.dumps(SMALL_WINDOWS)})
 
     assert called("run_processing", overrides=SMALL_WINDOWS)(_trial([step])).passed
@@ -175,7 +175,7 @@ def test_called_reads_objects_sent_as_json_text() -> None:
 def test_only_called() -> None:
     kept = _step("run_processing", {"profile": "active_p1", "overrides": SMALL_WINDOWS})
     refused = _step("run_processing", {"overrides": {"masw": {"lenght": 24}}}, is_error=True)
-    # Qwen3-4B's second run, on the quality advice, instead of the windows the user asked for.
+    # A second run, on the quality advice, instead of the windows the user asked for.
     changed = _step(
         "run_processing", {"profile": "active_p1", "overrides": {"masw": {"length": 48}}}
     )
@@ -202,7 +202,7 @@ def test_succeeded_and_not_succeeded() -> None:
 
 
 def test_any_of() -> None:
-    # Qwen3-4B answers with the job ID; Qwen3-8B follows the job and reports its models.
+    # An answer may give the job ID, or follow the job and report its models.
     gave_the_id = _trial([_step("invert", {})], "Started inv-20260924-130000-abcd.")
     followed = _trial([_step("invert", {}), _step("job_status", {})], "Vs 190 to 250 m/s.")
     neither = _trial([_step("invert", {})], "Started.")
@@ -219,7 +219,7 @@ def test_any_of() -> None:
 
 
 def test_never_called() -> None:
-    # Qwen3-4B asked to invert a run nobody wanted inverted; the user declined.
+    # A call that reached the server counts, even when it failed.
     declined = _trial([_step("pick", {}), _step("invert", {}, is_error=True)])
     refused = _trial([_step("invert", {}, called=False)])  # never reached the server
 
@@ -258,7 +258,7 @@ def test_at_most_calls_counts_every_call() -> None:
         ("10.25 m", ("0.25",), False),
         ("4 windows are good.", ("4",), True),
         ("Profiles: Active_P1 and passive_p1.", ("active_p1", "passive_p1"), True),
-        # Thousands with a separator (Qwen3-8B wrote "17,000 iterations"), not a decimal comma.
+        # Thousands with a separator ("17,000 iterations"), not a decimal comma.
         ("raised to 17,000 iterations", ("17000",), True),
         ("at 2,5 m", ("25",), False),
     ],
@@ -471,7 +471,7 @@ def test_the_agent_asks_or_not() -> None:
 
     assert asked_the_user()(asking).passed and not asked_the_user()(telling).passed
     assert asked_nothing()(telling).passed and not asked_nothing()(asking).passed
-    # Options to pick from ask too, question mark or not (Qwen3-8B, 2026-09-25).
+    # Options to pick from ask too, question mark or not.
     for options in (
         "1. Redo. 2. New run. 3. Stop. Choose one to proceed.",
         "<options>1, 2</options>",
@@ -595,7 +595,7 @@ def test_inversion_succeeded(tmp_path: Path) -> None:
     assert inversion_succeeded()(trial).detail == "no inversion on disk"
     (run / "inversion.json").write_text(record(("succeeded", "succeeded"), "succeeded"))
     assert inversion_succeeded()(trial).passed
-    # Qwen3-4B's jobs before the burn-in fix: started, then failed in every window.
+    # A job that started, then failed in every window.
     (run / "inversion.json").write_text(record(("failed", "failed"), "failed"))
     assert inversion_succeeded()(trial).detail == (
         "inv-20260923-100000-abcd failed, 2 of 2 windows failed"

@@ -1,10 +1,9 @@
-"""G8, the petrophysical profile QC over the whole line (the user's decision of 2026-09-26: range,
-fit, line): the Vs of each window's rock physics at fixed depths, and its water table, against
-its neighbours on either side, the sides of G4 and G6, among the windows within a few of the
-line's steps: the range check leaves gaps, and models far apart are not neighbours. A window off
-neighbours that agree while its curve fits theirs (G4) is left out of the sections: a model
-predicts one soil column per curve, there is nothing to sample again. A change the curves show
-too is kept."""
+"""G8, the petrophysical profile QC over the whole line (docs/qc_workflow.md): the Vs of each
+window's rock physics at fixed depths, and its water table, against its neighbours on either
+side, the sides of G4 and G6, among the windows within a few of the line's steps: the range
+check leaves gaps, and models far apart are not neighbours. A window off neighbours that agree
+while its curve fits theirs (G4) is left out of the sections: a model predicts one soil column
+per curve, there is nothing to sample again. A change the curves show too is kept."""
 
 from collections.abc import Mapping, Sequence
 
@@ -37,15 +36,13 @@ class PetroLineThresholds(BaseModel):
         default=1.0,
         gt=0,
         description="Difference of the water table's depth to a side's median, at most (m): one "
-        "of the model's 1 m steps. Relative, 0.5 m against 1.5 m was 67 % (active_p2, "
-        "2026-09-26).",
+        "of the model's 1 m steps.",
     )
     max_gap_steps: float = Field(
         default=3.0,
         gt=0,
-        description="Neighbours are the windows within this many of the line's steps: on "
-        "active_p2, whose curves the model mostly does not cover, windows 75 m apart were "
-        "compared (2026-09-26).",
+        description="Neighbours are the windows within this many of the line's steps: the "
+        "range check leaves gaps, and windows far apart are not neighbours.",
     )
     min_shared_depths: int = Field(
         default=2, ge=1, description="Depths shared with a side's median, to compare at all."

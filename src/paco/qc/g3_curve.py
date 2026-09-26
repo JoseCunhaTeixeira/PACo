@@ -1,7 +1,7 @@
-"""G3, the QC of a picked curve (docs/qc_workflow.md): today's dispersion_quality metrics on
-the M0 pick, said in the gates' language, and the curve's own rules: wavelengths above twice
-the spacing (the picker stops where its ridge breaks, at either end), no jump onto another
-mode, no air wave, the trend, enough points, uncertainties the inversion can use."""
+"""G3, the QC of a picked curve (docs/qc_workflow.md): paco.quality's metrics on the M0 pick,
+said in the gates' language, and the curve's own rules: wavelengths above twice the spacing
+(the picker stops where its ridge breaks, at either end), no jump onto another mode, no air
+wave, the trend, enough points, uncertainties the inversion can use."""
 
 import math
 
@@ -25,7 +25,7 @@ class CurveThresholds(BaseModel):
 
     metrics: QualityParameters = Field(
         default_factory=QualityParameters,
-        description="Sharpness, prominence, on_data and constant wavelength, as before.",
+        description="Sharpness, prominence, on_data and constant wavelength.",
     )
     max_jump: float = Field(
         default=0.3,
@@ -227,8 +227,8 @@ def judge_curve(
             )
         )
 
-    # The near field (the spec's near-offset rule): reported, never applied (a decision of
-    # milestone 13): keeping only far shots lost a third of the demo line's curves.
+    # The near field (the spec's near-offset rule): reported, never applied: keeping only far
+    # shots loses a third of the demo line's curves.
     if nearest_offset is not None and n_points:
         limit = thresholds.near_offset_wavelengths * float(kept_wl.max())
         near = nearest_offset < limit
@@ -271,8 +271,7 @@ def _mode_jump(
 ) -> Flag:
     """The flag of a jump onto another mode: first cut the band where the largest step between
     points consecutive in frequency sits (after a jump the wavelengths interleave), the side
-    with fewer points going; once the band is cut, track with a narrower corridor (the user's
-    decision of 2026-09-25: halving the corridor twice never fixed the demo's jump)."""
+    with fewer points going; once the band is cut, track with a narrower corridor."""
     message = f"A {jump:.0%} step between consecutive points: the pick jumped onto another mode."
     if picking.fmin is None and picking.fmax is None:
         order = np.argsort(frequencies)

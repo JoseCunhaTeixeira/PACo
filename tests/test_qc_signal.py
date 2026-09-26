@@ -126,8 +126,8 @@ def test_a_reversed_trace_is_not_judged() -> None:
     stream = _shot()
     reversed_stream = _with_trace(stream, 5, -stream.xt[5])
 
-    # The polarity is measured, but no longer judged (the user, 2026-09-25: a reversed geophone
-    # hardly ever happens, and near the source the check flagged whole blocks of traces).
+    # The polarity is measured, but not judged: a reversed geophone hardly ever happens, and
+    # near the source the check would flag whole blocks of traces.
     assert "reversed_polarity" not in {
         flag.name for flag in judge_signal("1.dat", reversed_stream, THRESHOLDS).flags
     }
@@ -135,7 +135,7 @@ def test_a_reversed_trace_is_not_judged() -> None:
 
 def test_leaving_traces_out_adds_no_amplitude_outlier() -> None:
     # The decay is fitted on every trace alive: leaving the nearest six out does not move it,
-    # so no new trace falls off it (it once cascaded over 21 traces around each shot).
+    # so no new trace falls off it.
     result = judge_signal("1.dat", _shot(), THRESHOLDS, excluded=range(6))
 
     assert "rms_outliers" not in {flag.name for flag in result.flags}
@@ -204,7 +204,7 @@ def test_thresholds_refuse_nonsense(field: str) -> None:
         SignalThresholds(**{field: 0})
 
 
-# ---------------------------------------------------------------- the line's reach (2026-09-25)
+# ---------------------------------------------------------------- the line's reach
 
 
 def test_a_record_is_judged_within_the_reach() -> None:
@@ -228,7 +228,7 @@ def test_a_record_is_judged_within_the_reach() -> None:
 
 def test_the_decay_is_fitted_within_the_reach() -> None:
     # Six traces carry the wave, eighteen only noise: over the whole line the noise floor
-    # flattens the decay, and the six read too loud (active_p2's nearest traces, 2026-09-25).
+    # flattens the decay, and the six read too loud (active_p2's nearest traces).
     shot = _shot()
     rng = np.random.default_rng(1)
     xt = shot.xt.copy()

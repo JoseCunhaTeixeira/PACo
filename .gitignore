@@ -9,7 +9,7 @@ data/output/*
 logs/
 
 .claude/
-
+PROGRESS.md
 
 # Byte-compiled / optimized / DLL files
 __pycache__/

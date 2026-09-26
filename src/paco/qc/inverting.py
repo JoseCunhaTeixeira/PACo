@@ -301,7 +301,7 @@ def retry_failed(
 ) -> None:
     """Invert once more, with the same parameters, the windows whose inversion failed: sigpipe's
     sampler is not seeded, and its failure when a chain keeps no predicted curve for some models
-    (1 window of 66 on the demo line) does not come back every time."""
+    does not come back every time."""
     attempts = read_attempts(run_folder)
     budget = RetryBudget(attempts, config.budgets, n_units)
     jobs: dict[str, Derived] = {}
@@ -404,9 +404,8 @@ def judge_model_line(
             continue
         measures = InversionMeasures.model_validate_json(path.read_text())
         # Down to the curve's depth of investigation, not the posterior's: with 3 layers or more
-        # each layer's Vs spans most of its prior (PAC's uncertainties, 10 to 15 % of the
-        # velocity), so the depth where the posterior's spread reaches half the prior's was 0 m
-        # on 62 of the layer study's 72 models, and G6 had nothing to compare (2026-09-26).
+        # each layer's Vs spans most of its prior, so the posterior's own useful depth is
+        # mostly 0 m.
         curve = saved_m0(run_folder / window.folder / CURVES_FILE)
         limit = investigation_depth(curve, config) if curve is not None else np.inf
         depths = [(depth, vs) for depth, vs in measures.vs_at_depths if depth <= limit]

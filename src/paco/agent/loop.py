@@ -151,7 +151,7 @@ class Agent:
             )
 
         if unasked is not None:
-            # Qwen3-8B inverted in 6 of 39 plays where the user asked for curves only.
+            # The model may start an inversion the request did not ask for.
             self._on_event(f"-> {call.name}({call.arguments}) refused: not asked for")
             return refused(unasked)
         if over_budget:
@@ -160,8 +160,7 @@ class Agent:
                 "Answer the user with what you have, and say what is left to do."
             )
         if failed_before is not None:
-            # Qwen3-8B sent the same wrong invert call three times; Qwen3-4B looped ten times on
-            # one, then invented a result.
+            # The model may send a failed call again and again, then invent a result.
             self._on_event(f"-> {call.name}({call.arguments}) refused: the same call just failed")
             return refused(
                 "Not called: this exact call just failed, and would fail again: "

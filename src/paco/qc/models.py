@@ -116,11 +116,12 @@ class Kept(BaseModel):
 
 
 class GateResult(BaseModel):
-    """A gate's verdict on one unit: a record (G1) or a window (G2 to G6)."""
+    """A gate's verdict on one unit: a record (G1), a window (G2 to G8), or the line (G4, G6
+    and G8)."""
 
     model_config = ConfigDict(frozen=True)
 
-    gate: str  # G1 to G6
+    gate: str  # G1 to G8
     unit: str  # the record's file name, or the window's folder xmid_<x>
     verdict: Verdict
     metrics: tuple[Metric, ...] = ()

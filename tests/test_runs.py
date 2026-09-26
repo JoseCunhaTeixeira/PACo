@@ -259,7 +259,7 @@ def test_invalid_requests_are_refused_before_writing(
 
 
 class _FrozenClock:
-    """Stands in for datetime in paco.runs.processing: every call is the same second."""
+    """Stands in for datetime in sigpipe.masw.runs.processing: every call is the same second."""
 
     @staticmethod
     def now(tz: tzinfo | None = None) -> datetime:

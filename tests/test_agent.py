@@ -335,7 +335,7 @@ def test_an_answer_that_asks_after_the_work_is_asked_again_once() -> None:
 @pytest.mark.usefixtures("paco_env")
 def test_a_question_before_any_work_reaches_the_user() -> None:
     # 120 receivers asked on a 96-receiver line: the model asks before running anything. Asked
-    # again (2026-09-25's rule), it ran 96 receivers unasked (2 of 3 plays, 2026-09-26).
+    # again, it may run 96 receivers unasked.
     question = (
         "active_p1 has only 96 receivers, so windows of 120 cannot fit. Which should I use: 96 "
         "(the whole line), 48, or 24?"

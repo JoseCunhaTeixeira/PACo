@@ -1,7 +1,7 @@
 """The coherence rules for S2 (docs/qc_workflow.md), checked before the phase shift runs: the
-image's band within what G1 found usable in the records (capped, never widened: a decision of
-milestone 13), and one window length for the whole line, the shortest at which most trial
-windows give a curve G3 passes (lateral resolution first)."""
+image's band within what G1 found usable in the records, and one window
+length for the whole line, the shortest at which most trial windows give a curve G3 passes
+(lateral resolution first)."""
 
 import json
 import math
@@ -86,8 +86,7 @@ class LengthTrial(BaseModel):
 
 
 class LengthChoice(BaseModel):
-    """The window length the ladder kept, and why: its proposal, the agent's to change (the
-    user's decision of 2026-09-25)."""
+    """The window length the ladder kept, and why: its proposal, the agent's to change."""
 
     model_config = ConfigDict(frozen=True)
 
@@ -106,15 +105,13 @@ def cap_band(
 ) -> tuple[dict[str, Any], tuple[str, ...]]:
     """The dispersion band within the records' median usable band (G1) and below Nyquist:
     overrides for the dispersion stage (empty when the band already fits), and notes. The
-    median, not the worst record (the user's decision of 2026-09-25): on active_p2's 97
-    records the highest usable start (24 Hz) and the lowest usable end (86 Hz) cut the whole
-    line's long wavelengths, where the median record is usable from 2.3 to 298 Hz."""
+    median, not the worst record: one record's narrow band would narrow the whole line's."""
     dispersion = preset.model_dump()["dispersion"]
     known = [band for band in usable if band is not None]
     low = float(np.median([band[0] for band in known])) if known else 0.0
     high = min(float(np.median([band[1] for band in known])) if known else nyquist, nyquist)
     if high <= low:
-        # No usable band left: no cap (97 shots of active_p2 crashed here before the median).
+        # No usable band left: no cap.
         return {}, (
             f"The records' median usable band is empty ({low:.1f} to {high:.1f} Hz): the band "
             "stays the preset's.",
@@ -157,9 +154,8 @@ def choose_length(
     """The shortest window length up the ladder at which G3 passes `min_pass_share` of the
     trial windows spread along the line (the most passes when none does), and one length more
     for comparison; or `first`, a length given (by the user or the agent), kept as it is with
-    its trial windows' result (the user's decision of 2026-09-25: the ladder proposes, a
-    length given decides). Trial windows go to <run_folder>/coherence/<length>/, on the run's
-    records."""
+    its trial windows' result (the ladder proposes, a length given decides). Trial windows go to
+    <run_folder>/coherence/<length>/, on the run's records."""
     rules = judge.rules
     longest = max(3, int(len(profile.receivers) * rules.max_line_share))
 
@@ -249,10 +245,9 @@ def describe_lengths(choice: LengthChoice) -> tuple[str, ...]:
 def length_hint(choice: LengthChoice, then: str) -> str:
     """What comes after the ladder's proposal: the lengths the agent may change it to, named,
     first (the longest tried for more depth, the shortest whose trials passed at least half for
-    more lateral detail), and `then`, the next step when it stays. Qwen3-8B never turned
-    "longer" or "shorter" into a length of the table (0 of 6 plays), nor ran again when the
-    lengths came after "pick comes next" (0 of 6, 2026-09-26): it follows the first step it
-    reads."""
+    more lateral detail), and `then`, the next step when it stays. Named, as the agent does not
+    turn "longer" or "shorter" into a length of the table; first, as it follows the first step
+    it reads."""
     deeper = max(trial.length for trial in choice.trials)
     detail = min(
         (trial.length for trial in choice.trials if 2 * trial.passed >= len(trial.xmids)),
@@ -362,11 +357,8 @@ def _try_length(
 
 
 def trial_indices(n_windows: int, trials: int) -> list[int]:
-    """`trials` windows spread evenly along the whole line, its ends included. Measured on
-    2026-09-25 (the user's decision): 27 trials pass G3 at the line's own shares (65 to 98 % for
-    5 to 16 receivers, within a few %); 9 with the ends left out all passed at 5 receivers,
-    where the line gives curves on 65 % of its windows, and 9 with the ends in stopped every
-    short length at 7 of 9."""
+    """`trials` windows spread evenly along the whole line, its ends included: without the ends,
+    the trials pass G3 more often than the line's windows do."""
     positions = np.linspace(0, n_windows - 1, trials).round().astype(int)
     return [int(index) for index in np.unique(positions)]
 
