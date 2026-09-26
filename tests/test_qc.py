@@ -25,6 +25,7 @@ from paco.qc import (
     Override,
     QCConfig,
     Reject,
+    Stage,
     append_attempt,
     archived_attempts,
     budget_spent,
@@ -206,6 +207,34 @@ def test_a_spent_budget_rejects_with_the_last_flags() -> None:
 
 
 # ---------------------------------------------------------------- the configuration
+
+
+def test_g1s_retries_are_the_records_not_the_windows() -> None:
+    started = datetime(2026, 9, 25, 12, 0, tzinfo=UTC)
+
+    def attempt(unit: str, stage: Stage, trigger: str) -> Attempt:
+        return Attempt(
+            unit=unit,
+            stage=stage,
+            attempt=2,
+            parameters={},
+            triggered_by=trigger,
+            started_at=started,
+            status="succeeded",
+        )
+
+    # Each record's trigger corrected: bounded by the record's own budget, not the run's.
+    attempts = (
+        attempt("1.dat", "preprocessing", "G1:shifted_trigger"),
+        attempt("2.dat", "preprocessing", "G1:shifted_trigger"),
+        attempt("xmid_2.88", "phase_shift", "G2:ridge_at_vmax"),
+        attempt("2.dat", "preprocessing", "backtrack"),  # the agent's: on the run's budget
+    )
+    assert retries_in_run(attempts) == 2
+    # Two windows: 4 retries. G1's counted, they would all be spent before any window's.
+    assert can_retry(attempts, Budgets(), 2, "xmid_8.88", "G2")
+    more = (*attempts, attempt("xmid_8.88", "phase_shift", "G2:ridge_at_vmax"))
+    assert not can_retry((*more, more[-1]), Budgets(), 2, "xmid_14.88", "G2")
 
 
 def test_going_back_is_refused_once_the_runs_budget_is_spent(tmp_path: Path) -> None:
@@ -436,6 +465,32 @@ def test_the_summary_gives_the_checks_notes_and_the_failures(tmp_path: Path) -> 
     assert {unit.unit: unit.failed for unit in report.units}["xmid_1.25"] == {
         "inversion": "ValueError: shapes"
     }
+
+
+def test_the_checks_notes_outlive_a_retry_that_notes_nothing(tmp_path: Path) -> None:
+    # The checks changed the user's value at the first inversion; G5's retry derives from values
+    # already checked and notes nothing: the note stays the unit's (it was lost, 2026-09-26).
+    note = "vs_max 180 m/s below 1.09 times the curve's fastest velocity: set to 450 m/s."
+    for attempt, notes, trigger in ((1, (note,), "initial"), (2, (), "G5:not_converged")):
+        append_attempt(
+            tmp_path,
+            Attempt(
+                unit="xmid_1.00",
+                stage="inversion",
+                attempt=attempt,
+                parameters={"n_iterations": 1_000 * attempt},
+                triggered_by=trigger,
+                started_at=WHEN,
+                status="succeeded",
+                notes=notes,
+            ),
+        )
+
+    report = build_report("20260926-050000-abcd", tmp_path, Budgets(), 1)
+
+    (unit,) = report.units
+    assert unit.notes == {"inversion": (note,)}
+    assert any("180" in said for said in changed_settings(report, ("inversion",)))
 
 
 def test_the_settings_the_gates_changed_are_said_from_and_to(tmp_path: Path) -> None:

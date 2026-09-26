@@ -4,7 +4,7 @@ sigpipe checks inside every window, checked once against the profile before any 
 from typing import Any
 
 from paco.presets.models import ActivePreset, PassivePreset, PresetError
-from paco.profiles import Profile
+from paco.profiles import MODES, Profile
 
 # A switched-on IIR filter without fmax stops just below the Nyquist frequency. PAC's form puts it
 # at Nyquist, which sigpipe's filter rejects (it requires fmax < Nyquist).
@@ -16,10 +16,11 @@ def resolve_preset[P: ActivePreset | PassivePreset](preset: P, profile: Profile)
 
     Every problem is reported at once, one line each, in a single PresetError.
     """
-    if preset.mode != profile.kind:
+    if preset.mode not in MODES[profile.kind]:
+        modes = " or ".join(f"'{mode}'" for mode in MODES[profile.kind])
         raise PresetError(
-            f"Preset '{preset.mode}' only fits {preset.mode} profiles, but '{profile.name}' is "
-            f"{profile.kind}. Use preset '{profile.kind}'."
+            f"Preset '{preset.mode}' does not fit {profile.kind} profile '{profile.name}': use "
+            f"{modes}."
         )
 
     values = preset.model_dump()

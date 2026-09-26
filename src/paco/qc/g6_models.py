@@ -2,8 +2,8 @@
 fixed depths along the line, each model against its neighbours on either side (the sides of
 G4). A jump the curves do not show (G4 found the window's curve fits its neighbours) is
 non-uniqueness: invert that window again; a jump the curves show too is kept. And how evenly
-the useful depth runs along the line. No lateral smoothing: neither models edited, nor
-neighbours used as priors."""
+the depth of investigation (half each curve's longest wavelength, the "useful depth" here) runs
+along the line. No lateral smoothing: neither models edited, nor neighbours used as priors."""
 
 from collections.abc import Mapping, Sequence
 
@@ -40,8 +40,9 @@ class ModelProfileThresholds(BaseModel):
     max_useful_depth_spread: float = Field(
         default=0.5,
         gt=0,
-        description="MAD over median of the useful depths along the line, at most: beyond it the "
-        "models do not see equally deep.",
+        description="MAD over median of the models' depths of investigation (half each curve's "
+        "longest wavelength) along the line, at most: beyond it the models do not see equally "
+        "deep.",
     )
 
 
@@ -53,10 +54,11 @@ def judge_model_profile(
     thresholds: ModelProfileThresholds,
     without: Sequence[float] = (),
 ) -> tuple[GateResult, ...]:
-    """G6's verdicts: one per model (the smooth median's Vs by depth, down to its useful depth),
-    then one for the line, unit "line". `curves` holds G4's result on each window's curve,
-    `parameters` each model's inversion parameters, `useful_depths` each window's (None: the
-    whole model), `without` the xmids without a model."""
+    """G6's verdicts: one per model (the smooth median's Vs by depth, down to its useful depth:
+    its curve's depth of investigation), then one for the line, unit "line". `curves` holds G4's
+    result on each window's curve, `parameters` each model's inversion parameters,
+    `useful_depths` each window's (None: the whole model), `without` the xmids without a
+    model."""
     ordered = sorted(models, key=lambda model: model.xmid)
     found = neighbourhoods(
         ordered, thresholds.neighbours, thresholds.max_misfit, thresholds.min_shared_depths
@@ -196,8 +198,8 @@ def _line_result(
         flags.append(
             Flag(
                 name="uneven_useful_depth",
-                message=f"The useful depth varies by {depth_spread:.0%} along the line: the models "
-                "do not see equally deep.",
+                message=f"The depth of investigation (half the longest wavelength) varies by "
+                f"{depth_spread:.0%} along the line: the models do not see equally deep.",
                 stage="inversion",
                 action=Keep(note="compare the models only down to the shallowest useful depth"),
             )

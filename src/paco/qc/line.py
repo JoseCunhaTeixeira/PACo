@@ -18,12 +18,12 @@ from paco.qc.attempts import invalidate_record
 from paco.qc.budgets import budget_spent
 from paco.qc.coherence import TrialJudge, cap_band, choose_length, given_length
 from paco.qc.config import QCConfig, snapshot_qc_config
-from paco.qc.g1_signal import judge_signal
+from paco.qc.g1_signal import judge_signal, snr_reach, trace_snrs
 from paco.qc.g2_image import judge_image
 from paco.qc.g4_profile import LINE
 from paco.qc.judging import shared_band, stream_of
 from paco.qc.log import append_attempt, latest, read_attempts, record_notes, record_result
-from paco.qc.loops import RetryBudget, next_try, spent
+from paco.qc.loops import RetryBudget, deep_merge, next_try, spent
 from paco.qc.models import Attempt, ExcludeRecord, ExcludeTraces, GateResult, Stage
 from paco.qc.report import QCReport, build_report, write_report
 from paco.qc.rerun import rerun_phase_shift
@@ -54,17 +54,34 @@ def process_line(
     changes are logged as notes of the line's phase shift, the ladder's trials kept in
     coherence.json."""
     loaded = load_profile(profile, settings)
-    preset = resolve_preset(make_preset(loaded.kind, overrides), loaded)
+    given, n = given_length(overrides), len(loaded.receivers)
+    if given is not None and given > n:
+        # A request the data do not allow: the agent must ask (the host then leaves its
+        # question as it is).
+        raise RunError(
+            f"length ({given}) exceeds the {n} receivers of profile '{profile}': no window that "
+            f"long fits the line, you are stuck. Ask the user which length to use, with options: "
+            f"the whole line ({n}), half of it ({n // 2}), or the ladder's proposal (no length)."
+        )
+    # The profile's own mode unless the settings name another (passive-active on an active
+    # profile): PAC's three modes.
+    mode = (overrides or {}).get("mode", loaded.kind)
+    preset = resolve_preset(make_preset(str(mode), overrides), loaded)
     run_id, run_folder = new_run_folder(settings.output_dir / profile)
     snapshot_qc_config(config, run_folder)
     started_at = datetime.now(UTC)
     records = preprocess_records(preset, loaded, run_folder, settings.workers)
     for record in records:
         _log(run_folder, record.name, "preprocessing", 1, {}, "initial", started_at, record)
+    reach = line_reach(run_folder, loaded, records, config)
     records, exclusions, usable = settle_records(
-        run_folder, loaded, preset, records, config, settings.workers
+        run_folder, loaded, preset, records, config, settings.workers, reach
     )
-    band, band_notes = cap_band(preset, list(usable.values()), loaded.nyquist_hz)
+    # The band the records G1 kept share: a rejected record constrains nothing.
+    kept = [band for name, band in usable.items() if name not in exclusions.records]
+    band, band_notes = cap_band(preset, kept, loaded.nyquist_hz)
+    far, far_notes = far_limit(overrides, reach, config.signal.reach_snr_db)
+    band = deep_merge(band, far)
     choice = choose_length(
         loaded,
         resolve_preset(apply_overrides(preset, band), loaded),
@@ -75,7 +92,7 @@ def process_line(
         given_length(overrides),
         exclusions,
     )
-    changes: dict[str, Any] = {**band, "masw": {"length": choice.length}}
+    changes: dict[str, Any] = deep_merge(band, {"masw": {"length": choice.length}})
     preset = resolve_preset(apply_overrides(preset, changes), loaded)
     windows = build_windows(loaded, preset.masw)
     if not windows:
@@ -116,13 +133,51 @@ def process_line(
             started_at=started_at,
             finished_at=manifest.finished_at,
             status="succeeded",
-            notes=band_notes + choice.notes,
+            notes=band_notes + far_notes + choice.notes,
         ),
     )
     settle_images(run_id, run_folder, manifest, config, settings, usable)
     report = build_report(run_id, run_folder, config.budgets, len(manifest.windows))
     write_report(report, run_folder)
     return report
+
+
+def line_reach(
+    run_folder: Path, profile: Profile, records: tuple[RecordOutcome, ...], config: QCConfig
+) -> float | None:
+    """How far from the shots the line's traces still carry the wave (G1's per-trace SNR over
+    every active record, `snr_reach`, in bins of a fifteenth of the line); None on a passive
+    line, or when no distance falls below G1's SNR limit."""
+    if profile.kind != "active":
+        return None
+    measured = [
+        found
+        for record in records
+        if record.status == "succeeded"
+        and (
+            found := trace_snrs(stream_of(run_folder / record.folder / PREPROCESSED), config.signal)
+        )
+        is not None
+    ]
+    positions = [receiver.x for receiver in profile.receivers]
+    span = max(positions) - min(positions)
+    return snr_reach(measured, config.signal.reach_snr_db, span / 15) if span > 0 else None
+
+
+def far_limit(
+    overrides: Mapping[str, object] | None, reach: float | None, min_db: float
+) -> tuple[dict[str, Any], tuple[str, ...]]:
+    """masw.distance_max at the line's reach, unless the user gave one (the user's decision of
+    2026-09-25): a window stacks no shot whose traces there are mostly noise. Overrides and
+    notes."""
+    masw = (overrides or {}).get("masw")
+    if reach is None or (isinstance(masw, Mapping) and "distance_max" in masw):
+        return {}, ()
+    note = (
+        f"masw distance_max {reach:g} m: beyond it from the shot, the traces' median SNR falls "
+        f"under {min_db:g} dB (G1), so the windows stack no farther shot."
+    )
+    return {"masw": {"distance_max": reach}}, (note,)
 
 
 def settle_records(
@@ -132,6 +187,7 @@ def settle_records(
     records: tuple[RecordOutcome, ...],
     config: QCConfig,
     workers: int,
+    reach_m: float | None = None,
 ) -> tuple[tuple[RecordOutcome, ...], Exclusions, Bands]:
     """G1 on every preprocessed record, with its fixes, until nothing is left to fix or the
     budgets are spent: the traces and records it excludes are recorded (for S2 to leave out, and
@@ -150,7 +206,12 @@ def settle_records(
                 continue
             stream = stream_of(run_folder / outcome.folder / PREPROCESSED)
             result = judge_signal(
-                name, stream, config.signal, active=active, excluded=exclusions.traces.get(name, ())
+                name,
+                stream,
+                config.signal,
+                active=active,
+                excluded=exclusions.traces.get(name, ()),
+                reach_m=reach_m,
             )
             results[name] = result
             attempt = latest(attempts, name, "preprocessing")
@@ -183,6 +244,9 @@ def settle_records(
                     record_result(
                         run_folder, name, "preprocessing", attempt.attempt, budget_spent(result)
                     )
+                # Rejected, the record goes into no window (active_p2's three shots whose SNR
+                # a filter did not raise were stacked all the same, 2026-09-25).
+                exclusions = exclusions.with_record(name)
         if not again and exclusions == before:
             break
         if again:

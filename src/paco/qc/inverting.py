@@ -5,6 +5,7 @@ more or fewer), then G6 over the line and its own (a non-unique model inverted a
 the budgets; every attempt in the QC log, and the report written. What invert runs as a
 background job, whose record (inversion.json) job_status reads."""
 
+import logging
 import traceback
 from collections.abc import Callable, Mapping, Sequence
 from concurrent.futures import Future, ProcessPoolExecutor, as_completed
@@ -28,6 +29,7 @@ from paco.inversion import (
     write_record,
 )
 from paco.inversion.measuring import InversionMeasures, measure_inversion, report_depths
+from paco.inversion.section import save_comparison, save_section
 from paco.picks import CURVES_FILE
 from paco.qc.attempts import invalidate
 from paco.qc.budgets import budget_spent
@@ -38,7 +40,7 @@ from paco.qc.judging import saved_m0
 from paco.qc.log import append_attempt, attempts_of, latest, read_attempts, record_result
 from paco.qc.loops import RetryBudget, deep_merge, stage_changes
 from paco.qc.models import Attempt, GateResult
-from paco.qc.priors import Derived, broadcast_layers, derive_inversion
+from paco.qc.priors import Derived, broadcast_layers, checkable, derive_inversion
 from paco.qc.report import (
     build_report,
     changed_settings,
@@ -59,6 +61,8 @@ type ProgressCallback = Callable[[int, int], None]
 # Called as each window's inversion ends, with what the job reports of it.
 type OnWindow = Callable[[WindowInversion], None]
 
+logger = logging.getLogger(__name__)
+
 
 def submit_inversion(
     run_id: str, given: Mapping[str, Any] | None, settings: Settings
@@ -68,9 +72,10 @@ def submit_inversion(
     or rejected, values that cannot hold, and a run already being inverted."""
     run_folder = find_run(run_id, settings)
     ready = invertible(run_folder, load_manifest(run_id, settings))
-    given = broadcast_layers(given or {})
+    layers = read_qc_config(run_folder).priors.n_layers
+    given = broadcast_layers(given or {}, layers)
     try:
-        InversionParameters.model_validate(given)
+        InversionParameters.model_validate(checkable(given, layers))
     except ValidationError as error:
         problems = "; ".join(str(problem["msg"]) for problem in error.errors())
         raise InversionError(f"The inversion's parameters do not hold: {problems}") from error
@@ -133,6 +138,15 @@ def run_inversion_job(
         changed = changed_settings(report, ("inversion",))
         # The verdicts as they ended: a retry refused for want of budget is a reject.
         final = {unit.unit: unit.verdicts.get("G5") for unit in report.units}
+        # PAC's section of the line, over the models G5 passed: best effort, never the job's
+        # failure.
+        passed = [unit for unit, verdict in final.items() if verdict == "pass"]
+        try:
+            if (section := save_section(run_folder, passed)) is not None:
+                summary += f"\nSection of the {len(passed)} models G5 passed: {section.name}."
+            save_comparison(run_folder, passed)
+        except Exception:
+            logger.exception("Could not save the velocity section of %s", run_folder)
         record = record.model_copy(
             update={
                 "windows": tuple(
@@ -297,8 +311,8 @@ def retry_failed(
         if attempt is None or attempt.status != "failed" or not budget.grant(unit, "S4"):
             continue
         parameters = InversionParameters.model_validate(attempt.parameters)
-        reach = derive_inversion(ready[unit], config.priors).reach_m
-        jobs[unit] = Derived(parameters, attempt.notes, reach)
+        derived = derive_inversion(ready[unit], config.priors)
+        jobs[unit] = Derived(parameters, attempt.notes, derived.reach_m, derived.max_layers)
     if jobs:
         _invert(run_folder, jobs, depths, config, "S4:failed", settings.workers, None, on_window)
 
@@ -373,8 +387,9 @@ def judge_model_line(
     run_folder: Path, manifest: RunManifest, config: QCConfig
 ) -> tuple[GateResult, ...]:
     """G6 over the line: the smooth median of every window whose latest inversion passed G5,
-    down to its useful depth, against its neighbours. A window's verdict goes to its latest
-    inversion attempt, the line's own to an attempt of the unit "line"."""
+    down to its depth of investigation (half its curve's longest wavelength), against its
+    neighbours. A window's verdict goes to its latest inversion attempt, the line's own to an
+    attempt of the unit "line"."""
     attempts = read_attempts(run_folder)
     models: list[Series] = []
     curves: dict[str, GateResult] = {}
@@ -389,7 +404,12 @@ def judge_model_line(
             without.append(window.xmid)
             continue
         measures = InversionMeasures.model_validate_json(path.read_text())
-        limit = measures.useful_depth_m if measures.useful_depth_m is not None else np.inf
+        # Down to the curve's depth of investigation, not the posterior's: with 3 layers or more
+        # each layer's Vs spans most of its prior (PAC's uncertainties, 10 to 15 % of the
+        # velocity), so the depth where the posterior's spread reaches half the prior's was 0 m
+        # on 62 of the layer study's 72 models, and G6 had nothing to compare (2026-09-26).
+        curve = saved_m0(run_folder / window.folder / CURVES_FILE)
+        limit = _investigation(curve, config) if curve is not None else np.inf
         depths = [(depth, vs) for depth, vs in measures.vs_at_depths if depth <= limit]
         if not depths:
             without.append(window.xmid)
@@ -406,7 +426,7 @@ def judge_model_line(
         if picked is not None and "G4" in picked.results:
             curves[window.folder] = picked.results["G4"]
         parameters[window.folder] = InversionParameters.model_validate(inverted.parameters)
-        useful[window.folder] = measures.useful_depth_m
+        useful[window.folder] = None if np.isinf(limit) else limit
     started_at = datetime.now(UTC)
     results = judge_model_profile(models, curves, parameters, useful, config.models, without)
     for result in results:
@@ -430,6 +450,14 @@ def judge_model_line(
             ),
         )
     return results
+
+
+def _investigation(curve: DispersionCurve, config: QCConfig) -> float:
+    """The depth `curve` informs a model down to: its longest wavelength times the priors'
+    `max_depth` (half of it), MASW's depth of investigation and the deepest the half-space's top
+    may be (the checks before S4)."""
+    wavelengths = np.asarray(curve.vs, dtype=float) / np.asarray(curve.fs, dtype=float)
+    return round(config.priors.max_depth * float(wavelengths.max()), 2)
 
 
 def _depths(ready: Mapping[str, DispersionCurve]) -> tuple[float, ...]:
@@ -492,10 +520,17 @@ def _invert(
             xmid = xmid_of(unit) or 0.0
             try:
                 measures = future.result()
-                g5 = judge_model(unit, measures, derived.parameters, config.model, derived.reach_m)
+                g5 = judge_model(
+                    unit,
+                    measures,
+                    derived.parameters,
+                    config.model,
+                    derived.reach_m,
+                    derived.max_layers,
+                )
                 attempt = attempt.model_copy(update={"results": {g5.gate: g5}})
                 results.append(g5)
-                window = window_result(xmid, unit, measures, g5.verdict)
+                window = window_result(xmid, unit, measures, g5.verdict, derived.reach_m)
             except Exception as exc:
                 (run_folder / unit / ERROR_FILE).write_text(
                     "".join(traceback.format_exception(exc))

@@ -232,13 +232,23 @@ def test_a_jump_between_consecutive_points_means_another_mode() -> None:
     assert result.verdict == "retry"
     flags = _flags(result)
     assert "mode_jump" in flags
+    # First the band is cut where the jump sits (30 to 30.5 Hz), the side with fewer points
+    # (20 above against 41 below) going.
     assert flags["mode_jump"].action.model_dump() == {
+        "kind": "override",
+        "stage": "picking",
+        "overrides": {"fmax": 30.2},
+    }
+    jump = next(metric for metric in result.metrics if metric.name == "max_jump")
+    assert jump.value is not None and jump.value > 0.3
+    # With the band already cut, the corridor is halved.
+    cut = PickingParameters(fmax=30.2)
+    again = judge_curve("xmid_12.50", image, _picked(image, M0, vs=vs), THRESHOLDS, picking=cut)
+    assert _flags(again)["mode_jump"].action.model_dump() == {
         "kind": "override",
         "stage": "picking",
         "overrides": {"corridor": 0.1},
     }
-    jump = next(metric for metric in result.metrics if metric.name == "max_jump")
-    assert jump.value is not None and jump.value > 0.3
 
 
 def test_points_at_the_air_waves_speed_ask_for_a_mute() -> None:

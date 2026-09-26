@@ -90,14 +90,36 @@ else the agent decides from the summaries, and says which settings the gates cha
   windows: a defect on a few receivers changes every window holding them, a run G4 rightly
   calls geology. Both stay covered by the gates' tests on analytic curves and synthetic lines.
 
-## To judge
+## Since 2026-09-25
 
-- The run's budget (2 retries per window) counts G1's per-record retries too, and a narrow
-  velocity range spends it all on G2: should G1 have its own, per record?
-- Halving the corridor did not fix the demo's mode jump at xmid 14.88: is a narrower band (cut
-  where the jump starts) the better first move? Since 2026-09-25 the pick stops where its
-  ridge breaks, and that jump (above the 50 Hz line) is gone; the question stays for jumps the
-  continuity does not catch.
+- **G1's retries are the records'**: they count against each record's own budget (2 per gate),
+  not the windows' run budget, which a narrow velocity range spent on G2 after G1's two
+  corrections. The summary's "Retries: n of N" counts the windows' only.
+- **A mode jump's first fix cuts the band** where the largest step between points consecutive
+  in frequency sits, the side with fewer points going (`picking {"fmax": ...}` or `fmin`); once
+  the band is cut, the corridor is halved. Halving the corridor twice never fixed the demo's
+  jump at xmid 14.88 (gone since the pick stops where its ridge breaks).
+- **A length given, by the user or the agent, is kept**; the ladder no longer climbs past it
+  (`S2_rules.md`).
+- **The traces a window leaves out are its records'** (on a real line, `active_p2`): each
+  shot's image is made without the traces G1 excluded from that shot, and a trace flagged in at
+  least half of the window's records is left out of all of them. The window used to leave out
+  every trace any of its records excluded: with 66 shots a window, every window of `active_p2`
+  ended empty. A record left with fewer than 3 of the window's receivers leaves the window.
+  Passive windows keep the union (their records are stacked as one). Passive-active windows
+  (2026-09-26) keep one set of receivers, since their correlation gathers are stacked sample
+  by sample: the receivers half the shots excluded leave every shot, and a shot that excluded
+  another of the window's receivers leaves the window.
+- **What the host guarantees** (`paco.agent.host`, the user's decisions after the evaluation
+  of the same day): the settings the gates changed are listed after every answer, as the tools
+  gave them; an answer that asks or offers once a stage tool has run is asked again once,
+  unless a tool said the agent is stuck (a question before any work is the request's
+  clarification: asked again, Qwen3-8B ran 96 receivers unasked where 120 were asked, 2 of 3
+  plays, 2026-09-26); `invert`, and `redo` of the inversion, are refused unless the user's
+  message asks for models (invert, inversion, model, Vs, shear). Qwen3-8B missed these in 12,
+  7 and 6 of 39 plays.
+- **A step back says what came of it**: the summary's "Retried backtrack, ... now ..." gives
+  the verdict of the gate that judges the stage redone (G3 for the picking). It said "no
+  verdict" for every window, looking for a gate named "backtrack".
 
-Settled on 2026-09-25: a length given, by the user or the agent, is kept; the ladder no longer
-climbs past it (`S2_rules.md`).
+Nothing left to judge here.

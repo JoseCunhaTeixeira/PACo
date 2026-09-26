@@ -37,15 +37,30 @@ ACTIVE_DEFAULTS = {
     "dispersion": DISPERSION_DEFAULTS,
 }
 
+# PAC's passive-active form: the active one, and the stacking of the shots' correlations.
+PASSIVE_ACTIVE_DEFAULTS = {
+    "mode": "passive-active",
+    "masw": MASW_DEFAULTS,
+    "trigger": {"t0": 0.0},
+    "muting": {"method": "none"},
+    "filtering": {"method": "none"},
+    # PACo's: G1's surface-wave window, before each shot is correlated.
+    "correlation_window": {"method": "surface_waves", "vmin": 80.0, "vmax": 1500.0, "pad": 0.05},
+    "stacking": {"method": "linear"},
+    "dispersion": DISPERSION_DEFAULTS,
+}
+
+# PACo's passive defaults: 2 s segments whitened and normalized one-bit, where PAC's form has
+# 0.1 s segments and neither (no curve on passive_p2, 2026-09-26).
 PASSIVE_DEFAULTS = {
     "mode": "passive",
     "masw": MASW_DEFAULTS,
     "muting": {"method": "none"},
     "filtering": {"method": "none"},
-    "slicing": {"segment_duration": 0.1, "segment_step": 0.1},
+    "slicing": {"segment_duration": 2.0, "segment_step": 2.0},
     "selection": {"method": "none"},
-    "whitening": {"method": "none"},
-    "normalization": {"method": "none"},
+    "whitening": {"method": "onebit"},
+    "normalization": {"method": "onebit"},
     "stacking": {"method": "linear"},
     "dispersion": DISPERSION_DEFAULTS,
 }
@@ -62,9 +77,25 @@ def test_passive_preset_holds_pacs_defaults() -> None:
     assert make_preset("passive").model_dump(mode="json") == PASSIVE_DEFAULTS
 
 
+def test_passive_active_preset_holds_pacs_defaults() -> None:
+    assert make_preset("passive-active").model_dump(mode="json") == PASSIVE_ACTIVE_DEFAULTS
+
+
+def test_an_active_profile_can_be_processed_passive_active(profiles: dict[str, Profile]) -> None:
+    preset = make_preset("passive-active", {"stacking": {"method": "phase_weighted", "nu": 2}})
+
+    resolved = resolve_preset(preset, profiles["active_p1"])
+
+    assert (resolved.mode, resolved.model_dump()["stacking"]) == (
+        "passive-active",
+        {"method": "phase_weighted", "nu": 2.0},
+    )
+
+
 def test_unknown_preset_lists_the_available_ones() -> None:
     with pytest.raises(
-        PresetError, match=r"Unknown preset 'activ'\. Available presets: active, passive\."
+        PresetError,
+        match=r"Unknown preset 'activ'\. Available presets: active, passive, passive-active\.",
     ):
         make_preset("activ")
 
@@ -76,7 +107,7 @@ def test_presets_are_frozen() -> None:
         preset.masw = MASWParameters(length=24)
 
 
-@pytest.mark.parametrize("name", ["active", "passive"])
+@pytest.mark.parametrize("name", ["active", "passive", "passive-active"])
 def test_presets_round_trip_through_json(name: str) -> None:
     preset = make_preset(name, {"filtering": {"method": "iir", "fmin": 5}})
 
@@ -531,12 +562,18 @@ def test_a_derived_value_clashing_with_an_override_is_explained(
         (
             "passive_p1",
             "active",
-            r"Preset 'active' only fits active profiles, but 'passive_p1' is passive\. Use preset 'passive'\.",
+            r"Preset 'active' does not fit passive profile 'passive_p1': use 'passive'\.",
         ),
         (
             "active_p1",
             "passive",
-            r"Preset 'passive' only fits passive profiles, but 'active_p1' is active\. Use preset 'active'\.",
+            r"Preset 'passive' does not fit active profile 'active_p1': use 'active' or "
+            r"'passive-active'\.",
+        ),
+        (
+            "passive_p1",
+            "passive-active",
+            r"Preset 'passive-active' does not fit passive profile 'passive_p1': use 'passive'\.",
         ),
     ],
 )
@@ -572,7 +609,10 @@ PASSIVE_RULES = [
         id="taper wider than the band",
     ),
     pytest.param(
-        {"whitening": {"method": "onebit_apod", "fmin": 10, "fmax": 25, "taper_width_Hz": 1}},
+        {
+            "slicing": {"segment_duration": 0.1, "segment_step": 0.1},
+            "whitening": {"method": "onebit_apod", "fmin": 10, "fmax": 25, "taper_width_Hz": 1},
+        },
         "whitening: the band fmax - fmin (15 Hz) must span at least 2 frequency steps of the "
         "0.1 s segments (19.6 Hz). Widen the band or lengthen slicing.segment_duration.",
         id="band narrower than two frequency steps",
@@ -673,15 +713,16 @@ def test_whitening_band_rule_agrees_with_sigpipe(
 SCHEMA_BUDGET = {
     "active": 3_300,
     "passive": 6_600,
-}  # characters; the trigger stage added 170 to the active one
+    "passive-active": 5_100,
+}  # characters; the trigger stage added 170 to the active one, the correlation window 900
 
 
-@pytest.mark.parametrize("name", ["active", "passive"])
+@pytest.mark.parametrize("name", ["active", "passive", "passive-active"])
 def test_override_schema_stays_within_budget(name: str) -> None:
     assert schema_size(override_schema(name)) <= SCHEMA_BUDGET[name]
 
 
-@pytest.mark.parametrize("name", ["active", "passive"])
+@pytest.mark.parametrize("name", ["active", "passive", "passive-active"])
 def test_override_schema_keeps_what_the_agent_needs(name: str) -> None:
     schema = override_schema(name)
     full = make_preset(name).model_json_schema()
@@ -699,6 +740,7 @@ def test_override_schema_keeps_what_the_agent_needs(name: str) -> None:
 
 def test_override_schema_of_an_unknown_preset() -> None:
     with pytest.raises(
-        PresetError, match=r"Unknown preset 'activ'\. Available presets: active, passive\."
+        PresetError,
+        match=r"Unknown preset 'activ'\. Available presets: active, passive, passive-active\.",
     ):
         override_schema("activ")

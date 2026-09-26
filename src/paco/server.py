@@ -47,6 +47,10 @@ JOBS = JobManager()
 ProfileName = Annotated[str, Field(description="A profile name from list_profiles.")]
 RunId = Annotated[str, Field(description="A run_id returned by run_processing.")]
 JobId = Annotated[str, Field(description="A job_id returned by invert or redo.")]
+Mode = Annotated[
+    Literal["active", "passive", "passive-active"] | None,
+    Field(description="One of the profile's modes (inspect_profile); left out, its own."),
+]
 
 
 def _agent_errors[**P, R](tool: Callable[P, R]) -> Callable[P, R]:
@@ -84,11 +88,11 @@ def inspect_profile(profile: ProfileName) -> profiles.ProfileSummary:
 
 @server.tool()
 @_agent_errors
-def preset_settings(profile: ProfileName) -> str:
+def preset_settings(profile: ProfileName, mode: Mode = None) -> str:
     """The settings run_processing and redo can change for this profile, as a JSON Schema:
     meaning, unit, allowed values and default of each; a null default is derived from the
     profile. Call it only before changing settings."""
-    return json.dumps(presets.override_schema(_preset(profile)), separators=(",", ":"))
+    return json.dumps(presets.override_schema(_preset(profile, mode)), separators=(",", ":"))
 
 
 @server.tool()
@@ -105,6 +109,7 @@ def run_processing(
             "<m/s>}}; see preset_settings. Left out, they come from the data."
         ),
     ] = None,
+    mode: Mode = None,
 ) -> StageResult:
     """Process a profile into one dispersion image per window, checked stage by stage: records
     (G1, its fixes applied: trigger delays corrected, bad traces left out), window length and
@@ -116,11 +121,18 @@ def run_processing(
         anyio.from_thread.run(ctx.report_progress, done, total, f"{done} of {total} windows")
 
     settings = get_settings()
+    # The mode as an argument, as preset_settings takes it: Qwen3-8B asked preset_settings for
+    # passive-active, then left the mode out of the overrides (2 of 3 plays, 2026-09-26).
+    if mode is not None:
+        overrides = {**(overrides or {}), "mode": mode}
     result = qc.process_line(profile, overrides, settings, _qc_config(settings), report)
     choice = qc.read_length_choice(runs.find_run(result.run_id, settings))
     given = qc.given_length(overrides) is not None
     processed = _stage_result(
-        result, ("G1", "G2"), ("preprocessing", "phase_shift"), _after_processing(result, given)
+        result,
+        ("G1", "G2"),
+        ("preprocessing", "phase_shift"),
+        _after_processing(result, given, choice),
     )
     lengths = qc.describe_lengths(choice) if choice is not None else ()
     return processed.model_copy(update={"lengths": lengths})
@@ -162,7 +174,8 @@ def invert(
     curve (values given are checked), G5 on each model and G6 on the line, retrying what they
     can. Returns a job_id: follow it with job_status."""
     settings = get_settings()
-    _parse(InversionParameters, parameters, "parameters", "inversion_settings")
+    checked = qc.checkable(parameters, qc.PriorRules().n_layers) if parameters else None
+    _parse(InversionParameters, checked, "parameters", "inversion_settings")
     record = qc.submit_inversion(run_id, parameters, settings)
     JOBS.submit(record.job_id, functools.partial(qc.run_inversion_job, record, settings))
     return inversion.summarize_inversion(record, live=True)
@@ -244,7 +257,9 @@ def _stage_result(
     )
 
 
-def _after_processing(report: qc.QCReport, length_given: bool = False) -> str:
+def _after_processing(
+    report: qc.QCReport, length_given: bool = False, choice: qc.LengthChoice | None = None
+) -> str:
     imaged = [
         unit
         for unit in report.units
@@ -256,13 +271,9 @@ def _after_processing(report: qc.QCReport, length_given: bool = False) -> str:
             "with a change the flags suggest, a new run with other settings, or stopping here."
         )
     step = f"pick comes next for run_id {report.run_id}, if the user asked for curves or models."
-    if length_given:
+    if length_given or choice is None:
         return step
-    return (
-        f"{step} The window length is the ladder's proposal (lengths): if the request needs "
-        "more depth (longer windows) or lateral detail (shorter), run_processing again with "
-        "masw.length, and say why."
-    )
+    return qc.length_hint(choice, step)
 
 
 def _after_picking(report: qc.QCReport) -> str:
@@ -286,9 +297,16 @@ def _after_picking(report: qc.QCReport) -> str:
     )
 
 
-def _preset(profile: str) -> str:
-    """The preset that fits `profile`: the one named after its kind, active or passive."""
-    return profiles.load_profile(profile, get_settings()).kind.value
+def _preset(profile: str, mode: str | None = None) -> str:
+    """The preset for `profile` in `mode`, by default the one named after its kind; refused
+    when the profile cannot be processed that way."""
+    kind = profiles.load_profile(profile, get_settings()).kind
+    if mode is None:
+        return kind.value
+    if mode not in profiles.MODES[kind]:
+        modes = ", ".join(profiles.MODES[kind])
+        raise ValueError(f"Profile '{profile}' is {kind}: its modes are {modes}.")
+    return mode
 
 
 def _parse[M: BaseModel](

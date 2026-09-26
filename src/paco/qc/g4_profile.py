@@ -8,6 +8,7 @@ from collections.abc import Sequence
 
 import numpy as np
 from pydantic import BaseModel, ConfigDict, Field
+from scipy.stats import rankdata
 
 from paco.qc.models import Flag, GateResult, Keep, Kept, Metric, Override
 from paco.qc.report import line_step, stretches
@@ -151,9 +152,11 @@ def _line_result(
     curves: Sequence[Series], without: Sequence[float], thresholds: ProfileThresholds
 ) -> GateResult:
     """Coverage: the xmids without a curve, and how comparable the depths of investigation are
-    along the line (the spread of the curves' longest wavelengths)."""
+    along the line (the spread of the curves' longest wavelengths); and where velocity falls
+    with wavelength along the line (said once, kept: the user's decision of 2026-09-25)."""
     longest = [float(curve.x[-1]) for curve in curves]
     depth_spread = spread(longest)
+    inverse = [curve.xmid for curve in curves if _falls(curve)]
     metrics = [
         Metric(name="curves", value=len(curves), threshold=1, bound="min", passed=len(curves) >= 1),
         Metric(name="without_curve", value=len(without), passed=True),
@@ -164,6 +167,7 @@ def _line_result(
             bound="max",
             passed=depth_spread <= thresholds.max_depth_spread,
         ),
+        Metric(name="inverse_curves", value=len(inverse), passed=True),
     ]
     step = line_step([*(one.xmid for one in curves), *without])
     flags: list[Flag] = []
@@ -187,6 +191,17 @@ def _line_result(
                 action=Keep(note="the models will not reach the same depth everywhere"),
             )
         )
+    if len(inverse) >= 2:
+        flags.append(
+            Flag(
+                name="inverse_trend",
+                message=f"Velocity falls with wavelength on {len(inverse)} of {len(curves)} "
+                f"curves, at {stretches(inverse, step)}: a stiff layer over a softer one there, "
+                "if the picks are right.",
+                stage="picking",
+                action=Keep(note="an inverse trend can be geology"),
+            )
+        )
     return GateResult(
         gate=GATE,
         unit=LINE,
@@ -195,3 +210,11 @@ def _line_result(
         flags=tuple(flags),
         kept=Kept(n_points=len(longest)),
     )
+
+
+def _falls(curve: Series) -> bool:
+    """Whether velocity falls with wavelength along the curve (a negative rank correlation, as
+    G3's trend)."""
+    if curve.x.size < 3 or np.ptp(curve.x) == 0 or np.ptp(curve.values) == 0:
+        return False
+    return float(np.corrcoef(rankdata(curve.x), rankdata(curve.values))[0, 1]) < 0

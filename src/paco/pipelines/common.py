@@ -33,7 +33,7 @@ def load_preprocessed(window: MASWWindow, records_folder: Path) -> Pipeline:
     raw records with receivers_to_load."""
     paths = [records_folder / path.stem / PREPROCESSED for path in window.selected_files]
     return Load(file_paths=paths, data_type="stream") >> SelectReceivers(
-        window.receiver_indices, window.acquisitions
+        window.receiver_indices, window.acquisitions, window.record_receivers
     )
 
 

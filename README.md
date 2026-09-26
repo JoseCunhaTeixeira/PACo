@@ -107,7 +107,29 @@ you> Process active_p1 with windows of 24 receivers, every 24 receivers, and pic
 
 paco> The 4 curves passed G3 and G4. G1 corrected the records' 19 and 10 ms trigger delays and
 left out traces 1, 89 and 90 of 2.dat.
+
+Settings the gates changed:
+- trigger t0 the default -> 0.0188 at 1.dat, 2.dat (each window its own), by G1:shifted_trigger
+- 2.dat: traces [1, 89, 90] left out of the windows
+- ...
 ```
+
+Whatever the model writes, PACo's host (`src/paco/agent/host.py`) lists the settings the gates
+changed after the answer, as the tools gave them; once the work has started, asks the model
+once more for an answer without a question or an offer, unless a tool said it is stuck (a
+question before any work, such as an impossible request, reaches you); and refuses `invert` (and a
+`redo` of the inversion) unless your message asks for models (invert, inversion, model, Vs,
+shear).
+
+PACo processes a profile in PAC's three modes: an active profile as shots (`active`, the
+default) or by interferometry on its shots (`passive-active`: each shot's surface waves
+cross-correlated with the receiver nearest the shot, the correlations stacked), a passive
+profile as ambient noise (`passive`). Ask for another mode in plain words ("process active_p1
+in passive-active mode"); `inspect_profile` lists a profile's modes. Two defaults differ from
+PAC's forms, measured on real lines: passive records are cut into 2 s segments, whitened and
+normalized one-bit (PAC: 0.1 s, neither; no curve on a real noise line), and passive-active
+correlates each shot's surface-wave window only (`correlation_window`, which can be switched
+off).
 
 Given no window length, `run_processing` proposes one: the shortest at which most trial windows
 along the line give a curve G3 passes, with a table of every length it tried (trial windows
@@ -125,13 +147,13 @@ each scenario three times and reports pass rates.
 | Tool | What it does |
 |---|---|
 | `list_profiles` | The profiles you can process |
-| `inspect_profile` | One profile: active or passive, receivers, spacing, sampling |
-| `preset_settings` | The processing settings the model may change, for one profile |
+| `inspect_profile` | One profile: active or passive, the modes it can be processed in, receivers, spacing, sampling |
+| `preset_settings` | The processing settings the model may change, for one profile and mode |
 | `run_processing` | Preprocesses the records (G1, its fixes applied), proposes a window length from trial windows unless given (the lengths tried listed for the model to choose from) and caps the band to the data, makes one dispersion image per window (G2, retried when it can be fixed); returns a `run_id` and the gates' summary |
 | `pick` | Picks each window's fundamental mode (G3, picked again when it can be fixed), judges the curves over the line (G4, outliers picked again), saves them in PAC's layout |
 | `inversion_settings` | The inversion's parameters; left out, each window's bounds come from its own curve |
-| `invert` | Inverts the curves G4 passed, in the background (G5 on each model, G6 over the line, each retrying what it can); returns a `job_id` |
-| `job_status` | Where an inversion stands, after waiting up to 2 minutes: the smooth median models' Vs at a few depths, their useful depth and misfit; the gates' summary once it ends |
+| `invert` | Inverts the curves G4 passed, in the background (G5 on each model, G6 over the line, each retrying what it can), then writes the line's velocity section and the picked curves against the predicted ones, as PAC does (`SeismicInversion_VelocitySection_0000.png` and `.hdf5`, `SeismicInversion_PseudoSectionComparison_0000_M0.png`, in the run folder, over the models G5 passed); returns a `job_id` |
+| `job_status` | Where an inversion stands, after waiting up to 2 minutes: the smooth median models' Vs at a few depths, the depth their curves inform them down to (half the longest wavelength) and their misfit; the gates' summary once it ends |
 | `redo` | Goes back to a stage (preprocessing, phase shift, picking, inversion) for some windows, with the changes a gate suggested, and redoes what follows |
 
 ## Quality control
@@ -141,21 +163,25 @@ G2 each dispersion image, G3 each curve, G4 the curves over the line, G5 each mo
 over the line. Each gives a verdict (pass, retry, reject), each metric with its threshold, and for
 each flag the stage at fault and a change that can be applied as it is. The stage tools apply
 their own gate's changes, within budgets (2 retries per gate and window, 2 per window over the
-run); a change of an earlier stage is the model's to make, with `redo`. The band and the
-inversion's bounds come from the data, the window length is proposed from it, for the model to
-choose (`docs/gates/S2_rules.md`, `docs/gates/S4_checks.md`). Each pick goes as far as its ridge
-holds, at both ends, and G3 judges sharpness and prominence against a perfect plane wave for the
-same window, so that short windows are judged fairly (`docs/gates/G3.md`). `docs/gates/` documents every gate with its thresholds, the demo's
+run); a change of an earlier stage is the model's to make, with `redo`. The band (the records'
+median usable band), the farthest shot a window stacks (where the traces' median SNR falls
+under 2 dB) and the inversion's bounds come from the data, the window length is proposed from
+it, for the model to choose (`docs/gates/S2_rules.md`, `docs/gates/S4_checks.md`). Each pick
+goes as far as its ridge holds, at both ends, and G3 judges sharpness and prominence against a
+perfect plane wave for the same window, so that short windows are judged fairly
+(`docs/gates/G3.md`). An inversion has at least 3 layers and starts at 4; G5 adds layers up to
+what each curve resolves. `docs/gates/` documents every gate with its thresholds, the demo's
 real outputs, and what is still to judge.
 
 ## Safety
 
 - `paco-server` listens on 127.0.0.1 by default: only this machine can reach it. Anyone who can
   reach it can run PACo's tools, which write files and start long computations.
-- No tool asks you anything: an inversion starts for the curves G4 passed, the go or no-go before
-  it. Every attempt is in the run's `qc_log.jsonl` and `qc_report.json`, with the curve each
-  model came from: review the curves afterwards (`DispersionImage_0000.png` in each window
-  folder, or PAC's UI), correct them there if needed, and invert again.
+- No tool asks you anything: when your message asks for models, an inversion starts for the
+  curves G4 passed, the go or no-go before it. Every attempt is in the run's `qc_log.jsonl` and
+  `qc_report.json`, with the curve each model came from: review the curves afterwards
+  (`DispersionImage_0000.png` in each window folder, or PAC's UI), correct them there if
+  needed, and invert again.
 - The gates' thresholds are locked during a run: only you change them, between runs
   (`PACO_QC_CONFIG`); every run records the ones it used.
 - Profiles are found by name and runs by ID: a tool never takes a path from the model.

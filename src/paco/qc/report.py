@@ -13,13 +13,20 @@ from typing import Any, cast
 
 from pydantic import BaseModel, ConfigDict
 
-from paco.qc.log import read_attempts
+from paco.qc.log import read_attempts, retries_in_run
 from paco.qc.models import Action, Attempt, Budgets, Flag, GateResult, Kept, Stage, Verdict
 
 REPORT_FILE = "qc_report.json"
 _STRETCH_MARGIN = 1.5  # two xmids further apart than 1.5 steps are not consecutive
 _ERROR_LENGTH = 200  # of an error in the summary
 _NUMBER = re.compile(r"\d+(\.\d+)?")
+# The gate that first judges each stage's output.
+_FIRST_GATE: dict[Stage, str] = {
+    "preprocessing": "G1",
+    "phase_shift": "G2",
+    "picking": "G3",
+    "inversion": "G5",
+}
 
 
 class UnitReport(BaseModel):
@@ -102,7 +109,7 @@ def build_report(run_id: str, run_folder: Path, budgets: Budgets, n_xmids: int) 
         run_id=run_id,
         budgets=budgets,
         n_xmids=n_xmids,
-        retries=sum(1 for attempt in attempts if attempt.triggered_by != "initial"),
+        retries=retries_in_run(attempts),  # on the windows' budget: G1's are per record
         retried={trigger: tuple(units) for trigger, units in retried.items()},
         changed={
             trigger: (made[0][0], made[0][1], all(change == made[0][1] for _, change in made))
@@ -139,6 +146,9 @@ def summarize_report(report: QCReport, gates: Sequence[str] | None = None) -> st
     by_unit = {unit.unit: unit for unit in report.units}
     for trigger, names in report.retried.items():
         gate = trigger.split(":")[0]
+        if trigger == "backtrack" and trigger in report.changed:
+            # The agent's own step back: the verdict of the gate that judges the stage redone.
+            gate = _FIRST_GATE[report.changed[trigger][0]]
         now = Counter(
             by_unit[name].verdicts.get(gate, "no verdict") for name in names if name in by_unit
         )
@@ -400,7 +410,11 @@ def _unit_report(unit: str, attempts: list[Attempt]) -> UnitReport:
     latest_result: dict[str, GateResult] = {}
     for attempt in attempts:
         parameters[attempt.stage] = attempt.parameters
-        notes[attempt.stage] = attempt.notes
+        # The latest notes there are: a retry derives from values already checked and notes
+        # nothing, which dropped the checks' changes to the user's values from `changed` (the
+        # user's 180 m/s, on every window G5 sampled again, 2026-09-26).
+        if attempt.notes:
+            notes[attempt.stage] = attempt.notes
         if attempt.status == "failed":
             failed[attempt.stage] = attempt.error or "failed"
         else:

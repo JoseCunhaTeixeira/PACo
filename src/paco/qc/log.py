@@ -82,8 +82,12 @@ def retries_at_gate(attempts: Iterable[Attempt], unit: str, gate: str) -> int:
 
 
 def retries_in_run(attempts: Iterable[Attempt]) -> int:
-    """Retries spent on the whole run, at every gate."""
-    return sum(1 for a in attempts if a.triggered_by != "initial")
+    """Retries spent on the run's budget, the windows': every gate's and the agent's, but G1's,
+    which each record's own budget bounds (the user's decision of 2026-09-25: a narrow velocity
+    range left the windows 6 of 8 after G1's two corrections)."""
+    return sum(
+        1 for a in attempts if a.triggered_by != "initial" and not a.triggered_by.startswith("G1:")
+    )
 
 
 def retries_by_unit(attempts: Iterable[Attempt]) -> Counter[str]:

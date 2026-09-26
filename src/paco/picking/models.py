@@ -76,6 +76,17 @@ class PickingParameters(BaseModel):
         description="A step between consecutive kept points steeper than this |d ln v / d ln f| "
         "ends the run: the ridge broke.",
     )
+    fmin: float | None = Field(
+        default=None,
+        ge=0,
+        description="Lowest frequency searched, Hz (G3 cuts a pick where it jumped onto another "
+        "mode); null: the image's.",
+    )
+    fmax: float | None = Field(
+        default=None,
+        gt=0,
+        description="Highest frequency searched, Hz; null: the image's.",
+    )
     max_modes: int = Field(
         default=1,
         ge=1,

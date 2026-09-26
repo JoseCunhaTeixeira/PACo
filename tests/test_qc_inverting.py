@@ -82,9 +82,13 @@ def test_the_windows_g4_passed_are_inverted_with_bounds_from_their_curves(
         for layer in parameters["vs_layers"]:
             assert layer["vs_min"] == round(0.8 * velocities.min())
             assert layer["vs_max"] == round(1.5 * velocities.max())
-        (layer,) = parameters["thickness_layers"]
-        assert layer["thickness_min"] == round(wavelengths.min() / 3, 2)
-        assert layer["thickness_max"] == round(wavelengths.max() / 2, 2)
+        # 4 layers asked (the user, 2026-09-25), fewer when the curve resolves fewer, never 2.
+        n_layers = parameters["n_layers"]
+        assert 3 <= n_layers <= 4
+        assert len(parameters["thickness_layers"]) == n_layers - 1
+        for layer in parameters["thickness_layers"]:
+            assert layer["thickness_min"] == round(wavelengths.min() / 3, 2)
+            assert layer["thickness_max"] == round(wavelengths.max() / 2 / (n_layers - 1), 2)
         # What G5 judged is kept next to PAC's files.
         folder = run_folder / attempt.unit
         assert (folder / SAMPLES_FILE).exists()

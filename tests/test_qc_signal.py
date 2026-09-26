@@ -16,6 +16,8 @@ from paco.qc.g1_signal import (
     rms_decay_outliers,
     signal_windows,
     snr_db,
+    snr_reach,
+    trace_snrs,
     trigger_shift,
     usable_band,
 )
@@ -191,7 +193,7 @@ def test_the_usable_band_holds_the_wavelet_and_no_more() -> None:
     assert 35 <= fmax <= 80
 
 
-def test_neighbours_correlate_unless_one_is_reversed() -> None:
+def test_neighbours_correlate_and_a_reversed_trace_is_not_judged() -> None:
     stream = _shot()
     windows = signal_windows(
         np.asarray(stream.acquisition.offsets), np.asarray(stream.ts), THRESHOLDS
@@ -201,13 +203,26 @@ def test_neighbours_correlate_unless_one_is_reversed() -> None:
 
     coherence, polarity = lateral_coherence(stream.xt.astype(float), windows, SAMPLING, max_lag_s)
     reversed_stream = _with_trace(stream, 5, -stream.xt[5])
-    result = judge_signal("1.dat", reversed_stream, THRESHOLDS)
+    reversed_coherence, reversed_polarity = lateral_coherence(
+        reversed_stream.xt.astype(float), windows, SAMPLING, max_lag_s
+    )
 
     assert coherence.min() > 0.9
     assert (polarity > 0).all()
-    (flag,) = result.flags
-    assert flag.name == "reversed_polarity"
-    assert flag.action.model_dump()["traces"] == (5,)
+    # The polarity is measured, but no longer judged (the user, 2026-09-25: a reversed geophone
+    # hardly ever happens, and near the source the check flagged whole blocks of traces).
+    assert list(reversed_polarity[4:6]) == [-1, -1] and reversed_coherence.min() > 0.9
+    assert "reversed_polarity" not in {
+        flag.name for flag in judge_signal("1.dat", reversed_stream, THRESHOLDS).flags
+    }
+
+
+def test_leaving_traces_out_adds_no_amplitude_outlier() -> None:
+    # The decay is fitted on every trace alive: leaving the nearest six out does not move it,
+    # so no new trace falls off it (it once cascaded over 21 traces around each shot).
+    result = judge_signal("1.dat", _shot(), THRESHOLDS, excluded=range(6))
+
+    assert "rms_outliers" not in {flag.name for flag in result.flags}
 
 
 def test_a_shifted_trigger_rejects_the_record() -> None:
@@ -286,3 +301,57 @@ def test_the_energy_a_mute_removed_is_reported() -> None:
 def test_thresholds_refuse_nonsense(field: str) -> None:
     with pytest.raises(ValueError):
         SignalThresholds(**{field: 0})
+
+
+# ---------------------------------------------------------------- the line's reach (2026-09-25)
+
+
+def test_the_reach_is_where_the_traces_median_snr_falls_under_the_limit() -> None:
+    # 60 dB at the shot, 0.7 dB less every metre: 6 dB at 77.1 m; bins of 10 m find 77.6.
+    offsets = np.arange(0.0, 100.0, 1.0)
+    measured = [(offsets, 60 - 0.7 * offsets)] * 2
+
+    assert snr_reach(measured, 6.0, 10.0) == pytest.approx(77.6, abs=0.1)
+    # Every trace above the limit: no reach; nothing measured: none either.
+    assert snr_reach([(offsets, np.full(offsets.size, 20.0))], 6.0, 10.0) is None
+    assert snr_reach([], 6.0, 10.0) is None
+
+
+def test_a_record_is_judged_within_the_reach() -> None:
+    # The far two thirds of the line carry only noise, as on a long line: judged on every trace
+    # the median SNR fails; within the reach, the near traces carry the wave.
+    shot = _shot()
+    rng = np.random.default_rng(1)
+    xt = shot.xt.copy()
+    xt[8:] = (rng.standard_normal(xt[8:].shape) * 0.02).astype(np.float32)
+    far_noise = replace(shot, xt=xt)
+    measured = trace_snrs(far_noise, THRESHOLDS)
+    assert measured is not None
+    offsets, snrs = measured
+    assert snrs[:8].min() > 10 > snrs[8:].max()
+
+    whole = judge_signal("1.dat", far_noise, THRESHOLDS)
+    near = judge_signal("1.dat", far_noise, THRESHOLDS, reach_m=float(offsets[7]))
+
+    assert "low_snr" in {flag.name for flag in whole.flags}
+    assert "low_snr" not in {flag.name for flag in near.flags}
+    assert "low_coherence" in {flag.name for flag in whole.flags}
+    assert near.flags == ()
+
+
+def test_the_decay_is_fitted_within_the_reach() -> None:
+    # Six traces carry the wave, eighteen only noise: over the whole line the noise floor
+    # flattens the decay, and the six read too loud (active_p2's nearest traces, 2026-09-25).
+    shot = _shot()
+    rng = np.random.default_rng(1)
+    xt = shot.xt.copy()
+    xt[6:] = (rng.standard_normal(xt[6:].shape) * 0.02).astype(np.float32)
+    far_noise = replace(shot, xt=xt)
+    offsets = np.asarray(far_noise.acquisition.offsets)
+
+    whole = {flag.name: flag for flag in judge_signal("1.dat", far_noise, THRESHOLDS).flags}
+    near = judge_signal("1.dat", far_noise, THRESHOLDS, reach_m=float(offsets[5]))
+
+    assert whole["rms_outliers"].action.model_dump()["traces"] == (0, 1, 2, 3, 4, 5)
+    assert "rms_outliers" not in {flag.name for flag in near.flags}
+    assert near.kept.n_traces == N_TRACES

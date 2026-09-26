@@ -39,7 +39,12 @@ class CoherenceRules(BaseModel):
         description="Window lengths tried, in receivers, shortest first: the short ones the "
         "user works with, then longer ones for a line where none of them passes.",
     )
-    trials: int = Field(default=9, ge=1, description="Trial windows per length, along the line.")
+    trials: int = Field(
+        default=27,
+        ge=1,
+        description="Trial windows per length, spread evenly along the whole line, its ends "
+        "included: enough that their share passing G3 is the line's.",
+    )
     min_pass_share: float = Field(
         default=0.8,
         gt=0,
@@ -99,24 +104,33 @@ def cap_band(
     usable: Sequence[tuple[float, float] | None],
     nyquist: float,
 ) -> tuple[dict[str, Any], tuple[str, ...]]:
-    """The dispersion band within what every record keeps usable (G1) and below Nyquist:
-    overrides for the dispersion stage (empty when the band already fits), and notes."""
+    """The dispersion band within the records' median usable band (G1) and below Nyquist:
+    overrides for the dispersion stage (empty when the band already fits), and notes. The
+    median, not the worst record (the user's decision of 2026-09-25): on active_p2's 97
+    records the highest usable start (24 Hz) and the lowest usable end (86 Hz) cut the whole
+    line's long wavelengths, where the median record is usable from 2.3 to 298 Hz."""
     dispersion = preset.model_dump()["dispersion"]
     known = [band for band in usable if band is not None]
-    low = max((band[0] for band in known), default=0.0)
-    high = min([band[1] for band in known] + [nyquist])
+    low = float(np.median([band[0] for band in known])) if known else 0.0
+    high = min(float(np.median([band[1] for band in known])) if known else nyquist, nyquist)
+    if high <= low:
+        # No usable band left: no cap (97 shots of active_p2 crashed here before the median).
+        return {}, (
+            f"The records' median usable band is empty ({low:.1f} to {high:.1f} Hz): the band "
+            "stays the preset's.",
+        )
     overrides: dict[str, Any] = {}
     notes: list[str] = []
     if dispersion["fmax"] > high:
         overrides["fmax"] = round(high, 1)
         notes.append(
-            f"dispersion fmax {dispersion['fmax']:g} Hz is above the records' usable band "
+            f"dispersion fmax {dispersion['fmax']:g} Hz is above the records' median usable band "
             f"(up to {high:.1f} Hz): set to {high:.1f}."
         )
     if dispersion["fmin"] < low:
         overrides["fmin"] = round(low, 1)
         notes.append(
-            f"dispersion fmin {dispersion['fmin']:g} Hz is below the records' usable band "
+            f"dispersion fmin {dispersion['fmin']:g} Hz is below the records' median usable band "
             f"(from {low:.1f} Hz): set to {low:.1f}."
         )
     if overrides.get("fmax", dispersion["fmax"]) <= overrides.get("fmin", dispersion["fmin"]):
@@ -124,7 +138,7 @@ def cap_band(
         # empty. The one case the band is widened: up to the usable band's top.
         overrides["fmax"] = round(high, 1)
         notes.append(
-            f"dispersion fmax {dispersion['fmax']:g} Hz lies below the records' usable band "
+            f"dispersion fmax {dispersion['fmax']:g} Hz lies below the records' median usable band "
             f"({low:.1f}-{high:.1f} Hz): set to {high:.1f}."
         )
     return ({"dispersion": overrides} if overrides else {}), tuple(notes)
@@ -232,6 +246,35 @@ def describe_lengths(choice: LengthChoice) -> tuple[str, ...]:
     return tuple(said)
 
 
+def length_hint(choice: LengthChoice, then: str) -> str:
+    """What comes after the ladder's proposal: the lengths the agent may change it to, named,
+    first (the longest tried for more depth, the shortest whose trials passed at least half for
+    more lateral detail), and `then`, the next step when it stays. Qwen3-8B never turned
+    "longer" or "shorter" into a length of the table (0 of 6 plays), nor ran again when the
+    lengths came after "pick comes next" (0 of 6, 2026-09-26): it follows the first step it
+    reads."""
+    deeper = max(trial.length for trial in choice.trials)
+    detail = min(
+        (trial.length for trial in choice.trials if 2 * trial.passed >= len(trial.xmids)),
+        default=choice.length,
+    )
+    options = []
+    if deeper > choice.length:
+        options.append(
+            f"If the request needs more depth, first run_processing again with masw.length "
+            f"{deeper} (the longest tried)."
+        )
+    if detail < choice.length:
+        options.append(
+            f"If it needs more lateral detail, first run_processing again with masw.length "
+            f"{detail} (the shortest whose trials passed at least half)."
+        )
+    proposal = f"The window length is the ladder's proposal ({choice.length} receivers)."
+    if not options:
+        return f"{then} {proposal}"
+    return f"{proposal} {' '.join(options)} Say why. Otherwise, {then}"
+
+
 def _spacing(profile: Profile) -> float:
     """The receivers' spacing along the line, m."""
     positions = sorted(receiver.x for receiver in profile.receivers)
@@ -256,8 +299,7 @@ def _try_length(
     windows = build_windows(profile, trial_preset.masw)
     if not windows:
         return None
-    picks = np.unique(np.linspace(0, len(windows) - 1, judge.rules.trials).round().astype(int))
-    chosen = [windows[index] for index in picks]
+    chosen = [windows[index] for index in trial_indices(len(windows), judge.rules.trials)]
     folder = run_folder / TRIALS_FOLDER / f"{length}"
     shutil.rmtree(folder, ignore_errors=True)
     folder.mkdir(parents=True)
@@ -317,6 +359,16 @@ def _try_length(
             else None
         ),
     )
+
+
+def trial_indices(n_windows: int, trials: int) -> list[int]:
+    """`trials` windows spread evenly along the whole line, its ends included. Measured on
+    2026-09-25 (the user's decision): 27 trials pass G3 at the line's own shares (65 to 98 % for
+    5 to 16 receivers, within a few %); 9 with the ends left out all passed at 5 receivers,
+    where the line gives curves on 65 % of its windows, and 9 with the ends in stopped every
+    short length at 7 of 9."""
+    positions = np.linspace(0, n_windows - 1, trials).round().astype(int)
+    return [int(index) for index in np.unique(positions)]
 
 
 def nearest_offset(window_folder: Path) -> float | None:

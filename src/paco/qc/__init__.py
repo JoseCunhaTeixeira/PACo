@@ -13,6 +13,7 @@ from .coherence import (
     choose_length,
     describe_lengths,
     given_length,
+    length_hint,
     read_length_choice,
 )
 from .config import CONFIG_FILE, QCConfig, load_qc_config, read_qc_config, snapshot_qc_config
@@ -63,7 +64,7 @@ from .models import (
     Verdict,
     stage_index,
 )
-from .priors import Derived, PriorRules, derive_inversion
+from .priors import Derived, PriorRules, broadcast_layers, checkable, derive_inversion
 from .redo import check_budget, redo_stage, select_windows
 from .report import (
     REPORT_FILE,
@@ -122,12 +123,14 @@ __all__ = [
     "append_attempt",
     "archived_attempts",
     "attempts_of",
+    "broadcast_layers",
     "budget_spent",
     "build_report",
     "can_retry",
     "cap_band",
     "changed_settings",
     "check_budget",
+    "checkable",
     "choose_length",
     "derive_inversion",
     "describe",
@@ -148,6 +151,7 @@ __all__ = [
     "judge_run",
     "judge_windows",
     "latest",
+    "length_hint",
     "load_qc_config",
     "pick_line",
     "process_line",

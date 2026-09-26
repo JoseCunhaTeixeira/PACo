@@ -7,13 +7,15 @@ from sigpipe.base import Pipeline
 
 from paco.pipelines.active import build_active_pipeline
 from paco.pipelines.passive import build_passive_pipeline
+from paco.pipelines.passive_active import build_passive_active_pipeline
 from paco.presets import ActivePreset, PassivePreset
-from paco.profiles import ProfileKind
+from paco.profiles import ProcessingMode
 from paco.windows import MASWWindow
 
 PIPELINE_BUILDERS: dict[str, Callable[..., Pipeline]] = {
-    ProfileKind.ACTIVE: build_active_pipeline,
-    ProfileKind.PASSIVE: build_passive_pipeline,
+    ProcessingMode.ACTIVE: build_active_pipeline,
+    ProcessingMode.PASSIVE: build_passive_pipeline,
+    ProcessingMode.PASSIVE_ACTIVE: build_passive_active_pipeline,
 }
 
 

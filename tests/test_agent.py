@@ -1,4 +1,5 @@
 import json
+from collections.abc import Callable
 from pathlib import Path
 from typing import Any
 
@@ -16,6 +17,7 @@ from paco.agent import (
     Reply,
     ToolCall,
     chat,
+    host,
     result_for_model,
     without_thinking,
 )
@@ -235,6 +237,129 @@ def test_the_agent_asks_only_when_stuck() -> None:
     assert "no offer, no question" in ROLE
     assert "report every item of the results' changed lists" in ROLE
     assert "Ask the user only when stuck" in server.INSTRUCTIONS
+
+
+# ---------------------------------------------------------------- what the host guarantees
+
+
+def test_the_hosts_rules() -> None:
+    assert host.asks_for_models("Process active_p1 and give me the Vs models.")
+    assert host.asks_for_models("pick the curves and invert them quickly")
+    assert not host.asks_for_models("Process active_p1 with velocities up to 250 m/s.")
+    assert not host.asks_for_models("pick the curves, reaching as deep as this line allows")
+    assert host.starts_inversion("invert", "{}")
+    assert host.starts_inversion("redo", '{"run_id": "r", "stage": "inversion"}')
+    assert not host.starts_inversion("redo", '{"run_id": "r", "stage": "picking"}')
+    for asking in (
+        "Would you like me to invert them",
+        "Let me know if you want more.",
+        "1. Redo. 2. Stop. Choose one to proceed.",
+        "Which one?",
+    ):
+        assert host.asks_or_offers(asking)
+    assert not host.asks_or_offers("4 curves passed G3 and G4. No further action required.")
+    assert host.changed_items('{"run_id": "r", "changed": ["a", "b"]}') == ["a", "b"]
+    assert host.changed_items("Error executing tool pick: Unknown run.") == []
+    assert host.with_changes("4 curves passed.", ["a"]) == (
+        "4 curves passed.\n\nSettings the gates changed:\n- a"
+    )
+    assert host.with_changes("4 curves passed.", []) == "4 curves passed."
+
+
+class PolicyModel(ScriptedModel):
+    """Stands in for Qwen with a policy: its reply read from the conversation so far."""
+
+    def __init__(self, policy: Callable[[list[ChatCompletionMessageParam]], Reply]) -> None:
+        super().__init__()
+        self._policy = policy
+
+    async def __call__(
+        self,
+        messages: list[ChatCompletionMessageParam],
+        tools: list[ChatCompletionFunctionToolParam],
+    ) -> Reply:
+        self.seen.append(list(messages))
+        self.tools = tools
+        return self._policy(messages)
+
+
+@pytest.mark.usefixtures("paco_env")
+def test_the_host_lists_the_settings_the_gates_changed() -> None:
+    def picks(messages: list[ChatCompletionMessageParam]) -> Reply:
+        results = _tool_results(messages)
+        if not results:
+            return _calls(("run_processing", {"profile": "active_p1", "overrides": SMALL_WINDOWS}))
+        if len(results) == 1:
+            return _calls(("pick", {"run_id": json.loads(results[0])["run_id"]}))
+        return _says("3 curves passed G3 and G4.")
+
+    answer, _, messages = _converse(PolicyModel(picks), "Process active_p1 and pick the curves.")
+
+    head, listed = answer.split("\n\nSettings the gates changed:\n")
+    assert head == "3 curves passed G3 and G4."
+    assert listed.splitlines()[:2] == [
+        "- trigger t0 the default -> 0.0188 at 1.dat, 2.dat (each window its own), by "
+        "G1:shifted_trigger",
+        "- 2.dat: traces [1, 13, 89, 90] left out of the windows",
+    ]
+    # What the user saw is what the conversation keeps.
+    assert messages[-1] == {"role": "assistant", "content": answer}
+
+
+@pytest.mark.usefixtures("paco_env")
+def test_an_answer_that_asks_after_the_work_is_asked_again_once() -> None:
+    def offers(messages: list[ChatCompletionMessageParam]) -> Reply:
+        if not _tool_results(messages):
+            return _calls(("run_processing", {"profile": "active_p1", "overrides": SMALL_WINDOWS}))
+        if messages[-1]["role"] == "tool":
+            return _says("The images are ready. Shall I pick the curves?")
+        return _says("The images are ready. Shall I pick the curves now?")
+
+    answer, events, messages = _converse(PolicyModel(offers), "Process active_p1.")
+
+    # Asked again once, then the answer is the model's, question or not.
+    assert answer.startswith("The images are ready. Shall I pick the curves now?")
+    assert {"role": "user", "content": host.ANSWER_AGAIN} in messages
+    assert "   (asked to answer again, without a question or an offer)" in events
+
+
+@pytest.mark.usefixtures("paco_env")
+def test_a_question_before_any_work_reaches_the_user() -> None:
+    # 120 receivers asked on a 96-receiver line: the model asks before running anything. Asked
+    # again (2026-09-25's rule), it ran 96 receivers unasked (2 of 3 plays, 2026-09-26).
+    question = (
+        "active_p1 has only 96 receivers, so windows of 120 cannot fit. Which should I use: 96 "
+        "(the whole line), 48, or 24?"
+    )
+    model = ScriptedModel(_calls(("inspect_profile", {"profile": "active_p1"})), _says(question))
+
+    answer, events, _ = _converse(model, "Process active_p1 with windows of 120 receivers.")
+
+    assert answer == question
+    assert not [event for event in events if "asked to answer again" in event]
+
+
+@pytest.mark.usefixtures("paco_env")
+def test_no_inversion_starts_unless_the_user_asked_for_models() -> None:
+    model = ScriptedModel(
+        _calls(("invert", {"run_id": "20260925-100000-abcd"})),
+        _says("The curves are picked."),
+    )
+
+    _, events, messages = _converse(model, "Pick the curves of run 20260925-100000-abcd.")
+
+    (result,) = _tool_results(messages)
+    assert result == (
+        "Not called: the user asked for no velocity model, so no inversion starts. Answer with "
+        "what the request asked for."
+    )
+    assert (
+        events[0] == '-> invert({"run_id": "20260925-100000-abcd"}) refused: no model was asked for'
+    )
+    # Asked for, the call goes to the server.
+    model = ScriptedModel(_calls(("invert", {"run_id": "20260925-100000-abcd"})), _says("No run."))
+    _, _, messages = _converse(model, "Invert run 20260925-100000-abcd.")
+    assert "Unknown run" in _tool_results(messages)[0]
 
 
 # ---------------------------------------------------------------- the model behind vLLM's API

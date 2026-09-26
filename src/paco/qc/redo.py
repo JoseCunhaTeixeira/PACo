@@ -17,7 +17,7 @@ from paco.qc.attempts import invalidate_record
 from paco.qc.budgets import run_budget
 from paco.qc.config import QCConfig, read_qc_config
 from paco.qc.curves import pick_line
-from paco.qc.line import settle_images, settle_records
+from paco.qc.line import line_reach, settle_images, settle_records
 from paco.qc.log import append_attempt, latest, read_attempts, retries_in_run
 from paco.qc.loops import deep_merge
 from paco.qc.models import Attempt
@@ -195,7 +195,13 @@ def _redo_records(
         for record in manifest.records
     )
     records, exclusions, _ = settle_records(
-        run_folder, profile, manifest.preset, records, config, settings.workers
+        run_folder,
+        profile,
+        manifest.preset,
+        records,
+        config,
+        settings.workers,
+        line_reach(run_folder, profile, records, config),
     )
     write_manifest(
         run_id,

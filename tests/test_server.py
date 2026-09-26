@@ -26,8 +26,9 @@ TOOLS = [
 ]
 # Every card (name, description, argument schema) travels with every request to the model.
 # Raised from 4,500 in milestone 5 for the three inversion tools (5,221 measured); 5,424 with
-# milestone 14's stage tools.
-CARDS_BUDGET = 5_500  # characters, all tools together
+# milestone 14's stage tools; 5,882 with PAC's third mode, passive-active (2026-09-26: a mode
+# argument for run_processing and preset_settings).
+CARDS_BUDGET = 5_900  # characters, all tools together
 # The server's instructions go into the model's system prompt too.
 INSTRUCTIONS_BUDGET = 600  # characters
 # Four 24-receiver windows along the active demo line, as in test_runs.py.
@@ -120,7 +121,7 @@ def test_host_checks_follow_the_allowed_hosts(demo_input_dir: Path) -> None:
 def test_the_context_is_not_an_argument() -> None:
     (run_processing,) = [tool for tool in _tools() if tool.name == "run_processing"]
 
-    assert list(run_processing.input_schema["properties"]) == ["profile", "overrides"]
+    assert list(run_processing.input_schema["properties"]) == ["profile", "overrides", "mode"]
 
 
 # ---------------------------------------------------------------- results
@@ -144,6 +145,22 @@ def test_preset_settings_are_the_profiles_override_schema(profile: str, preset: 
     result = _call("preset_settings", {"profile": profile})
 
     assert json.loads(_text(result)) == override_schema(preset)
+
+
+@pytest.mark.usefixtures("paco_env")
+def test_an_active_profile_has_a_passive_active_mode() -> None:
+    summary = _call("inspect_profile", {"profile": "active_p1"}).structured_content
+
+    assert summary is not None and summary["modes"] == ["active", "passive-active"]
+    settings = json.loads(
+        _text(_call("preset_settings", {"profile": "active_p1", "mode": "passive-active"}))
+    )
+    assert settings == override_schema("passive-active")
+    refused = _call("preset_settings", {"profile": "active_p1", "mode": "passive"})
+    assert refused.is_error
+    assert "Profile 'active_p1' is active: its modes are active, passive-active." in (
+        _text(refused)
+    )
 
 
 def test_inversion_settings_describe_every_parameter() -> None:
@@ -184,35 +201,49 @@ def test_the_workflow_process_pick_redo_invert() -> None:
     assert done["changed"] == [
         "trigger t0 the default -> 0.0188 at 1.dat, 2.dat (each window its own), by "
         "G1:shifted_trigger",
-        "2.dat: traces [1, 89, 90] left out of the windows",
-        "line: masw length 24 for the whole line: trial windows G3 passed, as given: 9/9 at 24.",
+        "2.dat: traces [1, 13, 89, 90] left out of the windows",
+        "line: masw distance_max 24.34 m: beyond it from the shot, the traces' median SNR falls "
+        "under 2 dB (G1), so the windows stack no farther shot. masw length 24 for the whole "
+        "line: trial windows G3 passed, as given: 26/27 at 24.",
     ]
     # The lengths the ladder tried, for the agent to choose from: the user's only, here.
     assert done["lengths"] == [
         "line: 96 receivers 0.25 m apart (23.75 m); windows of up to 48 receivers (half the line)",
-        "24 receivers (5.75 m): 9/9 trial windows passed G3, wavelengths 5.0-26.0 m, 4 windows "
+        "24 receivers (5.75 m): 26/27 trial windows passed G3, wavelengths 5.0-28.0 m, 4 windows "
         "on the line (proposed)",
     ]
     assert picked.structured_content is not None
-    assert picked.structured_content["summary"].splitlines()[:2] == ["G3: 4 pass", "G4: 5 pass"]
-    assert picked.structured_content["changed"] == []
+    # xmid 2.88 keeps 2 points once trace 13 leaves its image (G1's decay fitted within the
+    # reach, 2026-09-25): G3 lowers the coherence rule, then rejects it.
+    assert picked.structured_content["summary"].splitlines()[:2] == [
+        "G3: 3 pass, 1 reject",
+        "G4: 4 pass",
+    ]
+    assert picked.structured_content["changed"] == [
+        "min_relative_coherence 0.5 -> 0.3 at xmid 2.88 (1) (each window its own), by "
+        "G3:too_few_points"
+    ]
     assert picked.structured_content["next"] == (
-        f"4 curves passed G3 and G4. invert can run on run_id {run_id}, if the user asked for "
+        f"3 curves passed G3 and G4. invert can run on run_id {run_id}, if the user asked for "
         "models; otherwise answer."
     )
 
-    # Going back to the picking for the windows carrying a flag, with a change.
+    # Going back to the picking for the windows carrying a flag, with a change: the verdict of
+    # the gate that judges the stage redone.
     redone = _call(
         "redo",
         {
             "run_id": run_id,
             "stage": "picking",
-            "flag": "inverse_dispersion",
+            "flag": "too_few_points",
             "changes": {"corridor": 0.1},
         },
     )
     assert redone.structured_content is not None
-    assert "Retried backtrack, xmid 2.88 (1)" in redone.structured_content["summary"]
+    assert (
+        'Retried backtrack, xmid 2.88 (1) with picking {"corridor":0.1}: now 1 reject.'
+        in redone.structured_content["summary"]
+    )
 
     # No question: the job starts in the background, and job_status follows it to the gates'
     # summary.
@@ -220,15 +251,49 @@ def test_the_workflow_process_pick_redo_invert() -> None:
     assert started.structured_content is not None
     assert (started.structured_content["state"], started.structured_content["total"]) == (
         "queued",
-        4,
+        3,
     )
     status = _wait_for(started.structured_content["job_id"])
-    assert (status["state"], status["done"]) == ("succeeded", 4)
+    assert (status["state"], status["done"]) == ("succeeded", 3)
     # sigpipe's sampler sometimes fails a window twice (a chain keeping no predicted curve).
     assert status["n_failed"] <= 1
     # The smooth median models, at round depths.
     assert status["depths_m"] and len(status["vs_m_s"]) == len(status["depths_m"])
     assert status["summary"].startswith("G5: ")
+
+
+def test_run_processing_takes_the_mode_as_an_argument(paco_env: Settings) -> None:
+    # As preset_settings takes it: Qwen3-8B asked preset_settings for passive-active, then left
+    # "mode" out of the overrides (2026-09-26).
+    processed = _call(
+        "run_processing",
+        {"profile": "active_p1", "overrides": SMALL_WINDOWS, "mode": "passive-active"},
+    )
+
+    assert not processed.is_error and processed.structured_content is not None
+    run_id = processed.structured_content["run_id"]
+    manifest = json.loads((paco_env.output_dir / "active_p1" / run_id / "run.json").read_text())
+    assert manifest["preset"]["mode"] == "passive-active"
+    refused = _call("run_processing", {"profile": "active_p1", "mode": "passive"})
+    assert refused.is_error
+    assert "does not fit active profile 'active_p1'" in _text(refused)
+
+
+@pytest.mark.usefixtures("paco_env")
+def test_one_vs_range_stands_for_every_layer_at_invert() -> None:
+    # The form invert's card offers: checked as the job reads it, not against PAC's 2 layers
+    # (Qwen3-8B was refused, then invented two ranges, 2026-09-26).
+    processed = _call("run_processing", {"profile": "active_p1", "overrides": SMALL_WINDOWS})
+    run_id = processed.structured_content["run_id"] if processed.structured_content else ""
+
+    result = _call(
+        "invert",
+        {"run_id": run_id, "parameters": {"vs_layers": [{"vs_min": 100, "vs_max": 180}]}},
+    )
+
+    # Past the parameters' check: refused only because G4 has not judged the run.
+    assert result.is_error
+    assert "has not been judged up to G4" in _text(result)
 
 
 def test_invert_refuses_a_run_g4_has_not_judged(paco_env: Settings) -> None:
@@ -291,7 +356,9 @@ def test_redo_needs_windows_that_exist() -> None:
         (
             "run_processing",
             {"profile": "active_p1", "overrides": {"masw": {"length": 97}}},
-            "length (97) exceeds the 96 receivers of profile 'active_p1'.",
+            "length (97) exceeds the 96 receivers of profile 'active_p1': no window that long "
+            "fits the line, you are stuck. Ask the user which length to use, with options: the "
+            "whole line (96), half of it (48), or the ladder's proposal (no length).",
         ),
         (
             "redo",
@@ -309,8 +376,19 @@ def test_redo_needs_windows_that_exist() -> None:
             "Unknown run '20260923-000000-0000'. Latest runs: none.",
         ),
         (
+            # Two different ranges for three layers (3 layers alone is a request the job reads:
+            # bounds derived, 2026-09-26).
             "invert",
-            {"run_id": "20260923-000000-0000", "parameters": {"n_layers": 3}},
+            {
+                "run_id": "20260923-000000-0000",
+                "parameters": {
+                    "n_layers": 3,
+                    "vs_layers": [
+                        {"vs_min": 100, "vs_max": 200},
+                        {"vs_min": 150, "vs_max": 300},
+                    ],
+                },
+            },
             "Invalid parameters (see inversion_settings):\n"
             "- parameters: vs_layers must have length n_layers (3).",
         ),

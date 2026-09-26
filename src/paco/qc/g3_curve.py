@@ -148,17 +148,7 @@ def judge_curve(
         )
     )
     if jump > thresholds.max_jump:
-        flags.append(
-            Flag(
-                name="mode_jump",
-                message=f"A {jump:.0%} step between consecutive points: the pick jumped onto "
-                "another mode. Track with a narrower corridor.",
-                stage="picking",
-                action=Override(
-                    stage="picking", overrides={"corridor": round(picking.corridor / 2, 3)}
-                ),
-            )
-        )
+        flags.append(_mode_jump(jump, kept_fs, kept_vs, picking))
 
     low, high = thresholds.air_wave_band
     air = float(np.mean((kept_vs >= low) & (kept_vs <= high))) if n_points else 0.0
@@ -278,6 +268,34 @@ def judge_curve(
         n_traces=n_traces,
     )
     return _result(unit, metrics, flags, kept)
+
+
+def _mode_jump(
+    jump: float, frequencies: np.ndarray, velocities: np.ndarray, picking: PickingParameters
+) -> Flag:
+    """The flag of a jump onto another mode: first cut the band where the largest step between
+    points consecutive in frequency sits (after a jump the wavelengths interleave), the side
+    with fewer points going; once the band is cut, track with a narrower corridor (the user's
+    decision of 2026-09-25: halving the corridor twice never fixed the demo's jump)."""
+    message = f"A {jump:.0%} step between consecutive points: the pick jumped onto another mode."
+    if picking.fmin is None and picking.fmax is None:
+        order = np.argsort(frequencies)
+        fs, vs = frequencies[order], velocities[order]
+        at = int(np.argmax(np.abs(np.diff(vs)) / vs[:-1]))
+        cut = round(float(fs[at] + fs[at + 1]) / 2, 1)
+        side = "fmax" if fs.size - at - 1 < at + 1 else "fmin"
+        return Flag(
+            name="mode_jump",
+            message=f"{message} Cut the band where it starts ({side} {cut:g} Hz).",
+            stage="picking",
+            action=Override(stage="picking", overrides={side: cut}),
+        )
+    return Flag(
+        name="mode_jump",
+        message=f"{message} Track with a narrower corridor.",
+        stage="picking",
+        action=Override(stage="picking", overrides={"corridor": round(picking.corridor / 2, 3)}),
+    )
 
 
 def _spearman(x: np.ndarray, y: np.ndarray) -> float:

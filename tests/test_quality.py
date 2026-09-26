@@ -338,14 +338,14 @@ def test_active_windows_are_good(outputs: Outputs) -> None:
     }
 
 
-def test_no_passive_window_is_good(outputs: Outputs) -> None:
-    # With the preset's defaults, passive images show no clean ridge: every window raises flags.
-    # (With PAC's padding before the phase shift, dropped on 2026-09-24, xmid 2.88 raised only
-    # one, and was doubtful.)
+def test_passive_windows_are_good_with_pacos_defaults(outputs: Outputs) -> None:
+    # PACo's passive defaults (2 s segments, whitened and normalized one-bit, 2026-09-26): 3 of
+    # the 4 windows good, 1 doubtful. With PAC's (0.1 s segments, neither), every window raised
+    # flags: no clean ridge.
     summary = outputs.runs["passive"].summary
 
-    assert (summary.n_windows, summary.good, summary.doubtful, summary.bad) == (4, 0, 0, 4)
-    assert summary.good_xmids == ()
+    assert (summary.n_windows, summary.good, summary.doubtful, summary.bad) == (4, 3, 1, 0)
+    assert summary.good_xmids == ("2.88 m (1)", "14.88-20.88 m (2)")
 
 
 @pytest.mark.parametrize("preset", ["active", "passive"])

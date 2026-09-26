@@ -71,6 +71,10 @@ def test_a_model_that_fits_with_agreeing_chains_passes() -> None:
         "misfit_short": 0.6,
         "misfit_middle": 0.4,
         "misfit_long": 0.3,
+        # PAC's residual by band, in %: reported, never judged.
+        "residual_short": 1.0,
+        "residual_middle": 1.0,
+        "residual_long": 1.0,
         "misfit_layered": 0.6,
         "rhat": 1.02,
         "acceptance": 58.0,
@@ -149,7 +153,20 @@ def test_a_thickness_bound_shallower_than_the_curve_reaches_is_widened() -> None
     assert (layer["thickness_min"], layer["thickness_max"]) == (1.0, 6.88)
 
 
-def test_a_layer_piled_at_its_thinnest_is_dropped_above_two_layers() -> None:
+def test_a_layer_piled_at_its_thinnest_is_dropped_above_three_layers() -> None:
+    four = InversionParameters.model_validate(
+        {
+            "n_layers": 4,
+            "vs_layers": [{"vs_min": 130.0, "vs_max": 450.0}] * 4,
+            "thickness_layers": [{"thickness_min": 1.0, "thickness_max": 2.75}] * 3,
+        }
+    )
+    piled = (BoundShare(parameter="thick2", bound="min", value=1.0, share=0.4),)
+
+    result = _judge(_measures(at_bounds=piled), four)
+    assert result.verdict == "retry"
+    assert _flags(result)["thin_layer"].action.model_dump()["overrides"] == {"n_layers": 3}
+    # Never fewer than 3 layers (the user, 2026-09-25): with three, nothing to do.
     three = InversionParameters.model_validate(
         {
             "n_layers": 3,
@@ -157,14 +174,7 @@ def test_a_layer_piled_at_its_thinnest_is_dropped_above_two_layers() -> None:
             "thickness_layers": [{"thickness_min": 1.0, "thickness_max": 2.75}] * 2,
         }
     )
-    piled = (BoundShare(parameter="thick2", bound="min", value=1.0, share=0.4),)
-
-    result = _judge(_measures(at_bounds=piled), three)
-    assert result.verdict == "retry"
-    assert _flags(result)["thin_layer"].action.model_dump()["overrides"] == {"n_layers": 2}
-    # With two layers, one fewer is no model: nothing to do.
-    piled = (BoundShare(parameter="thick1", bound="min", value=1.0, share=0.4),)
-    assert _judge(_measures(at_bounds=piled)).flags == ()
+    assert _judge(_measures(at_bounds=piled), three).flags == ()
 
 
 def test_a_misfit_only_the_smoothing_makes_is_kept() -> None:
@@ -198,12 +208,15 @@ def test_a_model_that_misfits_gets_one_more_layer_up_to_the_limit() -> None:
             "thickness_layers": [{"thickness_min": 1.0, "thickness_max": 1.8}] * 3,
         }
     )
-    rejected = _judge(_measures(fits=fits), four)
+    # Up to what the curve resolves (the checks before S4): here 4 layers.
+    rejected = judge_model("xmid_8.88", _measures(fits=fits), four, THRESHOLDS, None, 4)
     assert rejected.verdict == "reject"
     assert _flags(rejected)["underfit"].action.model_dump() == {
         "kind": "reject",
         "reason": "not fitted with up to 4 layers",
     }
+    # With no such limit, up to the loop's own 10.
+    assert _judge(_measures(fits=fits), four).verdict == "retry"
 
 
 def test_the_cheapest_fix_first_convergence_before_layers() -> None:
@@ -221,6 +234,19 @@ def test_points_no_mode_of_the_model_reaches_reject_the_curve() -> None:
     flag = _flags(result)["no_mode"]
     assert (flag.stage, flag.fixable) == ("picking", False)
     assert "at 2 of the picked points" in flag.message
+    # Knowing where those points start, the flag suggests the band below them, for the agent's
+    # redo; the model stays rejected.
+    at = _fit("median", (None, 0.4, 0.3), 2).model_copy(update={"lowest_missing_hz": 60.0})
+    result = _judge(_measures(fits=(fits[0], at)))
+    assert result.verdict == "reject"
+    flag = _flags(result)["no_mode"]
+    assert (flag.stage, flag.fixable) == ("phase_shift", False)
+    assert flag.action.model_dump() == {
+        "kind": "override",
+        "stage": "phase_shift",
+        "overrides": {"dispersion": {"fmax": 57.0}},
+    }
+    assert flag.message.endswith("redo the phase shift with the band below 60 Hz.")
 
 
 def test_thresholds_round_trip() -> None:

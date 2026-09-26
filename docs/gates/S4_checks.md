@@ -13,7 +13,7 @@ logged as notes of the window's inversion attempt, and the agent reads them in t
 |---|---|---|
 | Vs bounds, every layer | 0.8 x the curve's slowest velocity to 1.5 x its fastest; steps of (max - min) x 20/900, PAC's proportion | reach down to the curve's slowest velocity, and up to 1.09 x its fastest (Vs over Vr in a half-space at PAC's Vp/Vs of 1.77); else that bound is set to the derived one |
 | Thickness bounds | at least a third of the shortest wavelength (thinner is not resolved); the half-space's top at most half the longest wavelength, shared equally between the layers above it; steps of (max - min)/9, PAC's proportion | keep the same limits: a thinner minimum is raised, maxima summing deeper are scaled down |
-| Layers | 2, PAC's; G5 adds one when the model misfits, removes one when a layer piles at its thinnest | not exceed what the curve resolves (layers of the thinnest resolved thickness down to the deepest): reduced |
+| Layers, the half-space among them | 4 (PAC's 2 until 2026-09-25; the user: "4 5 6, never do 2"); G5 adds one when the model misfits, up to what the curve resolves (at most 10), removes one when a layer piles at its thinnest | be at least 3 (raised, its Vs and thickness ranges derived again), and not exceed what the curve resolves (layers of the thinnest resolved thickness down to the deepest, at least 3): reduced. Several Vs ranges given without a count are that many layers; when the count changes, a range the same for every layer stays every layer's, ranges that differ are derived again (with a note). The default count is fitted to the curve without a note |
 | Effort | PAC's: 100,000 iterations, a tenth as burn-in, 5 chains | keep at least 150 iterations after the burn-in (sigpipe keeps one model every 150) |
 
 A re-inversion starts from the window's latest parameters with the changes on them, through
@@ -48,23 +48,30 @@ On xmid 8.88 (189 to 291 m/s, 3 to 11 m), with 3 layers, Vs bounds of 200 to 300
 thicknesses of 0.5 to 10 m and 20,000 iterations given:
 
 ```
-vs_min above the curve's slowest velocity (189 m/s) in layers 1, 2, 3: set to 151 m/s.
-vs_max below 1.09 times the curve's fastest velocity (291 m/s) in layers 1, 2, 3: set to 436 m/s.
-thickness_min thinner than the curve resolves (1 m) in layers 1, 2: set to 1 m.
+vs_min 200 m/s above the curve's slowest velocity (189 m/s) in layers 1, 2, 3: set to 151 m/s.
+vs_max 300 m/s below 1.09 times the curve's fastest velocity (291 m/s) in layers 1, 2, 3: set to 436 m/s.
+thickness_min 0.5 m thinner than the curve resolves (1 m) in layers 1, 2: set to 1 m.
 thickness_max puts the half-space as deep as 20 m, below the 5.50 m the curve reaches: scaled by 0.27.
 ```
 
 The 20,000 iterations stay, with 2,000 of burn-in; 12 layers are cut to the 6 the curve
 resolves.
 
-## To judge
+## Decided
 
-- Vs from 0.8 x to 1.5 x the curve (the spec's example): on the demo's inverse windows the
-  half-space's Vs presses against 0.8 x (5 to 9 % of the samples within 2 % of it, `G5.md`).
-  A lower factor (0.6) would let it go; is a half-space slower than 0.8 x the slowest phase
-  velocity plausible here?
-- The half-space's top at λmax/2: the common rules of thumb range from λmax/3 to λmax/2. The
-  demo's useful depths (G5) end at 2.3 to 4.3 m where half the longest wavelength is 3 to 5.5 m.
-- The bounds are the same for every layer. A stiff top layer over a softer one (11 of the 19
-  demo curves) and the reverse both fit within them: should the top layer's bounds follow the
-  short wavelengths, the half-space's the long ones?
+Kept as they are (the user, 2026-09-25): Vs from 0.8 x to 1.5 x the curve (a half-space under a
+stiff top reads about 1.09 x the slowest phase velocity at long wavelengths, above 0.8 x), the
+half-space's top at most half the longest wavelength, and one set of bounds for every layer
+(bounds by layer would impose a trend the data should decide).
+
+At least 3 layers, the inversion starting at 4 (the user, 2026-09-25: "4 5 6, never do 2";
+the demo's 2-layer models were too simple to be told from a trend). 4 after the study of 4, 5
+and 6 starting layers (`G5.md`): every count fits within the errors, more layers are slower and
+converge less often.
+
+Fixed the same night (found by the study): a curve whose depth is just over a whole number of
+its thinnest layers got a layer too many, each with a thickness range of a few centimetres or
+none once rounded, and failed validation (6 layers on the demo's xmid 16.50). The count the
+curve resolves now stops where every layer keeps a range, the thickness step is 1 cm at least,
+and a curve too short for 3 layers (a span of wavelengths under 1.33, none on either line: 1.5
+at least) is refused with a message saying so.

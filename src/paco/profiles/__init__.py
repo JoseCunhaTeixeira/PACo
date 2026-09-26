@@ -13,12 +13,14 @@ from .loading import (
     list_profiles,
     load_profile,
 )
-from .models import Profile, ProfileKind, ProfileSummary, Record
+from .models import MODES, ProcessingMode, Profile, ProfileKind, ProfileSummary, Record
 from .summary import inspect_profile, summarize
 
 __all__ = [
+    "MODES",
     "RECEIVER_POSITIONS_FILE",
     "SOURCE_POSITIONS_FILE",
+    "ProcessingMode",
     "Profile",
     "ProfileError",
     "ProfileKind",

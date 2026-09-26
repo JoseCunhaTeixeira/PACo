@@ -12,8 +12,9 @@ the agent reads them first in the summary; the ladder's trials are kept in the r
 
 | Rule | How (default) | Why |
 |---|---|---|
-| The band | fmax capped at the smaller of every record's usable fmax (G1) and Nyquist; fmin raised to the highest usable fmin. Never widened: PAC's 100 Hz stays when the records go higher | Widening the band made G3 worse at every window length on the demo (below): above 100 Hz a second ridge competes and the picker jumps. The user's decision of milestone 13 |
-| The window length | one length for the whole line. Given none: a ladder of lengths (5, 7, 9, 11, then 16, 24, 32, 48, 64, 96, 128 receivers, at most half the line), each tried on 9 windows spread along the line (S2, the picking and G3); the first at which 80 % of them pass G3 is proposed, else the one that passed most (the shortest on a tie), and one length more is tried for comparison. A length given (by the user or the agent) is kept, its 9 trial windows tried for the record | Lateral resolution first: the shortest windows that give a curve, among those most of the line can use. The user's decisions of milestone 13 (the ladder, 9 trials at 80 %) and of 2026-09-25 (the short lengths first; the ladder proposes, the agent decides) |
+| The band | fmax capped at the smaller of the median usable fmax of the records G1 kept and Nyquist; fmin raised to their median usable fmin. Never widened: PAC's 100 Hz stays when the records go higher | Widening the band made G3 worse at every window length on the demo (below): above 100 Hz a second ridge competes and the picker jumps. The user's decision of milestone 13; the median, not the worst record, since 2026-09-25: on `active_p2` the worst records' limits (24 to 86 Hz) cut the whole line's long wavelengths, where the median record is usable from 2.3 to 298 Hz |
+| The far limit | `masw.distance_max` at the line's reach, where the traces' median SNR falls under 2 dB (G1's `snr_reach`), unless the user gave one | A window stacks no shot whose traces there are mostly noise: PAC's 100 m took `active_p2`'s traces beyond about 60 m, which are noise. The user's decision of 2026-09-25 |
+| The window length | one length for the whole line. Given none: a ladder of lengths (5, 7, 9, 11, then 16, 24, 32, 48, 64, 96, 128 receivers, at most half the line), each tried on 27 windows spread evenly along the line, its ends included (S2, the picking and G3); the first at which 80 % of them pass G3 is proposed, else the one that passed most (the shortest on a tie), and one length more is tried for comparison. A length given (by the user or the agent) is kept, its trial windows tried for the record | Lateral resolution first: the shortest windows that give a curve on most of the line. The user's decisions of milestone 13 (the ladder, 80 %) and of 2026-09-25 (the short lengths first; 27 trials over the whole line; the ladder proposes, the agent decides) |
 | The frequency step | 1/T by construction: the image's step follows the record length, since the padding went (milestone 9) | A finer step only interpolates |
 | The velocity range | left to G2, which flags a ridge on the grid's edges per window | The trial images could set it; not needed on the demo (1 to 1,000 m/s) |
 | The offsets | reported, not applied: G3's `near_field` flag (below) | The user's decision of milestone 13 |
@@ -25,13 +26,19 @@ line's length and the depth or detail the request needs. With no settings on `ac
 
 ```
 line: 96 receivers 0.25 m apart (23.75 m); windows of up to 48 receivers (half the line)
-5 receivers (1.00 m): 5/9 trial windows passed G3, wavelengths 5.0-10.0 m, 92 windows on the line
-7 receivers (1.50 m): 6/9 trial windows passed G3, wavelengths 5.0-11.5 m, 90 windows on the line
-9 receivers (2.00 m): 6/9 trial windows passed G3, wavelengths 5.5-14.5 m, 88 windows on the line
-11 receivers (2.50 m): 7/9 trial windows passed G3, wavelengths 5.0-22.0 m, 86 windows on the line
-16 receivers (3.75 m): 8/9 trial windows passed G3, wavelengths 5.0-22.0 m, 81 windows on the line (proposed)
-24 receivers (5.75 m): 9/9 trial windows passed G3, wavelengths 5.0-26.0 m, 73 windows on the line
+5 receivers (1.00 m): 17/27 trial windows passed G3, wavelengths 5.0-12.0 m, 92 windows on the line
+7 receivers (1.50 m): 20/27 trial windows passed G3, wavelengths 5.0-15.0 m, 90 windows on the line
+9 receivers (2.00 m): 20/27 trial windows passed G3, wavelengths 5.0-16.0 m, 88 windows on the line
+11 receivers (2.50 m): 23/27 trial windows passed G3, wavelengths 5.0-17.0 m, 86 windows on the line (proposed)
+16 receivers (3.75 m): 26/27 trial windows passed G3, wavelengths 5.0-18.0 m, 81 windows on the line
 ```
+
+The trials' shares follow the whole line's: processed and picked with the gates' retries, the
+line gives curves on 65 % of its windows at 5 receivers, 68 % at 7, 77 % at 9, 85 % at 11 and
+98 % at 16 (2026-09-25). Nine trials did not: with the line's two end windows among them (next
+to the shots, where every length from 5 to 11 receivers keeps 1 or 2 points), no short length
+could reach 80 %, and the ladder proposed 16; with the ends left out, all nine passed at 5
+receivers.
 
 The wavelengths are the passing curves' median shortest and longest: a model reaches about half
 the longest. The failures at 5 to 11 receivers are the windows at the line's ends (1 or 2 points
@@ -88,13 +95,14 @@ longest wavelength kept (the ten at the ends of the dense line).
 
 ## To judge
 
-- Nine trials at 80 % propose 16 receivers on the demo since 2026-09-25 (3.75 m windows, 79
-  of the line's 81 curves passing G3 and G4). Two of the nine trial windows sit at the line's
-  ends, next to the shots, where short windows keep 1 or 2 points: they alone keep 5 to 11
-  receivers under 80 %. Should the trials leave the end windows out? And on a longer or more
-  varied line, is 9 trials enough to speak for it?
-- The near field is only reported, on half the demo's windows (both ends of a 24 m line with a
-  shot off each end): is a flag on half the line informative, or noise the agent will learn to
-  skip?
-- The band is never widened. On a line whose records carry a clean fundamental mode above
-  PAC's 100 Hz, that loses the short wavelengths: should the ladder also try a wider band?
+Nothing open. The question left here, whether the trials speak for a longer or more varied
+line, was answered by the two real lines (27 trials, 2026-09-26): on `active_p2` (142.5 m) 25
+of 27 trials passed at 5 receivers (93 %) and the line gave curves on 88 % of its windows; on
+`passive_p2`, 19 of 27 at 11 receivers (70 %) against 65 % of the line's windows.
+
+## Decided
+
+On 2026-09-25: 27 trials spread over the whole line, its ends included (the trials' shares then
+follow the line's, above), replacing the same day's trials without the end windows, which
+proposed 5 receivers where the line gives curves on 65 % of its windows. In milestone 13: the
+near field reported, not applied; the band capped, never widened.

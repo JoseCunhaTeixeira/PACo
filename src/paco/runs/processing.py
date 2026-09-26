@@ -20,12 +20,25 @@ from paco.profiles import Profile, Record, load_profile, summarize
 from paco.runs.models import RecordOutcome, RunError, RunManifest, RunSummary, WindowOutcome
 from paco.runs.summary import summarize_run
 from paco.settings import Settings
-from paco.windows import Exclusions, MASWParameters, MASWWindow, apply_exclusions, build_windows
+from paco.windows import (
+    Exclusions,
+    Geometry,
+    MASWParameters,
+    MASWWindow,
+    apply_exclusions,
+    build_windows,
+)
 
 # Called with (windows done, windows in the run).
 type ProgressCallback = Callable[[int, int], None]
 
 RECORDS_FOLDER = "records"  # inside the run folder: one folder per preprocessed record
+# How each mode's windows share their receivers once G1's exclusions are applied.
+GEOMETRIES: dict[str, Geometry] = {
+    "active": "per_record",
+    "passive-active": "shared",
+    "passive": "union",
+}
 
 
 def run_processing(
@@ -172,7 +185,7 @@ def process_windows(
         for built in windows:
             folder = run_folder / f"xmid_{built.xmid:.2f}"  # PAC's window folder name
             folder.mkdir(exist_ok=True)  # exists when the stage is done again (paco.qc)
-            window = apply_exclusions(built, exclusions)
+            window = apply_exclusions(built, exclusions, GEOMETRIES[preset.mode])
             if window is None:
                 error = "every record, or all but 2 of its receivers, excluded by the signal QC"
                 (folder / "error.log").write_text(error + "\n")

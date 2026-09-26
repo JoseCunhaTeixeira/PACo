@@ -17,11 +17,21 @@ DEMO_INPUT_DIR = Path(__file__).resolve().parents[1] / "data" / "input"
 type CopyDemo = Callable[[str, str], Path]
 
 
+DEMO_PROFILES = ("active_p1", "passive_p1")
+
+
 @pytest.fixture(scope="session")
-def demo_input_dir() -> Path:
+def demo_input_dir(tmp_path_factory: pytest.TempPathFactory) -> Path:
+    """The demo profiles alone, linked into a folder of their own: profiles the user adds to
+    data/input stay out of the tests."""
     if not (DEMO_INPUT_DIR / "active_p1").is_dir():
         pytest.skip(f"Demo profiles not found in {DEMO_INPUT_DIR}")
-    return DEMO_INPUT_DIR
+    root = tmp_path_factory.mktemp("input")
+    for name in DEMO_PROFILES:
+        (root / name).mkdir()
+        for path in (DEMO_INPUT_DIR / name).iterdir():
+            (root / name / path.name).symlink_to(path)
+    return root
 
 
 @pytest.fixture(scope="session")
