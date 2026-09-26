@@ -11,6 +11,7 @@ from typing import Any
 from mcp import Client
 from openai.types.chat import ChatCompletionFunctionToolParam, ChatCompletionMessageParam
 
+from paco.agent import host
 from paco.agent.conversion import result_for_model, tools_for_model
 from paco.agent.model import ChatModel, Reply, ToolCall
 from paco.agent.record import ModelStep, Step, ToolStep, Transcript
@@ -68,10 +69,15 @@ class Agent:
         return cls(client, model, tools, client.instructions, max_tool_calls, on_event)
 
     async def answer(self, question: str) -> str:
-        """The model's answer to `question`, after every tool call it asked for."""
+        """The model's answer to `question`, after every tool call it asked for, with what the
+        host guarantees (paco.agent.host): the settings the gates changed listed after it, an
+        answer that asks or offers asked again once, no inversion the user did not ask for."""
         self.messages.append({"role": "user", "content": question})
         calls = 0
         failed: dict[tuple[str, str], str] = {}  # calls that failed in this answer: their error
+        changes: list[str] = []
+        models_asked = host.asks_for_models(question)
+        stuck = asked_again = worked = False
         while True:
             start = time.perf_counter()
             reply = await self._model(self.messages, self._tools)
@@ -85,13 +91,28 @@ class Agent:
             )
             self.messages.append(_assistant_message(reply))
             if not reply.tool_calls:
-                return reply.content
+                if worked and not (stuck or asked_again) and host.asks_or_offers(reply.content):
+                    asked_again = True
+                    self._on_event("   (asked to answer again, without a question or an offer)")
+                    self.messages.append({"role": "user", "content": host.ANSWER_AGAIN})
+                    continue
+                answer = host.with_changes(reply.content, changes)
+                self.messages[-1] = {"role": "assistant", "content": answer}
+                return answer
             for call in reply.tool_calls:
                 calls += 1
                 key = (call.name, _canonical(call.arguments))
                 step = await self._call(
-                    call, over_budget=calls > self._max_tool_calls, failed_before=failed.get(key)
+                    call,
+                    over_budget=calls > self._max_tool_calls,
+                    failed_before=failed.get(key),
+                    unasked=not models_asked and host.starts_inversion(call.name, call.arguments),
                 )
+                for item in host.changed_items(step.result):
+                    if item not in changes:
+                        changes.append(item)
+                stuck = stuck or host.STUCK in step.result
+                worked = worked or (call.name in host.STAGE_TOOLS and not step.is_error)
                 if step.is_error:
                     failed[key] = step.result
                 else:
@@ -111,7 +132,11 @@ class Agent:
         )
 
     async def _call(
-        self, call: ToolCall, over_budget: bool, failed_before: str | None = None
+        self,
+        call: ToolCall,
+        over_budget: bool,
+        failed_before: str | None = None,
+        unasked: bool = False,
     ) -> ToolStep:
         start = time.perf_counter()
 
@@ -125,6 +150,13 @@ class Agent:
                 result=result,
             )
 
+        if unasked:
+            # Qwen3-8B inverted in 6 of 39 plays where the user asked for curves only.
+            self._on_event(f"-> {call.name}({call.arguments}) refused: no model was asked for")
+            return refused(
+                "Not called: the user asked for no velocity model, so no inversion starts. "
+                "Answer with what the request asked for."
+            )
         if over_budget:
             return refused(
                 f"Not called: this answer already made {self._max_tool_calls} tool calls. "

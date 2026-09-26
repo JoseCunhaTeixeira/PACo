@@ -5,10 +5,11 @@ from typing import TypedDict
 
 import pytest
 from pydantic import ValidationError
+from sigpipe.base import Coordinate, LinearAcquisition
 
 from paco.profiles import load_profile
 from paco.settings import Settings
-from paco.windows import MASWParameters, MASWWindow, build_windows
+from paco.windows import Exclusions, MASWParameters, MASWWindow, apply_exclusions, build_windows
 
 
 # Format of tests/data/pac_windows.json: the windows PAC's own build_windows gives for the demo
@@ -118,3 +119,45 @@ def test_invalid_masw_parameters(overrides: dict[str, float]) -> None:
 
     with pytest.raises(ValidationError):
         MASWParameters.model_validate(valid | overrides)
+
+
+def test_each_record_leaves_out_its_own_traces_on_active_windows() -> None:
+    receivers = tuple(Coordinate(float(x), 0.0, 0.0) for x in range(6))
+
+    def acquisition(source: float) -> LinearAcquisition:
+        return LinearAcquisition(source=Coordinate(source, 0.0, 0.0), receivers=receivers)
+
+    window = MASWWindow(
+        xmid=2.5,
+        selected_files=[Path("a.dat"), Path("b.dat"), Path("c.dat")],
+        receiver_indices=list(range(6)),
+        acquisitions=[acquisition(-1.0), acquisition(-2.0), acquisition(7.0)],
+    )
+    # Trace 1 is a.dat's own; trace 4 two of the three records excluded: a receiver's defect.
+    exclusions = Exclusions(traces={"a.dat": (1, 4), "b.dat": (4,)})
+
+    # One geometry (passive): a trace any record excluded leaves every record.
+    union = apply_exclusions(window, exclusions)
+    assert union is not None and union.receiver_indices == [0, 2, 3, 5]
+    assert union.record_receivers is None
+    # Each its own (active): the window keeps its receivers, each record gives its own.
+    own = apply_exclusions(window, exclusions, "per_record")
+    assert own is not None and own.receiver_indices == list(range(6))
+    assert own.record_receivers == [[0, 2, 3, 5], [0, 1, 2, 3, 5], [0, 1, 2, 3, 5]]
+    assert [len(one.receivers) for one in own.acquisitions] == [4, 5, 5]
+    # One set of receivers (passive-active, correlation gathers stacked): trace 4 leaves every
+    # record, and a.dat, which excluded trace 1 too, leaves the window.
+    shared = apply_exclusions(window, exclusions, "shared")
+    assert shared is not None and shared.receiver_indices == [0, 1, 2, 3, 5]
+    assert [path.name for path in shared.selected_files] == ["b.dat", "c.dat"]
+    assert shared.record_receivers is None
+    assert [len(one.receivers) for one in shared.acquisitions] == [5, 5]
+    # Two records: every exclusion is half of them, so it is the union again.
+    two = window.model_copy(
+        update={
+            "selected_files": window.selected_files[:2],
+            "acquisitions": window.acquisitions[:2],
+        }
+    )
+    both = apply_exclusions(two, Exclusions(traces={"a.dat": (1,)}), "per_record")
+    assert both is not None and both.record_receivers == [[0, 2, 3, 4, 5]] * 2

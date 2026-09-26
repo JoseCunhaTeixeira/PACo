@@ -51,10 +51,12 @@ def window_result(
     folder: str,
     measures: InversionMeasures,
     verdict: str | None,
+    investigation_m: float,
     duration_s: float | None = None,
 ) -> WindowInversion:
     """What a job reports of one window's inversion: the layered median, and the smooth median
-    it monitors (Vs at the job's depths, the useful depth, the misfit)."""
+    it monitors (Vs at the job's depths, down to `investigation_m`, the depth its curve informs
+    it down to, and the misfit)."""
     return WindowInversion(
         xmid=xmid,
         folder=folder,
@@ -67,7 +69,6 @@ def window_result(
             for a, b in zip((0.0, *measures.interfaces_m), measures.interfaces_m, strict=False)
         ),
         vs_at_depths_m_s=tuple(vs for _, vs in measures.vs_at_depths),
-        # None from the measures: the data inform the model down to its bottom.
-        useful_depth_m=measures.useful_depth_m or measures.depth_max_m,
+        useful_depth_m=investigation_m,
         misfit=measures.fit("smooth_median").misfit,
     )

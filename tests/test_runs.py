@@ -228,7 +228,7 @@ def test_no_valid_shot_is_refused_before_writing(demo_settings: Settings) -> Non
     [
         ("nope", "active", {}, ProfileError, "Unknown profile 'nope'"),
         ("active_p1", "activ", {}, PresetError, "Unknown preset 'activ'"),
-        ("passive_p1", "active", {}, PresetError, "only fits active profiles"),
+        ("passive_p1", "active", {}, PresetError, "does not fit passive profile"),
         ("active_p1", "active", {"masw": {"lenght": 24}}, PresetError, r"masw\.lenght: unknown"),
         (
             "active_p1",

@@ -235,6 +235,23 @@ def excluded(record: str, trace: int) -> Check:
     return check
 
 
+def processed_in_mode(mode: str) -> Check:
+    """Every run on disk was processed in `mode`, however the agent asked for it (run_processing's
+    `mode`, or "mode" in its overrides)."""
+    name = f"processed in mode {mode}"
+
+    def check(trial: Trial) -> CheckResult:
+        paths = sorted(trial.output_dir.glob("*/*/run.json"))
+        if not paths:
+            return CheckResult(name=name, passed=False, detail="no run on disk")
+        modes = [RunManifest.model_validate_json(path.read_text()).preset.mode for path in paths]
+        others = [str(one) for one in modes if one != mode]
+        detail = f"runs in {', '.join(others)}" if others else ""
+        return CheckResult(name=name, passed=not others, detail=detail)
+
+    return check
+
+
 def no_settings_invented(tool: str) -> Check:
     """Every successful call of `tool` gave no overrides but the window length: with no setting
     from the user, every parameter comes from the data, and the length is the agent's to
@@ -385,9 +402,14 @@ def job_id(trial: Trial) -> str:
     return InversionRecord.model_validate_json(paths[-1].read_text()).job_id
 
 
+# A question without a question mark: options offered for the user to pick (seen from Qwen3-8B:
+# "Choose one to proceed.", an <options> block).
+_CHOICE = re.compile(r"\bchoose\b|\bwhich (one|option)\b|<options>|\breply with\b", re.IGNORECASE)
+
+
 def _asks(answer: str) -> bool:
-    """Whether an answer asks the user something."""
-    return "?" in answer
+    """Whether an answer asks the user something: a question, or options to choose from."""
+    return "?" in answer or _CHOICE.search(answer) is not None
 
 
 def _latest_manifest(trial: Trial) -> RunManifest | None:
@@ -420,6 +442,8 @@ def _contains(actual: Any, expected: Any) -> bool:  # noqa: ANN401
 
 def _mentions(answer: str, value: str) -> bool:
     if re.fullmatch(r"\d+(\.\d+)?", value):
-        # 4 must not match 24, nor 0.25 match 10.25.
-        return re.search(rf"(?<![\d.]){re.escape(value)}(?![\d]|\.\d)", answer) is not None
+        # Thousands written with a separator count ("17,000", "17 000"); 4 must not match 24,
+        # nor 0.25 match 10.25.
+        plain = re.sub(r"(?<=\d)[,\u202f\u00a0 ](?=\d{3}\b)", "", answer)
+        return re.search(rf"(?<![\d.]){re.escape(value)}(?![\d]|\.\d)", plain) is not None
     return value.lower() in answer.lower()

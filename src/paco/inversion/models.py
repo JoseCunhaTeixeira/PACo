@@ -125,8 +125,8 @@ class WindowInversion(BaseModel):
     vs_m_s: tuple[float, ...] | None = None  # median model, per layer, top down
     thicknesses_m: tuple[float, ...] | None = None  # median model, layers above the half-space
     # The smooth median, PAC's default view and the model monitored: its Vs at the job's depths,
-    # the depth the data inform it down to, and its fit to the curve (RMS of the residuals over
-    # the uncertainties).
+    # the depth the data inform it down to (half its curve's longest wavelength, MASW's depth of
+    # investigation), and its fit to the curve (RMS of the residuals over the uncertainties).
     vs_at_depths_m_s: tuple[float, ...] | None = None
     useful_depth_m: float | None = None
     misfit: float | None = None
@@ -167,8 +167,9 @@ class InversionStatus(BaseModel):
     n_failed: int
     elapsed_s: float | None  # since the job started
     # The smooth median models so far (PAC's default view): per depth of depths_m, the range of
-    # their Vs; the range of the depths the data inform them down to; the range of their fits
-    # to the curves (RMS of the residuals over the uncertainties: about 1 fits within them).
+    # their Vs; the range of the depths the data inform them down to (half each curve's longest
+    # wavelength); the range of their fits to the curves (RMS of the residuals over the
+    # uncertainties: about 1 fits within them).
     depths_m: tuple[float, ...]
     vs_m_s: tuple[tuple[float, float], ...]
     useful_depth_m: tuple[float, float] | None

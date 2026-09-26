@@ -11,8 +11,8 @@ from typing import TYPE_CHECKING, Annotated, Any, Literal
 from pydantic import Field, create_model
 
 from paco.presets.generation import StrictModel, stage_type
-from paco.presets.stages import ACTIVE_STAGES, PASSIVE_STAGES, Stage
-from paco.profiles import ProfileKind
+from paco.presets.stages import ACTIVE_STAGES, PASSIVE_ACTIVE_STAGES, PASSIVE_STAGES, Stage
+from paco.profiles import ProcessingMode
 from paco.windows import MASWParameters
 
 
@@ -23,18 +23,19 @@ class PresetError(ValueError):
 class PresetBase(StrictModel):
     """What code can rely on in any preset. Stages are generated: reach them by name."""
 
-    mode: ProfileKind
+    mode: ProcessingMode
     masw: MASWParameters = MASWParameters()
 
 
 # One type per stage, shared by the presets that use it.
 _STAGE_TYPES = {
-    name: stage_type(name, stage) for name, stage in (ACTIVE_STAGES | PASSIVE_STAGES).items()
+    name: stage_type(name, stage)
+    for name, stage in (ACTIVE_STAGES | PASSIVE_STAGES | PASSIVE_ACTIVE_STAGES).items()
 }
 
 
 def _preset(
-    name: str, mode: tuple[Any, ProfileKind], stages: Mapping[str, Stage]
+    name: str, mode: tuple[Any, ProcessingMode], stages: Mapping[str, Stage]
 ) -> type[PresetBase]:
     fields: dict[str, Any] = {"mode": mode}
     fields |= {stage: _STAGE_TYPES[stage] for stage in stages}
@@ -43,12 +44,21 @@ def _preset(
 
 if TYPE_CHECKING:
     # pyright cannot see generated fields: statically, every preset is a PresetBase.
-    ActivePreset = PassivePreset = Preset = PresetBase
+    ActivePreset = PassivePreset = PassiveActivePreset = Preset = PresetBase
 else:
     ActivePreset = _preset(
-        "ActivePreset", (Literal[ProfileKind.ACTIVE], ProfileKind.ACTIVE), ACTIVE_STAGES
+        "ActivePreset", (Literal[ProcessingMode.ACTIVE], ProcessingMode.ACTIVE), ACTIVE_STAGES
     )
     PassivePreset = _preset(
-        "PassivePreset", (Literal[ProfileKind.PASSIVE], ProfileKind.PASSIVE), PASSIVE_STAGES
+        "PassivePreset",
+        (Literal[ProcessingMode.PASSIVE], ProcessingMode.PASSIVE),
+        PASSIVE_STAGES,
     )
-    Preset = Annotated[ActivePreset | PassivePreset, Field(discriminator="mode")]
+    PassiveActivePreset = _preset(
+        "PassiveActivePreset",
+        (Literal[ProcessingMode.PASSIVE_ACTIVE], ProcessingMode.PASSIVE_ACTIVE),
+        PASSIVE_ACTIVE_STAGES,
+    )
+    Preset = Annotated[
+        ActivePreset | PassivePreset | PassiveActivePreset, Field(discriminator="mode")
+    ]

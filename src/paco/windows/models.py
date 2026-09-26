@@ -33,8 +33,9 @@ class MASWParameters(BaseModel):
 
 class Exclusions(BaseModel):
     """What the signal QC (G1) takes out of a run: records no window uses, and traces (receiver
-    indices, by record file name) that the windows holding them leave out, for every record of
-    the window, so that its records keep one geometry."""
+    indices, by record file name) that the windows holding them leave out: from that record's
+    image in an active window (from all of them when at least half its records excluded the
+    trace), from every record of a passive window."""
 
     model_config = ConfigDict(frozen=True)
 
@@ -54,3 +55,6 @@ class MASWWindow(BaseModel):
     selected_files: list[Path]
     receiver_indices: list[int]
     acquisitions: list[LinearAcquisition]
+    # The receivers each record gives the window, when G1 left some of its traces out: its image
+    # is made from those alone (None: every record gives all of receiver_indices).
+    record_receivers: list[list[int]] | None = None

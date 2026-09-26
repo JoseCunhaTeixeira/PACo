@@ -4,7 +4,7 @@ import statistics
 from itertools import pairwise
 
 from paco.profiles.loading import load_profile
-from paco.profiles.models import Profile, ProfileSummary
+from paco.profiles.models import MODES, Profile, ProfileSummary
 from paco.settings import Settings
 
 
@@ -28,4 +28,5 @@ def summarize(profile: Profile) -> ProfileSummary:
         nyquist_hz=profile.nyquist_hz,
         record_duration_range_s=(round(min(durations), 3), round(max(durations), 3)),
         source_x_range_m=(min(source_xs), max(source_xs)) if source_xs else None,
+        modes=MODES[profile.kind],
     )

@@ -8,6 +8,7 @@ import numpy as np
 import pytest
 from sigpipe.base import Coordinate, LinearAcquisition, Pipeline, Stream, Transformer
 from sigpipe.transformers import (
+    ActiveShotCorrelation,
     Apodize,
     Correlate,
     Detrend,
@@ -31,6 +32,7 @@ from paco.pipelines import (
     SelectReceivers,
     build_active_pipeline,
     build_image_pipeline,
+    build_passive_active_pipeline,
     build_passive_pipeline,
     build_preprocessing_pipeline,
     record_folder,
@@ -38,7 +40,7 @@ from paco.pipelines import (
 from paco.pipelines.common import stage_kwargs
 from paco.presets import ActivePreset, PassivePreset, make_preset, resolve_preset
 from paco.profiles import Profile, Record
-from paco.transformers import ShiftTrigger
+from paco.transformers import FromFirstReceiver, ShiftTrigger, SurfaceWaveWindow
 from paco.windows import MASWWindow, build_windows
 
 # The steps of PAC's adapters/active.py and adapters/passive.py, cut at the window (the
@@ -46,14 +48,22 @@ from paco.windows import MASWWindow, build_windows
 # Pad(n=1000, taper=25) before the phase shift: a frequency step finer than 1/T only interpolates
 # (the user's decision, 2026-09-24).
 PREPROCESSING_CHAIN = {
-    # The trigger correction (t0 = 0 by default) is PACo's, for active records only.
+    # The trigger correction (t0 = 0 by default) is PACo's, for shots only.
     "active": ["Load", "ShiftTrigger", "Detrend", "Detrend", "Mute", "Filter", "Plot", "Save"],
+    "passive-active": [
+        "Load", "ShiftTrigger", "Detrend", "Detrend", "Mute", "Filter", "Plot", "Save",
+    ],
     "passive": ["Load", "Detrend", "Detrend", "Mute", "Filter", "Plot", "Save"],
-}
+}  # fmt: skip
 ACTIVE_CHAIN = ["Load", "SelectReceivers", "Plot", "Dispersion", "Stack", "Plot", "Save"]
 PASSIVE_CHAIN = [
     "Load", "SelectReceivers", "Slice", "Selection", "Whiten", "Normalize", "Apodize",
     "Correlate", "Stack", "Plot", "Save", "Dispersion", "Plot", "Save",
+]  # fmt: skip
+# PAC's adapters/passive_active.py, with PACo's geometry of the flipped gathers.
+PASSIVE_ACTIVE_CHAIN = [
+    "Load", "SelectReceivers", "SurfaceWaveWindow", "Apodize", "ActiveShotCorrelation",
+    "FromFirstReceiver", "Stack", "Plot", "Save", "Dispersion", "Plot", "Save",
 ]  # fmt: skip
 
 # Every tunable stage switched on, with values moved away from the defaults.
@@ -205,7 +215,11 @@ def _datasets(path: Path) -> dict[str, np.ndarray]:
 
 @pytest.mark.parametrize(
     ("profile", "name", "chain"),
-    [("active_p1", "active", ACTIVE_CHAIN), ("passive_p1", "passive", PASSIVE_CHAIN)],
+    [
+        ("active_p1", "active", ACTIVE_CHAIN),
+        ("passive_p1", "passive", PASSIVE_CHAIN),
+        ("active_p1", "passive-active", PASSIVE_ACTIVE_CHAIN),
+    ],
 )
 def test_steps_are_pacs(
     profiles: dict[str, Profile], tmp_path: Path, profile: str, name: str, chain: list[str]
@@ -217,9 +231,73 @@ def test_steps_are_pacs(
 
 
 def test_each_preset_mode_has_its_builder() -> None:
-    expected = {"active": build_active_pipeline, "passive": build_passive_pipeline}
+    expected = {
+        "active": build_active_pipeline,
+        "passive": build_passive_pipeline,
+        "passive-active": build_passive_active_pipeline,
+    }
 
     assert expected == PIPELINE_BUILDERS
+
+
+def test_pacs_fixed_steps_of_the_passive_active_pipeline(
+    profiles: dict[str, Profile], tmp_path: Path
+) -> None:
+    built = _build(profiles["active_p1"], "passive-active", {}, tmp_path)
+
+    assert vars(_only(built.image, Apodize)) == {"method": "hanning", "params": {"frac": 0.1}}
+    assert _only(built.image, ActiveShotCorrelation).method == "cross"
+    assert vars(_only(built.image, Stack)) == {"method": "linear", "params": {}}
+    window = _only(built.image, SurfaceWaveWindow)
+    assert (window.vmin, window.vmax, window.pad) == (80.0, 1500.0, 0.05)
+    # Switched off, the shots are correlated whole, as in PAC.
+    whole = _build(
+        profiles["active_p1"],
+        "passive-active",
+        {"correlation_window": {"method": "none"}},
+        tmp_path,
+    )
+    assert not [step for step in whole.image.steps if isinstance(step, SurfaceWaveWindow)]
+
+
+def test_the_surface_wave_window_keeps_the_waves_between_the_two_velocities() -> None:
+    receivers = (Coordinate(10.0, 0.0, 0.0), Coordinate(20.0, 0.0, 0.0))
+    shot = Stream(
+        xt=np.ones((2, 1001), dtype=np.float32),
+        ts=np.arange(1001, dtype=np.float32) / 1000,
+        sampling_freq=1000.0,
+        acquisition=LinearAcquisition(source=Coordinate(0.0, 0.0, 0.0), receivers=receivers),
+    )
+
+    (kept,) = SurfaceWaveWindow(vmin=100.0, vmax=1000.0, pad=0.05).transform([shot])
+
+    # At 10 m: from 10 ms (1,000 m/s) to 100 ms (100 m/s), ramps of 50 ms around.
+    first = kept.xt[0]
+    assert (first[10:101] == 1).all() and (first[151:] == 0).all()
+    assert first[125] == pytest.approx(0.5)  # halfway down the ramp after 100 ms
+    assert first[0] == pytest.approx(0.5 * (1 + np.cos(np.pi * 0.01 / 0.05)))
+    # At 20 m: from 20 to 200 ms.
+    assert (kept.xt[1][20:201] == 1).all() and (kept.xt[1][251:] == 0).all()
+
+
+def test_flipped_correlation_gathers_are_seen_from_their_first_receiver() -> None:
+    # A shot past the window's far end: sigpipe correlates with the last receiver and flips the
+    # traces, not the acquisition, so the phase shift would read the offsets backwards.
+    receivers = tuple(Coordinate(float(x), 0.0, 0.0) for x in range(4))
+    shot = Stream(
+        xt=np.eye(4, 8, dtype=np.float32),
+        ts=np.arange(8, dtype=np.float32),
+        sampling_freq=1.0,
+        acquisition=LinearAcquisition(source=Coordinate(5.0, 0.0, 0.0), receivers=receivers),
+    )
+    (flipped,) = ActiveShotCorrelation(method="cross").transform([shot])
+    assert flipped.acquisition.source == receivers[-1]
+
+    (seen,) = FromFirstReceiver().transform([flipped])
+
+    assert seen.acquisition == LinearAcquisition(source=receivers[0], receivers=receivers)
+    assert np.array_equal(seen.xt, flipped.xt)
+    assert list(seen.acquisition.offsets) == [0.0, 1.0, 2.0, 3.0]
 
 
 @BOTH_MODES
@@ -329,6 +407,14 @@ def test_select_receivers_keeps_the_rows_and_sets_the_acquisition() -> None:
     assert selected.acquisition == part
     with pytest.raises(ValueError, match="2 streams for 1 acquisition"):
         SelectReceivers([1, 2], [part]).transform([stream, stream])
+    # Each stream its own receivers: a shot's image without its own excluded traces.
+    other = LinearAcquisition(source=whole.source, receivers=(receivers[0], receivers[2]))
+    first, second = SelectReceivers([1, 2], [part, other], [[1, 2], [0, 2]]).transform(
+        [stream, stream]
+    )
+    assert np.array_equal(first.xt, stream.xt[[1, 2]])
+    assert np.array_equal(second.xt, stream.xt[[0, 2]])
+    assert second.acquisition == other
 
 
 # ---------------------------------------------------------------- preset values
@@ -464,7 +550,10 @@ def test_the_split_runs_and_gives_todays_results(
         assert {path.name for path in folder.iterdir()} == {"Stream_0000.hdf5", "Stream_0000.png"}
     # The pipeline works in float32 from the loader on, and the stream files keep it: bit for bit
     # on 12 cores. On 4 (CI's runners) the passive correlations round some values differently
-    # in the last float32 bit, at most 1.3e-7 of the largest, as LAPACK's batches do below.
+    # in the last float32 bit, at most 1.3e-7 of the largest, as LAPACK's batches do below. With
+    # PACo's passive defaults (2026-09-26: 2 s segments whitened and normalized one-bit, some 60
+    # a record stacked) those roundings add up to 1.8e-4 of the largest on 4 cores.
+    share = 1e-3 if name == "passive" else 1e-6
     for file in EXPECTED_FILES[name]:
         if file.endswith(".hdf5"):
             split, todays = _datasets(built.window_folder / file), _datasets(reference / file)
@@ -474,7 +563,7 @@ def test_the_split_runs_and_gives_todays_results(
                 if todays[key].dtype.kind == "f":
                     largest = float(np.max(np.abs(todays[key]), initial=0.0))
                     np.testing.assert_allclose(
-                        split[key], todays[key], rtol=0, atol=1e-6 * largest, err_msg=key
+                        split[key], todays[key], rtol=0, atol=share * largest, err_msg=key
                     )
                 else:
                     assert np.array_equal(split[key], todays[key]), key

@@ -111,6 +111,15 @@ def test_the_pick_stops_where_its_ridge_breaks() -> None:
     assert everything.frequencies[everything.kept].min() < 40
 
 
+def test_a_band_cut_keeps_the_pick_within() -> None:
+    # G3's first fix for a mode jump: the frequencies searched stop where the jump starts.
+    (mode,) = pick_modes(_shot([(m0, 1.0)], noise=0.3), PickingParameters(fmin=12.0, fmax=30.0))
+
+    kept = mode.frequencies[mode.kept]
+    assert kept.min() >= 12.0 and kept.max() <= 30.0
+    assert kept.max() - kept.min() > 10
+
+
 def _silent(low: float, high: float) -> Dispersion:
     """An amplitude of 1 except between `low` and `high` Hz, where the wave carries nothing."""
     return lambda frequencies: np.where((frequencies >= low) & (frequencies < high), 0.0, 1.0)

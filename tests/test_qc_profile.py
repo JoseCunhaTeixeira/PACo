@@ -40,6 +40,7 @@ def test_a_smooth_line_passes_every_curve_and_the_line() -> None:
         "curves": 8,
         "without_curve": 0,
         "depth_spread": 0.0,
+        "inverse_curves": 0,
     }
     window = results["xmid_3.00"]
     assert {metric.name: metric.value for metric in window.metrics} == {
@@ -62,7 +63,9 @@ def test_an_isolated_outlier_is_picked_again_along_the_neighbours_median() -> No
     action = flag.action.model_dump()
     assert action["kind"] == "override" and action["stage"] == "picking"
     guide = np.array(action["overrides"]["guide"])
-    # The guide is the neighbours' median: (frequency, velocity) pairs along 150 + 8 wavelength.
+    # The guide is the neighbours' median: (frequency, velocity) pairs along 150 + 8 wavelength,
+    # thinned to 12 for the summary the agent reads.
+    assert len(guide) == 12
     assert guide[:, 0].tolist() == sorted(guide[:, 0])
     wavelengths = guide[:, 1] / guide[:, 0]
     assert np.allclose(guide[:, 1], 150 + 8 * wavelengths, rtol=0.01)
@@ -140,6 +143,24 @@ def test_the_line_reports_the_gaps_and_uneven_depths() -> None:
         f.message for f in line.flags if f.name == "gaps"
     )
     assert next(m.value for m in line.metrics if m.name == "without_curve") == 3
+
+
+def test_an_inverse_trend_along_the_line_is_said_once_and_kept() -> None:
+    def falling(xmid: float) -> Series:
+        return Series(
+            unit=f"xmid_{xmid:.2f}", xmid=xmid, x=WAVELENGTHS, values=400.0 - 5.0 * WAVELENGTHS
+        )
+
+    curves = [falling(x) if x in (2.0, 3.0, 4.0) else _curve(x) for x in map(float, range(8))]
+    line = _by_unit(judge_profile(curves, THRESHOLDS))[LINE]
+
+    assert line.verdict == "pass"
+    (flag,) = line.flags
+    assert flag.name == "inverse_trend" and flag.action.kind == "keep"
+    assert flag.message.startswith("Velocity falls with wavelength on 3 of 8 curves, at xmid")
+    # A single inverse curve is G3's to say.
+    one = [falling(x) if x == 2.0 else _curve(x) for x in map(float, range(8))]
+    assert _by_unit(judge_profile(one, THRESHOLDS))[LINE].flags == ()
 
 
 def test_a_line_without_a_curve_is_rejected() -> None:

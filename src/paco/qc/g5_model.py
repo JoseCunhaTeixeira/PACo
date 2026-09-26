@@ -13,6 +13,7 @@ from paco.inversion import InversionParameters
 from paco.inversion.measuring import InversionMeasures, ModelFit
 from paco.inversion.models import SAMPLE_EVERY
 from paco.qc.models import Flag, GateResult, Keep, Kept, Metric, Override, Reject
+from paco.qc.priors import MIN_LAYERS
 
 GATE = "G5"
 BAND_NAMES = {3: ("short", "middle", "long")}
@@ -59,7 +60,11 @@ class ModelThresholds(BaseModel):
         description="The useful depth ends where the spread of the sampled Vs reaches this share "
         "of the prior's.",
     )
-    max_layers: int = Field(default=4, ge=2, description="Layers the loop may go up to.")
+    max_layers: int = Field(
+        default=10,
+        ge=3,
+        description="Layers the loop may go up to, at most: below it, what each curve resolves.",
+    )
 
 
 def judge_model(
@@ -68,11 +73,15 @@ def judge_model(
     parameters: InversionParameters,
     thresholds: ModelThresholds,
     reach_m: float | None = None,
+    resolved_layers: int | None = None,
 ) -> GateResult:
     """G5's verdict on one window's inversion, measured with `thresholds`' bands, edge and
     ratio, from `parameters`. `reach_m` is how deep the half-space's top may go (the checks
     before S4): a thickness piled at a maximum shallower than that is widened."""
     smooth, layered = measures.fits
+    # One layer more when the model misfits, up to what the curve resolves (the checks before
+    # S4), never past the loop's own limit.
+    ceiling = min(thresholds.max_layers, resolved_layers or thresholds.max_layers)
     names = BAND_NAMES.get(
         len(smooth.bands), tuple(f"band{i + 1}" for i in range(len(smooth.bands)))
     )
@@ -83,6 +92,17 @@ def judge_model(
             threshold=thresholds.max_misfit,
             bound="max",
             passed=band.misfit is not None and band.misfit <= thresholds.max_misfit,
+        )
+        for name, band in zip(names, smooth.bands, strict=True)
+    ]
+    # PAC's residual, (modelled - picked) / modelled in %, by band: reported, never judged (the
+    # user's decision of 2026-09-25: the misfit divides by the Lorentzian uncertainties).
+    metrics += [
+        Metric(
+            name=f"residual_{name}",
+            value=None if band.residual is None else round(100 * band.residual, 1),
+            passed=True,
+            unit="%",
         )
         for name, band in zip(names, smooth.bands, strict=True)
     ]
@@ -139,12 +159,29 @@ def judge_model(
 
     flags: list[Flag] = []
     if layered.n_missing:
+        lowest = layered.lowest_missing_hz
+        message = (
+            f"The layered median has no fundamental mode at {layered.n_missing} of the picked "
+            "points: they are faster than any mode of a model with a softer layer below. A "
+            "higher mode may be picked there"
+        )
+        # The model is rejected either way; the suggested change is the agent's to make with
+        # redo (the user's decision of 2026-09-25), a band stopping under those points.
         flags.append(
             Flag(
                 name="no_mode",
-                message=f"The layered median has no fundamental mode at {layered.n_missing} of the "
-                "picked points: they are faster than any mode of a model with a softer layer "
-                "below. A higher mode may be picked there.",
+                message=f"{message}: redo the phase shift with the band below {lowest:g} Hz.",
+                stage="phase_shift",
+                action=Override(
+                    stage="phase_shift",
+                    overrides={"dispersion": {"fmax": round(0.95 * lowest, 1)}},
+                ),
+                fixable=False,
+            )
+            if lowest is not None
+            else Flag(
+                name="no_mode",
+                message=f"{message}.",
                 stage="picking",
                 action=Reject(
                     reason="the curve holds points no fundamental mode of the model reaches"
@@ -202,7 +239,7 @@ def judge_model(
                     action=Keep(note="re-inverting cannot fix a smoothing effect"),
                 )
             )
-        elif parameters.n_layers < thresholds.max_layers:
+        elif parameters.n_layers < ceiling:
             flags.append(
                 Flag(
                     name="underfit",
@@ -218,15 +255,16 @@ def judge_model(
                 Flag(
                     name="underfit",
                     message=f"The model misfits {value:.1f} at {where} with "
-                    f"{parameters.n_layers} layers, the most the loop tries.",
+                    f"{parameters.n_layers} layers, the most the curve resolves.",
                     stage="inversion",
-                    action=Reject(reason=f"not fitted with up to {thresholds.max_layers} layers"),
+                    action=Reject(reason=f"not fitted with up to {ceiling} layers"),
                     fixable=False,
                 )
             )
 
     kinds = {type(flag.action) for flag in flags}
-    verdict = "reject" if Reject in kinds else "retry" if Override in kinds else "pass"
+    rejected = Reject in kinds or any(not flag.fixable for flag in flags)
+    verdict = "reject" if rejected else "retry" if Override in kinds else "pass"
     wavelengths = [band.wavelength_m for band in smooth.bands]
     return GateResult(
         gate=GATE,
@@ -299,7 +337,7 @@ def _thickness_flags(
     for share in measures.at_bounds:
         if share.share <= thresholds.max_at_bound or not share.parameter.startswith("thick"):
             continue
-        if share.bound == "min" and parameters.n_layers > 2:
+        if share.bound == "min" and parameters.n_layers > MIN_LAYERS:
             flags.append(
                 Flag(
                     name="thin_layer",

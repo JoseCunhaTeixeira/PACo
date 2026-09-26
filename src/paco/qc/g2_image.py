@@ -80,14 +80,22 @@ def edge_peaks(
     image: DispersionImage, coherent: np.ndarray, edge_share: float, floor: float = 0.0
 ) -> tuple[int, int]:
     """How many coherent columns peak within `edge_share` of the grid's lowest velocity, and,
-    looking above `floor` only (below it lie artifacts), within `edge_share` of its highest."""
+    looking above `floor` only (below it lie artifacts), within `edge_share` of its highest,
+    among the columns where the window tells that velocity from an infinite one: a window of
+    aperture L resolves slowness to about 1 / (f L), so below f = vmax / L a peak at vmax is
+    energy with no moveout (noise common to every trace: passive_p1's images, whose grid G2
+    widened to 3,375 m/s without the peak leaving its edge), not a ridge beyond the grid."""
     vs = np.asarray(image.vs, dtype=float)
+    fs = np.asarray(image.fs, dtype=float)
     span = vs.max() - vs.min()
     peaks = vs[image.fv_map[coherent].argmax(axis=1)] if coherent.any() else np.array([])
     above = _above(image, floor)[coherent]
     peaks_above = vs[above.argmax(axis=1)] if coherent.any() else np.array([])
+    positions = [receiver.x for receiver in image.acquisition.receivers]
+    aperture = max(positions) - min(positions) if len(positions) > 1 else 0.0
+    resolved = (fs * aperture > vs.max())[coherent]
     low = int(np.sum(peaks <= vs.min() + edge_share * span))
-    high = int(np.sum(peaks_above >= vs.max() - edge_share * span))
+    high = int(np.sum((peaks_above >= vs.max() - edge_share * span) & resolved))
     return low, high
 
 
@@ -229,13 +237,13 @@ def judge_image(
     # a wider band let a second ridge compete, and fewer curves passed G3 (17 of 19 at 100 Hz,
     # 15 at 150 Hz, 6 at 324 Hz). The coherence rules cap fmax at the records' usable band.
     for name, touches, action in (
+        # Kept too since 2026-09-25 (the user's decision): the picker stops where its ridge
+        # breaks and where the window resolves no velocity; on active_p2 every short window's
+        # band reached fmin, and lowering it to 1 Hz spent the run's budget on 68 rejections.
         (
             "band_at_fmin",
             at_fmin,
-            Override(
-                stage="phase_shift",
-                overrides={"dispersion": {"fmin": round(max(0.0, fs.min() / 2), 1)}},
-            ),
+            Keep(note="fmin stays: the picker stops where the ridge breaks"),
         ),
         ("band_at_fmax", at_fmax, Keep(note="fmax stays: a wider band let other ridges compete")),
     ):

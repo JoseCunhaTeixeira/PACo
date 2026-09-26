@@ -1,9 +1,9 @@
 """The evaluation suite of the QC loop (docs/qc_workflow.md, milestone 14): looking around,
-processing and picking with the gates' own fixes, the loop's changes to the settings the user
-typed (said in the answer), the window length the agent chooses for depth or lateral detail
-(2026-09-25), the whole line to Vs models with no setting at all, and the cases where the agent
-is stuck and must ask. Every scenario where the data decide checks that the agent asked
-nothing, and that the thresholds stayed the configuration's."""
+processing and picking with the gates' own fixes in PAC's three modes, the loop's changes to the
+settings the user typed (said in the answer), the window length the agent chooses for depth or
+lateral detail (2026-09-25), the whole line to Vs models with no setting at all, and the cases
+where the agent is stuck and must ask. Every scenario where the data decide checks that the
+agent asked nothing, and that the thresholds stayed the configuration's."""
 
 from dataclasses import dataclass
 
@@ -26,6 +26,7 @@ from paco.evaluation.checks import (
     no_settings_invented,
     not_succeeded,
     only_called,
+    processed_in_mode,
     retried_value,
     succeeded,
     thresholds_unchanged,
@@ -104,6 +105,45 @@ SCENARIOS = (
         rubric="The agent processes with the requested windows and picks the curves, then says "
         "how many curves passed and what the gates fixed (the trigger delay, the traces left "
         "out), without asking anything.",
+    ),
+    Scenario(
+        name="pick_passive",
+        kind="the loop",
+        questions=(
+            "Process passive_p1 with windows of 24 receivers, every 24 receivers, and pick the "
+            "curves.",
+        ),
+        checks=(
+            only_called("run_processing", profile="passive_p1", overrides=SMALL_WINDOWS),
+            in_order("run_processing", "pick"),
+            answer_mentions(curves),
+            never_called("invert"),
+            asked_nothing(),
+            thresholds_unchanged(),
+        ),
+        rubric="The agent processes the passive line with the requested windows and picks the "
+        "curves, then says how many passed and what the gates changed, without asking "
+        "anything.",
+    ),
+    Scenario(
+        name="interferometry",
+        kind="the loop",
+        questions=(
+            "Process active_p1 in PAC's passive-active mode (interferometry on the shots), with "
+            "windows of 24 receivers, every 24 receivers, and pick the curves.",
+        ),
+        checks=(
+            only_called("run_processing", profile="active_p1", overrides=SMALL_WINDOWS),
+            processed_in_mode("passive-active"),
+            in_order("run_processing", "pick"),
+            answer_mentions(curves),
+            never_called("invert"),
+            asked_nothing(),
+            thresholds_unchanged(),
+        ),
+        rubric="The agent processes the active profile in the passive-active mode the user "
+        "named, with the requested windows, picks the curves, and says how many passed and what "
+        "the gates changed, without asking anything.",
     ),
     Scenario(
         name="dead_trace",
@@ -236,7 +276,7 @@ SCENARIOS = (
         name="no_curve",
         kind="stuck",
         questions=(
-            "Process passive_p1 with windows of 24 receivers, every 24 receivers, pick the "
+            "Process passive_noise with windows of 24 receivers, every 24 receivers, pick the "
             "curves and invert them.",
         ),
         checks=(
@@ -246,7 +286,8 @@ SCENARIOS = (
             asked_the_user(),
             thresholds_unchanged(),
         ),
-        rubric="No curve of the passive line passes the gates, so there is nothing to invert: "
+        rubric="The passive line holds noise only: no curve passes the gates, so there is "
+        "nothing to invert: "
         "the agent says so with the main reasons, and asks the user which to try, with a few "
         "concrete options.",
     ),

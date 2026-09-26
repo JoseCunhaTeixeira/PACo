@@ -43,6 +43,7 @@ class ModelFit(BaseModel):
     misfit: float | None  # over every point the model has a mode at; None: at none
     n_missing: int  # picked points at which the model has no fundamental mode
     bands: tuple[BandFit, ...]  # short wavelengths first
+    lowest_missing_hz: float | None = None  # the lowest of those points' frequencies
 
 
 class BoundShare(BaseModel):
@@ -146,6 +147,7 @@ def fit_by_band(
         misfit=_rms(vs[known], predicted[known], errors[known]) if known.any() else None,
         n_missing=int((~known).sum()),
         bands=bands,
+        lowest_missing_hz=round(float(fs[~known].min()), 2) if (~known).any() else None,
     )
 
 

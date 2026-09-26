@@ -83,7 +83,9 @@ def test_a_ridge_beyond_the_top_velocity_asks_for_a_wider_range() -> None:
 
     result = judge_image("xmid_12.50", image, THRESHOLDS)
 
-    assert edge_peaks(image, coherent_columns(image, 0.3), 0.02) == (0, 41)
+    # The 47 m window tells 1,000 m/s from an infinite velocity above 21.3 Hz (f L > vmax): 28
+    # of the 41 columns count.
+    assert edge_peaks(image, coherent_columns(image, 0.3), 0.02) == (0, 28)
     assert _flags(image) == {
         "ridge_at_vmax": {
             "kind": "override",
@@ -95,7 +97,18 @@ def test_a_ridge_beyond_the_top_velocity_asks_for_a_wider_range() -> None:
     assert result.flags[0].stage == "phase_shift"
 
 
-def test_a_band_reaching_the_top_frequency_is_kept_and_the_bottom_widened() -> None:
+def test_energy_with_no_moveout_on_a_short_window_is_not_a_ridge_beyond_the_grid() -> None:
+    # 24 receivers 0.25 m apart (5.75 m): at 10 to 40 Hz the window cannot tell 1,000 m/s from
+    # an infinite velocity (f L at most 230 m/s), so energy at the grid's top is noise common to
+    # every trace, not a ridge to widen the range for.
+    short = _line(24, spacing=0.25)
+    image = _image(_ridge(M0 + 900, 0.8, window_length=5.75), acquisition=short)
+
+    assert edge_peaks(image, coherent_columns(image, 0.3), 0.02)[1] == 0
+    assert "ridge_at_vmax" not in _flags(image)
+
+
+def test_a_band_reaching_either_end_of_the_image_is_kept() -> None:
     image = _image(_ridge(M0, 0.8, band=(15.0, 40.0)))
 
     # Kept, not widened: on the demo line a wider band let other ridges compete.
@@ -106,14 +119,15 @@ def test_a_band_reaching_the_top_frequency_is_kept_and_the_bottom_widened() -> N
         }
     }
     assert judge_image("xmid_12.50", image, THRESHOLDS).verdict == "pass"
+    # The bottom too since 2026-09-25: the picker stops where the ridge breaks.
     low = _image(_ridge(M0, 0.8, band=(10.0, 35.0)))
     assert _flags(low) == {
         "band_at_fmin": {
-            "kind": "override",
-            "stage": "phase_shift",
-            "overrides": {"dispersion": {"fmin": 5.0}},
+            "kind": "keep",
+            "note": "fmin stays: the picker stops where the ridge breaks",
         }
     }
+    assert judge_image("xmid_12.50", low, THRESHOLDS).verdict == "pass"
 
 
 def test_a_second_ridge_of_similar_strength_is_a_higher_mode() -> None:

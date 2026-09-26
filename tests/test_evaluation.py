@@ -41,6 +41,7 @@ from paco.evaluation.checks import (
     no_settings_invented,
     not_succeeded,
     only_called,
+    processed_in_mode,
     retried_value,
     succeeded,
     thresholds_unchanged,
@@ -256,6 +257,9 @@ def test_at_most_calls_counts_every_call() -> None:
         ("10.25 m", ("0.25",), False),
         ("4 windows are good.", ("4",), True),
         ("Profiles: Active_P1 and passive_p1.", ("active_p1", "passive_p1"), True),
+        # Thousands with a separator (Qwen3-8B wrote "17,000 iterations"), not a decimal comma.
+        ("raised to 17,000 iterations", ("17000",), True),
+        ("at 2,5 m", ("25",), False),
     ],
 )
 def test_answer_mentions(answer: str, facts: tuple[str, ...], passed: bool) -> None:
@@ -398,12 +402,57 @@ def test_excluded_traces_are_read_from_the_run(tmp_path: Path, demo_input_dir: P
     assert demo_input_dir.exists()
 
 
+def test_the_mode_is_read_from_every_run(tmp_path: Path) -> None:
+    def run(name: str, mode: str) -> None:
+        folder = tmp_path / "active_p1" / name
+        folder.mkdir(parents=True)
+        manifest = RunManifest.model_validate(
+            {
+                "run_id": name,
+                "profile": {
+                    "name": "active_p1",
+                    "kind": "active",
+                    "n_records": 2,
+                    "n_receivers": 96,
+                    "receiver_x_range_m": [0.0, 23.75],
+                    "receiver_spacing_m": 0.25,
+                    "sampling_rate_hz": 2000.0,
+                    "nyquist_hz": 1000.0,
+                    "record_duration_range_s": [2.0, 2.0],
+                    "source_x_range_m": [-0.75, 24.5],
+                },
+                "preset": {"mode": mode},
+                "versions": {},
+                "started_at": "2026-09-26T10:00:00Z",
+                "finished_at": "2026-09-26T10:00:10Z",
+                "n_positions": 4,
+                "windows": [],
+            }
+        )
+        (folder / "run.json").write_text(manifest.model_dump_json())
+
+    run("20260926-100000-abcd", "passive-active")
+    trial = _trial([], "", tmp_path)
+    assert processed_in_mode("passive-active")(trial).passed
+    # However it was asked for: a run in another mode fails the check.
+    run("20260926-100100-abcd", "active")
+    result = processed_in_mode("passive-active")(trial)
+    assert (result.passed, result.detail) == (False, "runs in active")
+    assert not processed_in_mode("passive-active")(_trial([], "", tmp_path / "nothing")).passed
+
+
 def test_the_agent_asks_or_not() -> None:
     asking = _trial([], "No curve passed. Which should I try: longer windows, or stopping here?")
     telling = _trial([], "3 curves passed; G1 corrected the trigger delay.")
 
     assert asked_the_user()(asking).passed and not asked_the_user()(telling).passed
     assert asked_nothing()(telling).passed and not asked_nothing()(asking).passed
+    # Options to pick from ask too, question mark or not (Qwen3-8B, 2026-09-25).
+    for options in (
+        "1. Redo. 2. New run. 3. Stop. Choose one to proceed.",
+        "<options>1, 2</options>",
+    ):
+        assert asked_the_user()(_trial([], options)).passed
 
 
 def test_no_settings_invented() -> None:
@@ -481,14 +530,21 @@ def test_the_dead_trace_profile_is_the_demo_with_one_trace_zeroed(
     assert sorted(path.name for path in inputs.iterdir()) == [
         "active_dead",
         "active_p1",
+        "passive_noise",
         "passive_p1",
     ]
     profile = load_profile("active_dead", Settings(input_dir=inputs))
     assert [record.path.name for record in profile.records] == ["1.mseed", "2.mseed"]
+    import numpy as np
     import obspy
 
     dead = obspy.read(str(inputs / "active_dead" / "1.mseed"))
     assert not dead[40].data.any() and dead[39].data.any()
+    # The noise line: passive_p1's geometry, independent noise on every trace.
+    noise = load_profile("passive_noise", Settings(input_dir=inputs))
+    assert (noise.kind, len(noise.receivers), len(noise.records)) == ("passive", 96, 2)
+    first = obspy.read(str(inputs / "passive_noise" / noise.records[0].path.name))
+    assert abs(float(np.corrcoef(first[10].data, first[11].data)[0, 1])) < 0.01
     # Built once: a second call keeps it.
     assert build_inputs(demo_input_dir, tmp_path / "inputs") == inputs
 
@@ -614,7 +670,7 @@ def picks_active(messages: list[ChatCompletionMessageParam]) -> Reply:
     if len(results) == 1:
         return _calls("pick", {"run_id": json.loads(results[0])["run_id"]})
     passed = json.loads(results[1])["next"].split(" curves")[0]
-    return _says(f"{passed} curves passed; G1 corrected the trigger delay, left out 3 traces.")
+    return _says(f"{passed} curves passed; G1 corrected the trigger delay, left out 4 traces.")
 
 
 @pytest.mark.usefixtures("paco_env")
@@ -651,7 +707,7 @@ def test_the_loops_checks_read_a_real_run(paco_env: Settings, tmp_path: Path) ->
         ("in order: run_processing, pick", True),
         ("the loop retried for G1:shifted_trigger", True),
         ("trace 89 of 2.dat left out", True),
-        ("answer mentions 4", True),
+        ("answer mentions 3", True),
         ("invert never called", True),
         ("the agent asked nothing", True),
         ("the thresholds stayed the configuration's", True),

@@ -19,7 +19,7 @@ from sigpipe.algorithms import (
 )
 from sigpipe.transformers import Slice
 
-from paco.transformers import ShiftTrigger
+from paco.transformers import ShiftTrigger, SurfaceWaveWindow
 
 
 @dataclass(frozen=True, slots=True)
@@ -92,12 +92,17 @@ FILTERING = Stage(
     },
 )
 
+# PACo's passive defaults, not PAC's form's (0.1 s segments, no whitening, no normalization),
+# which gave no curve on a real ambient-noise line (passive_p2: 0 of 27 trial windows of 11
+# receivers passed G3; 2 s segments whitened and normalized one-bit, 19 of 27; 0.5, 1 and 5 s,
+# 13 to 15; one of the two alone, 11 and 15; phase-weighted stacking, 10: 2026-09-26). A 0.1 s
+# segment has a 10 Hz frequency step, and noise bursts outweigh the rest unless whitened.
 SLICING = Stage(
     functions={"slice": Slice.__init__},
     parameters={
         "slice": {
-            "segment_duration": Parameter("s", default=0.1, gt=0),
-            "segment_step": Parameter("s", default=0.1, gt=0),
+            "segment_duration": Parameter("s", default=2.0, gt=0),
+            "segment_step": Parameter("s", default=2.0, gt=0),
         }
     },
     default="slice",
@@ -127,9 +132,13 @@ WHITENING = Stage(
             "taper_width_Hz": Parameter("Hz", default=5.0, gt=0),
         }
     },
+    default="onebit",  # PACo's: see SLICING
 )
 
-NORMALIZATION = Stage(functions=pac_methods(NORMALIZATION_METHODS, "onebit"))
+NORMALIZATION = Stage(
+    functions=pac_methods(NORMALIZATION_METHODS, "onebit"),
+    default="onebit",  # PACo's: see SLICING
+)
 
 STACKING = Stage(
     functions=pac_methods(STREAM_STACKING_METHODS, "linear", "phase_weighted", "root"),
@@ -160,6 +169,31 @@ ACTIVE_STAGES = {
     "trigger": TRIGGER,
     "muting": MUTING,
     "filtering": FILTERING,
+    "dispersion": DISPERSION,
+}
+# Not in PAC: before a shot is correlated (passive-active), its surface-wave window only, G1's
+# (2026-09-26): correlated whole, the demo's records gave images peaking at the grid's top
+# velocity, noise common to every trace; the mute of `muting` would also blank G1's noise window.
+CORRELATION_WINDOW = Stage(
+    functions={"surface_waves": SurfaceWaveWindow.__init__},
+    parameters={
+        "surface_waves": {
+            "vmin": Parameter("m/s", default=80.0, gt=0),
+            "vmax": Parameter("m/s", default=1_500.0, gt=0),
+            "pad": Parameter("s", default=0.05, ge=0),
+        }
+    },
+    default="surface_waves",
+)
+
+# PAC's passive-active mode: an active profile's shots, each gather cross-correlated with the
+# receiver nearest its shot, the correlations stacked (PAC's adapters/passive_active.py).
+PASSIVE_ACTIVE_STAGES = {
+    "trigger": TRIGGER,
+    "muting": MUTING,
+    "filtering": FILTERING,
+    "correlation_window": CORRELATION_WINDOW,
+    "stacking": STACKING,
     "dispersion": DISPERSION,
 }
 PASSIVE_STAGES = {

@@ -1,10 +1,10 @@
 """G1, the signal QC of a preprocessed record (docs/qc_workflow.md): dead, clipped and NaN
-traces; amplitudes off the decay with offset; reversed polarity; the SNR and the usable band,
+traces; amplitudes off the decay with offset; the SNR and the usable band,
 from a surface-wave window against a noise window; lateral coherence; the trigger; and what a
 mute removed. On a passive record, only the checks that need no trigger."""
 
 import math
-from collections.abc import Collection
+from collections.abc import Collection, Sequence
 from dataclasses import dataclass
 
 import numpy as np
@@ -46,6 +46,12 @@ class SignalThresholds(BaseModel):
         description="...and by at least this factor: a smooth decay has tiny MADs.",
     )
     min_snr_db: float = Field(default=6.0, description="Median SNR of the traces, in dB.")
+    reach_snr_db: float = Field(
+        default=2.0,
+        description="dB: the traces' median SNR, by distance from the shot, under which they carry "
+        "no wave: the line's reach, which sets masw.distance_max (the user's choice of "
+        "2026-09-25: at 6 dB the demo's end windows lost a far shot that helped them).",
+    )
     band_db: float = Field(
         default=6.0, gt=0, description="Signal above noise, for the usable band."
     )
@@ -130,6 +136,46 @@ def rms_decay_outliers(
     limit = max(mads * 1.4826 * mad, math.log(factor))
     outliers[fit_on] = np.abs(residuals - np.median(residuals)) > limit
     return outliers
+
+
+def trace_snrs(
+    stream: Stream, thresholds: SignalThresholds
+) -> tuple[np.ndarray, np.ndarray] | None:
+    """Each trace's distance from the shot and its SNR in dB (surface-wave window against noise
+    window); None when the record leaves no room for a noise window."""
+    offsets = np.asarray(stream.acquisition.offsets, dtype=float)
+    windows = signal_windows(offsets, np.asarray(stream.ts, dtype=float), thresholds)
+    if windows is None:
+        return None
+    return offsets, snr_db(np.nan_to_num(stream.xt), windows)
+
+
+def snr_reach(
+    measured: Sequence[tuple[np.ndarray, np.ndarray]], min_db: float, bin_m: float
+) -> float | None:
+    """How far from the shot the traces still carry the wave: over every record's traces
+    `measured` (offsets, SNR), binned every `bin_m` m from the shot, the distance where the
+    bins' median SNR first falls below `min_db`, between the centres of the last bin above and
+    the first below; None when no bin falls below. Measured on 2026-09-25 at 2 dB: 63.35 m on
+    the 142.5 m active_p2 (53 dB at 0-10 m, 5 dB at 50-60 m), 24.34 m on the 24 m demo."""
+    if not measured or bin_m <= 0:
+        return None
+    offsets = np.concatenate([one[0] for one in measured])
+    snrs = np.concatenate([one[1] for one in measured])
+    bins = np.floor(offsets / bin_m).astype(int)
+    previous: tuple[float, float] | None = None
+    for index in range(int(bins.max()) + 1):
+        values = snrs[bins == index]
+        if values.size == 0:
+            continue
+        centre, median = (index + 0.5) * bin_m, float(np.median(values))
+        if median < min_db:
+            if previous is None:
+                return round(centre, 2)
+            before, above = previous
+            return round(before + (above - min_db) / (above - median) * (centre - before), 2)
+        previous = (centre, median)
+    return None
 
 
 def snr_db(xt: np.ndarray, windows: Windows) -> np.ndarray:
@@ -230,9 +276,13 @@ def judge_signal(
     raw: Stream | None = None,
     active: bool = True,
     excluded: Collection[int] = (),
+    reach_m: float | None = None,
 ) -> GateResult:
     """G1's verdict on one record: the metrics, the flags with their actions, and what is kept.
-    The traces `excluded` already (receiver indices) are left out of every measure and flag."""
+    The traces `excluded` already (receiver indices) are left out of every measure and flag;
+    the decay with offset, the SNR, the usable band and the lateral coherence are measured on
+    the traces within `reach_m` of the shot (the line's reach, beyond which the traces carry no
+    wave: the user's decisions of 2026-09-25)."""
     xt = preprocessed.xt
     left_out = np.zeros(xt.shape[0], dtype=bool)
     left_out[[index for index in excluded if 0 <= index < xt.shape[0]]] = True
@@ -295,11 +345,25 @@ def judge_signal(
 
     finite = np.nan_to_num(xt)
     rms = np.sqrt(np.mean(finite**2, axis=1))
+    # The line's reach: beyond it the traces carry no wave, and no window stacks them.
+    within = np.ones(offsets.size, dtype=bool)
+    if reach_m is not None and (offsets <= reach_m).any():
+        within = offsets <= reach_m
+    # The decay is fitted on every trace within the reach that is neither dead, clipped nor NaN,
+    # those already left out among them: excluding a trace must not move the fit, or each round
+    # excludes more (21 traces around each shot of active_p2, 2026-09-25). Within the reach only
+    # (the user's decision of 2026-09-25): fitted over active_p2's whole line, the noise floor
+    # flattened it, and 259 of the traces nearest the shots, the strongest, read too loud.
     outliers = (
         rms_decay_outliers(
-            rms, offsets, ~bad_traces, thresholds.rms_outlier_mads, thresholds.rms_outlier_factor
+            rms,
+            offsets,
+            ~(dead | clipped | nan) & within,
+            thresholds.rms_outlier_mads,
+            thresholds.rms_outlier_factor,
         )
         & ~left_out
+        & within
     )
     metrics.append(
         Metric(
@@ -324,8 +388,9 @@ def judge_signal(
         )
 
     usable = ~(bad_traces | outliers)
+    measured = usable & within if (usable & within).any() else usable
     snr = snr_db(finite, windows)
-    median_snr = float(np.median(snr[usable])) if usable.any() else float("nan")
+    median_snr = float(np.median(snr[measured])) if measured.any() else float("nan")
     snr_ok = median_snr >= thresholds.min_snr_db
     metrics.append(
         Metric(
@@ -339,13 +404,13 @@ def judge_signal(
     )
     band = (
         usable_band(
-            finite[usable],
+            finite[measured],
             preprocessed.sampling_freq,
-            Windows(windows.signal[usable], windows.noise[usable], windows.where),
+            Windows(windows.signal[measured], windows.noise[measured], windows.where),
             thresholds.band_db,
             thresholds.peak_db,
         )
-        if usable.any()
+        if measured.any()
         else None
     )
     metrics.append(
@@ -387,8 +452,9 @@ def judge_signal(
     max_lag_s = (
         float(np.diff(np.sort(offsets)).min()) / thresholds.vg_min if offsets.size > 1 else 0.0
     )
-    coherence, polarity = lateral_coherence(finite, windows, preprocessed.sampling_freq, max_lag_s)
-    pair_ok = usable[:-1] & usable[1:]
+    coherence, _ = lateral_coherence(finite, windows, preprocessed.sampling_freq, max_lag_s)
+    # Within the reach too: pairs of noise traces beyond it are not the record's fault.
+    pair_ok = measured[:-1] & measured[1:]
     median_coherence = float(np.median(coherence[pair_ok])) if pair_ok.any() else float("nan")
     coherence_ok = median_coherence >= thresholds.min_coherence
     metrics.append(
@@ -418,30 +484,9 @@ def judge_signal(
                 ),
             )
         )
-    # Reversed polarity: a trace whose peak correlation with both neighbours is negative.
-    reversed_mask = np.zeros(xt.shape[0], dtype=bool)
-    reversed_mask[1:-1] = (polarity[:-1] < 0) & (polarity[1:] < 0)
-    reversed_mask &= usable
-    metrics.append(
-        Metric(
-            name="reversed_traces",
-            value=int(reversed_mask.sum()),
-            threshold=0,
-            bound="max",
-            passed=not reversed_mask.any(),
-        )
-    )
-    if reversed_mask.any():
-        traces = tuple(int(i) for i in np.flatnonzero(reversed_mask))
-        flags.append(
-            Flag(
-                name="reversed_polarity",
-                message=f"Traces {list(traces)} correlate negatively with both neighbours: reversed polarity.",
-                stage="preprocessing",
-                action=ExcludeTraces(record=record, traces=traces),
-                fixable=False,
-            )
-        )
+    # No reversed-polarity check (the user, 2026-09-25): a reversed geophone hardly ever happens,
+    # and at 1.5 m spacing near the source, neighbours shifted by more than half a period
+    # flagged whole blocks of active_p2's traces.
 
     breaks = first_breaks(
         finite, np.asarray(preprocessed.ts, dtype=float), windows, thresholds.first_break_ratio

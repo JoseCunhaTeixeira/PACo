@@ -16,12 +16,14 @@ def build_preprocessing_pipeline(
     preset: ActivePreset | PassivePreset, record: Record, profile: Profile, output_folder: Path
 ) -> Pipeline:
     """The preprocessing of one record, written to `output_folder`: the same for every window
-    that uses the record, since each step works trace by trace. An active record's trigger is
-    corrected first (t0 = 0 by default: no change)."""
+    that uses the record, since each step works trace by trace. A shot's trigger is corrected
+    first, in the modes that process shots (t0 = 0 by default: no change)."""
     load = load_record(record, profile)
+    # The presets with a trigger stage: active and passive-active (whose correction G1 asked
+    # for and never got, rejecting the demo's two shots, 2026-09-26).
     head = (
         load >> ShiftTrigger(**stage_kwargs(preset, "trigger"))
-        if isinstance(preset, ActivePreset)
+        if "trigger" in type(preset).model_fields
         else Pipeline([load])
     )
     return (

@@ -1,6 +1,6 @@
 # PACo progress
 
-Last updated 2026-09-24. Read this first at the start of each session.
+Last updated 2026-09-25. Read this first at the start of each session.
 
 ## Working agreement
 
@@ -31,7 +31,9 @@ Last updated 2026-09-24. Read this first at the start of each session.
 | 12. G3 extensions, G4 curve profile QC | Done: the curve's own rules, the pick saved as judged, the picking done again per window, G4 over the line with its pseudo-section; 433 tests |
 | 13. Checks before S4, smooth model, G5, G6 | Done: S2's coherence rules (the band, the ladder), the checks before S4, the smooth median monitored, G5, G6, the inversion done again per window, G3's near field; 492 tests |
 | 14. Tools, no approval, role and policy, scenarios, README | Built: stage tools with their gates' retries, redo, the job with G5 and G6, the approval removed, the agent asks only when stuck, the suite on synthetic defects; first evaluation 14 of 33, fixed; 498 tests, the ideal agent 11 of 11; second evaluation to record |
-| After 14: windows and picks (2026-09-25) | Built: picks as far as the ridge holds, G3 against a plane wave, the ladder of short lengths proposing and the agent deciding; 502 tests; evaluation to run |
+| After 14: windows and picks (2026-09-25) | Built: picks as far as the ridge holds, G3 against a plane wave, the ladder of short lengths proposing and the agent deciding; 502 tests; evaluated (17 of 39 checks) |
+| A real survey, the host, the layers (2026-09-25) | Built: `active_p2` processed (81 of 92 windows with a curve), the reach and the median band from the data, per-record exclusions, the host's three guarantees, at least 3 layers |
+| Overnight (2026-09-26, Claude alone, to review) | Built: the layer study (4 kept), G6 on the depth of investigation, PAC's passive-active mode (with two fixes of PAC's chain), passive defaults that work on real noise (`passive_p2`: 56 curves, from 1), G2's top edge counted where resolved, the line's velocity section as PAC writes it, fixes from the night's evaluations (31 of 42 plays, then 35 of 45 on the final code, about 38 of 45 with the last fixes); 543 tests, passing also as CI runs them (a clean copy, 4 cores, no `.env`) |
 
 Check questions: milestone 1 asked, answer pending. Milestone 2 (what happens when sigpipe renames
 a parameter): answered with hints on 2026-09-23, up to the plain-words rung. Worth revisiting:
@@ -1093,10 +1095,12 @@ The clean clone then passes 498 of 498 on 4 cores.
   - PAC's `src` has 141 pyright errors in strict mode, before and after its burn-in fix;
   - an `inversion.json` written before the burn-in rule, with fewer than 150 iterations after
     the burn-in, no longer loads; none exists outside the evaluation folders here;
-  - the approval is only as good as the host: milestone 6's host must show the question to the
-    user and never let the model answer it;
+  - no approval since milestone 14: the host starts no inversion unless the user's message asks
+    for models (2026-09-25), and the gates (G5, G6) judge what comes of it;
   - jobs die with the server (reported as interrupted), and there is no tool to cancel one;
-  - the MCMC is not seeded, so an inversion cannot be reproduced exactly (as in PAC);
+  - the MCMC is not seeded, so an inversion cannot be reproduced exactly (as in PAC); the tests
+    of the job assert only what does not depend on the draws (with 3 or 4 layers and the tests'
+    short sampler, G5's verdicts vary from run to run);
   - curves with no wavelength limit are long, which makes inversions slower too;
   - the approval message holds the run folder's absolute path.
 - **MCP server:**
@@ -1110,21 +1114,20 @@ The clean clone then passes 498 of 498 on 4 cores.
     was suggested, the user's call).
 - **Picking risks:**
   - the lowest-ridge scan can stop on the air wave (about 340 m/s) in active data on stiff soils;
-  - with no wavelength limit, M0 keeps unresolved low-frequency points, and resampling over
-    wavelength (one point per metre) turns them into most of the saved curve: on the four
-    24-receiver active_p1 windows, 64 to 91 % of the points lie beyond 2 x the window length
-    (xmid 2.88: 94 of 103 points, 3.7 to 15.1 Hz, up to 765 m/s). With `max_wavelength = 2.0` the
-    same windows stay good and keep 5 to 9 points (154 to 272 m/s). Kept on purpose: the approval
-    step must cut them;
+  - with no wavelength limit, M0 kept unresolved low-frequency points (on the four 24-receiver
+    active_p1 windows, 64 to 91 % of the points beyond 2 x the window length). Since 2026-09-25
+    the pick keeps only its longest continuous run, and only where a plane wave for the window
+    stands 1 % above the column's median: the lowest points are 8.5 to 10 Hz on the demo;
   - on passive_p1 (24-receiver windows, preset defaults) the images have no clear ridge: M0
     follows the edge of the broad bright region, yet its coherence is about 2 x the floor, so
     coherence alone cannot reject it. The quality metric must. The picker also finds an M0 in pure
     noise on 48 receivers, which the metric judges bad.
-  - a coherent wrong branch is still kept: when M0 drops below the aliasing floor and a higher mode
-    is present, the pick carries on along M1, labelled M0 (synthetic, 48 receivers 1 m apart:
-    above 75 Hz). A continuity rule would catch it.
-  - the metric works on medians, so a few wrong points do not change a verdict: the approval step
-    must look at the curve itself.
+  - a coherent wrong branch was kept: when M0 drops below the aliasing floor and a higher mode
+    is present, the pick carried on along M1, labelled M0 (synthetic, 48 receivers 1 m apart:
+    above 75 Hz). The continuity rule of 2026-09-25 ends a pick at a step steeper than
+    |d ln v / d ln f| = 2; a smooth crossing into M1 would still pass (not measured);
+  - the metric works on medians, so a few wrong points do not change a verdict: the user reviews
+    the curves afterwards (`DispersionImage_0000.png` in each window folder, or PAC's UI).
 - **PAC's defaults:** its form defaults give 3-receiver windows, which make flat passive images
   with nothing to pick. PACo's default is 5 receivers since 2026-09-24 (the user's choice).
 
@@ -1167,20 +1170,228 @@ On the demo: the four 24-receiver windows every 24 all pass G3 and G4 (the mode 
 line's 81 curves pass G3 and G4. The report depths go deeper with the longer curves (2 to 10 m
 where they were 1 to 4 m).
 
+**The review of the "To judge" lists** (the same day, one round of options, each the user's
+choice and Claude's; recorded in `docs/qc_workflow.md` and each gate's page, whose lists now keep
+only what stays open): the ladder's trials leave out the line's two end windows (every length
+from 5 to 11 receivers failed only there); G1's retries count against each record's budget, not
+the windows'; a mode jump's first fix cuts the band where it sits (along frequency: after a
+jump the wavelengths interleave), the corridor second; G4 says an inverse trend along the line
+once; G5 reports PAC's residual by band and its `no_mode` suggests the band below the points no
+mode reaches, for the agent's `redo`. G1 leaving the near field out of its decay fit was
+chosen, tried, and dropped by the user: at G1 no wavelength is known yet, and the record's
+dominant wavelength (1.8 m on 2.dat) missed the traces it was for. Built in a copy of the
+repository while the evaluation ran, then brought over.
+
 Also on 2026-09-25: **CI failed on `05cc650`** (see milestone 14) and **on `24e80b2`**,
 committed while this work was half done (the new rules in, the demo's facts in the tests not
 yet); the working tree was then checked as CI builds it (a fresh clone, 4 cores, no `.env`).
 
+## Later on 2026-09-25: a real survey, the host, the layers
+
+**The evaluation of the changes above** (Qwen3-8B-FP8, 13 scenarios, one play each,
+`eval-20260925-170342-b39e`): 12 of 39 checks, 17 once two check artefacts were fixed (`_asks`
+now reads options offered without a question mark; `_mentions` reads "1,000" as 1000). What
+the model got wrong: the gates' changes left out of the answer (12 plays), a closing question
+or offer (7), an inversion nobody asked for (6), the lengths table never used to choose (6),
+no question when the windows were longer than the line (3).
+
+**What the host guarantees** (the user's choice for all three, `paco.agent.host`): the
+settings the gates changed are appended to every answer, as the tools gave them; an answer
+that asks or offers is sent back once ("Give your answer again, without any question or
+offer"), unless a tool said the agent is stuck; `invert`, and `redo` of the inversion, are
+refused unless the user's message asks for models. The evaluation then measures the model and
+the host together.
+
+**Layers** (the user: "4 5 6, never do 2", after seeing mostly 2-layer models): at least 3
+layers, the half-space among them; the inversion starts at 4 (provisional, until the study of
+4, 5 and 6 starting layers); G5 adds a layer up to what the curve resolves (at most 10) and
+removes one piling at its thinnest down to 3. A count the user gives is kept when it passes, a
+list of Vs ranges without a count is that many layers, the default is fitted to the curve
+without a note. Fixed on the way: a curve whose depth is a whole number of its thinnest
+layers (5 m over 5/3 m, 3.0000000000000004 in floating point) got one layer too many, each
+with a thickness range of zero width, and failed validation.
+
+**A real survey, `active_p2`** (the user's: 96 receivers every 1.5 m, 142.5 m; 97 shots from
+-0.75 to 143.25 m every 1.5 m, their positions read from the SU file's headers, which was then
+deleted; `passive_p2`: 16 records of 120 s at 500 Hz, positions written). PACo could not
+process it; each fix brought as options (the user's choice, and Claude's):
+
+- G1 rejected 52 of the 97 records for a median SNR under 6 dB: the far traces of a long line
+  are noise. **The line's reach** (where the traces' median SNR by distance from the shot
+  falls under 2 dB: 63.35 m here, 24.34 m on the demo) now sets `masw.distance_max` (PACo used
+  every shot, 1,000 m; PAC's form 100 m), and G1 judges the SNR, the usable band, the decay with
+  offset and the coherence within it. At 6 dB (the first choice) the demo's end windows lost
+  their far shot and their curves: 2 dB.
+- **The band from the records' median usable band** (2.3 to 298 Hz here), not the worst
+  record's (24 to 86 Hz).
+- G1 excluded 21 traces around every shot: **the reversed-polarity check is removed** (the
+  user: "I am sure there was no reversed polarity"; at 1.5 m next to the shot, neighbours more
+  than half a period apart correlate negatively) and the decay fit keeps the traces it excluded
+  (each round excluded more). Then **the fit within the reach**: over the whole line the noise
+  flattened it and 259 of the traces nearest the shots read too loud.
+- A window left out every trace any of its 66 shots excluded, and every window ended empty:
+  **each shot's image is made without its own excluded traces**, a trace excluded in at least
+  half of a window's shots from all of them.
+- G2 lowered fmin to 1 Hz on every short window, whose band still reached it, and rejected 68
+  of 92 windows once the budget was spent: **`band_at_fmin` is kept**, like `band_at_fmax`.
+
+From 0 curves to 76 of 92 windows (5 receivers, the ladder's proposal: 23/27 trials, wavelengths
+8 to 38 m) before the decay fit within the reach; processing 9 minutes on 8 workers, picking
+28 s. On the demo, the decay fit within the reach excludes one more trace of 2.dat (trace 13,
+2.40 times above the decay against a limit of 2.40): the tests' four 24-receiver windows give 3
+curves, the ladder still proposes 11 receivers (74 of 86 windows with a curve). The user kept
+the rule once told; Claude had said the demo would not change, wrongly (its farthest traces,
+24.5 m, lie just beyond its reach).
+
+Also: the summary's line for the agent's step back said "no verdict" for every window (it
+looked for a gate named "backtrack"); it now gives the verdict of the gate judging the stage
+redone. A record G1 rejected once its retries were spent was stacked all the same (three of
+`active_p2`'s shots); it now goes into no window. Given Vs ranges were dropped whenever the
+layer count changed (raised to 3, or cut to what the curve resolves): a range the same for
+every layer now stays every layer's ("Vs between 100 and 180 m/s" sent for 2 layers). PAC's stacking of the far shots' images per window is in PACo too (sigpipe's), now
+bounded by the reach.
+
+## Overnight, 2026-09-26: decided by Claude while the user slept (to review)
+
+The user, going to sleep: "Continue improving our agent, and make it work well as an agent for
+inverting active, passive and active-passive MASW (everything PAC does), I trust you to make it
+perfect", and "do not expect answers from me". So the decisions below were Claude's, each with
+the measurements it rests on, the options set aside, and the change kept small enough to undo.
+
+1. **The inversion starts at 4 layers** (the study of 4, 5 and 6, `docs/gates/G5.md`): every
+   count fits within the errors in every band on both lines; 5 and 6 fit no better, take 15 to
+   30 % longer, and converge less often at the first pass (demo: 12, 11 and 10 of 12 windows;
+   `active_p2`: 10, 9 and 10 of 12). Set aside: 5 or 6.
+2. **G6 and `job_status` read the curve's depth of investigation** (half its longest
+   wavelength), not the posterior's useful depth: with 3 layers or more each layer's Vs spans
+   most of its prior, and that depth is 0 m on 62 of the study's 72 models (2.1 to 3.5 m on
+   the other 10, all on `active_p2`), so G6 had almost nothing to compare, and `job_status`
+   would have said the data inform almost nothing. The posterior measure stays a reported G5 metric.
+   Set aside: a laxer ratio (at 0.9 the demo's 12 windows scatter from 0 m, one of them, to
+   beyond 3 m, six of them: the thin layers' trade-offs more than the data), the spread of the
+   travel-time average (above half the prior's at the top on most windows).
+3. **Fixes found on the way**: the layer count at the curve's limit (layers of zero width, a
+   step rounded to 0); a curve too short for 3 layers refused with a message; given Vs ranges
+   kept when the count changes; a record G1 rejects goes into no window.
+4. **PAC's third mode, passive-active**, which PACo lacked (a survey of PAC: its "passive-active"
+   is interferometry on an active profile's shots, not a merge of two datasets, which PAC does
+   not have). An active profile is processed `"mode": "passive-active"` in `run_processing`'s
+   settings; `inspect_profile` lists a profile's modes, `preset_settings` takes one. Each shot's
+   gather is cross-correlated with the receiver nearest the shot (sigpipe's
+   `ActiveShotCorrelation`), the correlations stacked (linear, phase-weighted or root), then
+   imaged; G1 to G6 judge it as any line. Two things PAC's chain gets wrong, fixed in PACo:
+   - the gather of a shot past the window's far end is flipped without its acquisition, so the
+     phase shift read it backwards, and a stack took the first gather's geometry whichever
+     side its shot was on: each gather is now seen from its first receiver
+     (`FromFirstReceiver`);
+   - the whole record was correlated, and the noise common to every trace sat at zero moveout:
+     the demo's four images peaked at the grid's top velocity (0 curves). Each shot is now cut
+     to G1's surface-wave window first (`correlation_window`, 80 to 1,500 m/s, 50 ms ramps;
+     switchable off): 2 curves of 4 on the demo; on `active_p2` (24 receivers every 12), 4 of
+     7, against 3 without it and 5 in the active mode.
+   On the same 24-receiver windows of `active_p2`, the passive-active curves match the active
+   ones within 0 to 6 % at the shared frequencies (13 % at one window's edge). With no settings
+   at all, `active_p2` passive-active: the ladder proposes 5 receivers (26 of 27 trials), and
+   91 of 92 windows give a curve G3 and G4 pass (81 in the active mode), 209 to 305 m/s,
+   10.7 to 52 Hz (medians), the longest wavelengths about 30 m (up to 72 m on a few windows:
+   the low end the continuity and contrast rules keep, as in the active mode). The stacked
+   correlations need one set of receivers per window: the receivers half the window's shots
+   excluded leave all of them, and a shot that excluded another of the window's receivers
+   leaves the window (the union emptied `active_p2`'s windows). The evaluation gains
+   `interferometry`. Set aside: a default mute in the record preprocessing (it blanks G1's
+   noise window, and the line's reach with it).
+5. **Passive MASW that works on real noise**: PAC's passive defaults (0.1 s segments, no
+   whitening, no normalization) gave no curve on `passive_p2` (0 of 27 trial windows of 11
+   receivers, 1 curve on the line's 92 windows). Measured on its trial windows (11 receivers,
+   27 along the line): 2 s segments whitened and normalized one-bit, 19 passed G3 (wavelengths
+   12 to 77 m); 0.5, 1 and 5 s, 13, 15 and 15; 2 s with only one of the two, 11 and 15; with
+   neither, 2; phase-weighted stacking, 10. **PACo's passive defaults are now 2 s segments,
+   one-bit whitening and normalization** (`presets/stages.py`). A 0.1 s segment has a 10 Hz
+   frequency step; noise bursts outweigh the rest unless whitened.
+6. **G2 counts a peak at the grid's top velocity only where the window resolves it** (f x
+   aperture above vmax): on `passive_p1`, G2 widened the grid twice while energy with no
+   moveout followed its edge, and rejected 3 of 4 windows. With 5 and 6, `passive_p1`'s four
+   24-receiver windows pass G2 and give 3 curves (none before). The demo's passive line having
+   curves now, `no_curve` plays on `passive_noise`, a synthetic line of independent noise with
+   `passive_p1`'s geometry (the ideal agent: stuck, and asks).
+
+   With both, `passive_p2` processed with no settings at all: the ladder finds no length where
+   80 % of the trials pass and proposes the best, 11 receivers (19 of 27; 5 to 48 receivers
+   pass 12 to 19); G2 passes 69 of 86 windows; **56 curves** pass G3 and G4 (1 of 92 with
+   PAC's defaults), reaching 77 m wavelengths where the active line's reach 33 m.
+7. **The line's section, as PAC writes it** at the end of an inversion: the smooth median's
+   Vs(x, z) with its spread (`SeismicInversion_VelocitySection_0000.png`), every model
+   variant's section (`.hdf5`), and the picked curves against the ones the models predict
+   (`SeismicInversion_PseudoSectionComparison_0000_M0.png`), over the models G5 passed (two at
+   least), in the run folder; `job_status`'s summary names the section. PACo had only each
+   window's files.
+8. **The evaluation of the night** (`eval-20260925-231447-137a`, Qwen3-8B-FP8, 14 scenarios, 3
+   plays each, on a snapshot taken before items 5 to 7; its report and transcripts copied to
+   `data/output/evaluations/`): **31 of 42 plays**, where the last
+   one before the host's guarantees passed 12 of 39. All of `list_profiles`,
+   `describe_profile`, `unknown_profile`, `pick_active`, `dead_trace`, `narrow_velocities`,
+   `few_iterations` and `no_curve`; 2 of 3 of `tight_bounds`, `zero_settings` (the whole demo
+   line to 74 models in 16 minutes, G5 passing 73) and `windows_too_long`; 1 of 3 of
+   `interferometry`; none of `deeper` and `detail`. What the transcripts showed, and what
+   changed:
+   - `deeper`, `detail`: the model never ran again with another length; the hint said "longer"
+     or "shorter". It now names the lengths: the longest tried for depth, the shortest whose
+     trials passed half for lateral detail (`qc.length_hint`).
+   - `interferometry`: the model asked `preset_settings` for passive-active through its `mode`
+     argument, then called `run_processing` without the mode, which lived in its overrides:
+     `run_processing` now takes `mode` as an argument too (the overrides' "mode" still works),
+     and the scenario checks the runs' mode on disk.
+   - `tight_bounds`: `invert` refused the one Vs range its own card offers ("vs_layers must
+     have length n_layers (2)", PAC's default checked before PACo's broadcast); the model then
+     invented two ranges, which the count's raise to 3 derived again. The parameters are now
+     checked as the job reads them.
+   - `zero_settings` #3 left the number of models out, `windows_too_long` #2 chose 96
+     receivers itself instead of asking: the model's own, left as they are.
+9. **The evaluation of the final code** (`eval-20260926-012100-9364`, 15 scenarios, 3 plays
+   each, report and transcripts in `data/output/evaluations/`): **35 of 45 plays**. All of
+   `list_profiles`, `describe_profile`, `unknown_profile`, `pick_active`, `pick_passive`,
+   `interferometry` (the `mode` argument, used at once), `dead_trace`, `narrow_velocities`,
+   `few_iterations`, `zero_settings` and `no_curve` (on `passive_noise`); 1 of 3 of
+   `tight_bounds` and `windows_too_long`; none of `deeper` and `detail`. Fixed after it:
+   - `tight_bounds`: `submit_inversion` checked the one Vs range against PAC's 2 layers too
+     (after the tool's own check); and the checks' note on the user's 180 m/s was dropped from
+     `changed` whenever G5 sampled a window again (the report kept the latest attempt's notes,
+     a retry has none). Both fixed (`priors.checkable`, the report keeps the latest notes).
+   - `windows_too_long`: the model asked the right question (120 receivers on a 96-receiver
+     line, three options), before running anything; the host sent it back, and the model ran
+     96 receivers unasked. The host now asks again only once a stage tool has run.
+   - `deeper`, `detail`: the hint now names the lengths before "pick comes next" (the model
+     follows the first step it reads).
+
+   Played again on the fixed code (3 plays each; reports in `data/output/evaluations/`):
+   `tight_bounds` **3 of 3** (`eval-20260926-031052-3833`); `windows_too_long` **2 of 3**, and
+   `list_profiles`, `unknown_profile`, `pick_active` still 3 of 3 (`eval-20260926-033100-9c93`;
+   the miss ran 96 receivers without asking at all); `deeper` and `detail` still 0 of 3:
+   Qwen3-8B follows its own plan (process, pick) whatever the hint says, where the scripted
+   ideal agent reads the table. Left as the model's limit: a larger model, or the user naming
+   the length, gets there. Counting these plays in place of the earlier ones, the suite
+   stands at about 38 of 45 (an estimate across runs, not one run).
+
 ## Next
 
-1. Run the evaluation again, with the 13 scenarios (the second of milestone 14 was stopped),
-   record it and close the milestone; fix what it shows first.
-2. The review of the "To judge" lists (the user's choice for after milestone 14), prepared on
-   2026-09-24 and not yet brought: one round of four questions, below, then apply and prune the
-   lists. Settled since, by the decisions of 2026-09-25: the tracked-point jumps, a length the
-   user gave climbing (it no longer climbs), the mode jump of xmid 14.88 (gone); the inverse
-   trend is now 1 of 4 windows at 24 receivers, 10 of 81 at 16, all below 50 Hz.
-3. The decision to keep fixed pipelines (optional validated stages per preset, if wanted).
+1. For the user to review: the overnight decisions above (items 1 to 9), each separate and
+   undoable; then milestone 14 closes (its evaluation is item 9: 35 of 45 plays on the final
+   code, the misses the model's own apart from those fixed after).
+2. Before committing: the new files `src/paco/agent/host.py`, `src/paco/inversion/section.py`
+   and `src/paco/pipelines/passive_active.py` are untracked and must go in with the rest; the
+   `.gitignore` change (the user's) makes `data/input/active_p2` and `passive_p2`, about 570 MB,
+   committable.
+3. Left for later, outside this project: sigpipe's `inversion_mcmc` failing when a chain keeps
+   no predicted curve (a `KeyError: 'rayleigh_M0.dpred'` too, seen with the tests' short
+   sampler and 4 layers); a passive QC beyond G1's three checks; the judge model; the NVIDIA
+   path of `compose.yaml`; layers the sampler chooses itself (transdimensional); whether to
+   keep fixed pipelines (optional validated stages per preset). What PAC does that PACo does
+   not (the survey of 2026-09-26): picking higher modes and inverting them jointly (PACo picks
+   and inverts M0, so its section and comparison figures are M0's), the section's lateral
+   smoothing option, the petrophysical inversion, and the interactive views (PACo writes the
+   figures, the agent reports in text).
+
+The review of the "To judge" lists, prepared below, was brought and applied on 2026-09-25.
 
 ### Prepared for the To-judge review (2026-09-24)
 

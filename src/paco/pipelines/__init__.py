@@ -9,6 +9,7 @@ window. The preset's stages give the tunable ones.
 from .active import build_active_pipeline
 from .common import PREPROCESSED, SelectReceivers, record_folder
 from .passive import build_passive_pipeline
+from .passive_active import build_passive_active_pipeline
 from .preprocessing import build_preprocessing_pipeline
 from .registry import PIPELINE_BUILDERS, build_image_pipeline
 
@@ -18,6 +19,7 @@ __all__ = [
     "SelectReceivers",
     "build_active_pipeline",
     "build_image_pipeline",
+    "build_passive_active_pipeline",
     "build_passive_pipeline",
     "build_preprocessing_pipeline",
     "record_folder",

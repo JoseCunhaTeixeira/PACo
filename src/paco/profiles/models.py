@@ -13,6 +13,23 @@ class ProfileKind(StrEnum):
     PASSIVE = "passive"
 
 
+class ProcessingMode(StrEnum):
+    """How a profile is processed, PAC's three modes: an active profile as shots (active) or by
+    interferometry on its shots (passive-active: each shot's gather cross-correlated with the
+    receiver nearest the shot, the correlations stacked); a passive profile as ambient noise."""
+
+    ACTIVE = "active"
+    PASSIVE = "passive"
+    PASSIVE_ACTIVE = "passive-active"
+
+
+# The modes each kind of profile can be processed in, its own first.
+MODES: dict[ProfileKind, tuple[ProcessingMode, ...]] = {
+    ProfileKind.ACTIVE: (ProcessingMode.ACTIVE, ProcessingMode.PASSIVE_ACTIVE),
+    ProfileKind.PASSIVE: (ProcessingMode.PASSIVE,),
+}
+
+
 class Record(BaseModel):
     model_config = ConfigDict(frozen=True)
 
@@ -58,3 +75,5 @@ class ProfileSummary(BaseModel):
     nyquist_hz: float
     record_duration_range_s: tuple[float, float]
     source_x_range_m: tuple[float, float] | None
+    # How it can be processed (run_processing's "mode"), its own first: PAC's three modes.
+    modes: tuple[ProcessingMode, ...] = ()

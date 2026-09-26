@@ -337,6 +337,84 @@ on active_p1, the user's choice, and Claude's):
   run (a call more each time), the agent exploring whole runs freely, and climbing past a
   length given (the rule of milestone 13).
 
+The review of the gates' "To judge" lists, the same day (brought as one round of options, each
+the user's choice, and Claude's; the details in each page under `docs/gates/`):
+
+- **The ladder's trials leave out the line's two end windows**, next to the shots, where every
+  length from 5 to 11 receivers keeps 1 or 2 points. Rejected: keeping them. Replaced the same
+  day, once measured on the whole line (below).
+- **G1's retries count against each record's own budget**, not the windows' run budget.
+- **A mode jump's first fix cuts the band where the jump sits**, the corridor halved second.
+- **G4 says an inverse trend along the line once** (kept); **G5 reports PAC's residual by
+  band** (not judged); **G5's `no_mode` suggests the phase shift again with the band below the
+  points no mode reaches** (the window stays rejected; the agent's `redo`).
+- **G1 leaving the near field out of its decay fit**: chosen, then dropped by the user after a
+  try (`docs/gates/G1.md`): at G1 the longest wavelength is not known, and the record's dominant
+  wavelength, tried instead, missed the traces the rule was for. Rejected with it: a fixed
+  share of the line, and deciding after the picking.
+- Everything else kept as it is, and the lists pruned of what milestone 13 and this day decided.
+
+Then, after the evaluation of these changes (Qwen3-8B, 13 scenarios: 17 of 39 plays once two
+check artefacts were fixed, the model reporting the gates' changes in few answers, closing
+with a question in 7, inverting unasked in 6, never choosing a length from the table):
+
+- **27 trials spread over the whole line, its ends included.** Without the end windows, nine
+  trials all passed at 5 receivers where the whole line gives curves on 65 % of its windows;
+  27 trials follow the line within a few % (5: 63 %, 7: 74 %, 9: 74 %, 11: 85 %, 16: 96 %) and
+  propose 11 receivers (85 % of the line). The ladder takes a minute on the demo instead of
+  30 s. Rejected: keeping the ends out, and 9 trials with the ends in (16 receivers).
+- **What the host guarantees, whatever the model says** (`paco.agent.host`): the settings the
+  gates changed are listed after every answer, as the tools gave them; an answer that asks or
+  offers is asked again once, unless a tool said the agent is stuck; no inversion starts unless
+  the user's message asks for models (invert, inversion, model, Vs, shear). The evaluation then
+  measures the model and the host together. Rejected: documenting Qwen3-8B's limits only.
+- **At least 3 layers, never 2** (the user): the inversions start at 4, 5 or 6 layers, to be
+  measured; G5 adds layers up to what each curve resolves and removes one that piles at its
+  thinnest, never below 3.
+
+Then on a real survey, `active_p2` (the user's: 96 receivers every 1.5 m, 97 shots, "a more
+realistic survey"), which PACo could not process as it stood (each brought as options, the
+user's choice, and Claude's):
+
+- **The farthest shot a window stacks comes from the data**: `masw.distance_max` where the
+  traces' median SNR, by distance from the shot over all records, falls under 2 dB (63 m on
+  `active_p2`, 24 m on the demo), unless the user gives one. Rejected: PAC's 100 m (noise
+  beyond about 60 m there), every shot (PACo's 1,000 m until then), 6 dB and 3 dB (at 6 dB the
+  demo's end windows lost the far shot that gave them a curve).
+- **G1 judges a record's SNR and usable band within that reach**: 52 of 97 records were
+  rejected for their far traces, which no window stacks. Rejected: excluding the traces under
+  6 dB instead, keeping the rule as it was.
+- **The band from the records' median usable band**, not the worst record's: 2.3 to 298 Hz
+  against 24 to 86 Hz, which cut the line's long wavelengths. Rejected: keeping the worst.
+- **No reversed-polarity check** (the user: "in geophysics this will likely never happen"): at
+  1.5 m next to the shot it flagged whole blocks of traces. And G1's decay fit keeps the traces
+  it excluded, which stopped a cascade of 21 exclusions around each shot (a fix, not a choice).
+- **A window leaves out each record's own excluded traces** (the traces flagged in at least half
+  of its records, from all), not every trace any record excluded: with 66 shots a window, every
+  window ended empty. Fixed with the two G1 fixes above (the user: "I am sure there was no
+  reversed polarity, fix it", against finishing on the demo alone).
+- **G2's `band_at_fmin` kept, not retried**, like `band_at_fmax`: lowering fmin to 1 Hz never
+  moved the band's low end, and spent the budget on 68 of 92 windows; the picker now decides
+  where the low end stops. Rejected: one retry, then kept.
+
+Decided by Claude on the night of 2026-09-26, the user asleep ("make it work well as an agent
+for inverting active, passive and active-passive MASW, everything PAC does ... I trust you"),
+each with its measurements in `PROGRESS.md` and the gate pages, to review:
+
+- **The inversion starts at 4 layers** (the study of 4, 5 and 6 on both lines, `G5.md`).
+- **G6 and `job_status` read the curve's depth of investigation**, half its longest wavelength:
+  the posterior's useful depth is 0 m on 62 of the layer study's 72 models of 3 layers or
+  more (2.1 to 3.5 m on the others).
+- **PAC's passive-active mode** (interferometry on an active profile's shots), with two fixes
+  of PAC's chain: the flipped gathers' geometry, and each shot cut to its surface-wave window
+  before correlating (`correlation_window`).
+- **PACo's passive defaults**: 2 s segments whitened and normalized one-bit, instead of PAC's
+  0.1 s segments with neither (no curve on a real ambient-noise line).
+- **G2 counts a peak at the grid's top velocity only where the window resolves that velocity**
+  from an infinite one (f x aperture above vmax).
+- A record G1 rejects goes into no window; the layer count at the curve's limit keeps every
+  layer a range; given Vs ranges survive a change of the count.
+
 Added by the user with the decisions:
 
 - The fit between the inverted model's forward-modelled dispersion curve and the picked one is a

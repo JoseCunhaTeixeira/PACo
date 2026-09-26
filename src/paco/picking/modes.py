@@ -39,6 +39,14 @@ def pick_modes(
         longest = parameters.max_wavelength * abs(receivers[-1].x - receivers[0].x)
         stop = np.searchsorted(velocities, longest * frequencies, side="right") - 1
 
+    # A band cut (G3's first fix for a mode jump): the columns outside are not searched.
+    outside = np.zeros(frequencies.size, dtype=bool)
+    if parameters.fmin is not None:
+        outside |= frequencies < parameters.fmin
+    if parameters.fmax is not None:
+        outside |= frequencies > parameters.fmax
+    start = np.where(outside, n_v, start)
+
     modes: list[PickedMode] = []
     for number in range(parameters.max_modes):
         span = _longest_run(start < stop)

@@ -5,12 +5,13 @@ from collections.abc import Mapping
 from pydantic import ValidationError
 
 from paco.presets.explaining import explain
-from paco.presets.models import ActivePreset, PassivePreset, PresetError
-from paco.profiles import ProfileKind
+from paco.presets.models import ActivePreset, PassiveActivePreset, PassivePreset, PresetError
+from paco.profiles import ProcessingMode
 
 PRESETS: dict[str, type[ActivePreset] | type[PassivePreset]] = {
-    ProfileKind.ACTIVE: ActivePreset,
-    ProfileKind.PASSIVE: PassivePreset,
+    ProcessingMode.ACTIVE: ActivePreset,
+    ProcessingMode.PASSIVE: PassivePreset,
+    ProcessingMode.PASSIVE_ACTIVE: PassiveActivePreset,
 }
 
 
