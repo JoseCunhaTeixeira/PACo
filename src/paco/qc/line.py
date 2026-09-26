@@ -189,9 +189,8 @@ def line_reach(
 def far_limit(
     overrides: Mapping[str, object] | None, reach: float | None, min_db: float
 ) -> tuple[dict[str, Any], tuple[str, ...]]:
-    """masw.distance_max at the line's reach, unless the user gave one (the user's decision of
-    2026-09-25): a window stacks no shot whose traces there are mostly noise. Overrides and
-    notes."""
+    """masw.distance_max at the line's reach, unless the user gave one: a window stacks no shot
+    whose traces there are mostly noise. Overrides and notes."""
     masw = (overrides or {}).get("masw")
     if reach is None or (isinstance(masw, Mapping) and "distance_max" in masw):
         return {}, ()
@@ -266,8 +265,7 @@ def settle_records(
                     record_result(
                         run_folder, name, "preprocessing", attempt.attempt, budget_spent(result)
                     )
-                # Rejected, the record goes into no window (active_p2's three shots whose SNR
-                # a filter did not raise were stacked all the same, 2026-09-25).
+                # Rejected, the record goes into no window.
                 exclusions = exclusions.with_record(name)
         if not again and exclusions == before:
             break

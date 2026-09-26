@@ -4,7 +4,7 @@ demo profiles with known defects", in the data where the defect is physical).
 
 - active_dead: active_p1 with trace 40 of its first record zeroed, a dead geophone for G1.
 - passive_noise: passive_p1's geometry with white noise for records, a line with no wave: no
-  curve, so the agent is stuck (since 2026-09-26 passive_p1 itself gives curves).
+  curve, so the agent is stuck (passive_p1 itself gives curves).
 
 The other defects of the scenarios come from the demo itself (its records' 20 ms trigger delay)
 or from settings the user types (a velocity range too narrow, too few iterations, bounds too

@@ -16,10 +16,9 @@ class QualityParameters(BaseModel):
 
     Tuned on the demo windows only, so recalibrate them on a reference set of windows judged by
     hand before trusting them. Sharpness and prominence are measured against a perfect plane
-    wave for the same window, frequency and velocity (the user's decision of 2026-09-25): the
-    demo's windows score 1.00 on both at every length from 5 to 24 receivers, where fixed
-    limits measured the array, not the data (a 5-receiver window cannot be as prominent as a
-    24-receiver one).
+    wave for the same window, frequency and velocity: the demo's windows score 1.00 on both at
+    every length from 5 to 24 receivers, where fixed limits would measure the array, not the
+    data (a 5-receiver window cannot be as prominent as a 24-receiver one).
     """
 
     model_config = ConfigDict(frozen=True, extra="forbid")

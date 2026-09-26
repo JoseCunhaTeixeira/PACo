@@ -255,8 +255,7 @@ def processed_in_mode(mode: str) -> Check:
 
 def no_settings_invented(tool: str) -> Check:
     """Every successful call of `tool` gave no overrides but the window length: with no setting
-    from the user, every parameter comes from the data, and the length is the agent's to
-    choose (the user's decision of 2026-09-25)."""
+    from the user, every parameter comes from the data, and the length is the agent's to choose."""
     name = f"{tool} with no settings but the window length"
 
     def check(trial: Trial) -> CheckResult:
@@ -421,8 +420,8 @@ def job_id(trial: Trial) -> str:
     return InversionRecord.model_validate_json(paths[-1].read_text()).job_id
 
 
-# A question without a question mark: options offered for the user to pick (seen from Qwen3-8B:
-# "Choose one to proceed.", an <options> block).
+# A question without a question mark: options offered for the user to pick (e.g. "Choose one to
+# proceed.", an <options> block).
 _CHOICE = re.compile(r"\bchoose\b|\bwhich (one|option)\b|<options>|\breply with\b", re.IGNORECASE)
 
 

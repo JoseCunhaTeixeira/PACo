@@ -1,4 +1,4 @@
-"""G3 on the analytic images of test_quality.py: today's metrics, said in the gates' language,
+"""G3 on the analytic images of test_quality.py: the quality metrics, said in the gates' language,
 and the curve's own rules (wavelengths, jumps, the air wave, the trend, points, uncertainties)
 on curves given with the pick."""
 
@@ -106,7 +106,7 @@ def _flags(result: GateResult) -> dict[str, Flag]:
     return {flag.name: flag for flag in result.flags}
 
 
-# ---------------------------------------------------------------- today's metrics
+# ---------------------------------------------------------------- the quality metrics
 
 
 def test_a_clean_ridge_passes_with_what_its_curve_keeps() -> None:
@@ -152,7 +152,7 @@ def test_a_ridge_barely_above_the_image_asks_for_a_filter_on_the_band() -> None:
         "stage": "preprocessing",
         "overrides": {"filtering": {"method": "iir", "fmin": 12.0, "fmax": 38.0}},
     }
-    # No curve with the pick: only today's metrics.
+    # No curve with the pick: only the quality metrics.
     assert {metric.name for metric in result.metrics} == QUALITY_METRICS
 
 

@@ -1,11 +1,9 @@
-"""What the host guarantees, whatever the model says (the user's decisions of 2026-09-25, after
-Qwen3-8B missed them in 12, 7 and 6 of 39 evaluation plays): the settings the gates changed are
-printed after the answer, an answer that asks or offers once a stage tool has run is asked again
-once (unless a tool said the agent is stuck), and no inversion starts unless the user asked for
-models, no petrophysical inversion unless they asked for soils or the water table (the user,
-2026-09-26: "when the user asks for it"). A question before any stage tool is the request's clarification, not an offer of more:
-Qwen3-8B saw 96 receivers where 120 were asked and asked which to use; asked again, it ran 96
-unasked (2 of 3 plays, 2026-09-26)."""
+"""What the host guarantees, whatever the model says: the settings the gates changed are printed
+after the answer, an answer that asks or offers once a stage tool has run is asked again once
+(unless a tool said the agent is stuck), and no inversion starts unless the user asked for models,
+no petrophysical inversion unless they asked for soils or the water table. A question before any
+stage tool is the request's clarification, not an offer of more: asked again, the model may run
+what the user did not ask for."""
 
 import json
 import re

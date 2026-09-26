@@ -23,7 +23,7 @@ from sigpipe.transformers import Filter, Load, Slice
 
 # PAC's form defaults (ActiveConfigForm.tsx and PassiveConfigForm.tsx), except distance_max:
 # 1000 m in PACo, 100 m in PAC.
-# PACo's window length is 5 receivers, where PAC's form has 3 (the user, 2026-09-24).
+# PACo's window length is 5 receivers, where PAC's form has 3.
 MASW_DEFAULTS = {"length": 5, "step": 1, "distance_min": 0.0, "distance_max": 1000.0}
 DISPERSION_DEFAULTS = {"fmin": 0.0, "fmax": 100.0, "vmin": 1.0, "vmax": 1000.0, "nv": 1000}
 
@@ -50,7 +50,7 @@ PASSIVE_ACTIVE_DEFAULTS = {
 }
 
 # PACo's passive defaults: 2 s segments whitened and normalized one-bit, where PAC's form has
-# 0.1 s segments and neither (no curve on passive_p2, 2026-09-26).
+# 0.1 s segments and neither (no curve on passive_p2).
 PASSIVE_DEFAULTS = {
     "mode": "passive",
     "masw": MASW_DEFAULTS,
@@ -713,7 +713,7 @@ SCHEMA_BUDGET = {
     "active": 3_300,
     "passive": 6_600,
     "passive-active": 5_100,
-}  # characters; the trigger stage added 170 to the active one, the correlation window 900
+}
 
 
 @pytest.mark.parametrize("name", ["active", "passive", "passive-active"])

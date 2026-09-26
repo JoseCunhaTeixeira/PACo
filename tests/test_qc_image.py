@@ -17,7 +17,7 @@ from paco.qc.g2_image import ImageThresholds, judge_image
 
 FREQUENCIES = np.arange(10.0, 40.5, 0.5)  # Hz
 VELOCITIES = np.arange(1.0, 1000.5, 0.5)  # m/s
-M0 = 150 + 250 * np.exp(-FREQUENCIES / 15)  # m/s, the fundamental mode of test_picking.py
+M0 = 150 + 250 * np.exp(-FREQUENCIES / 15)  # m/s, the fundamental mode of sigpipe's picking tests
 THRESHOLDS = ImageThresholds()
 
 
@@ -118,7 +118,7 @@ def test_a_band_reaching_either_end_of_the_image_is_kept() -> None:
         }
     }
     assert judge_image("xmid_12.50", image, THRESHOLDS).verdict == "pass"
-    # The bottom too since 2026-09-25: the picker stops where the ridge breaks.
+    # The bottom too: the picker stops where the ridge breaks.
     low = _image(_ridge(M0, 0.8, band=(10.0, 35.0)))
     assert _flags(low) == {
         "band_at_fmin": {

@@ -41,7 +41,7 @@ QUICK = QCConfig(coherence=CoherenceRules(lengths=(5, 24, 32), trials=3, min_pas
 def test_the_band_is_capped_by_the_records_and_nyquist_never_widened() -> None:
     preset = make_preset("active", {"dispersion": {"fmin": 0.0, "fmax": 500.0}})
 
-    # The records' median usable band, not the worst record's (the user, 2026-09-25).
+    # The records' median usable band, not the worst record's.
     overrides, notes = cap_band(preset, [(0.0, 349.5), (0.0, 324.0), None], nyquist=1000.0)
     assert overrides == {"dispersion": {"fmax": 336.8}}
     assert notes == (
@@ -66,16 +66,15 @@ def test_the_band_is_capped_by_the_records_and_nyquist_never_widened() -> None:
 
 
 def test_the_ladder_defaults_to_27_trials_and_four_fifths() -> None:
-    # The user's choices: 80 % of the trials (milestone 13), 27 of them over the whole line, the
-    # short lengths first, then longer ones for a line where none passes (2026-09-25).
+    # 80 % of the trials, 27 of them over the whole line, the short lengths first, then longer
+    # ones for a line where none passes.
     rules = CoherenceRules()
     assert (rules.trials, rules.min_pass_share) == (27, 0.8)
     assert rules.lengths[:6] == (5, 7, 9, 11, 16, 24)
 
 
 def test_the_trial_windows_cover_the_whole_line() -> None:
-    # 27 spread evenly, the ends included: their share passing G3 is the line's (the user's
-    # decision of 2026-09-25).
+    # 27 spread evenly, the ends included: their share passing G3 is the line's.
     assert CoherenceRules().trials == 27
     assert trial_indices(92, 9) == [0, 11, 23, 34, 46, 57, 68, 80, 91]
     assert len(trial_indices(92, 27)) == 27
@@ -143,8 +142,8 @@ def test_the_ladder_keeps_the_shortest_length_that_passes(
 
 
 def test_a_given_length_is_kept_as_it_is(demo_input_dir: Path, tmp_path: Path) -> None:
-    # Given, the length stays whatever its trial windows give (the user's decision of
-    # 2026-09-25: the ladder proposes, a length given decides), with nothing to compare.
+    # Given, the length stays whatever its trial windows give (the ladder proposes, a length
+    # given decides), with nothing to compare.
     strict = QCConfig(coherence=CoherenceRules(lengths=(5, 24), trials=3, min_pass_share=1.0))
     run_folder, report = _line(
         demo_input_dir, tmp_path, {"masw": {"length": 5, "step": 24}}, strict
@@ -164,8 +163,7 @@ def test_a_given_length_is_kept_as_it_is(demo_input_dir: Path, tmp_path: Path) -
 
 def test_a_record_g1_rejects_goes_into_no_window(demo_input_dir: Path, tmp_path: Path) -> None:
     # 2.dat's median SNR is 9.8 dB: under a limit of 10 dB, the filter G1 asks does not raise
-    # it, and once its retry is spent the record is rejected and left out of every window (it
-    # was stacked all the same before 2026-09-25).
+    # it, and once its retry is spent the record is rejected and left out of every window.
     strict = QUICK.model_copy(
         update={
             "signal": SignalThresholds(min_snr_db=10.0),
@@ -208,7 +206,7 @@ def test_an_active_profile_is_processed_passive_active(
 
 def test_the_hint_names_the_lengths_to_change_to() -> None:
     # The demo's ladder with no settings: 11 receivers proposed, 16 tried for comparison, 5 the
-    # shortest whose trials passed half. Qwen3-8B never turned "longer" or "shorter" into a
+    # shortest whose trials passed half. A model does not turn "longer" or "shorter" into a
     # length of the table: the hint names them.
     def trial(length: int, passed: int) -> LengthTrial:
         return LengthTrial(
@@ -227,7 +225,7 @@ def test_the_hint_names_the_lengths_to_change_to() -> None:
 
     then = "pick comes next for run_id 20260926-050000-abcd."
 
-    # The lengths first: Qwen3-8B follows the first step it reads.
+    # The lengths first: the model follows the first step it reads.
     assert length_hint(choice, then) == (
         "The window length is the ladder's proposal (11 receivers). If the request needs more "
         "depth, first run_processing again with masw.length 16 (the longest tried). If it needs "

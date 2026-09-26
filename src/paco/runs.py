@@ -18,7 +18,7 @@ class RunSummary(BaseModel):
     preset: str
     path: str  # run folder, relative to the output directory
     n_windows: int
-    # Windows with a dispersion image: not judged yet (Qwen3-4B read "n_succeeded" as good
+    # Windows with a dispersion image: not judged yet (a model reads "n_succeeded" as good
     # windows).
     n_processed: int
     n_failed: int

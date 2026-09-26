@@ -27,14 +27,10 @@ TOOLS = [
     "invert_petro",
     "redo",
 ]
-# Every card (name, description, argument schema) travels with every request to the model.
-# Raised from 4,500 in milestone 5 for the three inversion tools (5,221 measured); 5,424 with
-# milestone 14's stage tools; 5,882 with PAC's third mode, passive-active (2026-09-26: a mode
-# argument for run_processing and preset_settings); 6,998 with the petrophysical inversion's two
-# tools (2026-09-26, the user: "the agent could also use petrophysical inversion").
+# Every card (name, description, argument schema) travels with every request to the model: keep
+# them small.
 CARDS_BUDGET = 7_000  # characters, all tools together
-# The server's instructions go into the model's system prompt too: raised from 600 for the
-# petrophysical tools' sentence.
+# The server's instructions go into the model's system prompt too.
 INSTRUCTIONS_BUDGET = 650  # characters
 # Four 24-receiver windows along the active demo line, as in test_runs.py.
 SMALL_WINDOWS = {"masw": {"length": 24, "step": 24}}
@@ -219,7 +215,7 @@ def test_the_workflow_process_pick_redo_invert() -> None:
     ]
     assert picked.structured_content is not None
     # xmid 2.88 keeps 2 points once trace 13 leaves its image (G1's decay fitted within the
-    # reach, 2026-09-25): G3 lowers the coherence rule, then rejects it.
+    # reach): G3 lowers the coherence rule, then rejects it.
     assert picked.structured_content["summary"].splitlines()[:2] == [
         "G3: 3 pass, 1 reject",
         "G4: 4 pass",
@@ -268,8 +264,8 @@ def test_the_workflow_process_pick_redo_invert() -> None:
 
 
 def test_run_processing_takes_the_mode_as_an_argument(paco_env: Settings) -> None:
-    # As preset_settings takes it: Qwen3-8B asked preset_settings for passive-active, then left
-    # "mode" out of the overrides (2026-09-26).
+    # As preset_settings takes it: a model that asked preset_settings for a mode may leave
+    # "mode" out of the overrides.
     processed = _call(
         "run_processing",
         {"profile": "active_p1", "overrides": SMALL_WINDOWS, "mode": "passive-active"},
@@ -287,7 +283,7 @@ def test_run_processing_takes_the_mode_as_an_argument(paco_env: Settings) -> Non
 @pytest.mark.usefixtures("paco_env")
 def test_one_vs_range_stands_for_every_layer_at_invert() -> None:
     # The form invert's card offers: checked as the job reads it, not against PAC's 2 layers
-    # (Qwen3-8B was refused, then invented two ranges, 2026-09-26).
+    # (refused, a model makes up a range for each layer).
     processed = _call("run_processing", {"profile": "active_p1", "overrides": SMALL_WINDOWS})
     run_id = processed.structured_content["run_id"] if processed.structured_content else ""
 
@@ -382,7 +378,7 @@ def test_redo_needs_windows_that_exist() -> None:
         ),
         (
             # Two different ranges for three layers (3 layers alone is a request the job reads:
-            # bounds derived, 2026-09-26).
+            # bounds derived).
             "invert",
             {
                 "run_id": "20260923-000000-0000",
@@ -398,7 +394,7 @@ def test_redo_needs_windows_that_exist() -> None:
             "- parameters: vs_layers must have length n_layers (3).",
         ),
         (
-            # Qwen3-4B's guess, four times in a row, when the message only said "not permitted".
+            # A model's guess: the message names the right ones, or the model guesses again.
             "invert",
             {"run_id": "20260923-000000-0000", "parameters": {"iterations": 2000, "chains": 1}},
             "- parameters.iterations: unknown parameter. Allowed: n_layers, vs_layers, "

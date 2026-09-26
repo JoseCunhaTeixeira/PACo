@@ -24,7 +24,9 @@ class ToolStep(BaseModel):
     kind: Literal["tool"] = "tool"
     name: str
     arguments: str  # as the model wrote them
-    called: bool  # False when the host refused it: invalid arguments, or over the budget
+    # False when the host refused it: invalid arguments, over the budget, an inversion the
+    # request did not ask for, or the repeat of a call that just failed.
+    called: bool
     is_error: bool  # the call failed, or was refused
     duration_s: float
     result: str  # what the model read back

@@ -42,8 +42,7 @@ from sigpipe.transformers import (
 
 # The steps of PAC's adapters/active.py and adapters/passive.py, cut at the window (the
 # preprocessing works on whole records, the rest on the window's receivers), without PAC's
-# Pad(n=1000, taper=25) before the phase shift: a frequency step finer than 1/T only interpolates
-# (the user's decision, 2026-09-24).
+# Pad(n=1000, taper=25) before the phase shift: a frequency step finer than 1/T only interpolates.
 PREPROCESSING_CHAIN = {
     # The trigger correction (t0 = 0 by default) is PACo's, for shots only.
     "active": ["Load", "Shift", "Detrend", "Detrend", "Mute", "Filter", "Plot", "Save"],
@@ -159,12 +158,11 @@ def _only[T: Transformer[Any, Any]](pipeline: Pipeline, kind: type[T]) -> T:
     return step
 
 
-def _todays_pipeline(
+def _single_pipeline(
     preset: ActivePreset | PassivePreset, window: MASWWindow, output_folder: Path
 ) -> Pipeline:
-    """PAC's single pipeline per window, as PACo built it before the split (2026-09-24), from the
-    raw records with the window's receivers, minus the padding: what the two-stage path must
-    match bit for bit."""
+    """PAC's single pipeline per window, from the raw records with the window's receivers, minus
+    the padding: what the two-stage path must match bit for bit."""
     head = (
         Load(
             file_paths=window.selected_files,
@@ -448,7 +446,7 @@ EXPECTED_FILES = {
 
 
 @DEMO_CASES
-def test_the_split_runs_and_gives_todays_results(
+def test_the_split_runs_and_gives_the_single_pipelines_results(
     profiles: dict[str, Profile],
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
@@ -462,7 +460,7 @@ def test_the_split_runs_and_gives_todays_results(
     _run(built)
     reference = tmp_path / "reference"
     reference.mkdir()
-    _todays_pipeline(built.preset, built.window, reference).run(show_log=False)
+    _single_pipeline(built.preset, built.window, reference).run(show_log=False)
 
     assert {path.name for path in built.window_folder.iterdir()} == EXPECTED_FILES[name]
     for path in built.window.selected_files:
@@ -471,22 +469,22 @@ def test_the_split_runs_and_gives_todays_results(
     # The pipeline works in float32 from the loader on, and the stream files keep it: bit for bit
     # on 12 cores. On 4 (CI's runners) the passive correlations round some values differently
     # in the last float32 bit, at most 1.3e-7 of the largest, as LAPACK's batches do below. With
-    # PACo's passive defaults (2026-09-26: 2 s segments whitened and normalized one-bit, some 60
-    # a record stacked) those roundings add up to 1.8e-4 of the largest on 4 cores.
+    # PACo's passive defaults (2 s segments whitened and normalized one-bit, some 60 a record
+    # stacked) those roundings add up to 1.8e-4 of the largest on 4 cores.
     share = 1e-3 if name == "passive" else 1e-6
     for file in EXPECTED_FILES[name]:
         if file.endswith(".hdf5"):
-            split, todays = _datasets(built.window_folder / file), _datasets(reference / file)
-            assert split.keys() == todays.keys()
-            for key in todays:
-                assert split[key].dtype == todays[key].dtype, key
-                if todays[key].dtype.kind == "f":
-                    largest = float(np.max(np.abs(todays[key]), initial=0.0))
+            split, single = _datasets(built.window_folder / file), _datasets(reference / file)
+            assert split.keys() == single.keys()
+            for key in single:
+                assert split[key].dtype == single[key].dtype, key
+                if single[key].dtype.kind == "f":
+                    largest = float(np.max(np.abs(single[key]), initial=0.0))
                     np.testing.assert_allclose(
-                        split[key], todays[key], rtol=0, atol=share * largest, err_msg=key
+                        split[key], single[key], rtol=0, atol=share * largest, err_msg=key
                     )
                 else:
-                    assert np.array_equal(split[key], todays[key]), key
+                    assert np.array_equal(split[key], single[key]), key
 
 
 def test_default_windows_agree_within_rounding(
@@ -501,11 +499,11 @@ def test_default_windows_agree_within_rounding(
     _run(built)
     reference = tmp_path / "reference"
     reference.mkdir()
-    _todays_pipeline(built.preset, built.window, reference).run(show_log=False)
+    _single_pipeline(built.preset, built.window, reference).run(show_log=False)
 
     split = _datasets(built.window_folder / "DispersionImage_0000.hdf5")
-    todays = _datasets(reference / "DispersionImage_0000.hdf5")
+    single = _datasets(reference / "DispersionImage_0000.hdf5")
     assert len(built.window.receiver_indices) == 5
-    assert np.array_equal(split["fs"], todays["fs"])
-    assert np.array_equal(split["vs"], todays["vs"])
-    assert np.allclose(split["fv_map"][1:], todays["fv_map"][1:], rtol=1e-5, atol=1e-6)
+    assert np.array_equal(split["fs"], single["fs"])
+    assert np.array_equal(split["vs"], single["vs"])
+    assert np.allclose(split["fv_map"][1:], single["fv_map"][1:], rtol=1e-5, atol=1e-6)

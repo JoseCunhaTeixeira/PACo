@@ -413,8 +413,7 @@ def _unit_report(unit: str, attempts: list[Attempt]) -> UnitReport:
     for attempt in attempts:
         parameters[attempt.stage] = attempt.parameters
         # The latest notes there are: a retry derives from values already checked and notes
-        # nothing, which dropped the checks' changes to the user's values from `changed` (the
-        # user's 180 m/s, on every window G5 sampled again, 2026-09-26).
+        # nothing, which would drop the checks' changes to the user's values from `changed`.
         if attempt.notes:
             notes[attempt.stage] = attempt.notes
         if attempt.status == "failed":

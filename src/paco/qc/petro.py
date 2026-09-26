@@ -1,8 +1,8 @@
-"""The petrophysical inversion of a judged run, the QC way (the user's decisions of 2026-09-26:
-the agent runs it when the user asks for it; range, fit, line). The curves G4 passed that the
-chosen Silex model's trained range covers (the others left out, with how they fall outside),
-each inverted in worker processes; G7 on each, G8 along the line over those G7 passed, and PAC's
-sections over the windows both passed. Every window's attempt goes to the QC log.
+"""The petrophysical inversion of a judged run, the QC way, which the agent runs when the user
+asks for it. The curves G4 passed that the chosen Silex model's trained range covers (the others
+left out, with how they fall outside), each inverted in worker processes; G7 on each, G8 along
+the line over those G7 passed, and PAC's sections over the windows both passed. Every window's
+attempt goes to the QC log.
 
 The model runs only with sigpipe's silex and santiludo extras (PACo's petro extra, or PAC's own
 install); choosing one needs neither."""
@@ -58,8 +58,8 @@ type ProgressCallback = Callable[[int, int], None]
 
 class PetroModelCard(BaseModel):
     """A Silex model, what it was trained on, and how many of a run's curves it covers: what the
-    agent chooses a model by. In words: Qwen3-8B took the soils and water tables a model was
-    trained on for its results, and "covers": 1, "curves": 6 for all six (2026-09-26)."""
+    agent chooses a model by. In words, so that the agent takes neither the training's soils and
+    water tables for results nor the curves covered for all of them."""
 
     model_config = ConfigDict(frozen=True)
 
@@ -125,15 +125,7 @@ def invert_petro_line(
     (G7, G8), and write PAC's sections over the windows both passed. Returns the report and what
     the run's petrophysical models say, in words. A new inversion replaces the run's last one:
     its window files are archived, its sections removed."""
-    if not all(importlib.util.find_spec(name) for name in ("santiludo", "keras", "keras_nlp")):
-        raise RunError(
-            "The petrophysical inversion needs sigpipe's silex and santiludo extras, not "
-            "installed with this PACo: install PACo with its petro extra (uv sync --extra petro), "
-            "or use PAC's assistant, which has them."
-        )
-    from sigpipe.masw.petro import invert_line_petro, save_line_sections
-    from sigpipe.masw.petro.measuring import measure_petro
-
+    # The request first, the installation after: an unknown run or model says so either way.
     run_folder = find_run(run_id, settings)
     manifest = load_manifest(run_id, settings)
     config = read_qc_config(run_folder)
@@ -146,6 +138,15 @@ def invert_petro_line(
             f"Silex model {model_name} covers none of the {len(ready)} curves G4 passed: "
             f"{_left_out(card, gaps)}. Choose another model with petro_models, or tell the user."
         )
+    if not all(importlib.util.find_spec(name) for name in ("santiludo", "keras", "keras_nlp")):
+        raise RunError(
+            "The petrophysical inversion needs sigpipe's silex and santiludo extras, not "
+            "installed with this PACo: install PACo with its petro extra (uv sync --extra petro), "
+            "or use PAC's assistant, which has them."
+        )
+    from sigpipe.masw.petro import invert_line_petro, save_line_sections
+    from sigpipe.masw.petro.measuring import measure_petro
+
     _archive(run_folder, manifest)
 
     started_at = datetime.now(UTC)

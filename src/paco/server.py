@@ -104,7 +104,7 @@ def run_processing(
     overrides: Annotated[
         dict[str, Any] | None,
         Field(
-            # Qwen3-4B copied the values of examples: placeholders only.
+            # Placeholders, not values: a model copies the values of examples.
             description="Only the settings the user gave, by stage, e.g. "
             '{"masw": {"length": <receivers>, "step": <receivers>}, "dispersion": {"vmax": '
             "<m/s>}}; see preset_settings. Left out, they come from the data."
@@ -122,8 +122,8 @@ def run_processing(
         anyio.from_thread.run(ctx.report_progress, done, total, f"{done} of {total} windows")
 
     settings = get_settings()
-    # The mode as an argument, as preset_settings takes it: Qwen3-8B asked preset_settings for
-    # passive-active, then left the mode out of the overrides (2 of 3 plays, 2026-09-26).
+    # The mode as an argument, as preset_settings takes it: a model that asked preset_settings
+    # for a mode may leave it out of the overrides.
     if mode is not None:
         overrides = {**(overrides or {}), "mode": mode}
     result = qc.process_line(profile, overrides, settings, _qc_config(settings), report)
@@ -327,7 +327,7 @@ def _after_picking(report: qc.QCReport) -> str:
 
 
 def _after_petro(report: qc.QCReport) -> str:
-    # Qwen3-8B left out why the model covered 1 curve of 6 in 1 play of 3 (2026-09-26).
+    # The agent may leave out why the Silex model covered only some of the curves.
     covered = (
         "the soils and water table the summary gives, how many curves the model covered and why "
         "it left the others out"

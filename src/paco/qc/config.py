@@ -22,8 +22,8 @@ CONFIG_FILE = "qc_config.json"  # the snapshot in a run folder
 
 
 class QCConfig(BaseModel):
-    """The gates' thresholds and the retry budgets. Each gate adds its own model here, at its
-    milestone, with values measured on the demo profiles."""
+    """The gates' thresholds and the retry budgets: one model per gate, with values measured on
+    the demo profiles."""
 
     model_config = ConfigDict(frozen=True, extra="forbid")
 
@@ -39,8 +39,7 @@ class QCConfig(BaseModel):
     petro: PetroThresholds = Field(default_factory=PetroThresholds)  # G7
     petro_line: PetroLineThresholds = Field(default_factory=PetroLineThresholds)  # G8
     # Where a run's picking starts: not thresholds (the loop changes the picking), but the
-    # values a run begins with. The pick goes as far as its ridge holds (the user's decision of
-    # 2026-09-25, replacing a cut at twice the window length).
+    # values a run begins with. The pick goes as far as its ridge holds.
     picking: PickingParameters = Field(default_factory=PickingParameters)
 
 

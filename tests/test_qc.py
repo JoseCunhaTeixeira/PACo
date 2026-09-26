@@ -172,7 +172,7 @@ def test_retries_are_counted_from_what_triggered_each_attempt() -> None:
 # ---------------------------------------------------------------- budgets
 
 
-def test_budgets_default_to_the_decided_values() -> None:
+def test_budgets_have_their_default_values() -> None:
     assert Budgets() == Budgets(per_gate_and_unit=2, per_xmid_of_the_run=2)
     assert run_budget(Budgets(), n_xmids=73) == 146
 
@@ -258,12 +258,12 @@ def test_going_back_is_refused_once_the_runs_budget_is_spent(tmp_path: Path) -> 
     check_budget("r", tmp_path, QCConfig(), 3)  # 4 of 6: not spent
 
 
-def test_the_configuration_defaults_hold_todays_thresholds_and_the_budgets() -> None:
+def test_the_configuration_defaults_hold_the_thresholds_and_the_budgets() -> None:
     config = QCConfig()
 
     assert config.budgets == Budgets()
     assert config.curve == CurveThresholds()
-    # The run's picking starts there: as far as the ridge holds (2026-09-25).
+    # The run's picking starts there: as far as the ridge holds.
     assert config.picking == PickingParameters()
     assert load_qc_config(None) == config
 
@@ -471,7 +471,7 @@ def test_the_summary_gives_the_checks_notes_and_the_failures(tmp_path: Path) -> 
 
 def test_the_checks_notes_outlive_a_retry_that_notes_nothing(tmp_path: Path) -> None:
     # The checks changed the user's value at the first inversion; G5's retry derives from values
-    # already checked and notes nothing: the note stays the unit's (it was lost, 2026-09-26).
+    # already checked and notes nothing: the note stays the unit's.
     note = "vs_max 180 m/s below 1.09 times the curve's fastest velocity: set to 450 m/s."
     for attempt, notes, trigger in ((1, (note,), "initial"), (2, (), "G5:not_converged")):
         append_attempt(
@@ -696,7 +696,7 @@ def test_judge_run_puts_the_four_gates_in_the_log_and_the_report(
     }
     short = next(unit for unit in windows if unit.unit == "xmid_20.88")
     assert [flag.name for flag in short.flags["G3"]] == ["too_few_points", "near_field"]
-    # The band reaches the image's 100 Hz: kept, not widened (the decision of milestone 13).
+    # The band reaches the image's 100 Hz: kept, not widened.
     assert all(unit.verdicts["G2"] == "pass" for unit in windows)
     assert all(
         {flag.name for flag in unit.flags["G2"]} == {"band_at_fmax", "narrower_than_usable"}

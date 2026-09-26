@@ -57,8 +57,7 @@ class SignalThresholds(BaseModel):
     reach_snr_db: float = Field(
         default=2.0,
         description="dB: the traces' median SNR, by distance from the shot, under which they carry "
-        "no wave: the line's reach, which sets masw.distance_max (the user's choice of "
-        "2026-09-25: at 6 dB the demo's end windows lost a far shot that helped them).",
+        "no wave: the line's reach, which sets masw.distance_max.",
     )
     band_db: float = Field(
         default=6.0, gt=0, description="Signal above noise, for the usable band."
@@ -99,7 +98,7 @@ def judge_signal(
     The traces `excluded` already (receiver indices) are left out of every measure and flag;
     the decay with offset, the SNR, the usable band and the lateral coherence are measured on
     the traces within `reach_m` of the shot (the line's reach, beyond which the traces carry no
-    wave: the user's decisions of 2026-09-25)."""
+    wave)."""
     xt = preprocessed.xt
     left_out = np.zeros(xt.shape[0], dtype=bool)
     left_out[[index for index in excluded if 0 <= index < xt.shape[0]]] = True
@@ -177,9 +176,8 @@ def judge_signal(
         within = offsets <= reach_m
     # The decay is fitted on every trace within the reach that is neither dead, clipped nor NaN,
     # those already left out among them: excluding a trace must not move the fit, or each round
-    # excludes more (21 traces around each shot of active_p2, 2026-09-25). Within the reach only
-    # (the user's decision of 2026-09-25): fitted over active_p2's whole line, the noise floor
-    # flattened it, and 259 of the traces nearest the shots, the strongest, read too loud.
+    # excludes more. Within the reach only: over the whole line the noise floor flattens the fit,
+    # and the traces nearest the shots, the strongest, read too loud.
     outliers = (
         rms_decay_outliers(
             rms,
@@ -310,9 +308,8 @@ def judge_signal(
                 ),
             )
         )
-    # No reversed-polarity check (the user, 2026-09-25): a reversed geophone hardly ever happens,
-    # and at 1.5 m spacing near the source, neighbours shifted by more than half a period
-    # flagged whole blocks of active_p2's traces.
+    # No reversed-polarity check: a reversed geophone hardly ever happens, and near the source,
+    # neighbours shifted by more than half a period look reversed.
 
     breaks = first_breaks(
         finite, np.asarray(preprocessed.ts, dtype=float), windows, thresholds.first_break_ratio

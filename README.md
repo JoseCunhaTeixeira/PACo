@@ -260,9 +260,6 @@ uv run pyright src tests                          # types
 uv run pytest                                     # tests, on the demo profiles
 ```
 
-GitHub Actions runs the same checks on every push. `PROGRESS.md` records how PACo was built,
-the decisions taken, and the open issues.
-
 ## License
 
 CC BY 4.0 (see `LICENSE`).

@@ -153,7 +153,7 @@ def _line_result(
 ) -> GateResult:
     """Coverage: the xmids without a curve, and how comparable the depths of investigation are
     along the line (the spread of the curves' longest wavelengths); and where velocity falls
-    with wavelength along the line (said once, kept: the user's decision of 2026-09-25)."""
+    with wavelength along the line (said once, kept)."""
     longest = [float(curve.x[-1]) for curve in curves]
     depth_spread = spread(longest)
     inverse = [curve.xmid for curve in curves if _falls(curve)]

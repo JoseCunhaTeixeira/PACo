@@ -19,11 +19,11 @@ def _line(n_receivers: int) -> LinearAcquisition:
 
 
 def _m0(frequencies: np.ndarray) -> np.ndarray:
-    """The fundamental mode of test_picking.py."""
+    """The fundamental mode of sigpipe's picking tests."""
     return 150 + 250 * np.exp(-frequencies / 15)
 
 
-# The synthetic line of test_picking.py: 48 receivers, a 47 m window.
+# The synthetic line of sigpipe's picking tests: 48 receivers, a 47 m window.
 ACQUISITION = _line(48)
 WINDOW_LENGTH = 47.0  # m
 NOISE_FLOOR = 1 / math.sqrt(48)

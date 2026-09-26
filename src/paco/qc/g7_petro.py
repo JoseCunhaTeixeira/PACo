@@ -1,8 +1,8 @@
-"""G7, the petrophysical model QC per window (the user's decision of 2026-09-26: range, fit,
-line): the curve the Silex model's soil column gives back against the pick, by band of
-wavelength as G5 judges the seismic models, with G5's limit. No retry: a model predicts one
-soil column per curve. A window G7 rejects is left out of the petrophysical sections; its flag
-says what could change it: another model covering the curve, or the pick."""
+"""G7, the petrophysical model QC per window (docs/qc_workflow.md): the curve the Silex model's
+soil column gives back against the pick, by band of wavelength as G5 judges the seismic models,
+with G5's limit. No retry: a model predicts one soil column per curve. A window G7 rejects is
+left out of the petrophysical sections; its flag says what could change it: another model
+covering the curve, or the pick."""
 
 from collections.abc import Sequence
 from typing import TYPE_CHECKING
@@ -20,7 +20,7 @@ BAND_NAMES = {3: ("short", "middle", "long")}
 
 
 class PetroThresholds(BaseModel):
-    """G7's limits: G5's for now, provisional (rule 9)."""
+    """G7's limits: G5's, provisional (rule 9)."""
 
     model_config = ConfigDict(frozen=True, extra="forbid")
 

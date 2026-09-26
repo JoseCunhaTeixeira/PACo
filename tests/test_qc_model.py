@@ -166,7 +166,7 @@ def test_a_layer_piled_at_its_thinnest_is_dropped_above_three_layers() -> None:
     result = _judge(_measures(at_bounds=piled), four)
     assert result.verdict == "retry"
     assert _flags(result)["thin_layer"].action.model_dump()["overrides"] == {"n_layers": 3}
-    # Never fewer than 3 layers (the user, 2026-09-25): with three, nothing to do.
+    # Never fewer than 3 layers: with three, nothing to do.
     three = InversionParameters.model_validate(
         {
             "n_layers": 3,
