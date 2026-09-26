@@ -22,12 +22,17 @@ STAGE_FILES: dict[Stage, tuple[str, ...]] = {
     ),
     "picking": ("DispersionCurves_*.csv", "quality.json"),
     "inversion": ("SeismicInversion_*", "inversion_error.log"),
+    "petro_inversion": ("PetroInversion_*",),
 }
 
 
 def downstream(stage: Stage) -> tuple[Stage, ...]:
-    """`stage` and every stage after it."""
-    return STAGES[stage_index(stage) :]
+    """`stage` and every stage after it that uses its results: the petrophysical inversion reads
+    the picks, not the seismic inversion's models."""
+    later = STAGES[stage_index(stage) :]
+    if stage == "inversion":
+        return tuple(one for one in later if one != "petro_inversion")
+    return later
 
 
 def invalidate(window_folder: Path, stage: Stage, attempt: int) -> Path:

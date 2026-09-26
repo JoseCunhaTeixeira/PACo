@@ -5,9 +5,9 @@ mode reaches."""
 from typing import Any
 
 import pytest
+from sigpipe.masw.inversion import InversionParameters
+from sigpipe.masw.inversion.measuring import BandFit, BoundShare, InversionMeasures, ModelFit
 
-from paco.inversion import InversionParameters
-from paco.inversion.measuring import BandFit, BoundShare, InversionMeasures, ModelFit
 from paco.qc.g5_model import ModelThresholds, judge_model
 from paco.qc.models import Flag, GateResult
 

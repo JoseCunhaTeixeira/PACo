@@ -7,6 +7,8 @@ from typing import Any, Literal, cast
 import anyio
 import pytest
 from openai.types.chat import ChatCompletionFunctionToolParam, ChatCompletionMessageParam
+from sigpipe.masw.profiles import load_profile
+from sigpipe.masw.runs import RunManifest
 
 from paco.agent import Reply, Step, ToolCall, ToolStep, Transcript
 from paco.evaluation import (
@@ -45,11 +47,11 @@ from paco.evaluation.checks import (
     retried_value,
     succeeded,
     thresholds_unchanged,
+    water_table,
     windows_than_proposed,
 )
 from paco.evaluation.defects import build_inputs
 from paco.inversion import InversionRecord, JobState, WindowInversion
-from paco.profiles import load_profile
 from paco.qc import (
     Attempt,
     Budgets,
@@ -61,7 +63,6 @@ from paco.qc import (
     snapshot_qc_config,
 )
 from paco.qc.coherence import COHERENCE_FILE
-from paco.runs import RunManifest
 from paco.settings import Settings
 
 SMALL_WINDOWS = {"masw": {"length": 24, "step": 24}}
@@ -322,6 +323,29 @@ def test_facts_read_from_disk(tmp_path: Path) -> None:
     assert no_inversion_started()(trial).passed
     (run / "inversion.json").write_text("{}")
     assert not no_inversion_started()(trial).passed
+
+
+def test_the_water_table_is_read_from_the_models_the_gates_passed(tmp_path: Path) -> None:
+    run = tmp_path / "active_p1" / "20260923-100000-abcd"
+    run.mkdir(parents=True)
+    _report(
+        run,
+        {
+            "xmid_1.00": {"G7": "pass", "G8": "pass"},
+            "xmid_2.00": {"G7": "pass", "G8": "pass"},
+            "xmid_3.00": {"G7": "reject"},
+            "line": {"G8": "pass"},
+        },
+    )
+    for unit, depth in (("xmid_1.00", 3.0), ("xmid_2.00", 2.5), ("xmid_3.00", 1.0)):
+        (run / unit).mkdir()
+        (run / unit / "PetroInversion_Measures_0000.json").write_text(
+            json.dumps({"water_table_m": depth})
+        )
+    trial = _trial([], "The water table lies 2.5 to 3 m deep.", tmp_path)
+
+    assert water_table(trial) == "2.5"  # xmid 3.00's 1 m: G7 rejected it
+    assert answer_mentions(water_table)(trial).passed
 
 
 def _attempt(unit: str, stage: str, triggered_by: str, parameters: dict[str, Any]) -> Attempt:
@@ -709,6 +733,7 @@ def test_the_loops_checks_read_a_real_run(paco_env: Settings, tmp_path: Path) ->
         ("trace 89 of 2.dat left out", True),
         ("answer mentions 3", True),
         ("invert never called", True),
+        ("invert_petro never called", True),
         ("the agent asked nothing", True),
         ("the thresholds stayed the configuration's", True),
     ]

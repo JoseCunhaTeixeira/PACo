@@ -1,20 +1,9 @@
-"""Inversion of a run's picked M0 curves into layered shear-wave velocity models.
-
-A port of PAC's seismic inversion (sigpipe's MCMC, PAC's form defaults and output files), and the
-records of inversion jobs (the run's inversion.json): paco.qc.inverting runs them the QC way, and
-summarize_inversion tells the agent where one stands.
+"""Inversion jobs: a run's inversion, recorded in its inversion.json while it goes on, and what
+the agent reads of it. The inversion itself (sigpipe's MCMC on each window, PAC's files) is
+sigpipe.masw.inversion; paco.qc.inverting runs a job the QC way.
 """
 
-from .models import (
-    InversionError,
-    InversionParameters,
-    InversionRecord,
-    InversionStatus,
-    JobState,
-    ThicknessLayer,
-    VsLayer,
-    WindowInversion,
-)
+from .models import InversionRecord, InversionStatus, JobState, WindowInversion
 from .running import (
     INVERSION_FILE,
     find_job,
@@ -24,21 +13,14 @@ from .running import (
     write_record,
 )
 from .summary import summarize_inversion
-from .window import build_inversion_pipeline, invert_window
 
 __all__ = [
     "INVERSION_FILE",
-    "InversionError",
-    "InversionParameters",
     "InversionRecord",
     "InversionStatus",
     "JobState",
-    "ThicknessLayer",
-    "VsLayer",
     "WindowInversion",
-    "build_inversion_pipeline",
     "find_job",
-    "invert_window",
     "new_job_id",
     "read_record",
     "summarize_inversion",

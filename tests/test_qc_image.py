@@ -5,16 +5,15 @@ import math
 
 import numpy as np
 from sigpipe.base import Coordinate, DispersionImage, LinearAcquisition, VelocityType
-
-from paco.qc.g2_image import (
-    ImageThresholds,
+from sigpipe.masw.quality.image import (
     aliased,
     coherent_columns,
     competing_ridges,
     edge_peaks,
-    judge_image,
     noise_floor,
 )
+
+from paco.qc.g2_image import ImageThresholds, judge_image
 
 FREQUENCIES = np.arange(10.0, 40.5, 0.5)  # Hz
 VELOCITIES = np.arange(1.0, 1000.5, 0.5)  # m/s

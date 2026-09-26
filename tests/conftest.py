@@ -4,8 +4,8 @@ from pathlib import Path
 
 import matplotlib
 import pytest
+from sigpipe.masw.profiles import Profile, load_profile
 
-from paco.profiles import Profile, load_profile
 from paco.settings import Settings, get_settings
 
 # Pipelines save figures to files: use the non-GUI backend, as PAC's API does.

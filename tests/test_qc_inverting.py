@@ -13,11 +13,13 @@ import pytest
 from sigpipe.base import DispersionCurve, Mode, VelocityType
 from sigpipe.base.acquisition import UNKNOWN_ACQUISITION
 from sigpipe.dataio.dispersion.loading import load_dispersion_curves
+from sigpipe.masw.inversion import InversionParameters
+from sigpipe.masw.inversion.measuring import InversionMeasures
+from sigpipe.masw.inversion.priors import Derived
+from sigpipe.masw.inversion.window import SAMPLES_FILE
+from sigpipe.masw.picks import CURVES_FILE
+from sigpipe.masw.runs import RunError, find_run, run_processing
 
-from paco.inversion import InversionParameters
-from paco.inversion.measuring import InversionMeasures
-from paco.inversion.window import SAMPLES_FILE
-from paco.picks import CURVES_FILE
 from paco.qc import (
     Attempt,
     Budgets,
@@ -31,8 +33,6 @@ from paco.qc import (
     read_report,
 )
 from paco.qc.inverting import MEASURES_FILE, judge_inversions, rerun_inversion
-from paco.qc.priors import Derived
-from paco.runs import RunError, find_run, run_processing
 from paco.settings import Settings
 
 SMALL_WINDOWS = {"masw": {"length": 24, "step": 24}}

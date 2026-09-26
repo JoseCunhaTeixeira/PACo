@@ -16,21 +16,22 @@ from typing import Any
 import numpy as np
 from pydantic import ValidationError
 from sigpipe.base import DispersionCurve
+from sigpipe.masw.inversion import InversionError, InversionParameters, invert_window
+from sigpipe.masw.inversion.measuring import InversionMeasures, measure_inversion, report_depths
+from sigpipe.masw.inversion.priors import Derived, broadcast_layers, checkable, derive_inversion
+from sigpipe.masw.inversion.section import save_comparison, save_section, save_sections_file
+from sigpipe.masw.picks import CURVES_FILE
+from sigpipe.masw.quality.line import Series
+from sigpipe.masw.runs import RunError, RunManifest, find_run, load_manifest, start_worker
 
 from paco.inversion import (
-    InversionError,
-    InversionParameters,
     InversionRecord,
     WindowInversion,
-    invert_window,
     new_job_id,
     read_record,
     window_result,
     write_record,
 )
-from paco.inversion.measuring import InversionMeasures, measure_inversion, report_depths
-from paco.inversion.section import save_comparison, save_section
-from paco.picks import CURVES_FILE
 from paco.qc.attempts import invalidate
 from paco.qc.budgets import budget_spent
 from paco.qc.config import QCConfig, read_qc_config
@@ -40,7 +41,6 @@ from paco.qc.judging import saved_m0
 from paco.qc.log import append_attempt, attempts_of, latest, read_attempts, record_result
 from paco.qc.loops import RetryBudget, deep_merge, stage_changes
 from paco.qc.models import Attempt, GateResult
-from paco.qc.priors import Derived, broadcast_layers, checkable, derive_inversion
 from paco.qc.report import (
     build_report,
     changed_settings,
@@ -49,8 +49,6 @@ from paco.qc.report import (
     write_report,
     xmid_of,
 )
-from paco.qc.sides import Series
-from paco.runs import RunError, RunManifest, find_run, load_manifest, start_worker
 from paco.settings import Settings
 
 MEASURES_FILE = "SeismicInversion_Measures_0000.json"  # what G5 judged, and G6 compares
@@ -114,7 +112,7 @@ def run_inversion_job(
     windows: dict[str, WindowInversion] = {}
     try:
         ready = invertible(run_folder, load_manifest(record.run_id, settings))
-        record = record.model_copy(update={"depths_m": _depths(ready)})
+        record = record.model_copy(update={"depths_m": line_depths(ready)})
         write_record(run_folder, record)
     except RunError:
         pass  # said again, as the job's error, below
@@ -144,6 +142,7 @@ def run_inversion_job(
         try:
             if (section := save_section(run_folder, passed)) is not None:
                 summary += f"\nSection of the {len(passed)} models G5 passed: {section.name}."
+            save_sections_file(run_folder, passed)
             save_comparison(run_folder, passed)
         except Exception:
             logger.exception("Could not save the velocity section of %s", run_folder)
@@ -193,7 +192,7 @@ def judge_inversions(
         if not (run_folder / unit / MEASURES_FILE).exists()
     }
     jobs = {unit: derive_inversion(curve, config.priors, given) for unit, curve in pending.items()}
-    depths = _depths(ready)
+    depths = line_depths(ready)
     results = _invert(
         run_folder, jobs, depths, config, "initial", settings.workers, on_progress, on_window
     )
@@ -236,7 +235,7 @@ def rerun_inversion(
         previous = latest(attempts, unit, "inversion")
         base = dict(previous.parameters) if previous is not None else {}
         jobs[unit] = derive_inversion(ready[unit], config.priors, given_again(base, overrides))
-    depths = _depths(ready)
+    depths = line_depths(ready)
     results = _invert(
         run_folder, jobs, depths, config, triggered_by, settings.workers, on_progress, on_window
     )
@@ -409,7 +408,7 @@ def judge_model_line(
         # velocity), so the depth where the posterior's spread reaches half the prior's was 0 m
         # on 62 of the layer study's 72 models, and G6 had nothing to compare (2026-09-26).
         curve = saved_m0(run_folder / window.folder / CURVES_FILE)
-        limit = _investigation(curve, config) if curve is not None else np.inf
+        limit = investigation_depth(curve, config) if curve is not None else np.inf
         depths = [(depth, vs) for depth, vs in measures.vs_at_depths if depth <= limit]
         if not depths:
             without.append(window.xmid)
@@ -452,7 +451,7 @@ def judge_model_line(
     return results
 
 
-def _investigation(curve: DispersionCurve, config: QCConfig) -> float:
+def investigation_depth(curve: DispersionCurve, config: QCConfig) -> float:
     """The depth `curve` informs a model down to: its longest wavelength times the priors'
     `max_depth` (half of it), MASW's depth of investigation and the deepest the half-space's top
     may be (the checks before S4)."""
@@ -460,7 +459,7 @@ def _investigation(curve: DispersionCurve, config: QCConfig) -> float:
     return round(config.priors.max_depth * float(wavelengths.max()), 2)
 
 
-def _depths(ready: Mapping[str, DispersionCurve]) -> tuple[float, ...]:
+def line_depths(ready: Mapping[str, DispersionCurve]) -> tuple[float, ...]:
     """Where the line's models are reported and compared: round depths down to half the median
     longest wavelength."""
     return report_depths(

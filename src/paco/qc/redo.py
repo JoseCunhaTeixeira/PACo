@@ -10,9 +10,13 @@ from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any, Literal
 
-from paco.pipelines import record_folder
-from paco.presets import apply_overrides, resolve_preset
-from paco.profiles import load_profile
+from sigpipe.masw.pipelines import record_folder
+from sigpipe.masw.presets import apply_overrides, resolve_preset
+from sigpipe.masw.profiles import load_profile
+from sigpipe.masw.runs import RunError, RunManifest, find_run, load_manifest
+from sigpipe.masw.runs.processing import RECORDS_FOLDER, preprocess_records, write_manifest
+from sigpipe.masw.windows import MASWWindow
+
 from paco.qc.attempts import invalidate_record
 from paco.qc.budgets import run_budget
 from paco.qc.config import QCConfig, read_qc_config
@@ -23,10 +27,8 @@ from paco.qc.loops import deep_merge
 from paco.qc.models import Attempt
 from paco.qc.report import QCReport, build_report, read_report, write_report
 from paco.qc.rerun import rerun_phase_shift
-from paco.runs import RunError, RunManifest, find_run, load_manifest
-from paco.runs.processing import RECORDS_FOLDER, preprocess_records, write_manifest
+from paco.runs import PACKAGES
 from paco.settings import Settings
-from paco.windows import MASWWindow
 
 type RedoStage = Literal["preprocessing", "phase_shift", "picking"]
 
@@ -212,6 +214,7 @@ def _redo_records(
         records,
         manifest.windows,
         exclusions,
+        packages=PACKAGES,
     )
     return [
         window.folder

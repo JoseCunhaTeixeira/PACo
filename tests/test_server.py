@@ -7,9 +7,10 @@ import anyio
 import pytest
 from mcp import Client
 from mcp.types import CallToolResult, Tool
+from sigpipe.masw import profiles
+from sigpipe.masw.presets import override_schema
 
-from paco import profiles, server
-from paco.presets import override_schema
+from paco import server
 from paco.settings import Settings
 
 # The workflow's order: tools/list should list them the same way, every time.
@@ -22,15 +23,19 @@ TOOLS = [
     "inversion_settings",
     "invert",
     "job_status",
+    "petro_models",
+    "invert_petro",
     "redo",
 ]
 # Every card (name, description, argument schema) travels with every request to the model.
 # Raised from 4,500 in milestone 5 for the three inversion tools (5,221 measured); 5,424 with
 # milestone 14's stage tools; 5,882 with PAC's third mode, passive-active (2026-09-26: a mode
-# argument for run_processing and preset_settings).
-CARDS_BUDGET = 5_900  # characters, all tools together
-# The server's instructions go into the model's system prompt too.
-INSTRUCTIONS_BUDGET = 600  # characters
+# argument for run_processing and preset_settings); 6,998 with the petrophysical inversion's two
+# tools (2026-09-26, the user: "the agent could also use petrophysical inversion").
+CARDS_BUDGET = 7_000  # characters, all tools together
+# The server's instructions go into the model's system prompt too: raised from 600 for the
+# petrophysical tools' sentence.
+INSTRUCTIONS_BUDGET = 650  # characters
 # Four 24-receiver windows along the active demo line, as in test_runs.py.
 SMALL_WINDOWS = {"masw": {"length": 24, "step": 24}}
 # A short sampler: every step of an inversion, in about a second per window.
@@ -407,6 +412,16 @@ def test_redo_needs_windows_that_exist() -> None:
             "job_status",
             {"job_id": "inv-20260923-000000-0000"},
             "Unknown job 'inv-20260923-000000-0000'.",
+        ),
+        (
+            "petro_models",
+            {"run_id": "20260923-000000-0000"},
+            "Unknown run '20260923-000000-0000'.",
+        ),
+        (
+            "invert_petro",
+            {"run_id": "20260923-000000-0000", "model": "grand_est_15-50hz_193-415mps"},
+            "Unknown run '20260923-000000-0000'.",
         ),
     ],
 )

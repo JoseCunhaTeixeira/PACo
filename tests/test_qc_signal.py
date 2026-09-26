@@ -1,27 +1,15 @@
 """G1 on synthetic records with a known answer: a surface wave of known velocity and known noise,
-with defects planted one at a time."""
+with defects planted one at a time. The measures themselves are sigpipe's, tested there
+(sigpipe.masw.quality.signal)."""
 
 from dataclasses import replace
 
 import numpy as np
 import pytest
 from sigpipe.base import Coordinate, LinearAcquisition, Stream
+from sigpipe.transformers import Shift
 
-from paco.qc.g1_signal import (
-    SignalThresholds,
-    dead_clipped_nan,
-    first_breaks,
-    judge_signal,
-    lateral_coherence,
-    rms_decay_outliers,
-    signal_windows,
-    snr_db,
-    snr_reach,
-    trace_snrs,
-    trigger_shift,
-    usable_band,
-)
-from paco.transformers import ShiftTrigger
+from paco.qc.g1_signal import SignalThresholds, judge_signal
 
 SAMPLING = 1000.0
 N_TRACES = 24
@@ -91,31 +79,6 @@ def test_a_clean_shot_passes_with_its_wave_in_the_window() -> None:
     assert fmin < FREQUENCY < fmax
 
 
-def test_the_windows_follow_the_moveout_and_the_noise_comes_after_the_slowest_arrival() -> None:
-    stream = _shot()
-    windows = signal_windows(
-        np.asarray(stream.acquisition.offsets), np.asarray(stream.ts), THRESHOLDS
-    )
-
-    assert windows is not None
-    assert windows.where.startswith("after the slowest arrival")
-    # The far trace's window ends later than the near one's, and both hold their arrival.
-    near, far = windows.signal[0], windows.signal[-1]
-    ts = np.asarray(stream.ts)
-    assert ts[near][-1] < ts[far][-1]
-    for i in (0, -1):
-        arrival = stream.acquisition.offsets[i] / VELOCITY
-        assert windows.signal[i][int(arrival * SAMPLING)]
-    assert not (windows.signal & windows.noise).any()
-    # A record that ends before the slowest arrival has no noise window.
-    assert (
-        signal_windows(
-            np.asarray(stream.acquisition.offsets), np.asarray(stream.ts[:200]), THRESHOLDS
-        )
-        is None
-    )
-
-
 def test_dead_clipped_and_nan_traces_are_found_and_excluded() -> None:
     stream = _shot()
     stream = _with_trace(stream, 3, np.zeros(stream.xt.shape[1], dtype=np.float32))
@@ -124,12 +87,8 @@ def test_dead_clipped_and_nan_traces_are_found_and_excluded() -> None:
     nan_trace[100] = np.nan
     stream = _with_trace(stream, 11, nan_trace)
 
-    dead, clipped, nan = dead_clipped_nan(stream.xt, THRESHOLDS)
     result = judge_signal("1.dat", stream, THRESHOLDS)
 
-    assert list(np.flatnonzero(dead)) == [3]
-    assert list(np.flatnonzero(clipped)) == [7]
-    assert list(np.flatnonzero(nan)) == [11]
     assert result.verdict == "retry"
     excluded = {flag.name: flag.action for flag in result.flags}
     assert excluded["dead_traces"].model_dump() == {
@@ -146,72 +105,29 @@ def test_dead_clipped_and_nan_traces_are_found_and_excluded() -> None:
 def test_an_amplitude_off_the_decay_is_an_outlier() -> None:
     stream = _shot()
     stream = _with_trace(stream, 10, stream.xt[10] * 30)
-    rms = np.sqrt(np.mean(stream.xt.astype(float) ** 2, axis=1))
 
-    outliers = rms_decay_outliers(
-        rms, np.asarray(stream.acquisition.offsets), np.ones(N_TRACES, bool), 3.0
-    )
     result = judge_signal("1.dat", stream, THRESHOLDS)
 
-    assert list(np.flatnonzero(outliers)) == [10]
     (flag,) = result.flags
     assert flag.name == "rms_outliers" and not flag.fixable
     assert flag.action.model_dump()["traces"] == (10,)
 
 
-def test_the_snr_matches_the_noise_planted() -> None:
-    quiet, loud = _shot(noise=0.001), _shot(noise=0.05)
-    windows = signal_windows(
-        np.asarray(quiet.acquisition.offsets), np.asarray(quiet.ts), THRESHOLDS
-    )
-    assert windows is not None
+def test_a_record_with_too_much_noise_has_a_low_snr() -> None:
+    loud = _shot(noise=0.05)
 
-    quiet_snr = np.median(snr_db(quiet.xt.astype(float), windows))
-    loud_snr = np.median(snr_db(loud.xt.astype(float), windows))
-
-    # 50 x less noise RMS is 34 dB more, within the window's own share of the wavelet.
-    assert 25 < quiet_snr - loud_snr < 40
     assert judge_signal("1.dat", loud, THRESHOLDS).verdict == "pass"
     weak = _shot(noise=1.0)
     result = judge_signal("1.dat", weak, THRESHOLDS)
     assert "low_snr" in {flag.name for flag in result.flags}
 
 
-def test_the_usable_band_holds_the_wavelet_and_no_more() -> None:
-    stream = _shot(noise=0.05)
-    windows = signal_windows(
-        np.asarray(stream.acquisition.offsets), np.asarray(stream.ts), THRESHOLDS
-    )
-    assert windows is not None
-
-    band = usable_band(stream.xt.astype(float), SAMPLING, windows, THRESHOLDS.band_db)
-
-    assert band is not None
-    fmin, fmax = band
-    # A 20 Hz Berlage pulse has its energy between a few Hz and about 60 Hz.
-    assert 0 <= fmin <= 12  # a causal pulse has energy down to 0 Hz
-    assert 35 <= fmax <= 80
-
-
-def test_neighbours_correlate_and_a_reversed_trace_is_not_judged() -> None:
+def test_a_reversed_trace_is_not_judged() -> None:
     stream = _shot()
-    windows = signal_windows(
-        np.asarray(stream.acquisition.offsets), np.asarray(stream.ts), THRESHOLDS
-    )
-    assert windows is not None
-    max_lag_s = DX / THRESHOLDS.vg_min
-
-    coherence, polarity = lateral_coherence(stream.xt.astype(float), windows, SAMPLING, max_lag_s)
     reversed_stream = _with_trace(stream, 5, -stream.xt[5])
-    reversed_coherence, reversed_polarity = lateral_coherence(
-        reversed_stream.xt.astype(float), windows, SAMPLING, max_lag_s
-    )
 
-    assert coherence.min() > 0.9
-    assert (polarity > 0).all()
     # The polarity is measured, but no longer judged (the user, 2026-09-25: a reversed geophone
     # hardly ever happens, and near the source the check flagged whole blocks of traces).
-    assert list(reversed_polarity[4:6]) == [-1, -1] and reversed_coherence.min() > 0.9
     assert "reversed_polarity" not in {
         flag.name for flag in judge_signal("1.dat", reversed_stream, THRESHOLDS).flags
     }
@@ -225,22 +141,7 @@ def test_leaving_traces_out_adds_no_amplitude_outlier() -> None:
     assert "rms_outliers" not in {flag.name for flag in result.flags}
 
 
-def test_a_shifted_trigger_rejects_the_record() -> None:
-    stream = _shot()
-    windows = signal_windows(
-        np.asarray(stream.acquisition.offsets), np.asarray(stream.ts), THRESHOLDS
-    )
-    assert windows is not None
-    breaks = first_breaks(
-        stream.xt.astype(float), np.asarray(stream.ts), windows, THRESHOLDS.first_break_ratio
-    )
-    fit = trigger_shift(breaks, np.asarray(stream.acquisition.offsets))
-
-    assert fit is not None
-    t0, velocity, scatter = fit
-    assert abs(t0) < THRESHOLDS.max_trigger_shift_s
-    assert 150 < velocity < 250
-    assert scatter < 0.005
+def test_a_shifted_trigger_asks_for_its_correction() -> None:
     shifted = judge_signal("1.dat", _shot(t0=0.05), THRESHOLDS)
     assert shifted.verdict == "retry"
     (flag,) = shifted.flags
@@ -249,7 +150,7 @@ def test_a_shifted_trigger_rejects_the_record() -> None:
     assert action["kind"] == "override" and action["stage"] == "preprocessing"
     assert action["overrides"]["trigger"]["t0"] == pytest.approx(0.05, abs=0.005)
     # Corrected by that t0, the record passes.
-    (corrected,) = ShiftTrigger(action["overrides"]["trigger"]["t0"]).transform([_shot(t0=0.05)])
+    (corrected,) = Shift(t0=action["overrides"]["trigger"]["t0"]).transform([_shot(t0=0.05)])
     assert judge_signal("1.dat", corrected, THRESHOLDS).verdict == "pass"
 
 
@@ -306,17 +207,6 @@ def test_thresholds_refuse_nonsense(field: str) -> None:
 # ---------------------------------------------------------------- the line's reach (2026-09-25)
 
 
-def test_the_reach_is_where_the_traces_median_snr_falls_under_the_limit() -> None:
-    # 60 dB at the shot, 0.7 dB less every metre: 6 dB at 77.1 m; bins of 10 m find 77.6.
-    offsets = np.arange(0.0, 100.0, 1.0)
-    measured = [(offsets, 60 - 0.7 * offsets)] * 2
-
-    assert snr_reach(measured, 6.0, 10.0) == pytest.approx(77.6, abs=0.1)
-    # Every trace above the limit: no reach; nothing measured: none either.
-    assert snr_reach([(offsets, np.full(offsets.size, 20.0))], 6.0, 10.0) is None
-    assert snr_reach([], 6.0, 10.0) is None
-
-
 def test_a_record_is_judged_within_the_reach() -> None:
     # The far two thirds of the line carry only noise, as on a long line: judged on every trace
     # the median SNR fails; within the reach, the near traces carry the wave.
@@ -325,10 +215,7 @@ def test_a_record_is_judged_within_the_reach() -> None:
     xt = shot.xt.copy()
     xt[8:] = (rng.standard_normal(xt[8:].shape) * 0.02).astype(np.float32)
     far_noise = replace(shot, xt=xt)
-    measured = trace_snrs(far_noise, THRESHOLDS)
-    assert measured is not None
-    offsets, snrs = measured
-    assert snrs[:8].min() > 10 > snrs[8:].max()
+    offsets = np.asarray(far_noise.acquisition.offsets)
 
     whole = judge_signal("1.dat", far_noise, THRESHOLDS)
     near = judge_signal("1.dat", far_noise, THRESHOLDS, reach_m=float(offsets[7]))

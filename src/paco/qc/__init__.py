@@ -1,7 +1,8 @@
 """The gate framework (docs/qc_workflow.md): one language for every gate's verdicts, flags and
 advice; the QC log of a run; retry budgets; the configuration of thresholds and budgets. The gates
 G1 to G6 (milestones 11 to 13), the coherence rules for S2 and the checks before S4, a line
-processed and inverted the QC way, and the stages done again."""
+processed and inverted the QC way, and the stages done again; the petrophysical inversion's
+range check and gates, G7 and G8 (milestone 15)."""
 
 from .attempts import ATTEMPTS_FOLDER, STAGE_FILES, archived_attempts, downstream, invalidate
 from .budgets import budget_spent, can_retry, run_budget
@@ -22,6 +23,8 @@ from .g3_curve import CurveThresholds
 from .g4_profile import LINE, ProfileThresholds, judge_profile
 from .g5_model import ModelThresholds, judge_model
 from .g6_models import ModelProfileThresholds, judge_model_profile
+from .g7_petro import PetroThresholds, judge_petro
+from .g8_petro_line import PetroLineThresholds, judge_petro_line
 from .inverting import (
     MEASURES_FILE,
     invertible,
@@ -64,7 +67,7 @@ from .models import (
     Verdict,
     stage_index,
 )
-from .priors import Derived, PriorRules, broadcast_layers, checkable, derive_inversion
+from .petro import PetroChoice, PetroModelCard, invert_petro_line, petro_models
 from .redo import check_budget, redo_stage, select_windows
 from .report import (
     REPORT_FILE,
@@ -81,7 +84,6 @@ from .report import (
     xmid_of,
 )
 from .rerun import rerun_phase_shift, rerun_picking
-from .sides import Series
 
 __all__ = [
     "ATTEMPTS_FOLDER",
@@ -97,7 +99,6 @@ __all__ = [
     "Budgets",
     "CoherenceRules",
     "CurveThresholds",
-    "Derived",
     "ExcludeRecord",
     "ExcludeTraces",
     "Flag",
@@ -110,12 +111,14 @@ __all__ = [
     "ModelProfileThresholds",
     "ModelThresholds",
     "Override",
-    "PriorRules",
+    "PetroChoice",
+    "PetroLineThresholds",
+    "PetroModelCard",
+    "PetroThresholds",
     "ProfileThresholds",
     "QCConfig",
     "QCReport",
     "Reject",
-    "Series",
     "Stage",
     "StageResult",
     "UnitReport",
@@ -123,28 +126,28 @@ __all__ = [
     "append_attempt",
     "archived_attempts",
     "attempts_of",
-    "broadcast_layers",
     "budget_spent",
     "build_report",
     "can_retry",
     "cap_band",
     "changed_settings",
     "check_budget",
-    "checkable",
     "choose_length",
-    "derive_inversion",
     "describe",
     "describe_lengths",
     "downstream",
     "ensure_initial_attempts",
     "given_length",
     "invalidate",
+    "invert_petro_line",
     "invertible",
     "judge_inversions",
     "judge_line",
     "judge_model",
     "judge_model_line",
     "judge_model_profile",
+    "judge_petro",
+    "judge_petro_line",
     "judge_picking",
     "judge_profile",
     "judge_records",
@@ -153,6 +156,7 @@ __all__ = [
     "latest",
     "length_hint",
     "load_qc_config",
+    "petro_models",
     "pick_line",
     "process_line",
     "read_attempts",

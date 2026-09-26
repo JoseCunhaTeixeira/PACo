@@ -9,8 +9,9 @@ import pytest
 from mcp import Client
 from openai import AsyncOpenAI
 from openai.types.chat import ChatCompletionFunctionToolParam, ChatCompletionMessageParam
+from sigpipe.masw import profiles
 
-from paco import profiles, server
+from paco import server
 from paco.agent import (
     Agent,
     OpenAIChat,
@@ -105,6 +106,8 @@ def test_the_model_gets_every_tool_card_and_the_workflow() -> None:
         "inversion_settings",
         "invert",
         "job_status",
+        "petro_models",
+        "invert_petro",
         "redo",
     ]
     assert messages[0] == {"role": "system", "content": f"{ROLE}\n\n{server.INSTRUCTIONS}"}
@@ -250,6 +253,12 @@ def test_the_hosts_rules() -> None:
     assert host.starts_inversion("invert", "{}")
     assert host.starts_inversion("redo", '{"run_id": "r", "stage": "inversion"}')
     assert not host.starts_inversion("redo", '{"run_id": "r", "stage": "picking"}')
+    assert host.asks_for_soils("pick the curves and give me the soil types and the water table")
+    assert host.asks_for_soils("Quelle est la profondeur de la nappe ?")
+    assert not host.asks_for_soils("Process active_p1 and give me the Vs models.")
+    assert host.unasked("invert_petro", "{}", "invert the curves") is not None
+    assert host.unasked("invert_petro", "{}", "what are the soils?") is None
+    assert host.unasked("invert", "{}", "what are the soils?") is not None
     for asking in (
         "Would you like me to invert them",
         "Let me know if you want more.",
@@ -353,9 +362,7 @@ def test_no_inversion_starts_unless_the_user_asked_for_models() -> None:
         "Not called: the user asked for no velocity model, so no inversion starts. Answer with "
         "what the request asked for."
     )
-    assert (
-        events[0] == '-> invert({"run_id": "20260925-100000-abcd"}) refused: no model was asked for'
-    )
+    assert events[0] == '-> invert({"run_id": "20260925-100000-abcd"}) refused: not asked for'
     # Asked for, the call goes to the server.
     model = ScriptedModel(_calls(("invert", {"run_id": "20260925-100000-abcd"})), _says("No run."))
     _, _, messages = _converse(model, "Invert run 20260925-100000-abcd.")

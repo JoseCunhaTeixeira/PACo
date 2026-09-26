@@ -7,8 +7,10 @@ import secrets
 from datetime import UTC, datetime
 from pathlib import Path
 
-from paco.inversion.measuring import InversionMeasures
-from paco.inversion.models import InversionError, InversionRecord, WindowInversion
+from sigpipe.masw.inversion import InversionError
+from sigpipe.masw.inversion.measuring import InversionMeasures
+
+from paco.inversion.models import InversionRecord, WindowInversion
 from paco.settings import Settings
 
 INVERSION_FILE = "inversion.json"

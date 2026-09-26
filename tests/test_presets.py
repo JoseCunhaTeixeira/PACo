@@ -3,12 +3,10 @@ import json
 import pytest
 from pydantic import BaseModel, TypeAdapter, ValidationError
 from sigpipe.algorithms import WHITENING_METHODS
+from sigpipe.algorithms.picking.dispersion.tracking import PickingParameters
 from sigpipe.base import LinearAcquisition, Stream
-from sigpipe.transformers import Filter, Load, Slice
-
-from paco.inversion import InversionParameters
-from paco.picking import PickingParameters
-from paco.presets import (
+from sigpipe.masw.inversion import InversionParameters
+from sigpipe.masw.presets import (
     ActivePreset,
     PassivePreset,
     Preset,
@@ -19,8 +17,9 @@ from paco.presets import (
     resolve_preset,
     schema_size,
 )
-from paco.profiles import Profile
-from paco.windows import MASWParameters
+from sigpipe.masw.profiles import Profile
+from sigpipe.masw.windows import MASWParameters
+from sigpipe.transformers import Filter, Load, Slice
 
 # PAC's form defaults (ActiveConfigForm.tsx and PassiveConfigForm.tsx), except distance_max:
 # 1000 m in PACo, 100 m in PAC.
@@ -45,7 +44,7 @@ PASSIVE_ACTIVE_DEFAULTS = {
     "muting": {"method": "none"},
     "filtering": {"method": "none"},
     # PACo's: G1's surface-wave window, before each shot is correlated.
-    "correlation_window": {"method": "surface_waves", "vmin": 80.0, "vmax": 1500.0, "pad": 0.05},
+    "correlation_window": {"method": "mute", "vmin": 80.0, "vmax": 1500.0, "taper": None},
     "stacking": {"method": "linear"},
     "dispersion": DISPERSION_DEFAULTS,
 }

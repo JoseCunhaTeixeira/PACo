@@ -8,16 +8,12 @@ import math
 import numpy as np
 from pydantic import BaseModel, ConfigDict, Field
 from scipy.stats import rankdata
+from sigpipe.algorithms.picking.dispersion.tracking import PickedMode, PickingParameters
 from sigpipe.base import DispersionImage
+from sigpipe.masw.quality.pick import constant_wavelength_start
 
-from paco.picking import PickedMode, PickingParameters
 from paco.qc.models import Flag, GateResult, Keep, Kept, Metric, Override, Reject
-from paco.quality import (
-    ImageQuality,
-    QualityParameters,
-    constant_wavelength_start,
-    measure_quality,
-)
+from paco.quality import ImageQuality, QualityParameters, measure_quality
 
 GATE = "G3"
 

@@ -32,6 +32,14 @@ Artifacts in [ ], gates in < >.
       <G6 model profile QC, whole line>
     [final Vs model per xmid + QC report]
 
+    Only when the user asks for soils or the water table, from the curves G4 passed (milestone 15):
+      range check: the curves the chosen Silex model's trained band and velocities cover; the others are reported, never inverted
+      S5 petrophysical inversion, per xmid (Silex: soils, N values, water table; santiludo's rock physics)
+    [petrophysical model per xmid]
+      <G7 petrophysical model QC, per xmid>
+      <G8 petrophysical profile QC, whole line>
+    [PAC's petrophysical sections, over the xmids G7 and G8 passed]
+
 ## Rules for every gate
 
 1. Output per unit (record or xmid): verdict `pass`, `retry` or `reject`; each metric with its threshold; the flags raised; and for each flag, the stage most likely at fault (this one or an earlier one) and a concrete suggested change as overrides that can be applied as they are, not only a sentence.
@@ -98,6 +106,15 @@ Since nobody looks at the curves before inversion any more, G3 is the safety net
 - An isolated jump that the curves don't show (G4 found the neighbouring curves agree) is non-uniqueness: re-invert that xmid (more iterations, other bounds or layer count). A jump the curves also show is kept.
 - Useful depth consistent along the line.
 - Don't build any lateral smoothing, neither by editing models nor by using neighbours as priors: it would create the smoothness it then reports.
+
+### Range check, G7 and G8: the petrophysical inversion (milestone 15)
+
+The user's decision (2026-09-26, "Range, fit, line"), and `docs/gates/G7.md`, `G8.md`:
+
+- Range: a curve outside the chosen Silex model's trained band and velocities (beyond Silex's own 20 % margin) is not inverted; the agent says how the curves fall outside ("5 end below 43 Hz") and chooses the model covering the most (`petro_models`).
+- G7, per xmid: the curve the predicted soil column gives back against the pick, by band, as G5 (at most 2 per band); points with no fundamental mode, and a pick with no uncertainty, reject.
+- G8, whole line: the rock physics' Vs at fixed depths (G6's rule) and the water table against the neighbours; an outlier the curves do not show is left out, a change they show is kept.
+- No retry: a model gives one soil column per curve. A window G7 or G8 rejects is left out of the sections; its flag says what could change it (another model covering the curve, or the pick).
 
 ## Coherence rules for S2 (checked before running)
 - Window length: one value for the whole profile, so lateral resolution and depth of investigation stay comparable and xmids don't move.

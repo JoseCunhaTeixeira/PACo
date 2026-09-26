@@ -1,10 +1,14 @@
-"""The quality thresholds, the quality of one dispersion image, and of a whole run."""
+"""The quality of a dispersion image's M0 pick, as the curve QC (G3) reads it: sigpipe's four
+measures (sharpness against the window's resolution, prominence above the noise floor, agreement
+with the data, constant-wavelength artifact; sigpipe.masw.quality.pick), each with a threshold
+that raises a named flag. The verdict counts the flags."""
 
 from typing import Literal
 
 from pydantic import BaseModel, ConfigDict, Field
-
-from paco.picking import PickingParameters
+from sigpipe.algorithms.picking.dispersion.tracking import PickedMode
+from sigpipe.base import DispersionImage
+from sigpipe.masw.quality.pick import measure_pick
 
 
 class QualityParameters(BaseModel):
@@ -20,7 +24,6 @@ class QualityParameters(BaseModel):
 
     model_config = ConfigDict(frozen=True, extra="forbid")
 
-    # The descriptions are what the agent reads (see paco.server's quality_settings).
     min_sharpness: float = Field(
         default=0.8,
         gt=0,
@@ -82,36 +85,39 @@ class ImageQuality(BaseModel):
     constant_wavelength: float | None = None
 
 
-class WindowQuality(BaseModel):
-    model_config = ConfigDict(frozen=True)
+def measure_quality(
+    image: DispersionImage, m0: PickedMode | None, parameters: QualityParameters | None = None
+) -> ImageQuality:
+    """The quality of `image`, from the measures of its M0 pick against `parameters`."""
+    parameters = parameters or QualityParameters()
+    measures = measure_pick(image, m0)
+    if (
+        measures.sharpness is None
+        or measures.prominence is None
+        or measures.on_data is None
+        or measures.constant_wavelength is None
+    ):
+        return ImageQuality(
+            verdict="bad", flags=("no_ridge",), n_points=measures.n_points, band_hz=None
+        )
 
-    xmid: float
-    folder: str  # xmid_<x>, inside the run folder
-    quality: ImageQuality
+    flags: list[Flag] = []
+    if measures.sharpness < parameters.min_sharpness:
+        flags.append("sharpness")
+    if measures.prominence < parameters.min_prominence:
+        flags.append("prominence")
+    if measures.on_data < parameters.min_on_data:
+        flags.append("on_data")
+    if measures.constant_wavelength > parameters.max_constant_wavelength:
+        flags.append("constant_wavelength")
 
-
-class RunQuality(BaseModel):
-    """The quality of every window of a run, and how it was measured: written as quality.json."""
-
-    model_config = ConfigDict(frozen=True)
-
-    run_id: str
-    picking: PickingParameters
-    thresholds: QualityParameters
-    windows: tuple[WindowQuality, ...]  # sorted by xmid
-
-
-class QualitySummary(BaseModel):
-    """Short description of a run's quality for the agent."""
-
-    model_config = ConfigDict(frozen=True)
-
-    run_id: str
-    profile: str
-    n_windows: int  # windows with a dispersion image
-    good: int
-    doubtful: int
-    bad: int
-    good_xmids: tuple[str, ...]  # runs of consecutive good windows: "2.88-20.88 m (7)"
-    flags: dict[str, int]  # windows raising each flag, most frequent first
-    advice: tuple[str, ...]  # what to change, for the most frequent flags
+    return ImageQuality(
+        verdict="good" if not flags else "doubtful" if len(flags) == 1 else "bad",
+        flags=tuple(flags),
+        n_points=measures.n_points,
+        band_hz=measures.band_hz,
+        sharpness=measures.sharpness,
+        prominence=measures.prominence,
+        on_data=measures.on_data,
+        constant_wavelength=measures.constant_wavelength,
+    )

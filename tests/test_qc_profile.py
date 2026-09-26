@@ -2,10 +2,10 @@
 step in the ground, a run of changed windows, and gaps."""
 
 import numpy as np
+from sigpipe.masw.quality.line import Series
 
 from paco.qc.g4_profile import LINE, ProfileThresholds, judge_profile
 from paco.qc.models import GateResult
-from paco.qc.sides import Series
 
 THRESHOLDS = ProfileThresholds()
 WAVELENGTHS = np.linspace(3.0, 30.0, 20)

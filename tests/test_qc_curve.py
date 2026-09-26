@@ -6,6 +6,7 @@ import math
 from dataclasses import replace
 
 import numpy as np
+from sigpipe.algorithms.picking.dispersion.tracking import PickedMode, PickingParameters, pick_modes
 from sigpipe.base import (
     Coordinate,
     DispersionCurve,
@@ -15,7 +16,6 @@ from sigpipe.base import (
     VelocityType,
 )
 
-from paco.picking import PickedMode, PickingParameters, pick_modes
 from paco.qc.g3_curve import CurveThresholds, judge_curve
 from paco.qc.models import Flag, GateResult
 

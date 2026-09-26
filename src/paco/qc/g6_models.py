@@ -9,11 +9,11 @@ from collections.abc import Mapping, Sequence
 
 import numpy as np
 from pydantic import BaseModel, ConfigDict, Field
+from sigpipe.masw.inversion import InversionParameters
+from sigpipe.masw.quality.line import Series, neighbourhoods, spread
 
-from paco.inversion import InversionParameters
 from paco.qc.models import Flag, GateResult, Keep, Kept, Metric, Override
 from paco.qc.report import line_step, stretches
-from paco.qc.sides import Series, neighbourhoods, spread
 
 GATE = "G6"
 LINE = "line"  # the unit of the line-level result, as G4's

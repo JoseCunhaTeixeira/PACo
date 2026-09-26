@@ -3,10 +3,11 @@ from pathlib import Path
 
 import pytest
 from pydantic import TypeAdapter, ValidationError
+from sigpipe.algorithms.picking.dispersion.tracking import PickingParameters
+from sigpipe.masw.picks import CURVES_FILE
+from sigpipe.masw.presets import PresetError, apply_overrides, make_preset
+from sigpipe.masw.runs import RunError, find_run, load_image, run_processing
 
-from paco.picking import PickingParameters
-from paco.picks import CURVES_FILE
-from paco.presets import PresetError, apply_overrides, make_preset
 from paco.qc import (
     ATTEMPTS_FOLDER,
     CONFIG_FILE,
@@ -56,7 +57,6 @@ from paco.qc import (
     xmid_of,
 )
 from paco.qc.g3_curve import CurveThresholds
-from paco.runs import RunError, find_run, load_image, run_processing
 from paco.settings import Settings
 
 SMALL_WINDOWS = {"masw": {"length": 24, "step": 24}}
@@ -303,6 +303,7 @@ def test_going_back_to_a_stage_archives_it_and_everything_after(tmp_path: Path) 
         "DispersionCurves_0000.csv": "S3",
         "quality.json": "S3",
         "SeismicInversion_Model_0000_median.csv": "S4",
+        "PetroInversion_Model_0000.csv": "the petrophysical inversion, from the picks too",
     }
     for name, content in files.items():
         (window / name).write_text(content)
@@ -314,6 +315,7 @@ def test_going_back_to_a_stage_archives_it_and_everything_after(tmp_path: Path) 
         "DispersionCurves_0000.csv",
         "quality.json",
         "SeismicInversion_Model_0000_median.csv",
+        "PetroInversion_Model_0000.csv",
     }
     # The image stays for the picking to run again; window.json is the window itself.
     assert {path.name for path in window.iterdir() if path.is_file()} == {
@@ -324,7 +326,7 @@ def test_going_back_to_a_stage_archives_it_and_everything_after(tmp_path: Path) 
     }
     assert (archive / "quality.json").read_text() == "S3"
     assert archived_attempts(window) == (archive,)
-    assert downstream("phase_shift") == ("phase_shift", "picking", "inversion")
+    assert downstream("phase_shift") == ("phase_shift", "picking", "inversion", "petro_inversion")
     assert STAGE_FILES["preprocessing"] == ()
 
 

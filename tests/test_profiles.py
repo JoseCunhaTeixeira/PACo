@@ -4,8 +4,7 @@ from pathlib import Path
 import pytest
 import yaml
 from sigpipe.base import Coordinate
-
-from paco.profiles import (
+from sigpipe.masw.profiles import (
     RECEIVER_POSITIONS_FILE,
     SOURCE_POSITIONS_FILE,
     ProfileError,
@@ -14,6 +13,7 @@ from paco.profiles import (
     list_profiles,
     load_profile,
 )
+
 from paco.settings import Settings
 
 # Signature of the `copy_demo` fixture from conftest.py.

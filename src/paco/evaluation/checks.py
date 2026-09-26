@@ -7,11 +7,12 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Literal
 
+from sigpipe.masw.runs import RunManifest
+
 from paco.agent.record import ToolStep, Transcript
 from paco.evaluation.models import CheckResult
 from paco.inversion import InversionRecord
 from paco.qc import QCConfig, QCReport, Stage, read_attempts, read_length_choice
-from paco.runs import RunManifest
 
 
 @dataclass(frozen=True)
@@ -363,6 +364,24 @@ def models(trial: Trial) -> str:
         return "(no inversion)"
     record = InversionRecord.model_validate_json(paths[-1].read_text())
     return str(sum(window.status == "succeeded" for window in record.windows))
+
+
+def water_table(trial: Trial) -> str:
+    """The shallowest water table of the latest run's petrophysical models G7 and G8 passed."""
+    report = _latest_report(trial)
+    paths = sorted(trial.output_dir.glob("*/*/qc_report.json"), key=lambda path: path.parent.name)
+    if report is None or not paths:
+        return "(no judged run)"
+    depths = [
+        float(json.loads(measures.read_text())["water_table_m"])
+        for unit in report.units
+        if unit.verdicts.get("G7") == "pass"
+        and unit.verdicts.get("G8") == "pass"
+        and (
+            measures := paths[-1].parent / unit.unit / "PetroInversion_Measures_0000.json"
+        ).exists()
+    ]
+    return f"{min(depths):g}" if depths else "(no petrophysical model)"
 
 
 def retried_value(stage: Stage, *path: str) -> Callable[[Trial], str]:

@@ -1,6 +1,31 @@
-"""The short description of a run that the agent reads."""
+"""The short description of a run that the agent reads. Runs themselves are sigpipe's
+(sigpipe.masw.runs): processed, found and read there."""
 
-from paco.runs.models import RunManifest, RunSummary
+from pydantic import BaseModel, ConfigDict
+from sigpipe.masw.runs import RunManifest
+
+# Recorded in a run's manifest with sigpipe's version.
+PACKAGES = ("paco",)
+
+
+class RunSummary(BaseModel):
+    """Short description of a run for the agent."""
+
+    model_config = ConfigDict(frozen=True)
+
+    run_id: str
+    profile: str
+    preset: str
+    path: str  # run folder, relative to the output directory
+    n_windows: int
+    # Windows with a dispersion image: not judged yet (Qwen3-4B read "n_succeeded" as good
+    # windows).
+    n_processed: int
+    n_failed: int
+    n_skipped: int  # positions without any valid shot (active profiles only)
+    duration_s: float
+    errors: tuple[str, ...]  # a few distinct failures: "xmid 12.50: <type>: <message>"
+
 
 _MAX_ERRORS = 3
 _MAX_ERROR_LENGTH = 200
