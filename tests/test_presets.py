@@ -34,6 +34,7 @@ ACTIVE_DEFAULTS = {
     "muting": {"method": "none"},
     "filtering": {"method": "none"},
     "dispersion": DISPERSION_DEFAULTS,
+    "image_stacking": {"method": "linear"},
 }
 
 # PAC's passive-active form: the active one, and the stacking of the shots' correlations.
@@ -169,6 +170,7 @@ def test_overriding_a_field_keeps_the_other_values() -> None:
             {"method": "phase_weighted", "nu": 2},
         ),
         ("passive", "stacking", {"method": "root"}, {"method": "root", "n": 2}),
+        ("active", "image_stacking", {"method": "root"}, {"method": "root", "n": 2}),
     ],
     ids=lambda value: value if isinstance(value, str) else None,
 )
@@ -188,13 +190,13 @@ INVALID_OVERRIDES = [
         "active",
         {"whitening": {"method": "onebit"}},
         "whitening: not a stage of preset 'active', only of passive. "
-        "Stages: masw, trigger, muting, filtering, dispersion.",
+        "Stages: masw, trigger, muting, filtering, dispersion, image_stacking.",
         id="stage of the other preset",
     ),
     pytest.param(
         "active",
         {"filterng": {"method": "iir"}},
-        "filterng: unknown stage. Allowed: masw, trigger, muting, filtering, dispersion. "
+        "filterng: unknown stage. Allowed: masw, trigger, muting, filtering, dispersion, image_stacking. "
         "Did you mean filtering?",
         id="stage typo",
     ),
@@ -341,9 +343,7 @@ def test_every_problem_gets_its_own_line() -> None:
     ]
 
 
-INVERSION_NAMES = (
-    "n_layers, vs_layers, thickness_layers, n_iterations, n_burnin_iterations, n_chains"
-)
+INVERSION_NAMES = "layering, free, n_layers, vs_layers, thickness_layers, max_vs_drop, n_iterations, n_burnin_iterations, n_chains"
 
 # The tools' other arguments (picking, thresholds, parameters) get the same explanations.
 INVALID_PARAMETERS = [
@@ -364,7 +364,7 @@ INVALID_PARAMETERS = [
         InversionParameters,
         {"vs_layers": [{"vs_minn": 50}, {}]},
         "parameters.vs_layers[0].vs_minn: unknown parameter. "
-        "Allowed: vs_min, vs_max, vs_perturb_std. Did you mean vs_min?",
+        "Allowed: vs_min, vs_max, vs_perturb_std, vs_fixed. Did you mean vs_min?",
         id="parameter typo in an item",
     ),
     pytest.param(
@@ -377,7 +377,7 @@ INVALID_PARAMETERS = [
         InversionParameters,
         {"vs_layers": [100, {}]},
         "parameters.vs_layers[0]: must be an object (got 100). "
-        "Parameters: vs_min, vs_max, vs_perturb_std.",
+        "Parameters: vs_min, vs_max, vs_perturb_std, vs_fixed.",
         id="item not an object",
     ),
     pytest.param(
@@ -710,7 +710,7 @@ def test_whitening_band_rule_agrees_with_sigpipe(
 # The schema travels with every request to a model with an 8-16k context, so growing it has to
 # be a deliberate choice: raise the budget here if it is worth it.
 SCHEMA_BUDGET = {
-    "active": 3_300,
+    "active": 3_900,  # image_stacking (+500): the root stack the user can ask for
     "passive": 6_600,
     "passive-active": 5_100,
 }

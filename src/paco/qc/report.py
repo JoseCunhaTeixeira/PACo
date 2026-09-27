@@ -13,7 +13,7 @@ from typing import Any, cast
 
 from pydantic import BaseModel, ConfigDict
 
-from paco.qc.log import read_attempts, retries_in_run
+from paco.qc.log import read_attempts, retries_in_run, retries_of_inversion
 from paco.qc.models import Action, Attempt, Budgets, Flag, GateResult, Kept, Stage, Verdict
 
 REPORT_FILE = "qc_report.json"
@@ -57,6 +57,8 @@ class StageResult(BaseModel):
     run_id: str
     # The settings the gates and the checks changed, in words: to report, every one.
     changed: tuple[str, ...] = ()
+    # The settings the stage ran with, in words (the window length, the band, ...).
+    used: tuple[str, ...] = ()
     summary: str
     next: str
     job_id: str | None = None  # an inversion done again runs as a job
@@ -71,6 +73,7 @@ class QCReport(BaseModel):
     budgets: Budgets
     n_xmids: int
     retries: int  # spent over the run
+    inversion_retries: int = 0  # the gates' of the windows' inversions, on their own budgets
     # Which units each trigger ("<gate>:<flag>", "backtrack") sent back, in the order logged,
     # and what it changed: the first unit's change over its attempt before, and whether every
     # unit had the same.
@@ -111,6 +114,7 @@ def build_report(run_id: str, run_folder: Path, budgets: Budgets, n_xmids: int) 
         budgets=budgets,
         n_xmids=n_xmids,
         retries=retries_in_run(attempts),  # on the windows' budget: G1's are per record
+        inversion_retries=retries_of_inversion(attempts),
         retried={trigger: tuple(units) for trigger, units in retried.items()},
         changed={
             trigger: (made[0][0], made[0][1], all(change == made[0][1] for _, change in made))
@@ -143,6 +147,11 @@ def summarize_report(report: QCReport, gates: Sequence[str] | None = None) -> st
     ]
     budget = report.budgets.per_xmid_of_the_run * report.n_xmids
     lines.append(f"Retries: {report.retries} of {budget}.")
+    if {"G5", "G6"} & set(report.counts):
+        lines.append(
+            f"Inversion retries: {report.inversion_retries}, up to "
+            f"{report.budgets.inversion_per_window} a window."
+        )
     step = line_step(unit.xmid for unit in report.units if unit.xmid is not None)
     by_unit = {unit.unit: unit for unit in report.units}
     for trigger, names in report.retried.items():
@@ -157,7 +166,7 @@ def summarize_report(report: QCReport, gates: Sequence[str] | None = None) -> st
         if trigger in report.changed:
             stage, change, alike = report.changed[trigger]
             if change:
-                shown = json.dumps(change, separators=(",", ":"))
+                shown = compact(change)
                 how = f" with {stage} {shown}" + ("" if alike else " (each its own)")
         lines.append(
             f"Retried {trigger}, {_where(names, step)}{how}: now "
@@ -215,7 +224,7 @@ def describe(action: Action) -> str:
     """An action in a few words, with its overrides as the tool takes them."""
     match action.kind:
         case "override":
-            return f"{action.stage} {json.dumps(action.overrides, separators=(',', ':'))}"
+            return f"{action.stage} {compact(action.overrides)}"
         case "exclude_traces":
             return f"exclude traces {list(action.traces)} of {action.record}"
         case "exclude_record":
@@ -363,9 +372,46 @@ def _shown(value: Any) -> str:  # noqa: ANN401
         return "the default"
     if isinstance(value, float):
         return f"{value:g}"
-    return (
-        json.dumps(value, separators=(",", ":")) if isinstance(value, (list, dict)) else str(value)
-    )
+    return compact(value) if isinstance(value, (list, dict)) else str(value)
+
+
+# A layer's keys, by kind: its bounds and its value fixed.
+_LAYER_KEYS = (
+    ("vs_min", "vs_max", "vs_fixed"),
+    ("thickness_min", "thickness_max", "thickness_fixed"),
+)
+
+
+def compact(value: Any) -> str:  # noqa: ANN401
+    """`value` as compact JSON, each list of an inversion's layers in a few words: its layers
+    top down as "min-max", or "=value" fixed, alike ones counted ("100-1000 x3, 100-2000")."""
+    return json.dumps(_layers_said(value), separators=(",", ":"), ensure_ascii=False)
+
+
+def _layers_said(value: Any) -> Any:  # noqa: ANN401
+    if isinstance(value, dict):
+        return {key: _layers_said(item) for key, item in cast(dict[str, Any], value).items()}
+    if not isinstance(value, list) or not value:
+        return value
+    items = cast(list[Any], value)
+    for keys in _LAYER_KEYS:
+        if all(isinstance(item, dict) and set(keys[:2]) <= set(item) for item in items):
+            said = [
+                f"={item[keys[2]]:g}"
+                if item.get(keys[2]) is not None
+                else f"{item[keys[0]]:g}-{item[keys[1]]:g}"
+                for item in items
+            ]
+            groups: list[list[str]] = []
+            for layer in said:
+                if groups and groups[-1][0] == layer:
+                    groups[-1].append(layer)
+                else:
+                    groups.append([layer])
+            return ", ".join(
+                group[0] + (f" x{len(group)}" if len(group) > 1 else "") for group in groups
+            )
+    return value
 
 
 def _changes(previous: dict[str, Any], current: dict[str, Any]) -> dict[str, Any]:

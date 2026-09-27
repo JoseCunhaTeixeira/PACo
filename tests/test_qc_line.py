@@ -97,7 +97,7 @@ def _line(
     return find_run(report.run_id, settings), report
 
 
-def test_the_ladder_keeps_the_shortest_length_that_passes(
+def test_the_ladder_keeps_the_first_precise_length_that_passes(
     demo_input_dir: Path, tmp_path: Path
 ) -> None:
     # The step keeps the line to four windows; the length is left to the ladder.
@@ -105,11 +105,13 @@ def test_the_ladder_keeps_the_shortest_length_that_passes(
 
     choice = json.loads((run_folder / COHERENCE_FILE).read_text())
     # At 5 receivers the trial windows at the line's ends keep too few points: 1 of 3 passes.
-    # 24 is kept; 32 is tried too, for the agent to compare the depth it would reach.
+    # 24 passes with picks within 20 % and is kept; 32 is tried too, for the agent to compare
+    # the depth it would reach.
     assert [trial["length"] for trial in choice["trials"]] == [5, 24, 32]
     assert [trial["compared"] for trial in choice["trials"]] == [False, False, True]
     five, twenty_four, _ = choice["trials"]
     assert (five["passed"], len(five["xmids"])) == (1, 3)
+    assert twenty_four["uncertainty"] <= 0.2
     assert choice["length"] == 24
     # What the agent reads to choose another length: the line, then each length tried.
     assert choice["receivers"] == 96 and choice["spacing_m"] == 0.25
@@ -125,14 +127,23 @@ def test_the_ladder_keeps_the_shortest_length_that_passes(
     # The farthest shot a window stacks, from the line's reach at 2 dB (G1): the demo's far
     # shot, 21.6 m from the end windows, stays in their stack.
     assert line is not None
-    assert line.parameters == {"masw": {"distance_max": 24.34, "length": 24}}
-    far, note = line.notes
+    assert line.parameters == {
+        "masw": {"distance_max": 24.34, "length": 24},
+        "near_field": {"distance_m": 5.75},
+    }
+    far, note, near = line.notes
     assert far == (
         "masw distance_max 24.34 m: beyond it from the shot, the traces' median SNR falls under "
         "2 dB (G1), so the windows stack no farther shot."
     )
-    assert note.startswith("masw length 24 for the whole line: trial windows G3 passed, by")
-    assert "1/3 at 5" in note and "at 32 (compared)" in note
+    assert note.startswith(
+        "masw length 24 for the whole line, the first that passed with picks within 20%: trial "
+        "windows G3 passed 1/3 at 5 (picks "
+    )
+    assert "at 32 (picks " in note and note.endswith("; compared).")
+    # Out of the near field: half the longest wavelength of the trial curves from a window's
+    # nearest receiver, where it has a farther shot.
+    assert near.startswith("near_field distance_m 5.75 m: a window stacks no shot nearer than")
     # The gates of the processing ran on it (the picking's are pick's), and the summary gives
     # the change.
     assert set(report.counts) == {"G1", "G2"}
@@ -156,9 +167,10 @@ def test_a_given_length_is_kept_as_it_is(demo_input_dir: Path, tmp_path: Path) -
     assert load_manifest(report.run_id, settings).preset.masw.length == 5
     line = latest(read_attempts(run_folder), "line", "phase_shift")
     assert line is not None
-    assert line.notes[1:] == (
-        "masw length 5 for the whole line: trial windows G3 passed, as given: 1/3 at 5.",
+    assert line.notes[1].startswith(
+        "masw length 5 for the whole line, as given: trial windows G3 passed 1/3 at 5 (picks "
     )
+    assert line.notes[2].startswith("near_field distance_m ")
 
 
 def test_a_record_g1_rejects_goes_into_no_window(demo_input_dir: Path, tmp_path: Path) -> None:
@@ -174,7 +186,8 @@ def test_a_record_g1_rejects_goes_into_no_window(demo_input_dir: Path, tmp_path:
         demo_input_dir, tmp_path, {"masw": {"length": 24, "step": 24}}, strict
     )
 
-    assert report.counts["G1"] == {"pass": 1, "reject": 1}
+    # The line's own G1 result (its receivers) passes too.
+    assert report.counts["G1"] == {"pass": 2, "reject": 1}
     settings = Settings(input_dir=demo_input_dir, output_dir=run_folder.parents[1])
     assert load_manifest(report.run_id, settings).exclusions.records == ("2.dat",)
     assert "Changes at preprocessing, 2.dat: left out of every window" in (summarize_report(report))
@@ -193,7 +206,7 @@ def test_an_active_profile_is_processed_passive_active(
         QUICK,
     )
 
-    assert report.counts["G1"] == {"pass": 2}
+    assert report.counts["G1"] == {"pass": 3}  # the two records and the line's receivers
     settings = Settings(input_dir=demo_input_dir, output_dir=run_folder.parents[1])
     manifest = load_manifest(report.run_id, settings)
     assert manifest.preset.mode == "passive-active"
@@ -202,6 +215,44 @@ def test_an_active_profile_is_processed_passive_active(
         folder = run_folder / window.folder
         assert (folder / "Stream_0000.hdf5").exists()  # the stacked correlation gather
         assert (folder / "DispersionImage_0000.hdf5").exists()
+
+
+def test_the_ladder_stops_where_longer_windows_buy_no_precision(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    # The demo, measured: picks at 36 to 40 % from 7 to 32 receivers, and only half the line did
+    # better. Most precise at any cost would have kept 48, no lateral detail left.
+    passes = {5: 1, 7: 3, 9: 3, 16: 3, 48: 3}
+    uncertainties = {5: 0.37, 7: 0.39, 9: 0.4, 16: 0.36, 48: 0.27}
+
+    def tried(*args: Any) -> LengthTrial:  # noqa: ANN401
+        length = cast(int, args[6])
+        return LengthTrial(
+            length=length,
+            xmids=(1.0, 2.0, 3.0),
+            verdicts=("pass",) * passes[length] + ("retry",) * (3 - passes[length]),
+            flags=(),
+            passed=passes[length],
+            uncertainty=uncertainties[length],
+        )
+
+    monkeypatch.setattr(coherence, "_try_length", tried)
+    line = cast(
+        Profile, SimpleNamespace(receivers=[SimpleNamespace(x=0.25 * k) for k in range(96)])
+    )
+    judge = TrialJudge(
+        CoherenceRules(lengths=(5, 7, 9, 16, 48), trials=3), CurveThresholds(), PickingParameters()
+    )
+
+    choice = choose_length(line, make_preset("active", None), (), tmp_path, judge, 1)
+
+    # 9 is no more precise than 7: the climb stops there, 7 kept, 9 to compare.
+    assert choice.length == 7
+    assert [(trial.length, trial.compared) for trial in choice.trials] == [
+        (5, False),
+        (7, False),
+        (9, True),
+    ]
 
 
 def test_the_hint_names_the_lengths_to_change_to() -> None:
@@ -267,9 +318,9 @@ def test_the_lengths_tried_are_said_for_the_agent_to_choose() -> None:
     assert describe_lengths(choice) == (
         "line: 96 receivers 0.25 m apart (23.75 m); windows of up to 48 receivers (half the line)",
         "5 receivers (1.00 m): 0/3 trial windows passed G3, 92 windows on the line",
-        "16 receivers (3.75 m): 3/3 trial windows passed G3, wavelengths 5.0-22.0 m, 81 windows "
+        "16 receivers (3.75 m): 3/3 trial windows passed G3, wavelengths 5.0-22.0 m (models down to about 11.0 m), 81 windows "
         "on the line (proposed)",
-        "24 receivers (5.75 m): 3/3 trial windows passed G3, wavelengths 5.0-26.0 m, 73 windows "
+        "24 receivers (5.75 m): 3/3 trial windows passed G3, wavelengths 5.0-26.0 m (models down to about 13.0 m), 73 windows "
         "on the line",
     )
 
@@ -277,14 +328,20 @@ def test_the_lengths_tried_are_said_for_the_agent_to_choose() -> None:
 def test_the_ladder_keeps_the_best_proposes_the_shortest_and_keeps_what_is_given(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    passes = {5: 1, 7: 1, 9: 3, 11: 3, 16: 2}
+    passes = {5: 1, 7: 1, 9: 3, 11: 3, 16: 3, 24: 2}
+    uncertainties = {5: 0.4, 7: 0.3, 9: 0.3, 11: 0.25, 16: 0.15, 24: 0.1}
 
     def tried(*args: Any) -> LengthTrial:  # noqa: ANN401
         length = cast(int, args[6])
         passed = passes[length]
         verdicts = ("pass",) * passed + ("retry",) * (3 - passed)
         return LengthTrial(
-            length=length, xmids=(1.0, 2.0, 3.0), verdicts=verdicts, flags=(), passed=passed
+            length=length,
+            xmids=(1.0, 2.0, 3.0),
+            verdicts=verdicts,
+            flags=(),
+            passed=passed,
+            uncertainty=uncertainties[length],
         )
 
     monkeypatch.setattr(coherence, "_try_length", tried)
@@ -299,13 +356,20 @@ def test_the_ladder_keeps_the_best_proposes_the_shortest_and_keeps_what_is_given
         return choose_length(line, make_preset("active", None), (), tmp_path, judge, 1, first)
 
     # None reaches 3 of 3: the one that passed most, the shortest on a tie; nothing compared.
-    assert [trial.length for trial in choose((5, 7, 16)).trials] == [5, 7, 16]
-    assert choose((5, 7, 16)).length == 16
+    assert [trial.length for trial in choose((5, 7, 24)).trials] == [5, 7, 24]
+    assert choose((5, 7, 24)).length == 24
     assert choose((5, 7)).length == 5
-    # The shortest that passes is proposed, and one length more is tried to compare.
-    proposed = choose((5, 7, 9, 11, 16))
-    assert proposed.length == 9
-    assert [trial.compared for trial in proposed.trials] == [False, False, False, True]
+    # Up the ladder while lengths pass, to the first whose passed picks are within 20 %; one
+    # length more is tried to compare.
+    precise = choose((5, 7, 9, 11, 16, 24))
+    assert precise.length == 16
+    assert [trial.compared for trial in precise.trials] == [False] * 5 + [True]
+    # The lengths stop passing before any is that precise: the most precise that passed, the
+    # length that failed there to compare.
+    loose = choose((5, 7, 9, 11, 24))
+    assert loose.length == 11
+    assert [trial.length for trial in loose.trials] == [5, 7, 9, 11, 24]
+    assert [trial.compared for trial in loose.trials] == [False] * 4 + [True]
     # A length given is kept, alone, whatever it gives.
     assert [trial.length for trial in choose((5, 7, 9), first=7).trials] == [7]
     assert choose((5, 7, 9), first=7).length == 7

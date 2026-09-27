@@ -9,6 +9,8 @@ from pathlib import Path
 from paco.qc.models import STAGES, Stage, stage_index
 
 ATTEMPTS_FOLDER = "attempts"
+# What the preprocessing writes in a record's folder.
+RECORD_FILES = ("Stream_*", "error.log")
 
 # What each stage writes in a window's folder; the picking redraws the image's figure.
 STAGE_FILES: dict[Stage, tuple[str, ...]] = {
@@ -48,6 +50,39 @@ def invalidate(window_folder: Path, stage: Stage, attempt: int) -> Path:
     return archive
 
 
+def restore(window_folder: Path, stage: Stage, attempt: int) -> None:
+    """Undo invalidate(`window_folder`, `stage`, `attempt`), for a redo stopped before the
+    window's end: what the stopped redo wrote of `stage` and the stages after it removed, and the
+    results archived moved back."""
+    _undo(
+        window_folder,
+        window_folder / ATTEMPTS_FOLDER / f"{attempt}_{stage}",
+        [pattern for later in downstream(stage) for pattern in STAGE_FILES[later]],
+    )
+
+
+def restore_record(record_folder: Path, attempt: int) -> None:
+    """Undo invalidate_record(`record_folder`, `attempt`), for a record's preprocessing stopped
+    before its end."""
+    _undo(record_folder, record_folder / ATTEMPTS_FOLDER / f"{attempt}_preprocessing", RECORD_FILES)
+
+
+def _undo(folder: Path, archive: Path, patterns: list[str] | tuple[str, ...]) -> None:
+    for pattern in patterns:
+        for path in sorted(folder.glob(pattern)):
+            if path.is_dir():
+                shutil.rmtree(path)
+            else:
+                path.unlink()
+    if not archive.exists():
+        return
+    for path in sorted(archive.iterdir()):
+        shutil.move(path, folder / path.name)
+    archive.rmdir()
+    if not any(archive.parent.iterdir()):
+        archive.parent.rmdir()  # attempts/, empty again
+
+
 def archived_attempts(window_folder: Path) -> tuple[Path, ...]:
     folder = window_folder / ATTEMPTS_FOLDER
     return tuple(sorted(folder.iterdir())) if folder.exists() else ()
@@ -58,7 +93,7 @@ def invalidate_record(record_folder: Path, attempt: int) -> Path:
     before the record is preprocessed again; the windows that use it go on reading the new one."""
     archive = record_folder / ATTEMPTS_FOLDER / f"{attempt}_preprocessing"
     archive.mkdir(parents=True)
-    for pattern in ("Stream_*", "error.log"):
+    for pattern in RECORD_FILES:
         for path in sorted(record_folder.glob(pattern)):
             shutil.move(path, archive / path.name)
     return archive

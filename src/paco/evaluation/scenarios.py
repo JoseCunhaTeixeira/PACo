@@ -94,10 +94,10 @@ SCENARIOS = (
         checks=(
             only_called("run_processing", profile="active_p1", overrides=SMALL_WINDOWS),
             in_order("run_processing", "pick"),
-            # The demo's records start 20 ms before the shot: G1 corrects it, and leaves out
-            # three traces of the second record off the amplitude decay.
+            # The demo's records start 20 ms before the shot: G1 corrects it. A trace off the
+            # amplitude decay in one record stays: the line leaves out only a receiver off it in
+            # most of the records that reach it, and the demo's two records judge none.
             loop_retried("G1:shifted_trigger"),
-            excluded("2.dat", 89),
             answer_mentions(curves),
             never_called("invert"),
             never_called("invert_petro"),
@@ -105,8 +105,8 @@ SCENARIOS = (
             thresholds_unchanged(),
         ),
         rubric="The agent processes with the requested windows and picks the curves, then says "
-        "how many curves passed and what the gates fixed (the trigger delay, the traces left "
-        "out), without asking anything.",
+        "how many curves passed and what the gates fixed (the trigger delay), without asking "
+        "anything.",
     ),
     Scenario(
         name="soils",

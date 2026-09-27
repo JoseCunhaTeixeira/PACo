@@ -8,16 +8,18 @@ import json
 from collections.abc import Mapping, Sequence
 from datetime import UTC, datetime
 from pathlib import Path
-from typing import Any, Literal
+from typing import Any, Literal, cast
 
 from sigpipe.masw.pipelines import record_folder
 from sigpipe.masw.presets import apply_overrides, resolve_preset
 from sigpipe.masw.profiles import load_profile
-from sigpipe.masw.runs import RunError, RunManifest, find_run, load_manifest
+from sigpipe.masw.runs import RecordOutcome, RunError, RunManifest, find_run, load_manifest
 from sigpipe.masw.runs.processing import RECORDS_FOLDER, preprocess_records, write_manifest
+from sigpipe.masw.runs.stopping import Stopped
 from sigpipe.masw.windows import MASWWindow
 
-from paco.qc.attempts import invalidate_record
+from paco import stopping
+from paco.qc.attempts import invalidate_record, restore_record
 from paco.qc.budgets import run_budget
 from paco.qc.config import QCConfig, read_qc_config
 from paco.qc.curves import pick_line
@@ -166,32 +168,49 @@ def _redo_records(
         parameters[name] = deep_merge(attempt.parameters if attempt is not None else {}, changes)
         invalidate_record(record_folder(run_folder / RECORDS_FOLDER, by_name[name]), number)
     started_at = datetime.now(UTC)
-    redone = preprocess_records(
-        manifest.preset,
-        profile,
-        run_folder,
-        settings.workers,
-        presets={
-            name: resolve_preset(apply_overrides(manifest.preset, values), profile)
-            for name, values in parameters.items()
-        },
-    )
-    for outcome in redone:
-        previous = latest(attempts, outcome.name, "preprocessing")
-        append_attempt(
+
+    def log(outcomes: tuple[RecordOutcome, ...]) -> None:
+        for outcome in outcomes:
+            previous = latest(attempts, outcome.name, "preprocessing")
+            append_attempt(
+                run_folder,
+                Attempt(
+                    unit=outcome.name,
+                    stage="preprocessing",
+                    attempt=(previous.attempt if previous is not None else 0) + 1,
+                    parameters=parameters[outcome.name],
+                    triggered_by="backtrack",
+                    started_at=started_at,
+                    finished_at=datetime.now(UTC),
+                    status=outcome.status,
+                    error=outcome.error,
+                ),
+            )
+
+    try:
+        redone = preprocess_records(
+            manifest.preset,
+            profile,
             run_folder,
-            Attempt(
-                unit=outcome.name,
-                stage="preprocessing",
-                attempt=(previous.attempt if previous is not None else 0) + 1,
-                parameters=parameters[outcome.name],
-                triggered_by="backtrack",
-                started_at=started_at,
-                finished_at=datetime.now(UTC),
-                status=outcome.status,
-                error=outcome.error,
-            ),
+            settings.workers,
+            presets={
+                name: resolve_preset(apply_overrides(manifest.preset, values), profile)
+                for name, values in parameters.items()
+            },
+            stop=stopping.current(),
         )
+    except Stopped as stopped:
+        # The records that finished logged; the others given back their previous stream.
+        done = cast(tuple[RecordOutcome, ...], stopped.kept or ())
+        log(done)
+        for name in set(parameters) - {outcome.name for outcome in done}:
+            attempt = latest(attempts, name, "preprocessing")
+            restore_record(
+                record_folder(run_folder / RECORDS_FOLDER, by_name[name]),
+                attempt.attempt if attempt is not None else 0,
+            )
+        raise
+    log(redone)
     records = tuple(
         next((one for one in redone if one.name == record.name), record)
         for record in manifest.records

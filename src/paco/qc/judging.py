@@ -2,6 +2,8 @@
 as an attempt of its own (the curve saved in PAC's layout) and G3 on its curve, G4 over the
 line at the end, each verdict recorded in the QC log, and the report written."""
 
+from collections.abc import Mapping
+from concurrent.futures import ProcessPoolExecutor
 from datetime import UTC, datetime
 from pathlib import Path
 
@@ -11,16 +13,18 @@ from sigpipe.dataio.dispersion.loading import load_dispersion_curves
 from sigpipe.masw.picks import CURVES_FILE, save_pick
 from sigpipe.masw.pipelines import PREPROCESSED
 from sigpipe.masw.quality.line import Series
-from sigpipe.masw.runs import RunManifest, find_run, load_image, load_manifest
+from sigpipe.masw.runs import RunManifest, find_run, load_image, load_manifest, start_worker
+from sigpipe.masw.runs.stopping import finished
 from sigpipe.masw.windows import MASWWindow
 from sigpipe.transformers import Load
 
+from paco import stopping
 from paco.qc.attempts import invalidate
 from paco.qc.coherence import nearest_offset
 from paco.qc.config import QCConfig, snapshot_qc_config
 from paco.qc.g1_signal import judge_signal
 from paco.qc.g2_image import judge_image
-from paco.qc.g3_curve import judge_curve
+from paco.qc.g3_curve import CurveThresholds, judge_curve
 from paco.qc.g4_profile import LINE, judge_profile
 from paco.qc.log import (
     append_attempt,
@@ -107,21 +111,91 @@ def judge_picking(
     layout (the previous pick and its inversion go to attempts/), judge it with G3 against
     `band` (G2's coherent band), and log the attempt with the verdict."""
     started_at = datetime.now(UTC)
-    previous = attempts_of(read_attempts(run_folder), unit, "picking")
+    previous = len(attempts_of(read_attempts(run_folder), unit, "picking"))
+    g3 = _pick(run_folder, unit, picking, config.curve, band, previous, image)
+    _log_pick(run_folder, unit, previous + 1, picking, triggered_by, started_at, g3)
+    return g3
+
+
+def pick_windows(
+    run_folder: Path,
+    jobs: Mapping[str, tuple[PickingParameters, tuple[float, float] | None]],
+    config: QCConfig,
+    triggered_by: str,
+    workers: int,
+) -> dict[str, GateResult]:
+    """S3 on the windows of `jobs`, each with its picking parameters and G2's band, each an
+    attempt of its own, in up to `workers` processes (a single window here): the picks and G3
+    run in the workers, each on its own window's folder, and the attempts are logged here as
+    they end. G3's results by window."""
+    attempts = read_attempts(run_folder)
+    previous = {unit: len(attempts_of(attempts, unit, "picking")) for unit in jobs}
+    started_at = datetime.now(UTC)
+    results: dict[str, GateResult] = {}
+
+    def logged(unit: str, g3: GateResult) -> None:
+        picking = jobs[unit][0]
+        _log_pick(run_folder, unit, previous[unit] + 1, picking, triggered_by, started_at, g3)
+        results[unit] = g3
+
+    # Stopped between windows: a pick archives the window's previous one before it saves its
+    # own, so the running picks end (seconds) and are logged; the others never start.
+    if workers <= 1 or len(jobs) <= 1:
+        for unit, (picking, band) in jobs.items():
+            stopping.check()
+            logged(unit, _pick(run_folder, unit, picking, config.curve, band, previous[unit]))
+        return results
+    with ProcessPoolExecutor(
+        max_workers=min(workers, len(jobs)), initializer=start_worker, initargs=(run_folder,)
+    ) as executor:
+        futures = {
+            executor.submit(
+                _pick, run_folder, unit, picking, config.curve, band, previous[unit]
+            ): unit
+            for unit, (picking, band) in jobs.items()
+        }
+        for future in finished(executor, futures, stopping.current(), kill=False):
+            logged(futures[future], future.result())
+    return results
+
+
+def _pick(
+    run_folder: Path,
+    unit: str,
+    picking: PickingParameters,
+    thresholds: CurveThresholds,
+    band: tuple[float, float] | None,
+    previous: int,
+    image: DispersionImage | None = None,
+) -> GateResult:
+    """One window's pick, in a worker or here: the `previous` attempts' files archived, M0
+    picked and saved in PAC's layout, G3 on it."""
+    folder = run_folder / unit
     if previous:
-        invalidate(run_folder / unit, "picking", len(previous))
+        invalidate(folder, "picking", previous)
+    image = image if image is not None else load_image(folder)
     modes = pick_modes(image, picking)
     m0 = modes[0] if modes else None
     if m0 is not None and m0.curve is not None:
-        save_pick(run_folder / unit, image, m0.curve)
-    offset = nearest_offset(run_folder / unit)
-    g3 = judge_curve(unit, image, m0, config.curve, band, picking, offset)
+        save_pick(folder, image, m0.curve)
+    return judge_curve(unit, image, m0, thresholds, band, picking, nearest_offset(folder))
+
+
+def _log_pick(
+    run_folder: Path,
+    unit: str,
+    attempt: int,
+    picking: PickingParameters,
+    triggered_by: str,
+    started_at: datetime,
+    g3: GateResult,
+) -> None:
     append_attempt(
         run_folder,
         Attempt(
             unit=unit,
             stage="picking",
-            attempt=len(previous) + 1,
+            attempt=attempt,
             parameters=picking.model_dump(),
             triggered_by=triggered_by,
             started_at=started_at,
@@ -130,7 +204,6 @@ def judge_picking(
             results={g3.gate: g3},
         ),
     )
-    return g3
 
 
 def judge_line(run_folder: Path, manifest: RunManifest, config: QCConfig) -> tuple[GateResult, ...]:

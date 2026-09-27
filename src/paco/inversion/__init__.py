@@ -3,7 +3,7 @@ the agent reads of it. The inversion itself (sigpipe's MCMC on each window, PAC'
 sigpipe.masw.inversion; paco.qc.inverting runs a job the QC way.
 """
 
-from .models import InversionRecord, InversionStatus, JobState, WindowInversion
+from .models import InversionRecord, InversionStatus, JobProgress, JobState, WindowInversion
 from .running import (
     INVERSION_FILE,
     find_job,
@@ -18,6 +18,7 @@ __all__ = [
     "INVERSION_FILE",
     "InversionRecord",
     "InversionStatus",
+    "JobProgress",
     "JobState",
     "WindowInversion",
     "find_job",

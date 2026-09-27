@@ -3,11 +3,12 @@ the stage being run, merged into the parameters of the attempt before, and wheth
 have one more try. Changes a gate asks of an earlier stage are left to the agent: going back is
 its call."""
 
+from collections import Counter
 from collections.abc import Iterable, Mapping
 from typing import Any, cast
 
 from paco.qc.budgets import run_budget
-from paco.qc.log import retries_at_gate, retries_in_run
+from paco.qc.log import INVERSION_GATES, retries_at_gate, retries_in_run, retries_of_inversion
 from paco.qc.models import Attempt, Budgets, GateResult, Override, Stage
 
 
@@ -39,16 +40,24 @@ def stage_changes(result: GateResult, stage: Stage) -> tuple[dict[str, Any], str
 
 
 class RetryBudget:
-    """What is left of both budgets (rule 4) for one batch of retries: each retry granted counts
-    at once, so that a batch of windows cannot go beyond the run's budget together."""
+    """What is left of the budgets (rule 4) for one batch of retries: each retry granted counts
+    at once, so that a batch of windows cannot go beyond the run's budget together. A window's
+    inversion has its own budget, whichever gate asks."""
 
     def __init__(self, attempts: Iterable[Attempt], budgets: Budgets, n_units: int) -> None:
         self._attempts = tuple(attempts)
         self._budgets = budgets
         self.left = run_budget(budgets, n_units) - retries_in_run(self._attempts)
+        self._inversions: Counter[str] = Counter()
 
     def grant(self, unit: str, gate: str) -> bool:
-        """One more retry of `unit` at `gate`, if both budgets allow it."""
+        """One more retry of `unit` at `gate`, if its budgets allow it."""
+        if gate in INVERSION_GATES:
+            spent = retries_of_inversion(self._attempts, unit) + self._inversions[unit]
+            if spent >= self._budgets.inversion_per_window:
+                return False
+            self._inversions[unit] += 1
+            return True
         if self.left <= 0:
             return False
         if retries_at_gate(self._attempts, unit, gate) >= self._budgets.per_gate_and_unit:

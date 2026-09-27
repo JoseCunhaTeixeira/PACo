@@ -12,7 +12,15 @@ from sigpipe.masw.runs import RunManifest
 from paco.agent.record import ToolStep, Transcript
 from paco.evaluation.models import CheckResult
 from paco.inversion import InversionRecord
-from paco.qc import QCConfig, QCReport, Stage, read_attempts, read_length_choice
+from paco.qc import (
+    QCConfig,
+    QCReport,
+    Stage,
+    load_qc_config,
+    read_attempts,
+    read_length_choice,
+)
+from paco.settings import get_settings
 
 
 @dataclass(frozen=True)
@@ -185,11 +193,12 @@ def asked_nothing() -> Check:
 
 
 def thresholds_unchanged() -> Check:
-    """Every run used the server's configuration of thresholds: the judge stays fixed."""
+    """Every run used the server's configuration of thresholds (PACO_QC_CONFIG's, else PACo's
+    defaults): the judge stays fixed."""
     name = "the thresholds stayed the configuration's"
 
     def check(trial: Trial) -> CheckResult:
-        expected = QCConfig()
+        expected = load_qc_config(get_settings().qc_config)
         changed = [
             path.parent.name
             for path in trial.output_dir.glob("*/*/qc_config.json")

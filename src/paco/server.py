@@ -7,6 +7,7 @@ http://<PACO_HOST>:<PACO_PORT>/mcp, by default http://127.0.0.1:8000/mcp, this m
 
 import functools
 import json
+import time
 from collections.abc import Callable
 from typing import Annotated, Any, Literal
 
@@ -20,7 +21,7 @@ from pydantic import BaseModel, Field, ValidationError
 from sigpipe.masw import presets, profiles, runs
 from sigpipe.masw.inversion import InversionParameters, priors
 
-from paco import inversion, qc
+from paco import inversion, qc, stopping
 from paco.jobs import JobManager
 from paco.qc import StageResult
 from paco.settings import Settings, get_settings
@@ -42,8 +43,12 @@ INSTRUCTIONS = (
 server = MCPServer("paco", instructions=INSTRUCTIONS)
 # How long job_status waits for a job to end: fewer calls for the model, which polls at once.
 JOB_WAIT_S = 120.0
+# How often job_status reports the job's progress while it waits.
+JOB_PROGRESS_S = 3.0
 # Inversions run in this process's background, one at a time.
 JOBS = JobManager()
+# What a tool says the model when the user stopped its work (see paco.stopping).
+STOPPED = "Stopped on the user's request: what had finished is kept, the rest as it was."
 
 ProfileName = Annotated[str, Field(description="A profile name from list_profiles.")]
 RunId = Annotated[str, Field(description="A run_id returned by run_processing.")]
@@ -55,7 +60,9 @@ Mode = Annotated[
 
 
 def _agent_errors[**P, R](tool: Callable[P, R]) -> Callable[P, R]:
-    """Send PACo's errors to the model: they are ValueErrors, written for the agent.
+    """Send PACo's errors to the model: they are ValueErrors, written for the agent; and a stop
+    (the host's: see paco.stopping), said as such, the call's work undone where it had not
+    finished.
 
     Any other exception is a bug: the SDK hides its message from the model, and logs its
     traceback in the server's terminal.
@@ -63,8 +70,11 @@ def _agent_errors[**P, R](tool: Callable[P, R]) -> Callable[P, R]:
 
     @functools.wraps(tool)
     def wrapped(*args: P.args, **kwargs: P.kwargs) -> R:
+        stopping.pin()  # the stop of the answer this call runs in, whatever answer comes next
         try:
             return tool(*args, **kwargs)
+        except stopping.Stopped:
+            raise ToolError(STOPPED) from None
         except ValueError as error:
             raise ToolError(str(error)) from error
 
@@ -136,7 +146,9 @@ def run_processing(
         _after_processing(result, given, choice),
     )
     lengths = qc.describe_lengths(choice) if choice is not None else ()
-    return processed.model_copy(update={"lengths": lengths})
+    manifest = runs.load_manifest(result.run_id, settings)
+    used = qc.processing_used(manifest, overrides, _line_notes(result))
+    return processed.model_copy(update={"lengths": lengths, "used": used})
 
 
 @server.tool()
@@ -145,15 +157,17 @@ def pick(run_id: RunId) -> StageResult:
     """Pick each window's fundamental mode (M0), checked by G3 (picked again when a change can
     fix it) and over the whole line by G4 (outliers picked again along their neighbours), and
     save the curves in PAC's layout. G4's verdict on the line decides whether invert can run."""
-    report = qc.pick_line(run_id, get_settings())
-    return _stage_result(report, ("G3", "G4"), ("picking",), _after_picking(report))
+    settings = get_settings()
+    report = qc.pick_line(run_id, settings)
+    picked = _stage_result(report, ("G3", "G4"), ("picking",), _after_picking(report))
+    return picked.model_copy(update={"used": _picking_used(run_id, settings)})
 
 
 @server.tool()
 @_agent_errors
 def inversion_settings() -> str:
-    """The inversion parameters invert can take, as a JSON Schema with PAC's defaults: layers and
-    their bounds, and the sampler's effort. Left out, the bounds come from each curve."""
+    """The inversion parameters invert can take, as a JSON Schema with PAC's defaults. Left out,
+    the bounds come from each curve."""
     schema = InversionParameters.model_json_schema()
     return json.dumps(presets.without_titles(schema), separators=(",", ":"))
 
@@ -166,33 +180,45 @@ def invert(
         dict[str, Any] | None,
         Field(
             description="Only the inversion parameters the user gave, e.g. "
-            '{"n_iterations": <n>, "vs_layers": [{"vs_min": <m/s>, "vs_max": <m/s>}]} (one range: '
-            "every layer); see inversion_settings."
+            '{"free": {"vs_max": <m/s>}} (layers chosen by the data), or {"n_layers": <n>, '
+            '"vs_layers": [{"vs_min": <m/s>, "vs_max": <m/s>}]} (layers given); see '
+            "inversion_settings."
         ),
     ] = None,
 ) -> inversion.InversionStatus:
     """Invert the curves G4 passed into layered Vs models, as a background job: bounds from each
     curve (values given are checked), G5 on each model and G6 on the line, retrying what they
-    can. Returns a job_id: follow it with job_status."""
+    can. Returns its status; follow it with job_status."""
     settings = get_settings()
     checked = priors.checkable(parameters, priors.PriorRules().n_layers) if parameters else None
     _parse(InversionParameters, checked, "parameters", "inversion_settings")
     record = qc.submit_inversion(run_id, parameters, settings)
-    JOBS.submit(record.job_id, functools.partial(qc.run_inversion_job, record, settings))
-    return inversion.summarize_inversion(record, live=True)
+    JOBS.submit(
+        record.job_id, stopping.bound(functools.partial(qc.run_inversion_job, record, settings))
+    )
+    return _job_status(record.job_id, settings)
 
 
 @server.tool()
 @_agent_errors
-def job_status(job_id: JobId) -> inversion.InversionStatus:
+def job_status(job_id: JobId, ctx: Context) -> inversion.InversionStatus:
     """Where an inversion job stands, after waiting up to 2 minutes for it to end: windows done,
     the smooth median models so far (Vs at a few depths, useful depth, misfit: about 1 is within
     the uncertainties), failures; once ended, the gates' summary and the changed settings."""
     settings = get_settings()
     inversion.find_job(job_id, settings)  # an unknown job fails at once
-    JOBS.wait(job_id, JOB_WAIT_S)
-    _, record = inversion.find_job(job_id, settings)
-    return inversion.summarize_inversion(record, live=JOBS.is_live(job_id))
+    deadline = time.monotonic() + JOB_WAIT_S
+    reported: inversion.JobProgress | None = None
+    while JOBS.is_live(job_id) and (left := deadline - time.monotonic()) > 0:
+        JOBS.wait(job_id, min(JOB_PROGRESS_S, left))
+        progress = inversion.find_job(job_id, settings)[1].progress
+        if progress is not None and progress != reported and JOBS.is_live(job_id):
+            # The SDK runs this tool in a worker thread: progress goes out through the event loop.
+            anyio.from_thread.run(
+                ctx.report_progress, progress.done, progress.total, progress.message
+            )
+            reported = progress
+    return _job_status(job_id, settings)
 
 
 @server.tool()
@@ -220,7 +246,9 @@ def invert_petro(
 
     result, described = qc.invert_petro_line(run_id, model, get_settings(), report)
     judged = _stage_result(result, ("G7", "G8"), ("petro_inversion",), _after_petro(result))
-    return judged.model_copy(update={"summary": f"{described}\n{judged.summary}"})
+    return judged.model_copy(
+        update={"summary": f"{described}\n{judged.summary}", "used": (f"Silex model {model}",)}
+    )
 
 
 @server.tool()
@@ -252,7 +280,11 @@ def redo(
         record = qc.submit_inversion(run_id, None, settings)
         JOBS.submit(
             record.job_id,
-            functools.partial(qc.run_inversion_job, record, settings, None, units, changes or {}),
+            stopping.bound(
+                functools.partial(
+                    qc.run_inversion_job, record, settings, None, units, changes or {}
+                )
+            ),
         )
         return StageResult(
             run_id=run_id,
@@ -261,14 +293,42 @@ def redo(
             job_id=record.job_id,
         )
     report = qc.redo_stage(run_id, stage, units, changes, settings)
+    picking = _picking_used(run_id, settings)
     if stage == "picking":
-        return _stage_result(report, ("G3", "G4"), ("picking",), _after_picking(report))
-    return _stage_result(
+        redone = _stage_result(report, ("G3", "G4"), ("picking",), _after_picking(report))
+        return redone.model_copy(update={"used": picking})
+    redone = _stage_result(
         report,
         ("G1", "G2", "G3", "G4"),
         ("preprocessing", "phase_shift", "picking"),
         _after_picking(report),
     )
+    processing = qc.processing_used(runs.load_manifest(run_id, settings), None, _line_notes(report))
+    return redone.model_copy(update={"used": processing + picking})
+
+
+def _job_status(job_id: str, settings: Settings) -> inversion.InversionStatus:
+    """The status of job `job_id`, with the parameters its windows were inverted with once it
+    ended."""
+    _, record = inversion.find_job(job_id, settings)
+    live = JOBS.is_live(job_id)
+    status = inversion.summarize_inversion(record, live=live)
+    if live:
+        return status
+    attempts = qc.read_attempts(runs.find_run(record.run_id, settings))
+    used = qc.inversion_used(attempts, [window.folder for window in record.windows], record.given)
+    return status.model_copy(update={"used": used})
+
+
+def _line_notes(report: qc.QCReport) -> tuple[str, ...]:
+    """What the rules on the whole line decided and why: the window length, the shots' reach,
+    the band."""
+    line = next((unit for unit in report.units if unit.unit == qc.LINE), None)
+    return tuple(note for notes in line.notes.values() for note in notes) if line else ()
+
+
+def _picking_used(run_id: str, settings: Settings) -> tuple[str, ...]:
+    return qc.picking_used(qc.read_qc_config(runs.find_run(run_id, settings)).picking)
 
 
 def _qc_config(settings: Settings) -> qc.QCConfig:

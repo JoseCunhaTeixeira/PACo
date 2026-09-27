@@ -162,3 +162,9 @@ class Budgets(BaseModel):
         ge=0,
         description="Retries per xmid over the whole run, shared: a few hard xmids may take more.",
     )
+    inversion_per_window: int = Field(
+        default=6,
+        ge=0,
+        description="Retries of a window's inversion the gates ask (G5, G6, or a failed run), "
+        "whichever asks: each window's own, outside the run's.",
+    )

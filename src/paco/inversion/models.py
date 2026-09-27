@@ -6,7 +6,8 @@ from typing import Any, Literal
 
 from pydantic import BaseModel, ConfigDict
 
-type JobState = Literal["queued", "running", "succeeded", "failed", "interrupted"]
+# stopped: on request (paco.stopping), the windows that finished kept, the others as they were.
+type JobState = Literal["queued", "running", "succeeded", "failed", "interrupted", "stopped"]
 
 
 class WindowInversion(BaseModel):
@@ -30,6 +31,20 @@ class WindowInversion(BaseModel):
     misfit: float | None = None
 
 
+class JobProgress(BaseModel):
+    """What a job does now: a batch of windows, the first inversions or a gate's retries."""
+
+    model_config = ConfigDict(frozen=True)
+
+    done: int
+    total: int
+    doing: str  # "inverted", or the retries of a gate's flag: "G5:too_deep retries"
+
+    @property
+    def message(self) -> str:
+        return f"{self.doing}: {self.done} of {self.total} windows"
+
+
 class InversionRecord(BaseModel):
     """A run's inversion job and its results so far, written as inversion.json in the run folder."""
 
@@ -50,6 +65,7 @@ class InversionRecord(BaseModel):
     error: str | None = None  # why the whole job failed, or was interrupted
     summary: str | None = None  # what the gates found, once the job has ended
     changed: tuple[str, ...] = ()  # the settings the gates and the checks changed, in words
+    progress: JobProgress | None = None  # the batch under way, while the job runs
 
 
 class InversionStatus(BaseModel):
@@ -76,3 +92,4 @@ class InversionStatus(BaseModel):
     error: str | None  # why the whole job failed, or was interrupted
     summary: str | None = None  # the gates' summary (G5, G6), once the job has ended
     changed: tuple[str, ...] = ()  # the settings the gates and the checks changed: report them
+    used: tuple[str, ...] = ()  # the parameters the windows were inverted with, once ended

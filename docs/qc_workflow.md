@@ -90,16 +90,17 @@ Since nobody looks at the curves before inversion any more, G3 is the safety net
 
 ### Checks before S4 (inversion parameters coherent with the curve)
 - Vs bounds bracket the curve: Vs ≈ 1.09·Vr at PAC's Vp/Vs of 1.77, with margin, e.g. [0.8·Vr_min, 1.5·Vr_max], configurable.
-- Depth: the top of the half-space (sum of the thicknesses) is not deeper than about λmax/2. Layers thinner than about λmin/3 are not resolved.
-- Layers: start from PAC's 2. The loop may add one when the misfit stays high and remove one when it is not resolved.
+- Depth: the top of the half-space (the deepest interface) is not deeper than about λmax/2. Layers thinner than about λmin/3 are not resolved.
+- Layers: chosen by the data by default, up to 8 (sigpipe's reversible-jump chains, since 2026-09-27); when given, at least 3, and the loop may add one when the misfit stays high and remove one when it is not resolved.
+- Vs may fall at most 20 % from a layer to the next: a stiff layer over a much softer one makes the forward model's fundamental mode a wave trapped in the soft layer.
 - The burn-in rule stays (at least SAVE_EVERY = 150 iterations left to sample).
 
 ### G5 model QC (per xmid)
 - Misfit: RMS, and normalised by the curve's uncertainties (about 1 means a fit within errors; much above 1 is underfit; much below 1 is suspicious). Compute it from the forward-modelled curve of the monitored smooth model.
-- Convergence: the chains agree (R-hat on Vs at a few depths, or chain medians within X %); acceptance rate within a configurable band; enough saved samples.
-- Posterior piled at a prior bound (Vs or thickness): widen that bound.
+- Convergence: the chains agree on the models' Vs at a few depths the curve resolves (split R-hat), with enough effective and saved samples; the acceptance rate is reported, not judged (since 2026-09-27: the samplers need no step tuned to a band).
+- Posterior piled at a prior bound (Vs, a thickness, or the most layers allowed): widen that bound.
 - Posterior width against prior width, by depth: report the depth where posterior ≈ prior (the useful depth). Don't fail on this alone.
-- Actions: n_iterations and burn-in (convergence), bounds, number of layers. A failing xmid can be re-inverted with its own settings, recorded in the log.
+- Actions: n_iterations and burn-in (convergence), bounds, the most layers allowed (or, given, the number of layers). A failing xmid can be re-inverted with its own settings, recorded in the log.
 
 ### G6 model profile QC (whole line)
 - Vs at fixed depths and interface depths along the line.
@@ -180,7 +181,8 @@ Brought as options, with the evidence, before building; each was the user's choi
 - **`job_status` reports the smooth median model**, PAC's default (its visualization page starts on
   "Smooth median layered model", the backend defaults to `smooth_median`), as Vs at a few fixed
   depths and the useful depth, plus each window's curve misfit.
-- **Budgets:** 2 retries per gate and unit, 2 × xmids per run, all configurable.
+- **Budgets:** 2 retries per gate and unit, 2 × xmids per run, and 6 inversion retries per
+  window (G5, G6 or a failed run, outside the run's), all configurable.
 - **Thresholds' values:** proposed per gate at its milestone, measured on the demo profiles and
   the synthetic defects, confirmed by the user; all in one configuration file.
 

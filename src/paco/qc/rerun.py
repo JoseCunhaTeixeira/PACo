@@ -4,6 +4,7 @@ QC log records the attempt. The other windows keep their results."""
 
 from collections.abc import Mapping, Sequence
 from datetime import UTC, datetime
+from typing import cast
 
 from pydantic import ValidationError
 from sigpipe.algorithms.picking.dispersion.tracking import PickingParameters
@@ -11,12 +12,16 @@ from sigpipe.masw.presets import apply_overrides, resolve_preset
 from sigpipe.masw.profiles import load_profile
 from sigpipe.masw.runs import RunError, WindowOutcome, find_run, load_image, load_manifest
 from sigpipe.masw.runs.processing import process_windows
+from sigpipe.masw.runs.stopping import Stopped
 from sigpipe.masw.windows import build_windows
 
-from paco.qc.attempts import invalidate
+from paco import stopping
+from paco.qc.attempts import invalidate, restore
+from paco.qc.coherence import near_field_windows
 from paco.qc.config import read_qc_config
+from paco.qc.g4_profile import LINE
 from paco.qc.judging import judge_picking
-from paco.qc.log import append_attempt, attempts_of, ensure_initial_attempts, latest
+from paco.qc.log import append_attempt, attempts_of, ensure_initial_attempts, latest, read_attempts
 from paco.qc.models import Attempt, GateResult
 from paco.settings import Settings
 
@@ -40,9 +45,13 @@ def rerun_phase_shift(
     manifest = load_manifest(run_id, settings)
     profile = load_profile(manifest.profile.name, settings)
     preset = resolve_preset(apply_overrides(manifest.preset, overrides), profile)
-    by_folder = {
-        f"xmid_{window.xmid:.2f}": window for window in build_windows(profile, preset.masw)
-    }
+    windows = build_windows(profile, preset.masw)
+    # The shots the run's windows stack out of the near field, as the line kept them.
+    line = latest(read_attempts(run_folder), LINE, "phase_shift")
+    near = line.parameters.get("near_field", {}) if line is not None else {}
+    if isinstance(near, Mapping) and isinstance(distance := near.get("distance_m"), int | float):
+        windows, _ = near_field_windows(windows, float(distance))
+    by_folder = {f"xmid_{window.xmid:.2f}": window for window in windows}
     if unknown := [unit for unit in units if unit not in by_folder]:
         raise RunError(
             f"Run '{run_id}' has no window {', '.join(unknown)}. Its windows: "
@@ -54,30 +63,43 @@ def rerun_phase_shift(
     for unit in units:
         invalidate(run_folder / unit, "phase_shift", numbers[unit] - 1)
     started_at = datetime.now(UTC)
-    outcomes = process_windows(
-        preset,
-        [by_folder[unit] for unit in units],
-        manifest.records,
-        run_folder,
-        settings.workers,
-        exclusions=manifest.exclusions,
-    )
-    finished_at = datetime.now(UTC)
-    for outcome in outcomes:
-        append_attempt(
+
+    def log(outcomes: tuple[WindowOutcome, ...]) -> None:
+        finished_at = datetime.now(UTC)
+        for outcome in outcomes:
+            append_attempt(
+                run_folder,
+                Attempt(
+                    unit=outcome.folder,
+                    stage="phase_shift",
+                    attempt=numbers[outcome.folder],
+                    parameters=dict(overrides),
+                    triggered_by=triggered_by,
+                    started_at=started_at,
+                    finished_at=finished_at,
+                    status=outcome.status,
+                    error=outcome.error,
+                ),
+            )
+
+    try:
+        outcomes = process_windows(
+            preset,
+            [by_folder[unit] for unit in units],
+            manifest.records,
             run_folder,
-            Attempt(
-                unit=outcome.folder,
-                stage="phase_shift",
-                attempt=numbers[outcome.folder],
-                parameters=dict(overrides),
-                triggered_by=triggered_by,
-                started_at=started_at,
-                finished_at=finished_at,
-                status=outcome.status,
-                error=outcome.error,
-            ),
+            settings.workers,
+            exclusions=manifest.exclusions,
+            stop=stopping.current(),
         )
+    except Stopped as stopped:
+        # The windows that finished logged; the others given back their previous attempt.
+        done = cast(tuple[WindowOutcome, ...], stopped.kept or ())
+        log(done)
+        for unit in set(units) - {outcome.folder for outcome in done}:
+            restore(run_folder / unit, "phase_shift", numbers[unit] - 1)
+        raise
+    log(outcomes)
     return outcomes
 
 

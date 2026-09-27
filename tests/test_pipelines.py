@@ -45,22 +45,20 @@ from sigpipe.transformers import (
 # Pad(n=1000, taper=25) before the phase shift: a frequency step finer than 1/T only interpolates.
 PREPROCESSING_CHAIN = {
     # The trigger correction (t0 = 0 by default) is PACo's, for shots only.
-    "active": ["Load", "Shift", "Detrend", "Detrend", "Mute", "Filter", "Plot", "Save"],
-    "passive-active": [
-        "Load", "Shift", "Detrend", "Detrend", "Mute", "Filter", "Plot", "Save",
-    ],
-    "passive": ["Load", "Detrend", "Detrend", "Mute", "Filter", "Plot", "Save"],
+    "active": ["Load", "Shift", "Detrend", "Detrend", "Mute", "Filter", "Save"],
+    "passive-active": ["Load", "Shift", "Detrend", "Detrend", "Mute", "Filter", "Save"],
+    "passive": ["Load", "Detrend", "Detrend", "Mute", "Filter", "Save"],
 }  # fmt: skip
-ACTIVE_CHAIN = ["Load", "Plot", "Dispersion", "Stack", "Plot", "Save"]
+ACTIVE_CHAIN = ["Load", "Dispersion", "Stack", "Plot", "Save"]
 PASSIVE_CHAIN = [
     "Load", "Slice", "Selection", "Whiten", "Normalize", "Apodize",
-    "Correlate", "Stack", "Plot", "Save", "Dispersion", "Plot", "Save",
+    "Correlate", "Stack", "Save", "Dispersion", "Plot", "Save",
 ]  # fmt: skip
 # PAC's adapters/passive_active.py, with PACo's surface-wave window (a mute) before the
 # correlation.
 PASSIVE_ACTIVE_CHAIN = [
-    "Load", "Mute", "Apodize", "ActiveShotCorrelation", "Stack", "Plot", "Save", "Dispersion",
-    "Plot", "Save",
+    "Load", "Mute", "Apodize", "ActiveShotCorrelation", "Stack", "Save", "Dispersion", "Plot",
+    "Save",
 ]  # fmt: skip
 
 # Every tunable stage switched on, with values moved away from the defaults.
@@ -178,7 +176,6 @@ def _single_pipeline(
     if isinstance(preset, ActivePreset):
         return (
             head
-            >> Plot(folder_path=output_folder)
             >> Dispersion(method="phase", **stage_kwargs(preset, "dispersion"))
             >> Stack(method="linear")
             >> Plot(folder_path=output_folder, normalize=True)
@@ -193,7 +190,6 @@ def _single_pipeline(
         >> Apodize(method="hanning", frac=0.1)
         >> Correlate(method="cross", virtual_source_index=0, part="causal")
         >> Stack(**stage_kwargs(preset, "stacking"))
-        >> Plot(folder_path=output_folder)
         >> Save(folder_path=output_folder)
         >> Dispersion(method="phase", **stage_kwargs(preset, "dispersion"))
         >> Plot(folder_path=output_folder, normalize=True)
@@ -304,9 +300,9 @@ def test_figures_and_results_go_to_their_folders(
     record = _record(built.profile, built.window.selected_files[0])
     assert folders(built.preprocessing) == {record_folder(built.records_folder, record)}
     assert folders(built.image) == {built.window_folder}
-    # Records or correlations are plotted as they are, the dispersion image normalized.
+    # Only the dispersion image is plotted, normalized: no stream figure.
     plots = [step for step in built.image.steps if isinstance(step, Plot)]
-    assert [plot.params for plot in plots] == [{}, {"normalize": True}]
+    assert [plot.params for plot in plots] == [{"normalize": True}]
 
 
 @BOTH_MODES
@@ -428,20 +424,10 @@ def test_an_unresolved_preset_is_refused(
 
 
 EXPECTED_FILES = {
-    # Each shot plotted, then the stacked dispersion image plotted and saved.
-    "active": {
-        "Stream_0000.png",
-        "Stream_0001.png",
-        "DispersionImage_0000.png",
-        "DispersionImage_0000.hdf5",
-    },
-    # The stacked correlation plotted and saved, then its dispersion image.
-    "passive": {
-        "Stream_0000.png",
-        "Stream_0000.hdf5",
-        "DispersionImage_0000.png",
-        "DispersionImage_0000.hdf5",
-    },
+    # The stacked dispersion image, plotted and saved.
+    "active": {"DispersionImage_0000.png", "DispersionImage_0000.hdf5"},
+    # The stacked correlation saved, then its dispersion image.
+    "passive": {"Stream_0000.hdf5", "DispersionImage_0000.png", "DispersionImage_0000.hdf5"},
 }
 
 
@@ -465,7 +451,7 @@ def test_the_split_runs_and_gives_the_single_pipelines_results(
     assert {path.name for path in built.window_folder.iterdir()} == EXPECTED_FILES[name]
     for path in built.window.selected_files:
         folder = record_folder(built.records_folder, _record(built.profile, path))
-        assert {path.name for path in folder.iterdir()} == {"Stream_0000.hdf5", "Stream_0000.png"}
+        assert {path.name for path in folder.iterdir()} == {"Stream_0000.hdf5"}
     # The pipeline works in float32 from the loader on, and the stream files keep it: bit for bit
     # on 12 cores. On 4 (CI's runners) the passive correlations round some values differently
     # in the last float32 bit, at most 1.3e-7 of the largest, as LAPACK's batches do below. With
