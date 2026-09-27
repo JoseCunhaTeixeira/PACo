@@ -173,9 +173,9 @@ def test_parameters_default_to_pacs_form() -> None:
             },
         ),
         "max_vs_drop": 0.2,
-        "n_iterations": 150_000,
-        "n_burnin_iterations": 37_500,
-        "n_chains": 4,
+        "n_iterations": 200_000,
+        "n_burnin_iterations": 50_000,
+        "n_chains": 5,
     }
 
 
@@ -205,7 +205,7 @@ def test_parameters_are_checked(build: Callable[[], object], message: str) -> No
 
 
 def test_the_burnin_follows_the_iterations() -> None:
-    # A quarter, PAC's ratio: 2,000 iterations do not keep the default 37,500 of burn-in.
+    # A quarter, PAC's ratio: 2,000 iterations do not keep the default 50,000 of burn-in.
     assert InversionParameters(n_iterations=2_000).n_burnin_iterations == 500
     assert InversionParameters.model_validate({"n_iterations": 2e3}).n_burnin_iterations == 500
     # A burn-in the user gives is kept.
