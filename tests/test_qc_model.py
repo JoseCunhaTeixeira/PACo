@@ -108,7 +108,7 @@ def test_chains_that_do_not_agree_sample_twice_as_long(change: dict[str, Any]) -
     assert flag.action.model_dump() == {
         "kind": "override",
         "stage": "inversion",
-        "overrides": {"n_iterations": 300_000, "n_burnin_iterations": 75_000},
+        "overrides": {"n_iterations": 400_000, "n_burnin_iterations": 100_000},
     }
 
 
@@ -143,8 +143,8 @@ def test_once_narrowed_chains_that_still_disagree_sample_longer() -> None:
     result = judge_model("xmid_8.88", measures, PARAMETERS, THRESHOLDS, narrowed=True)
 
     assert _flags(result)["not_converged"].action.model_dump()["overrides"] == {
-        "n_iterations": 300_000,
-        "n_burnin_iterations": 75_000,
+        "n_iterations": 400_000,
+        "n_burnin_iterations": 100_000,
     }
 
 
@@ -496,8 +496,8 @@ def test_the_chains_are_judged_on_vs_at_the_depths_watched() -> None:
     far = WATCHED | {"rhat": {"vs@1m": 1.01, "vs@3m": 1.3, "vs@5m": 1.01}}
     flag = _flags(_judge(_measures(**far), FREE))["not_converged"]
     assert flag.action.model_dump()["overrides"] == {
-        "n_iterations": 300_000,
-        "n_burnin_iterations": 75_000,
+        "n_iterations": 400_000,
+        "n_burnin_iterations": 100_000,
     }
 
 
