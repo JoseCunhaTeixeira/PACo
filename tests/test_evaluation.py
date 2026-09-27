@@ -60,6 +60,7 @@ from paco.qc import (
     QCReport,
     UnitReport,
     append_attempt,
+    load_qc_config,
     snapshot_qc_config,
 )
 from paco.qc.coherence import COHERENCE_FILE
@@ -379,10 +380,12 @@ def test_the_loops_retries_are_read_from_the_qc_log(tmp_path: Path) -> None:
     assert retried_value("inversion", "n_iterations")(trial) == "(no retry)"
 
 
-def test_thresholds_must_stay_the_configurations(tmp_path: Path) -> None:
+def test_thresholds_must_stay_the_configurations(tmp_path: Path, paco_env: Settings) -> None:
+    # The server's configuration as its environment gives it (paco_env's), not whatever the
+    # machine running the tests sets.
     run = tmp_path / "active_p1" / "20260924-100000-abcd"
     run.mkdir(parents=True)
-    snapshot_qc_config(QCConfig(), run)
+    snapshot_qc_config(load_qc_config(paco_env.qc_config), run)
     trial = _trial([], "", tmp_path)
 
     assert thresholds_unchanged()(trial).passed
