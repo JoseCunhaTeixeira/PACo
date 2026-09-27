@@ -5,7 +5,7 @@ non-uniqueness: invert that window again; a jump the curves show too is kept. An
 the depth of investigation (half each curve's longest wavelength, the "useful depth" here) runs
 along the line. No lateral smoothing: neither models edited, nor neighbours used as priors."""
 
-from collections.abc import Mapping, Sequence
+from collections.abc import Collection, Mapping, Sequence
 
 import numpy as np
 from pydantic import BaseModel, ConfigDict, Field
@@ -53,12 +53,13 @@ def judge_model_profile(
     useful_depths: Mapping[str, float | None],
     thresholds: ModelProfileThresholds,
     without: Sequence[float] = (),
+    sampled_longer: Collection[str] = (),
 ) -> tuple[GateResult, ...]:
     """G6's verdicts: one per model (the smooth median's Vs by depth, down to its useful depth:
     its curve's depth of investigation), then one for the line, unit "line". `curves` holds G4's
     result on each window's curve, `parameters` each model's inversion parameters,
     `useful_depths` each window's (None: the whole model), `without` the xmids without a
-    model."""
+    model, `sampled_longer` the windows already sampled longer as often as the loop allows."""
     ordered = sorted(models, key=lambda model: model.xmid)
     found = neighbourhoods(
         ordered, thresholds.neighbours, thresholds.max_misfit, thresholds.min_shared_depths
@@ -104,6 +105,19 @@ def judge_model_profile(
                         "curve had no agreeing neighbours to say whether the change is real.",
                         stage="inversion",
                         action=Keep(note="the curves cannot tell"),
+                    )
+                )
+            elif model.unit in sampled_longer:
+                flags.append(
+                    Flag(
+                        name="non_unique",
+                        message=f"The model is {worst:.0%} off its neighbours {near.where}, while "
+                        "its curve fits theirs: another model fits the same data, and it was "
+                        "sampled longer as often as the loop allows.",
+                        stage="inversion",
+                        action=Keep(
+                            note="kept with the warning: sampling longer did not settle it"
+                        ),
                     )
                 )
             else:

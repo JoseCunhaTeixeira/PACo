@@ -19,7 +19,8 @@ class ModelStep(BaseModel):
 
 
 class ToolStep(BaseModel):
-    """One tool call the model asked for."""
+    """One tool call the model asked for, or the host made for it (job_status following a job
+    the model started)."""
 
     kind: Literal["tool"] = "tool"
     name: str
@@ -30,6 +31,7 @@ class ToolStep(BaseModel):
     is_error: bool  # the call failed, or was refused
     duration_s: float
     result: str  # what the model read back
+    by_host: bool = False  # the host followed a job with it; the model read its last result
 
 
 type Step = Annotated[ModelStep | ToolStep, Field(discriminator="kind")]
@@ -45,7 +47,13 @@ class Transcript(BaseModel):
 
     @property
     def tool_steps(self) -> list[ToolStep]:
-        return [step for step in self.steps if isinstance(step, ToolStep)]
+        """The tool calls the model asked for; the host's own are `host_steps`."""
+        return [step for step in self.steps if isinstance(step, ToolStep) and not step.by_host]
+
+    @property
+    def host_steps(self) -> list[ToolStep]:
+        """The calls the host made for the model: job_status following a job."""
+        return [step for step in self.steps if isinstance(step, ToolStep) and step.by_host]
 
     @property
     def answer(self) -> str:

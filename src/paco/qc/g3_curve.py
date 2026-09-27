@@ -45,7 +45,24 @@ class CurveThresholds(BaseModel):
         description="m/s, the mute that removes the air wave: faster arrivals go",
     )
     mute_vmin: float = Field(default=80.0, gt=0, description="m/s, the slowest wave the mute keeps")
-    min_points: int = Field(default=5, ge=2, description="Points of the resampled curve.")
+    min_points: int = Field(
+        default=4,
+        ge=2,
+        description="Points of the resampled curve, at least: fewer, the pick is resampled finer "
+        "or keeps more of the ridge.",
+    )
+    finest_step: float = Field(
+        default=0.1,
+        gt=0,
+        description="m: the finest wavelength step a pick is resampled at to keep min_points.",
+    )
+    min_wavelength_ratio: float = Field(
+        default=1.34,
+        gt=1,
+        description="The curve's longest wavelength over its shortest, at least: the inversion "
+        "needs over 4/3 for its 3 layers, each at least a third of the shortest wavelength, "
+        "down to half the longest. More points on a narrow span do not help.",
+    )
     near_offset_wavelengths: float = Field(
         default=0.5,
         gt=0,
@@ -117,11 +134,26 @@ def judge_curve(
         )
     )
     if n_points < thresholds.min_points:
+        flags.append(_too_few_points(m0, n_points, thresholds, picking))
+
+    # The wavelengths the curve spans, as a ratio: however many its points, a narrow span
+    # resolves no layered model. Keeping more of the ridge may widen it.
+    ratio = float(kept_wl.max() / kept_wl.min()) if n_points else 0.0
+    metrics.append(
+        Metric(
+            name="wavelength_ratio",
+            value=round(ratio, 2),
+            threshold=thresholds.min_wavelength_ratio,
+            bound="min",
+            passed=ratio >= thresholds.min_wavelength_ratio,
+        )
+    )
+    if n_points and ratio < thresholds.min_wavelength_ratio:
         flags.append(
             Flag(
-                name="too_few_points",
-                message=f"{n_points} point{'s' if n_points != 1 else ''} in the curve: too few. "
-                "Keep more of the ridge's points.",
+                name="narrow_span",
+                message=f"The curve spans {kept_wl.min():.1f}-{kept_wl.max():.1f} m of wavelength "
+                f"(ratio {ratio:.2f}): too narrow for a layered model. Keep more of the ridge.",
                 stage="picking",
                 action=Override(
                     stage="picking",
@@ -227,8 +259,9 @@ def judge_curve(
             )
         )
 
-    # The near field (the spec's near-offset rule): reported, never applied: keeping only far
-    # shots loses a third of the demo line's curves.
+    # The near field: the line leaves out a window's shots nearer than half the trial curves'
+    # longest wavelength where it has farther ones (coherence.near_field_windows). Its own curve
+    # may reach longer wavelengths, and a window with near shots only keeps them: reported.
     if nearest_offset is not None and n_points:
         limit = thresholds.near_offset_wavelengths * float(kept_wl.max())
         near = nearest_offset < limit
@@ -251,8 +284,8 @@ def judge_curve(
                     "read slow (near field).",
                     stage="phase_shift",
                     action=Keep(
-                        note="reported, not applied: far shots only lost a third of the "
-                        "demo's curves"
+                        note="reported: the window has no farther shot, or its curve reaches "
+                        "longer wavelengths than the line's trial curves"
                     ),
                 )
             )
@@ -352,6 +385,38 @@ def _metrics(quality: ImageQuality, thresholds: CurveThresholds) -> list[Metric]
             passed=quality.n_points >= 2,
         ),
     ]
+
+
+def _too_few_points(
+    m0: PickedMode, n_points: int, thresholds: CurveThresholds, picking: PickingParameters
+) -> Flag:
+    """Too few points: the kept ridge resampled finer when its wavelengths span enough for
+    `min_points` at a step no finer than `finest_step` (the resampling's grid starts and ends
+    on whole steps: two more steps than points); else more of the ridge kept."""
+    kept = m0.velocities[m0.kept] / m0.frequencies[m0.kept]
+    span = float(kept.max() - kept.min()) if kept.size else 0.0
+    step = math.floor(span / (thresholds.min_points + 1) / thresholds.finest_step) * (
+        thresholds.finest_step
+    )
+    said = f"{n_points} point{'s' if n_points != 1 else ''} in the curve: too few"
+    if step >= thresholds.finest_step and step < picking.wavelength_step:
+        step = round(step, 3)
+        return Flag(
+            name="too_few_points",
+            message=f"{said}. The ridge spans {span:.2f} m of wavelength: resample it every "
+            f"{step:g} m.",
+            stage="picking",
+            action=Override(stage="picking", overrides={"wavelength_step": step}),
+        )
+    return Flag(
+        name="too_few_points",
+        message=f"{said}. Keep more of the ridge's points.",
+        stage="picking",
+        action=Override(
+            stage="picking",
+            overrides={"min_relative_coherence": round(picking.min_relative_coherence * 0.6, 2)},
+        ),
+    )
 
 
 def _constant_wavelength_cut(m0: PickedMode | None, length: float) -> float | None:

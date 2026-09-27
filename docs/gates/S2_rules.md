@@ -14,7 +14,7 @@ the agent reads them first in the summary; the ladder's trials are kept in the r
 |---|---|---|
 | The band | fmax capped at the smaller of the median usable fmax of the records G1 kept and Nyquist; fmin raised to their median usable fmin. Never widened: PAC's 100 Hz stays when the records go higher | Widening the band made G3 worse at every window length on the demo (below): above 100 Hz a second ridge competes and the picker jumps. The user's decision of milestone 13; the median, not the worst record, since 2026-09-25: on `active_p2` the worst records' limits (24 to 86 Hz) cut the whole line's long wavelengths, where the median record is usable from 2.3 to 298 Hz |
 | The far limit | `masw.distance_max` at the line's reach, where the traces' median SNR falls under 2 dB (G1's `snr_reach`), unless the user gave one | A window stacks no shot whose traces there are mostly noise: PAC's 100 m took `active_p2`'s traces beyond about 60 m, which are noise. The user's decision of 2026-09-25 |
-| The window length | one length for the whole line. Given none: a ladder of lengths (5, 7, 9, 11, then 16, 24, 32, 48, 64, 96, 128 receivers, at most half the line), each tried on 27 windows spread evenly along the line, its ends included (S2, the picking and G3); the first at which 80 % of them pass G3 is proposed, else the one that passed most (the shortest on a tie), and one length more is tried for comparison. A length given (by the user or the agent) is kept, its trial windows tried for the record | Lateral resolution first: the shortest windows that give a curve on most of the line. The user's decisions of milestone 13 (the ladder, 80 %) and of 2026-09-25 (the short lengths first; 27 trials over the whole line; the ladder proposes, the agent decides) |
+| The window length | one length for the whole line. Given none: a ladder of lengths (5, 7, 9, 11, then 16, 24, 32, 48, 64, 96, 128 receivers, at most half the line), each tried on 27 windows spread evenly along the line, its ends included (S2, the picking and G3). Up the ladder while 80 % of them pass G3 and each length's picks are at least 10 % more precise than the best so far: the first length whose passed curves' median velocity uncertainty is within 20 % is proposed; the climb stopping first, the most precise that passed (the shorter on a tie); none passing, the one that passed most (the shortest on a tie). One length more is tried for comparison. A length given (by the user or the agent) is kept, its trial windows tried for the record | Lateral resolution, and picks precise enough for the inversion: the shortest windows pass G3 with loose picks (p2: 40 % at 5 receivers, 26 % at 11). The user's decisions of milestone 13 (the ladder, 80 %) and of 2026-09-25 (the short lengths first; 27 trials over the whole line; the ladder proposes, the agent decides); the precision rule, overnight 2026-09-27 |
 | The frequency step | 1/T by construction: the image's step follows the record length, since the padding went (milestone 9) | A finer step only interpolates |
 | The velocity range | left to G2, which flags a ridge on the grid's edges per window | The trial images could set it; not needed on the demo (1 to 1,000 m/s) |
 | The offsets | reported, not applied: G3's `near_field` flag (below) | The user's decision of milestone 13 |
@@ -106,3 +106,16 @@ On 2026-09-25: 27 trials spread over the whole line, its ends included (the tria
 follow the line's, above), replacing the same day's trials without the end windows, which
 proposed 5 receivers where the line gives curves on 65 % of its windows. In milestone 13: the
 near field reported, not applied; the band capped, never widened.
+
+## The precision rule (overnight 2026-09-27)
+
+On p2 (96 receivers, 1.5 m apart), the ladder's trial windows gave, by length: 5 receivers, 25 of
+27 passed with picks at 40 % (the median velocity uncertainty of the curves passed); 7: 24, 30 %;
+9: 24, 30 %; 11: 23, 26 %; 16: 13, 18 %; 24: 13, 9 %; 32: 11, 5 %; 48: 15, 5 %. The shortest that
+passes (5) gives curves the inversion can hardly use; the longest ones are precise but fail G3 on
+half the line. The ladder now climbs while the lengths pass and buy precision, stops at the first
+within 20 %, and takes the most precise that passed when none is (`CoherenceRules.max_uncertainty`,
+`min_precision_gain`): 7 receivers on p2 (30 %, where 9 gave no better), 7 on the demo (39 %). A
+first version kept the most precise at any length: on the demo, where picks stay at 36 to 40 %
+from 7 to 32 receivers and only half the line (48) did better (27 %), it kept 48, windows of half
+the line even when the user asked for lateral detail (the evaluation's `detail`, overnight).

@@ -6,36 +6,50 @@ the budgets; every attempt in the QC log, and the report written. What invert ru
 background job, whose record (inversion.json) job_status reads."""
 
 import logging
+import math
 import traceback
 from collections.abc import Callable, Mapping, Sequence
-from concurrent.futures import Future, ProcessPoolExecutor, as_completed
+from concurrent.futures import Future, ProcessPoolExecutor
+from dataclasses import dataclass
 from datetime import UTC, datetime
+from itertools import pairwise
 from pathlib import Path
-from typing import Any
+from typing import Any, cast
 
 import numpy as np
 from pydantic import ValidationError
 from sigpipe.base import DispersionCurve
 from sigpipe.masw.inversion import InversionError, InversionParameters, invert_window
 from sigpipe.masw.inversion.measuring import InversionMeasures, measure_inversion, report_depths
-from sigpipe.masw.inversion.priors import Derived, broadcast_layers, checkable, derive_inversion
+from sigpipe.masw.inversion.priors import (
+    FIXED_KEYS,
+    MIN_LAYERS,
+    THICKNESS_STEP_SHARE,
+    Derived,
+    broadcast_layers,
+    checkable,
+    derive_inversion,
+)
 from sigpipe.masw.inversion.section import save_comparison, save_section, save_sections_file
 from sigpipe.masw.picks import CURVES_FILE
 from sigpipe.masw.quality.line import Series
 from sigpipe.masw.runs import RunError, RunManifest, find_run, load_manifest, start_worker
+from sigpipe.masw.runs.stopping import Stopped, commit, finished, staging, undo
 
+from paco import stopping
 from paco.inversion import (
     InversionRecord,
+    JobProgress,
     WindowInversion,
     new_job_id,
     read_record,
     window_result,
     write_record,
 )
-from paco.qc.attempts import invalidate
+from paco.qc.attempts import invalidate, restore
 from paco.qc.budgets import budget_spent
 from paco.qc.config import QCConfig, read_qc_config
-from paco.qc.g5_model import ModelThresholds, judge_model
+from paco.qc.g5_model import ModelThresholds, judge_model, significant
 from paco.qc.g6_models import LINE, judge_model_profile
 from paco.qc.judging import saved_m0
 from paco.qc.log import append_attempt, attempts_of, latest, read_attempts, record_result
@@ -54,8 +68,9 @@ from paco.settings import Settings
 MEASURES_FILE = "SeismicInversion_Measures_0000.json"  # what G5 judged, and G6 compares
 ERROR_FILE = "inversion_error.log"
 
-# Called with (windows done, windows to invert).
-type ProgressCallback = Callable[[int, int], None]
+# Called with (windows done, windows in the batch, what the batch does: "inverted", or the
+# retries of a gate's flag).
+type ProgressCallback = Callable[[int, int, str], None]
 # Called as each window's inversion ends, with what the job reports of it.
 type OnWindow = Callable[[WindowInversion], None]
 
@@ -124,12 +139,20 @@ def run_inversion_job(
         record = record.model_copy(update={"windows": ordered})
         write_record(run_folder, record)
 
+    def progressed(done: int, total: int, doing: str) -> None:
+        nonlocal record
+        progress = JobProgress(done=done, total=total, doing=doing)
+        record = record.model_copy(update={"progress": progress})
+        write_record(run_folder, record)
+        if on_progress is not None:
+            on_progress(done, total, doing)
+
     try:
         if units is None:
-            judge_inversions(record.run_id, settings, record.given, on_progress, on_window)
+            judge_inversions(record.run_id, settings, record.given, progressed, on_window)
         else:
             rerun_inversion(
-                record.run_id, units, overrides or {}, settings, "backtrack", on_progress, on_window
+                record.run_id, units, overrides or {}, settings, "backtrack", progressed, on_window
             )
         report = read_report(run_folder)
         summary = summarize_report(report, gates=("G5", "G6"))
@@ -161,7 +184,12 @@ def run_inversion_job(
             }
         else:
             update = {"state": "succeeded"}
-        record = record.model_copy(update={**update, "summary": summary, "changed": changed})
+        record = record.model_copy(
+            update={**update, "summary": summary, "changed": changed, "progress": None}
+        )
+    except Stopped:
+        # On request: the windows that finished kept, the others as they were.
+        record = record.model_copy(update={"state": "stopped", "progress": None})
     except Exception as exc:
         record = record.model_copy(
             update={"state": "failed", "error": f"{type(exc).__name__}: {exc}"}
@@ -191,12 +219,25 @@ def judge_inversions(
         for unit, curve in ready.items()
         if not (run_folder / unit / MEASURES_FILE).exists()
     }
-    jobs = {unit: derive_inversion(curve, config.priors, given) for unit, curve in pending.items()}
+    jobs: dict[str, Derived] = {}
+    refused: dict[str, InversionError] = {}
+    for unit, curve in pending.items():
+        try:
+            jobs[unit] = derive_inversion(curve, config.priors, given)
+        except InversionError as error:
+            refused[unit] = error
+    if refused and not jobs:
+        # Every window refused: the parameters given, most likely, which the job fails with.
+        raise next(iter(refused.values()))
+    for unit, error in refused.items():
+        # A curve too short in wavelength for a layered model: left out with its reason, the
+        # line's other windows inverted all the same.
+        _not_invertible(run_folder, unit, error, on_window)
     depths = line_depths(ready)
     results = _invert(
         run_folder, jobs, depths, config, "initial", settings.workers, on_progress, on_window
     )
-    settle_models(run_folder, manifest, config, settings, ready, depths, on_window)
+    settle_models(run_folder, manifest, config, settings, ready, depths, on_window, on_progress)
     write_report(
         build_report(run_id, run_folder, config.budgets, len(manifest.windows)), run_folder
     )
@@ -239,7 +280,7 @@ def rerun_inversion(
     results = _invert(
         run_folder, jobs, depths, config, triggered_by, settings.workers, on_progress, on_window
     )
-    settle_models(run_folder, manifest, config, settings, ready, depths, on_window)
+    settle_models(run_folder, manifest, config, settings, ready, depths, on_window, on_progress)
     write_report(
         build_report(run_id, run_folder, config.budgets, len(manifest.windows)), run_folder
     )
@@ -248,14 +289,137 @@ def rerun_inversion(
 
 def given_again(previous: Mapping[str, Any], changes: Mapping[str, Any]) -> dict[str, Any]:
     """The values an inversion done again starts from: its previous parameters with `changes`
-    on them. Another number of layers derives every layer's bounds again; other iterations
-    without a burn-in get a tenth of them."""
+    on them. Another number of layers spreads the ranges over the new count, down to the same
+    depth (`relayered`); other iterations without a burn-in get a quarter of them. Layers asked
+    of a window whose data chose them are the layers given, from the curve: the previous run's
+    table was the defaults', unused."""
     base = dict(previous)
-    if changes.get("n_layers", base.get("n_layers")) != base.get("n_layers"):
-        base = {k: v for k, v in base.items() if k not in ("vs_layers", "thickness_layers")}
+    if (
+        base.get("layering") == "free"
+        and "layering" not in changes
+        and any(key in changes for key in FIXED_KEYS)
+    ):
+        base = {
+            key: value
+            for key, value in base.items()
+            if key not in (*FIXED_KEYS, "free", "layering")
+        }
     if "n_iterations" in changes and "n_burnin_iterations" not in changes:
         base.pop("n_burnin_iterations", None)
-    return deep_merge(base, changes)
+    merged = deep_merge(base, {key: value for key, value in changes.items() if key != "n_layers"})
+    count = changes.get("n_layers")
+    if isinstance(count, int) and count != merged.get("n_layers"):
+        merged = relayered(merged, count)
+    return merged
+
+
+def relayered(values: Mapping[str, Any], n_layers: int) -> dict[str, Any]:
+    """`values` for `n_layers` layers: every layer above the half-space takes the Vs range that
+    holds all of them before, the half-space keeps its own, and the layers share the same depth
+    evenly, each step in proportion to its range. A list of ranges that is not one per layer
+    (given anew) is left as it is; one that lacks a bound is derived again."""
+    before = values.get("n_layers")
+    result = {**values, "n_layers": n_layers}
+    if not isinstance(before, int):
+        return result
+    vs_layers = values.get("vs_layers")
+    if isinstance(vs_layers, list | tuple) and len(cast(Sequence[Any], vs_layers)) == before:
+        ranges = [dict(layer) for layer in cast(Sequence[Mapping[str, Any]], vs_layers)]
+        if all({"vs_min", "vs_max", "vs_perturb_std"} <= set(layer) for layer in ranges):
+            *above, half_space = ranges
+            envelope = {
+                "vs_min": min(layer["vs_min"] for layer in above),
+                "vs_max": max(layer["vs_max"] for layer in above),
+                "vs_perturb_std": max(layer["vs_perturb_std"] for layer in above),
+            }
+            result["vs_layers"] = [envelope] * (n_layers - 1) + [half_space]
+        else:
+            del result["vs_layers"]
+    thickness_layers = values.get("thickness_layers")
+    if (
+        isinstance(thickness_layers, list | tuple)
+        and len(cast(Sequence[Any], thickness_layers)) == before - 1
+    ):
+        ranges = [dict(layer) for layer in cast(Sequence[Mapping[str, Any]], thickness_layers)]
+        keys = {"thickness_min", "thickness_max", "thickness_perturb_std"}
+        if all(keys <= set(layer) for layer in ranges):
+            depth = sum(float(layer["thickness_max"]) for layer in ranges)
+            thinnest = max(float(layer["thickness_min"]) for layer in ranges)
+            shares = [
+                layer["thickness_perturb_std"] / (layer["thickness_max"] - layer["thickness_min"])
+                for layer in ranges
+                if layer["thickness_max"] > layer["thickness_min"]
+            ]
+            # Rounded down: the layers never reach deeper than the depth they share.
+            thickest = math.floor(depth / (n_layers - 1) * 100) / 100
+            step = max(shares, default=THICKNESS_STEP_SHARE) * (thickest - thinnest)
+            layer = {
+                "thickness_min": thinnest,
+                "thickness_max": thickest,
+                "thickness_perturb_std": max(significant(step), 0.01),
+            }
+            result["thickness_layers"] = [layer] * (n_layers - 1)
+        else:
+            del result["thickness_layers"]
+    return result
+
+
+# The triggers of an inversion sampled longer, its chains disagreeing.
+LONGER = ("G5:not_converged", "G6:non_unique")
+
+
+def longer_runs(
+    attempts: Sequence[Attempt], unit: str, current: Mapping[str, Any] | None = None
+) -> int:
+    """How many times `unit`'s inversion was sampled longer: its attempts logged, and the one
+    being judged (its parameters `current`), each with more iterations than the one before. A
+    retry for chains that disagreed that narrowed the ranges instead is not one."""
+    runs = _runs(attempts, unit, current)
+    return sum(
+        int(after.get("n_iterations", 0)) > int(before.get("n_iterations", 0))
+        for before, after in pairwise(runs)
+    )
+
+
+def narrowed(
+    attempts: Sequence[Attempt],
+    unit: str,
+    triggered_by: str = "",
+    current: Mapping[str, Any] | None = None,
+) -> bool:
+    """Whether a retry for chains that disagreed narrowed `unit`'s ranges already: one
+    triggered by G5's not_converged that kept the iterations of the attempt before, the one
+    being judged (`triggered_by`, `current`) among them."""
+    logged = attempts_of(attempts, unit, "inversion")
+    triggers = [attempt.triggered_by for attempt in logged] + ([triggered_by] if current else [])
+    runs = _runs(attempts, unit, current)
+    return any(
+        trigger == "G5:not_converged"
+        and int(after.get("n_iterations", 0)) == int(before.get("n_iterations", 0))
+        for trigger, (before, after) in zip(triggers[1:], pairwise(runs), strict=False)
+    )
+
+
+def _runs(
+    attempts: Sequence[Attempt], unit: str, current: Mapping[str, Any] | None
+) -> list[Mapping[str, Any]]:
+    """The parameters of `unit`'s inversions, logged then `current`."""
+    runs: list[Mapping[str, Any]] = [
+        attempt.parameters for attempt in attempts_of(attempts, unit, "inversion")
+    ]
+    return runs + ([current] if current is not None else [])
+
+
+def fewest_layers(attempts: Sequence[Attempt], unit: str) -> int:
+    """The fewest layers `unit`'s inversion goes down to: one more than any count G5 found to
+    misfit, so that the loop does not go back and forth between two counts."""
+    misfit = [
+        int(attempt.parameters.get("n_layers", 0))
+        for attempt in attempts_of(attempts, unit, "inversion")
+        if (g5 := attempt.results.get("G5")) is not None
+        and any(flag.name == "underfit" for flag in g5.flags)
+    ]
+    return max([MIN_LAYERS, *(count + 1 for count in misfit)])
 
 
 def settle_models(
@@ -266,11 +430,13 @@ def settle_models(
     ready: Mapping[str, DispersionCurve],
     depths: tuple[float, ...],
     on_window: OnWindow | None = None,
+    on_progress: ProgressCallback | None = None,
 ) -> None:
     """G5's retries until none is asked or the budgets are spent, then G6 over the line and its
     own retries (then G5 on those models), until G6 asks for none."""
     n_units = max(1, len(manifest.windows))
-    retry_failed(run_folder, config, settings, ready, depths, n_units, on_window)
+    batch = RetryBatch(run_folder, config, settings, ready, depths, n_units, on_window, on_progress)
+    retry_failed(batch)
     while True:
         while True:
             attempts = read_attempts(run_folder)
@@ -280,56 +446,67 @@ def settle_models(
                 if (attempt := latest(attempts, unit, "inversion")) is not None
                 and "G5" in attempt.results
             ]
-            if not _retry_models(
-                results, run_folder, config, settings, ready, depths, n_units, on_window
-            ):
+            if not _retry_models(results, batch):
                 break
         line = judge_model_line(run_folder, manifest, config)
         g6 = [result for result in line if result.unit != LINE]
-        if not _retry_models(g6, run_folder, config, settings, ready, depths, n_units, on_window):
+        if not _retry_models(g6, batch):
             return
 
 
-def retry_failed(
-    run_folder: Path,
-    config: QCConfig,
-    settings: Settings,
-    ready: Mapping[str, DispersionCurve],
-    depths: tuple[float, ...],
-    n_units: int,
-    on_window: OnWindow | None,
-) -> None:
+@dataclass(frozen=True)
+class RetryBatch:
+    """What every batch of retries of a job shares."""
+
+    run_folder: Path
+    config: QCConfig
+    settings: Settings
+    ready: Mapping[str, DispersionCurve]
+    depths: tuple[float, ...]
+    n_units: int
+    on_window: OnWindow | None
+    on_progress: ProgressCallback | None
+
+    def invert(self, jobs: Mapping[str, Derived], trigger: str) -> None:
+        _invert(
+            self.run_folder,
+            jobs,
+            self.depths,
+            self.config,
+            trigger,
+            self.settings.workers,
+            self.on_progress,
+            self.on_window,
+        )
+
+
+def retry_failed(batch: RetryBatch) -> None:
     """Invert once more, with the same parameters, the windows whose inversion failed: sigpipe's
     sampler is not seeded, and its failure when a chain keeps no predicted curve for some models
     does not come back every time."""
-    attempts = read_attempts(run_folder)
-    budget = RetryBudget(attempts, config.budgets, n_units)
+    attempts = read_attempts(batch.run_folder)
+    budget = RetryBudget(attempts, batch.config.budgets, batch.n_units)
     jobs: dict[str, Derived] = {}
-    for unit in ready:
+    for unit in batch.ready:
         attempt = latest(attempts, unit, "inversion")
         if attempt is None or attempt.status != "failed" or not budget.grant(unit, "S4"):
             continue
+        try:
+            derived = derive_inversion(batch.ready[unit], batch.config.priors)
+        except InversionError:
+            continue  # the curve gives no parameters (_not_invertible): no retry changes that
         parameters = InversionParameters.model_validate(attempt.parameters)
-        derived = derive_inversion(ready[unit], config.priors)
         jobs[unit] = Derived(parameters, attempt.notes, derived.reach_m, derived.max_layers)
     if jobs:
-        _invert(run_folder, jobs, depths, config, "S4:failed", settings.workers, None, on_window)
+        batch.invert(jobs, "S4:failed")
 
 
-def _retry_models(
-    results: Sequence[GateResult],
-    run_folder: Path,
-    config: QCConfig,
-    settings: Settings,
-    ready: Mapping[str, DispersionCurve],
-    depths: tuple[float, ...],
-    n_units: int,
-    on_window: OnWindow | None,
-) -> bool:
+def _retry_models(results: Sequence[GateResult], batch: RetryBatch) -> bool:
     """Invert again the windows whose `results` ask a change of the inversion and have budget
     left (the others that ask are rejected, "budget spent"); whether any was."""
+    run_folder, config, ready = batch.run_folder, batch.config, batch.ready
     attempts = read_attempts(run_folder)
-    budget = RetryBudget(attempts, config.budgets, n_units)
+    budget = RetryBudget(attempts, config.budgets, batch.n_units)
     by_trigger: dict[str, dict[str, Derived]] = {}
     for result in results:
         attempt = latest(attempts, result.unit, "inversion")
@@ -351,7 +528,7 @@ def _retry_models(
             continue
         by_trigger.setdefault(f"{result.gate}:{flag}", {})[result.unit] = derived
     for trigger, jobs in by_trigger.items():
-        _invert(run_folder, jobs, depths, config, trigger, settings.workers, None, on_window)
+        batch.invert(jobs, trigger)
     return bool(by_trigger)
 
 
@@ -426,7 +603,12 @@ def judge_model_line(
         parameters[window.folder] = InversionParameters.model_validate(inverted.parameters)
         useful[window.folder] = None if np.isinf(limit) else limit
     started_at = datetime.now(UTC)
-    results = judge_model_profile(models, curves, parameters, useful, config.models, without)
+    capped = [
+        unit for unit in parameters if longer_runs(attempts, unit) >= config.model.max_longer_runs
+    ]
+    results = judge_model_profile(
+        models, curves, parameters, useful, config.models, without, capped
+    )
     for result in results:
         if result.unit != LINE:
             inverted = latest(attempts, result.unit, "inversion")
@@ -480,7 +662,9 @@ def _invert(
     on_window: OnWindow | None = None,
 ) -> tuple[GateResult, ...]:
     """Each window of `jobs` inverted with its parameters in a worker, the previous attempt's
-    files archived first; G5 on each, logged as its inversion attempt."""
+    files archived first; G5 on each, logged as its inversion attempt. A window's inversion
+    writes into a staging folder, moved into place once it finished: stopped (see
+    paco.stopping), the windows not finished get their previous attempt back."""
     attempts = read_attempts(run_folder)
     numbers: dict[str, int] = {}
     for unit in jobs:
@@ -491,57 +675,130 @@ def _invert(
     results: list[GateResult] = []
     started_at = datetime.now(UTC)
     with ProcessPoolExecutor(
-        max_workers=workers, initializer=start_worker, initargs=(run_folder,)
+        max_workers=max(1, min(workers, len(jobs))),
+        initializer=start_worker,
+        initargs=(run_folder,),
     ) as executor:
         futures: dict[Future[InversionMeasures], str] = {
             executor.submit(
-                _invert_and_measure, run_folder / unit, derived.parameters, depths, config.model
+                _invert_and_measure,
+                run_folder / unit,
+                derived.parameters,
+                depths,
+                config.model,
+                chain_jobs(workers, len(jobs), derived.parameters.n_chains),
+                first_prior(attempts, unit),
+                staging(run_folder / unit),
             ): unit
             for unit, derived in jobs.items()
         }
+        waiting = dict(futures)  # the windows not finished yet
+        doing = {"initial": "inverted", "backtrack": "inverted again"}.get(
+            triggered_by, f"{triggered_by} retries"
+        )
         if on_progress is not None:
-            on_progress(0, len(futures))
-        for done, future in enumerate(as_completed(futures), start=1):
-            unit = futures[future]
-            derived = jobs[unit]
-            attempt = Attempt(
-                unit=unit,
-                stage="inversion",
-                attempt=numbers[unit],
-                parameters=derived.parameters.model_dump(mode="json"),
-                triggered_by=triggered_by,
-                started_at=started_at,
-                finished_at=datetime.now(UTC),
-                status="succeeded",
-                notes=derived.notes,
-            )
-            xmid = xmid_of(unit) or 0.0
-            try:
-                measures = future.result()
-                g5 = judge_model(
-                    unit,
-                    measures,
-                    derived.parameters,
-                    config.model,
-                    derived.reach_m,
-                    derived.max_layers,
+            on_progress(0, len(futures), doing)
+        try:
+            for done, future in enumerate(finished(executor, futures, stopping.current()), start=1):
+                unit = waiting.pop(future)
+                derived = jobs[unit]
+                attempt = Attempt(
+                    unit=unit,
+                    stage="inversion",
+                    attempt=numbers[unit],
+                    parameters=derived.parameters.model_dump(mode="json"),
+                    triggered_by=triggered_by,
+                    started_at=started_at,
+                    finished_at=datetime.now(UTC),
+                    status="succeeded",
+                    notes=derived.notes,
                 )
-                attempt = attempt.model_copy(update={"results": {g5.gate: g5}})
-                results.append(g5)
-                window = window_result(xmid, unit, measures, g5.verdict, derived.reach_m)
-            except Exception as exc:
-                (run_folder / unit / ERROR_FILE).write_text(
-                    "".join(traceback.format_exception(exc))
-                )
-                error = f"{type(exc).__name__}: {exc}"
-                attempt = attempt.model_copy(update={"status": "failed", "error": error})
-                window = WindowInversion(xmid=xmid, folder=unit, status="failed", error=error)
-            append_attempt(run_folder, attempt)
-            if on_window is not None:
-                on_window(window)
-            if on_progress is not None:
-                on_progress(done, len(futures))
+                xmid = xmid_of(unit) or 0.0
+                try:
+                    measures = future.result()
+                    commit(run_folder / unit)
+                    ran = derived.parameters.model_dump(mode="json")
+                    g5 = judge_model(
+                        unit,
+                        measures,
+                        derived.parameters,
+                        config.model,
+                        derived.reach_m,
+                        derived.max_layers,
+                        fewest_layers(attempts, unit),
+                        longer_runs(attempts, unit, ran),
+                        narrowed(attempts, unit, triggered_by, ran),
+                    )
+                    attempt = attempt.model_copy(update={"results": {g5.gate: g5}})
+                    results.append(g5)
+                    window = window_result(xmid, unit, measures, g5.verdict, derived.reach_m)
+                except Exception as exc:
+                    undo(run_folder / unit, created=False)  # a failed inversion's files not kept
+                    (run_folder / unit / ERROR_FILE).write_text(
+                        "".join(traceback.format_exception(exc))
+                    )
+                    error = f"{type(exc).__name__}: {exc}"
+                    attempt = attempt.model_copy(update={"status": "failed", "error": error})
+                    window = WindowInversion(xmid=xmid, folder=unit, status="failed", error=error)
+                append_attempt(run_folder, attempt)
+                if on_window is not None:
+                    on_window(window)
+                if on_progress is not None:
+                    on_progress(done, len(futures), doing)
+        except Stopped:
+            for unit in waiting.values():
+                undo(run_folder / unit, created=False)
+                if numbers[unit] > 1:
+                    restore(run_folder / unit, "inversion", numbers[unit] - 1)
+            raise
     return tuple(sorted(results, key=lambda result: float(result.unit.removeprefix("xmid_"))))
+
+
+def _not_invertible(
+    run_folder: Path, unit: str, error: InversionError, on_window: OnWindow | None
+) -> None:
+    """Window `unit`, whose curve gives no inversion parameters, logged as a failed attempt and
+    reported with why."""
+    said = f"{type(error).__name__}: {error}"
+    now = datetime.now(UTC)
+    previous = attempts_of(read_attempts(run_folder), unit, "inversion")
+    append_attempt(
+        run_folder,
+        Attempt(
+            unit=unit,
+            stage="inversion",
+            attempt=len(previous) + 1,
+            parameters={},
+            triggered_by="initial",
+            started_at=now,
+            finished_at=now,
+            status="failed",
+            error=said,
+        ),
+    )
+    if on_window is not None:
+        on_window(
+            WindowInversion(xmid=xmid_of(unit) or 0.0, folder=unit, status="failed", error=said)
+        )
+
+
+def chain_jobs(workers: int, windows: int, chains: int) -> int:
+    """The processes each window's chains run in: the cores the windows leave idle, shared
+    between them, never more than its chains. One window of 5 chains with 6 workers: 5; with
+    4 windows or more: 1, each window in its worker."""
+    return max(1, min(chains, workers // max(1, windows)))
+
+
+def first_prior(attempts: Sequence[Attempt], unit: str) -> InversionParameters | None:
+    """The priors `unit`'s first inversion ran with, the wide ones the depth the data inform is
+    judged against once the loop narrowed them; None before any."""
+    logged = attempts_of(attempts, unit, "inversion")
+    if not logged:
+        return None
+    try:
+        return InversionParameters.model_validate(logged[0].parameters)
+    except ValueError:
+        return None
 
 
 def _invert_and_measure(
@@ -549,9 +806,15 @@ def _invert_and_measure(
     parameters: InversionParameters,
     depths: tuple[float, ...],
     thresholds: ModelThresholds,
+    chain_jobs: int = 1,
+    reference: InversionParameters | None = None,
+    output: Path | None = None,
 ) -> InversionMeasures:
-    """Runs in a worker: the window's inversion, then what G5 judges, saved next to it."""
-    invert_window(folder, parameters)
+    """Runs in a worker: the window's inversion, its chains in `chain_jobs` processes, then
+    what G5 judges, saved next to it, or in `output` (a staging folder, moved into place once
+    this ended): the depth the data inform against `reference`'s priors (the first
+    inversion's) when given."""
+    invert_window(folder, parameters, chain_jobs=chain_jobs, output_folder=output)
     measures = measure_inversion(
         folder,
         parameters,
@@ -559,6 +822,8 @@ def _invert_and_measure(
         thresholds.n_bands,
         thresholds.bound_edge,
         thresholds.useful_std_ratio,
+        reference=reference,
+        output_folder=output,
     )
-    (folder / MEASURES_FILE).write_text(measures.model_dump_json(indent=2))
+    ((output or folder) / MEASURES_FILE).write_text(measures.model_dump_json(indent=2))
     return measures

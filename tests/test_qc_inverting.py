@@ -7,6 +7,7 @@ import json
 from collections.abc import Mapping
 from datetime import UTC, datetime
 from pathlib import Path
+from typing import Any
 
 import numpy as np
 import pytest
@@ -17,7 +18,7 @@ from sigpipe.masw.inversion import InversionParameters
 from sigpipe.masw.inversion.measuring import InversionMeasures
 from sigpipe.masw.inversion.priors import Derived
 from sigpipe.masw.inversion.window import SAMPLES_FILE
-from sigpipe.masw.picks import CURVES_FILE
+from sigpipe.masw.picks import CURVES_FILE, load_curves
 from sigpipe.masw.runs import RunError, find_run, run_processing
 
 from paco.qc import (
@@ -52,7 +53,11 @@ def inverted(
         run_id = run_processing("active_p1", "active", SMALL_WINDOWS, settings).run_id
         # No retry: the S4 flow itself, the gates' first verdicts; the loop is tested with the
         # job (test_inversion.py) and the tools (test_server.py).
-        judge_run(run_id, settings, QCConfig(budgets=Budgets(per_gate_and_unit=0)))
+        judge_run(
+            run_id,
+            settings,
+            QCConfig(budgets=Budgets(per_gate_and_unit=0, inversion_per_window=0)),
+        )
         judge_inversions(run_id, settings, SHORT)
     return settings, run_id, find_run(run_id, settings)
 
@@ -75,25 +80,24 @@ def test_the_windows_g4_passed_are_inverted_with_bounds_from_their_curves(
         )
         assert attempt.notes == ()  # nothing was given but the iterations
         parameters = attempt.parameters
-        assert parameters["n_iterations"] == 1_500 and parameters["n_burnin_iterations"] == 150
+        assert parameters["n_iterations"] == 1_500 and parameters["n_burnin_iterations"] == 375
         (curve,) = load_dispersion_curves([run_folder / attempt.unit / CURVES_FILE])[0]
         velocities = np.asarray(curve.vs, dtype=float)
         wavelengths = velocities / np.asarray(curve.fs, dtype=float)
-        for layer in parameters["vs_layers"]:
-            assert layer["vs_min"] == round(0.8 * velocities.min())
-            assert layer["vs_max"] == round(1.5 * velocities.max())
-        # 4 layers asked, fewer when the curve resolves fewer, never 2.
-        n_layers = parameters["n_layers"]
-        assert 3 <= n_layers <= 4
-        assert len(parameters["thickness_layers"]) == n_layers - 1
-        for layer in parameters["thickness_layers"]:
-            assert layer["thickness_min"] == round(wavelengths.min() / 3, 2)
-            assert layer["thickness_max"] == round(wavelengths.max() / 2 / (n_layers - 1), 2)
+        # The layers chosen by the data: Vs 100 to 2,000 m/s, as the curve (163 to 291 m/s)
+        # needs no wider; interfaces from a third of its shortest wavelength to half its longest
+        # (deeper, the curve resolves nothing); 8 layers at most.
+        assert velocities.min() >= 100 and 1.09 * velocities.max() <= 2_000
+        assert parameters["layering"] == "free"
+        free = parameters["free"]
+        assert (free["vs_min"], free["vs_max"], free["max_layers"]) == (100.0, 2_000.0, 8)
+        assert free["depth_min"] == round(float(wavelengths.min()) / 3, 2)
+        assert free["depth_max"] == round(float(wavelengths.max()) / 2, 2)
         # What G5 judged is kept next to PAC's files.
         folder = run_folder / attempt.unit
         assert (folder / SAMPLES_FILE).exists()
         measures = InversionMeasures.model_validate_json((folder / MEASURES_FILE).read_text())
-        assert measures.samples_per_chain == 9
+        assert measures.samples_per_chain == 7  # (1,500 - 375) // 150
         # Round depths down to half the line's median longest wavelength (about 11 m here: the
         # picks go down to where their ridge breaks).
         assert [depth for depth, _ in measures.vs_at_depths] == [2.0, 4.0, 6.0, 8.0, 10.0]
@@ -116,8 +120,8 @@ def test_g5_finds_the_chains_too_short_and_g6_has_no_model(
         assert [flag.name for flag in g5.flags][:2] == ["budget_spent", "not_converged"]
         flag = next(flag for flag in g5.flags if flag.name == "not_converged")
         assert flag.action.model_dump()["overrides"] == {
-            "n_iterations": 17_000,
-            "n_burnin_iterations": 1_700,
+            "n_iterations": 20_000,
+            "n_burnin_iterations": 5_000,
         }
     # No model passed G5: the line has none, and says where.
     line = next(unit for unit in report.units if unit.unit == "line")
@@ -139,24 +143,33 @@ def test_the_inversion_done_again_starts_from_the_windows_parameters(
     again = latest(read_attempts(run_folder), "xmid_8.88", "inversion")
     assert again is not None and (again.attempt, again.triggered_by) == (2, "backtrack")
     # The bounds of the first attempt, the iterations of the override, the burn-in following.
-    assert again.parameters["vs_layers"] == before.parameters["vs_layers"]
+    assert again.parameters["free"] == before.parameters["free"]
     assert (again.parameters["n_iterations"], again.parameters["n_burnin_iterations"]) == (
         3_000,
-        300,
+        750,
     )
     measures = json.loads((run_folder / "xmid_8.88" / MEASURES_FILE).read_text())
-    assert measures["samples_per_chain"] == 18
+    assert measures["samples_per_chain"] == 15  # (3,000 - 750) // 150
     # The first attempt's files are archived; the other windows keep theirs.
     (archive,) = archived_attempts(run_folder / "xmid_8.88")
     assert archive.name == "1_inversion" and (archive / SAMPLES_FILE).exists()
     assert archived_attempts(run_folder / "xmid_2.88") == ()
 
 
-def test_another_number_of_layers_derives_every_layers_bounds_again(
+def test_another_number_of_layers_spreads_the_ranges_over_the_same_depth(
     inverted: tuple[Settings, str, Path], tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     settings, run_id, run_folder = inverted
     monkeypatch.chdir(tmp_path)
+    before = latest(read_attempts(run_folder), "xmid_2.88", "inversion")
+    assert before is not None
+
+    # Layers asked of a window whose data chose them: the layers given, from the curve.
+    rerun_inversion(run_id, ["xmid_2.88"], {"n_layers": 4}, settings)
+    given = latest(read_attempts(run_folder), "xmid_2.88", "inversion")
+    assert given is not None and given.parameters["layering"] == "fixed"
+    assert given.parameters["n_layers"] <= 4 and len(given.parameters["vs_layers"]) >= 3
+    before = given
 
     rerun_inversion(run_id, ["xmid_2.88"], {"n_layers": 3}, settings)
 
@@ -165,6 +178,19 @@ def test_another_number_of_layers_derives_every_layers_bounds_again(
     assert len(attempt.parameters["vs_layers"]) == 3
     assert len(attempt.parameters["thickness_layers"]) == 2
     assert attempt.parameters["n_iterations"] == 1_500  # kept from the attempt before
+
+    def depth(parameters: dict[str, Any]) -> float:
+        return sum(layer["thickness_max"] for layer in parameters["thickness_layers"])
+
+    # The same depth, shared by fewer layers, as deep as the curve reaches at most (the first
+    # inversion's wide layers go deeper); the half-space keeps its own Vs range.
+    curves = load_curves(run_folder / "xmid_2.88")
+    assert curves is not None
+    m0 = next(curve for curve in curves.dispersion_curves if curve.mode.number == 0)
+    reach = 0.5 * float(np.max(np.asarray(m0.vs) / np.asarray(m0.fs)))
+    expected = min(depth(before.parameters), reach)
+    assert depth(attempt.parameters) == pytest.approx(expected, abs=0.02)
+    assert attempt.parameters["vs_layers"][-1] == before.parameters["vs_layers"][-1]
 
 
 def test_what_cannot_be_inverted_is_refused(
@@ -223,12 +249,65 @@ def test_a_failed_inversion_is_tried_once_more_with_the_same_parameters(
     ready = {"xmid_1.00": curve, "xmid_2.00": curve}
     settings = Settings(input_dir=tmp_path, output_dir=tmp_path, workers=1)
 
-    inverting.retry_failed(tmp_path, QCConfig(), settings, ready, (1.0,), 2, None)
+    inverting.retry_failed(
+        inverting.RetryBatch(tmp_path, QCConfig(), settings, ready, (1.0,), 2, None, None)
+    )
 
     assert inverted == [({"xmid_1.00": parameters}, "S4:failed")]
     # No budget left for the window: it stays failed.
     monkeypatch.setattr(inverting, "_invert", invert)
     inverted.clear()
-    none_left = QCConfig(budgets=Budgets(per_gate_and_unit=0))
-    inverting.retry_failed(tmp_path, none_left, settings, ready, (1.0,), 2, None)
+    # A failed inversion's retry is on the window's inversion budget.
+    none_left = QCConfig(budgets=Budgets(inversion_per_window=0))
+    inverting.retry_failed(
+        inverting.RetryBatch(tmp_path, none_left, settings, ready, (1.0,), 2, None, None)
+    )
     assert inverted == []
+
+
+def test_the_runs_sampled_longer_count_the_one_being_judged() -> None:
+    started = datetime(2026, 9, 26, tzinfo=UTC)
+    # The first run, a retry that narrowed the ranges (the same iterations), then one that
+    # sampled longer.
+    runs = (
+        ("initial", 100_000),
+        ("G5:not_converged", 100_000),
+        ("G5:not_converged", 200_000),
+    )
+    attempts = [
+        Attempt(
+            unit="xmid_1.00",
+            stage="inversion",
+            attempt=number,
+            parameters={"n_iterations": iterations},
+            triggered_by=trigger,
+            started_at=started,
+            status="succeeded",
+        )
+        for number, (trigger, iterations) in enumerate(runs, start=1)
+    ]
+
+    # Judging a run that doubled them again: two runs sampled longer, the cap.
+    assert inverting.longer_runs(attempts, "xmid_1.00", {"n_iterations": 400_000}) == 2
+    assert inverting.longer_runs(attempts, "xmid_1.00", {"n_iterations": 200_000}) == 1
+    assert inverting.longer_runs(attempts[:2], "xmid_1.00") == 0
+    assert inverting.longer_runs(attempts, "xmid_2.00") == 0
+    # The narrowing was done: by the second run, or by the one being judged.
+    assert inverting.narrowed(attempts, "xmid_1.00")
+    assert not inverting.narrowed(attempts[:1], "xmid_1.00")
+    assert inverting.narrowed(
+        attempts[:1], "xmid_1.00", "G5:not_converged", {"n_iterations": 100_000}
+    )
+    assert not inverting.narrowed(
+        attempts[:1], "xmid_1.00", "G5:too_deep", {"n_iterations": 100_000}
+    )
+
+
+@pytest.mark.parametrize(
+    ("workers", "windows", "expected"),
+    [(6, 1, 5), (6, 2, 3), (6, 3, 2), (6, 4, 1), (6, 12, 1), (1, 1, 1), (8, 1, 5)],
+)
+def test_idle_cores_run_a_windows_chains(workers: int, windows: int, expected: int) -> None:
+    # Never more processes than workers, nor than a window's 5 chains.
+    assert inverting.chain_jobs(workers, windows, chains=5) == expected
+    assert min(workers, windows) * expected <= workers

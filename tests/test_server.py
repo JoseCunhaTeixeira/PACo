@@ -189,7 +189,7 @@ def test_the_workflow_process_pick_redo_invert() -> None:
     # What the gates did, in a few lines, and what to call next.
     done = processed.structured_content
     assert done is not None
-    assert done["summary"].splitlines()[:2] == ["G1: 2 pass", "G2: 4 pass"]
+    assert done["summary"].splitlines()[:2] == ["G1: 3 pass", "G2: 4 pass"]
     # Each record's own trigger correction, the first one shown.
     assert (
         'Retried G1:shifted_trigger, 1.dat, 2.dat with preprocessing {"trigger":{"t0":0.0188}} '
@@ -199,50 +199,53 @@ def test_the_workflow_process_pick_redo_invert() -> None:
         f"pick comes next for run_id {run_id}, if the user asked for curves or models."
     )
     # The settings the gates changed, in words, for the agent to report.
-    assert done["changed"] == [
+    changed = done["changed"]
+    assert changed[0] == (
         "trigger t0 the default -> 0.0188 at 1.dat, 2.dat (each window its own), by "
-        "G1:shifted_trigger",
-        "2.dat: traces [1, 13, 89, 90] left out of the windows",
+        "G1:shifted_trigger"
+    )
+    # The line's rules: the shots' reach, the length as given, then the near field.
+    assert changed[1].startswith(
         "line: masw distance_max 24.34 m: beyond it from the shot, the traces' median SNR falls "
         "under 2 dB (G1), so the windows stack no farther shot. masw length 24 for the whole "
-        "line: trial windows G3 passed, as given: 26/27 at 24.",
-    ]
+        "line, as given: trial windows G3 passed 26/27 at 24 (picks "
+    )
+    assert "%). near_field distance_m " in changed[1]
+    # No trace left out for its amplitude in one record: the line judges its receivers.
+    assert len(changed) == 2
     # The lengths the ladder tried, for the agent to choose from: the user's only, here.
     assert done["lengths"] == [
         "line: 96 receivers 0.25 m apart (23.75 m); windows of up to 48 receivers (half the line)",
-        "24 receivers (5.75 m): 26/27 trial windows passed G3, wavelengths 5.0-28.0 m, 4 windows "
-        "on the line (proposed)",
+        "24 receivers (5.75 m): 26/27 trial windows passed G3, wavelengths 5.0-28.0 m (models "
+        "down to about 14.0 m), picks within 40%, 4 windows on the line (proposed)",
     ]
     assert picked.structured_content is not None
-    # xmid 2.88 keeps 2 points once trace 13 leaves its image (G1's decay fitted within the
-    # reach): G3 lowers the coherence rule, then rejects it.
-    assert picked.structured_content["summary"].splitlines()[:2] == [
-        "G3: 3 pass, 1 reject",
-        "G4: 4 pass",
-    ]
-    assert picked.structured_content["changed"] == [
-        "min_relative_coherence 0.5 -> 0.3 at xmid 2.88 (1) (each window its own), by "
+    # Every window keeps its traces (none is off the decay in most records) and stacks its
+    # shots out of the near field where it has farther ones.
+    # xmid 2.88's ridge spans a metre of wavelength: G3 resamples it finer; xmid 20.88 falls
+    # off its neighbours: G4 picks it again along their curve. Then every curve passes.
+    assert picked.structured_content["summary"].splitlines()[:2] == ["G4: 5 pass", "G3: 4 pass"]
+    changed = picked.structured_content["changed"]
+    # Too few points, and too narrow a span: resampled finer and more of the ridge kept.
+    assert changed[0] == (
+        "min_relative_coherence 0.5 -> 0.3; wavelength_step 1 -> 0.5 at xmid 2.88 (1), by "
         "G3:too_few_points"
-    ]
+    )
+    assert changed[1].endswith("at xmid 20.88 (1), by G4:outlier")
     assert picked.structured_content["next"] == (
-        f"3 curves passed G3 and G4. invert can run on run_id {run_id}, if the user asked for "
+        f"4 curves passed G3 and G4. invert can run on run_id {run_id}, if the user asked for "
         "models; otherwise answer."
     )
 
-    # Going back to the picking for the windows carrying a flag, with a change: the verdict of
-    # the gate that judges the stage redone.
+    # Going back to the picking for a window, with a change: the verdict of the gate that
+    # judges the stage redone.
     redone = _call(
         "redo",
-        {
-            "run_id": run_id,
-            "stage": "picking",
-            "flag": "too_few_points",
-            "changes": {"corridor": 0.1},
-        },
+        {"run_id": run_id, "stage": "picking", "xmids": [2.88], "changes": {"corridor": 0.1}},
     )
     assert redone.structured_content is not None
     assert (
-        'Retried backtrack, xmid 2.88 (1) with picking {"corridor":0.1}: now 1 reject.'
+        'Retried backtrack, xmid 2.88 (1) with picking {"corridor":0.1}: now 1 pass.'
         in redone.structured_content["summary"]
     )
 
@@ -250,17 +253,17 @@ def test_the_workflow_process_pick_redo_invert() -> None:
     # summary.
     started = _call("invert", {"run_id": run_id, "parameters": SHORT})
     assert started.structured_content is not None
-    assert (started.structured_content["state"], started.structured_content["total"]) == (
-        "queued",
-        3,
-    )
+    # xmid 2.88's curve, picked again in a narrower corridor, passed: 4 windows to invert.
+    assert started.structured_content["state"] in ("queued", "running")
+    assert started.structured_content["total"] == 4
     status = _wait_for(started.structured_content["job_id"])
-    assert (status["state"], status["done"]) == ("succeeded", 3)
+    assert (status["state"], status["done"]) == ("succeeded", 4)
     # sigpipe's sampler sometimes fails a window twice (a chain keeping no predicted curve).
     assert status["n_failed"] <= 1
     # The smooth median models, at round depths.
     assert status["depths_m"] and len(status["vs_m_s"]) == len(status["depths_m"])
-    assert status["summary"].startswith("G5: ")
+    # G6 first, when the line reached it.
+    assert any(line.startswith("G5: ") for line in status["summary"].splitlines()[:2])
 
 
 def test_run_processing_takes_the_mode_as_an_argument(paco_env: Settings) -> None:
@@ -397,12 +400,12 @@ def test_redo_needs_windows_that_exist() -> None:
             # A model's guess: the message names the right ones, or the model guesses again.
             "invert",
             {"run_id": "20260923-000000-0000", "parameters": {"iterations": 2000, "chains": 1}},
-            "- parameters.iterations: unknown parameter. Allowed: n_layers, vs_layers, "
-            "thickness_layers, n_iterations, n_burnin_iterations, n_chains. "
-            "Did you mean n_iterations?\n"
-            "- parameters.chains: unknown parameter. Allowed: n_layers, vs_layers, "
-            "thickness_layers, n_iterations, n_burnin_iterations, n_chains. "
-            "Did you mean n_chains?",
+            "- parameters.iterations: unknown parameter. Allowed: layering, free, n_layers, "
+            "vs_layers, thickness_layers, max_vs_drop, n_iterations, n_burnin_iterations, "
+            "n_chains. Did you mean n_iterations?\n"
+            "- parameters.chains: unknown parameter. Allowed: layering, free, n_layers, "
+            "vs_layers, thickness_layers, max_vs_drop, n_iterations, n_burnin_iterations, "
+            "n_chains. Did you mean n_chains?",
         ),
         (
             "job_status",

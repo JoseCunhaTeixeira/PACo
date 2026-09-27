@@ -8,9 +8,12 @@ from datetime import UTC, datetime
 from pathlib import Path
 
 import h5py
+import numpy as np
 import pytest
 from pydantic import ValidationError
+from sigpipe.base import DispersionCurve
 from sigpipe.masw.inversion import InversionError, InversionParameters, ThicknessLayer, VsLayer
+from sigpipe.masw.inversion.priors import Derived, PriorRules
 from sigpipe.masw.inversion.section import (
     COMPARISON_FIGURE,
     SECTION_FIGURE,
@@ -42,7 +45,7 @@ SMALL_WINDOWS = {"masw": {"length": 24, "step": 24}}
 SHORT = {"n_iterations": 500, "n_burnin_iterations": 50, "n_chains": 1}
 # xmid 2.88 has no curve: 2 points once G1 leaves trace 13 out of its image (the decay fitted
 # within the reach).
-PICKED = ("xmid_8.88", "xmid_14.88", "xmid_20.88")
+PICKED = ("xmid_2.88", "xmid_8.88", "xmid_14.88", "xmid_20.88")
 # The files PAC's invert_position writes in a window folder.
 PAC_FILES = {
     "SeismicInversion_DensityCurves_0000.png",
@@ -73,7 +76,7 @@ class Picked:
 class Inverted:
     record: InversionRecord
     folder: Path
-    progress: list[tuple[int, int]]
+    progress: list[tuple[int, int, str]]
 
 
 # The real runs are the slow part: one run is processed and picked the QC way, and inverted
@@ -92,9 +95,11 @@ def picked(demo_input_dir: Path, tmp_path_factory: pytest.TempPathFactory) -> Pi
 @pytest.fixture(scope="module")
 def inverted(picked: Picked, tmp_path_factory: pytest.TempPathFactory) -> Inverted:
     settings, folder = _copy(picked, tmp_path_factory.mktemp("inverted"))
-    progress: list[tuple[int, int]] = []
+    progress: list[tuple[int, int, str]] = []
     record = submit_inversion(picked.run_id, SHORT, settings)
-    record = run_inversion_job(record, settings, lambda done, total: progress.append((done, total)))
+    record = run_inversion_job(
+        record, settings, lambda done, total, doing: progress.append((done, total, doing))
+    )
     return Inverted(record, folder, progress)
 
 
@@ -143,15 +148,34 @@ def _window(
 
 
 def test_parameters_default_to_pacs_form() -> None:
+    # The layers chosen by the data, their bounds from each curve; the table's layers ready for
+    # the layers given.
     assert InversionParameters().model_dump() == {
+        "layering": "free",
+        "free": {
+            "vs_min": None,
+            "vs_max": None,
+            "depth_min": None,
+            "depth_max": None,
+            "max_layers": 8,
+        },
         "n_layers": 2,
-        "vs_layers": ({"vs_min": 100.0, "vs_max": 1_000.0, "vs_perturb_std": 20.0},) * 2,
+        "vs_layers": (
+            {"vs_min": 100.0, "vs_max": 1_000.0, "vs_perturb_std": 20.0, "vs_fixed": None},
+        )
+        * 2,
         "thickness_layers": (
-            {"thickness_min": 1.0, "thickness_max": 10.0, "thickness_perturb_std": 1.0},
+            {
+                "thickness_min": 1.0,
+                "thickness_max": 10.0,
+                "thickness_perturb_std": 1.0,
+                "thickness_fixed": None,
+            },
         ),
-        "n_iterations": 100_000,
-        "n_burnin_iterations": 10_000,
-        "n_chains": 5,
+        "max_vs_drop": 0.2,
+        "n_iterations": 150_000,
+        "n_burnin_iterations": 37_500,
+        "n_chains": 4,
     }
 
 
@@ -181,12 +205,12 @@ def test_parameters_are_checked(build: Callable[[], object], message: str) -> No
 
 
 def test_the_burnin_follows_the_iterations() -> None:
-    # A tenth, PAC's ratio: 2,000 iterations do not keep the default 10,000 of burn-in.
-    assert InversionParameters(n_iterations=2_000).n_burnin_iterations == 200
-    assert InversionParameters.model_validate({"n_iterations": 2e3}).n_burnin_iterations == 200
+    # A quarter, PAC's ratio: 2,000 iterations do not keep the default 37,500 of burn-in.
+    assert InversionParameters(n_iterations=2_000).n_burnin_iterations == 500
+    assert InversionParameters.model_validate({"n_iterations": 2e3}).n_burnin_iterations == 500
     # A burn-in the user gives is kept.
-    assert InversionParameters(n_iterations=2_000, n_burnin_iterations=500).n_burnin_iterations == (
-        500
+    assert InversionParameters(n_iterations=2_000, n_burnin_iterations=300).n_burnin_iterations == (
+        300
     )
 
 
@@ -204,7 +228,7 @@ def test_submit_records_a_queued_job_of_the_windows_g4_passed(
     assert (record.run_id, record.state, record.total, record.windows, record.given) == (
         picked.run_id,
         "queued",
-        3,
+        4,
         (),
         SHORT,
     )
@@ -260,29 +284,26 @@ def test_one_inversion_per_run_at_a_time(picked: Picked, tmp_path: Path, state: 
 def test_every_window_g4_passed_is_inverted(inverted: Inverted) -> None:
     record = inverted.record
 
-    assert (record.state, record.total, record.error) == ("succeeded", 3, None)
+    assert (record.state, record.total, record.error) == ("succeeded", 4, None)
     assert record.started_at is not None and record.finished_at is not None
     assert [window.folder for window in record.windows] == list(PICKED)
     # The smooth median is reported at round depths down to half the longest wavelength.
     assert record.depths_m and record.depths_m[0] > 0
-    # sigpipe's sampler sometimes fails a window twice, a chain keeping no predicted curve (more
-    # often with this short sampler and 4 layers; none of 72 inversions at PAC's effort).
-    failed = [window for window in record.windows if window.status == "failed"]
-    assert len(failed) <= 1
-    assert all(_sigpipes_known_failure(window.error) for window in failed)
+    # sigpipe's own chains: none fails (the sampler before 2026-09-27 could keep no predicted
+    # curve).
+    assert [window.status for window in record.windows] == ["succeeded"] * 4
     for window in record.windows:
-        if window.status == "failed":
-            continue
-        # 4 layers asked, never fewer than 3: fewer when the curve resolves fewer.
-        assert window.vs_m_s is not None and 3 <= len(window.vs_m_s) <= 4
+        # The layers chosen by the data, up to 8.
+        assert window.vs_m_s is not None and 1 <= len(window.vs_m_s) <= 8
         assert window.thicknesses_m is not None
         assert len(window.thicknesses_m) == len(window.vs_m_s) - 1
         assert window.vs_at_depths_m_s is not None
         assert len(window.vs_at_depths_m_s) == len(record.depths_m)
         assert window.useful_depth_m is not None and window.useful_depth_m > 0
         assert window.misfit is not None and window.misfit >= 0
-    # The first pass reports its progress; the gates' retries follow.
-    assert inverted.progress == [(done, 3) for done in range(4)]
+    # The first pass reports its progress, then each batch of the gates' retries its own.
+    assert inverted.progress[:5] == [(done, 4, "inverted") for done in range(5)]
+    assert all(doing.endswith(" retries") for _, _, doing in inverted.progress[5:])
     # What job_status reads is what the job returned.
     assert read_record(inverted.folder) == record
 
@@ -290,18 +311,22 @@ def test_every_window_g4_passed_is_inverted(inverted: Inverted) -> None:
 def test_g5s_retries_are_in_the_jobs_summary(inverted: Inverted) -> None:
     summary = inverted.record.summary
 
-    assert summary is not None and summary.startswith("G5: ")
-    # 3 models a chain: G5 asks, at once, the iterations 100 models a chain need. What comes of
+    assert summary is not None
+    assert any(line.startswith("G5: ") for line in summary.splitlines()[:2])
+    # 3 models a chain: G5 asks, at once, the iterations 100 models a chain need (after a burn-in
+    # of a quarter: 20,000). What comes of
     # it depends on the unseeded sampler: a window may need twice as many again, or a Vs bound
     # widened with them (its retry then named after that flag), and the line says "(each its
     # own)".
     (line,) = [line for line in summary.splitlines() if line.startswith("Retried G5:")][:1]
-    assert '"n_iterations":17000,"n_burnin_iterations":1700' in line
+    assert '"n_iterations":20000,"n_burnin_iterations":5000' in line
     assert all(window.verdict in ("pass", "retry", "reject") for window in inverted.record.windows)
-    # The settings the gates changed, from -> to, for the agent to report.
+    # The settings the gates changed, from -> to, for the agent to report; a list of layers in
+    # a few words, not as JSON.
     first = inverted.record.changed[0]
-    assert "n_iterations 500 -> 17000; n_burnin_iterations 50 -> 1700 at xmid " in first
-    assert ", by G5:" in first
+    assert "n_iterations 500 -> 20000; n_burnin_iterations 50 -> 5000" in first
+    assert " at xmid " in first and ", by G5:" in first
+    assert '"vs_min"' not in first
 
 
 def test_the_section_of_the_models_g5_passed_is_saved_like_pacs(inverted: Inverted) -> None:
@@ -329,16 +354,8 @@ def test_a_section_needs_two_models(tmp_path: Path) -> None:
     assert not (tmp_path / SECTION_FIGURE).exists()
 
 
-def _sigpipes_known_failure(error: str | None) -> bool:
-    """sigpipe's inversion_mcmc when a chain kept no predicted curve."""
-    return error is not None and ("dpred" in error or "could not be broadcast" in error)
-
-
 def test_windows_get_pacs_files(inverted: Inverted) -> None:
     for window in inverted.record.windows:
-        if window.status == "failed":
-            assert _sigpipes_known_failure(window.error)
-            continue
         files = {path.name for path in (inverted.folder / window.folder).iterdir()}
         assert files >= PAC_FILES
 
@@ -350,7 +367,44 @@ def test_a_window_whose_curve_is_gone_is_left_out(picked: Picked, tmp_path: Path
     record = run_inversion_job(submit_inversion(picked.run_id, SHORT, settings), settings)
 
     assert record.state == "succeeded"
-    assert [window.folder for window in record.windows] == ["xmid_14.88", "xmid_20.88"]
+    assert [window.folder for window in record.windows] == [
+        "xmid_2.88",
+        "xmid_14.88",
+        "xmid_20.88",
+    ]
+
+
+def test_a_window_whose_curve_gives_no_model_is_left_out_with_why(
+    picked: Picked, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    # p2: one curve spanning 9.2 to 11.2 m of wavelength failed the whole job. Now it is left
+    # out, with why, and the line's other windows are inverted.
+    from paco.qc import inverting
+
+    derive = inverting.derive_inversion
+    seen: list[DispersionCurve] = []
+
+    def narrow(curve: DispersionCurve, rules: PriorRules, given: object = None) -> Derived:
+        # The second curve gives no parameters, every time it is tried.
+        if len(seen) == 1 and not any(np.array_equal(curve.fs, one.fs) for one in seen):
+            seen.append(curve)
+        if len(seen) > 1 and np.array_equal(curve.fs, seen[1].fs):
+            raise InversionError("The curve's wavelengths resolve fewer than 3 layers.")
+        if not seen:
+            seen.append(curve)
+        return derive(curve, rules, given)  # pyright: ignore[reportArgumentType]
+
+    monkeypatch.setattr(inverting, "derive_inversion", narrow)
+    settings, _ = _copy(picked, tmp_path)
+
+    record = run_inversion_job(submit_inversion(picked.run_id, SHORT, settings), settings)
+
+    assert record.state == "succeeded"
+    failed = [window for window in record.windows if window.status == "failed"]
+    assert [window.error for window in failed] == [
+        "InversionError: The curve's wavelengths resolve fewer than 3 layers."
+    ]
+    assert len(record.windows) == 4
 
 
 def test_150_iterations_after_the_burnin_are_enough(picked: Picked, tmp_path: Path) -> None:
@@ -430,6 +484,7 @@ def test_summary_gives_the_range_of_the_models() -> None:
         "error": None,
         "summary": None,
         "changed": (),
+        "used": (),
     }
 
 

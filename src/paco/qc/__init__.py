@@ -48,6 +48,7 @@ from .log import (
     retries_at_gate,
     retries_by_unit,
     retries_in_run,
+    retries_of_inversion,
 )
 from .models import (
     STAGES,
@@ -84,6 +85,7 @@ from .report import (
     xmid_of,
 )
 from .rerun import rerun_phase_shift, rerun_picking
+from .used import inversion_used, picking_used, processing_used
 
 __all__ = [
     "ATTEMPTS_FOLDER",
@@ -139,6 +141,7 @@ __all__ = [
     "ensure_initial_attempts",
     "given_length",
     "invalidate",
+    "inversion_used",
     "invert_petro_line",
     "invertible",
     "judge_inversions",
@@ -158,7 +161,9 @@ __all__ = [
     "load_qc_config",
     "petro_models",
     "pick_line",
+    "picking_used",
     "process_line",
+    "processing_used",
     "read_attempts",
     "read_length_choice",
     "read_qc_config",
@@ -171,6 +176,7 @@ __all__ = [
     "retries_at_gate",
     "retries_by_unit",
     "retries_in_run",
+    "retries_of_inversion",
     "run_budget",
     "run_inversion_job",
     "select_windows",

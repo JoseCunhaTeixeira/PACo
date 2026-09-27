@@ -66,9 +66,21 @@ def test_a_jump_the_curves_do_not_show_is_inverted_again() -> None:
     assert flag.action.model_dump() == {
         "kind": "override",
         "stage": "inversion",
-        "overrides": {"n_iterations": 200_000, "n_burnin_iterations": 20_000},
+        "overrides": {"n_iterations": 200_000, "n_burnin_iterations": 50_000},
     }
     assert all(results[f"xmid_{x}.00"].verdict == "pass" for x in (2, 3, 5, 6))
+    # Sampled longer as often as the loop allows already: kept, with the warning.
+    curves = {model.unit: _curve(model.unit) for model in models}
+    parameters = {model.unit: PARAMETERS for model in models}
+    useful: dict[str, float | None] = {model.unit: 5.0 for model in models}
+    kept = {
+        result.unit: result
+        for result in judge_model_profile(
+            models, curves, parameters, useful, THRESHOLDS, (), ["xmid_4.00"]
+        )
+    }["xmid_4.00"]
+    assert kept.verdict == "pass"
+    assert kept.flags[0].action.model_dump()["kind"] == "keep"
 
 
 def test_a_jump_the_curves_show_too_is_kept() -> None:

@@ -1,16 +1,20 @@
 """A line from its records to G2, the way the QC workflow runs it (docs/qc_workflow.md, option B):
 S1 on every record, G1 with its fixes (a record preprocessed again with the changes G1 asks
-for, traces and records it excludes left out of the windows), the coherence rules for S2 (the
-band capped by G1's usable band, the window length from the ladder), S2 on the whole line, and
-G2 with its own retries (the phase shift done again for the windows it flags). What
-run_processing runs; the picking and G3, G4 are pick's."""
+for, traces and records it excludes left out of the windows), G1 over the line (the receivers
+off the amplitude decay in most records left out of every window), the coherence rules for S2
+(the band capped by G1's usable band, the window length from the ladder, the shots stacked
+between the near field and the line's reach), S2 on the whole line, and G2 with its own retries
+(the phase shift done again for the windows it flags). What run_processing runs; the picking
+and G3, G4 are pick's."""
 
 import json
+import shutil
 from collections.abc import Mapping
 from datetime import UTC, datetime
 from pathlib import Path
-from typing import Any
+from typing import Any, cast
 
+import numpy as np
 from sigpipe.masw.pipelines import PREPROCESSED, record_folder
 from sigpipe.masw.presets import (
     ActivePreset,
@@ -30,13 +34,23 @@ from sigpipe.masw.runs.processing import (
     process_windows,
     write_manifest,
 )
+from sigpipe.masw.runs.stopping import Stopped
 from sigpipe.masw.windows import Exclusions, build_windows
 
-from paco.qc.attempts import invalidate_record
+from paco import stopping
+from paco.qc.attempts import invalidate_record, restore_record
 from paco.qc.budgets import budget_spent
-from paco.qc.coherence import TrialJudge, cap_band, choose_length, given_length
+from paco.qc.coherence import (
+    TrialJudge,
+    cap_band,
+    choose_length,
+    given_length,
+    near_field,
+    near_field_windows,
+    near_note,
+)
 from paco.qc.config import QCConfig, snapshot_qc_config
-from paco.qc.g1_signal import judge_signal
+from paco.qc.g1_signal import decay_outliers, judge_receivers, judge_signal
 from paco.qc.g2_image import judge_image
 from paco.qc.g4_profile import LINE
 from paco.qc.judging import shared_band, stream_of
@@ -77,9 +91,34 @@ def process_line(
     mode = (overrides or {}).get("mode", loaded.kind)
     preset = resolve_preset(make_preset(str(mode), overrides), loaded)
     run_id, run_folder = new_run_folder(settings.output_dir / profile)
+    try:
+        return _process(
+            run_id, run_folder, profile, overrides, settings, config, on_progress, loaded, preset
+        )
+    except Stopped:
+        # A run stopped before its end is not kept: nothing of it half-made.
+        shutil.rmtree(run_folder, ignore_errors=True)
+        raise
+
+
+def _process(
+    run_id: str,
+    run_folder: Path,
+    profile: str,
+    overrides: Mapping[str, object] | None,
+    settings: Settings,
+    config: QCConfig,
+    on_progress: ProgressCallback | None,
+    loaded: Profile,
+    preset: ActivePreset | PassivePreset,
+) -> QCReport:
+    """process_line's work, in the new run `run_folder`."""
+    mode = (overrides or {}).get("mode", loaded.kind)
     snapshot_qc_config(config, run_folder)
     started_at = datetime.now(UTC)
-    records = preprocess_records(preset, loaded, run_folder, settings.workers)
+    records = preprocess_records(
+        preset, loaded, run_folder, settings.workers, stop=stopping.current()
+    )
     for record in records:
         _log(run_folder, record.name, "preprocessing", 1, {}, "initial", started_at, record)
     reach = line_reach(run_folder, loaded, records, config)
@@ -104,6 +143,13 @@ def process_line(
     changes: dict[str, Any] = deep_merge(band, {"masw": {"length": choice.length}})
     preset = resolve_preset(apply_overrides(preset, changes), loaded)
     windows = build_windows(loaded, preset.masw)
+    near, longest = near_field(overrides, str(mode), choice)
+    near_notes: tuple[str, ...] = ()
+    logged = dict(changes)
+    if near is not None and longest is not None:
+        windows, near_only = near_field_windows(windows, near)
+        near_notes = (near_note(near, longest, near_only),)
+        logged["near_field"] = {"distance_m": near}
     if not windows:
         raise RunError(
             f"No window of {choice.length} receivers of profile '{profile}' has a valid shot: "
@@ -111,7 +157,14 @@ def process_line(
         )
     imaged_at = datetime.now(UTC)
     outcomes = process_windows(
-        preset, windows, records, run_folder, settings.workers, on_progress, exclusions=exclusions
+        preset,
+        windows,
+        records,
+        run_folder,
+        settings.workers,
+        on_progress,
+        exclusions=exclusions,
+        stop=stopping.current(),
     )
     manifest = write_manifest(
         run_id,
@@ -145,12 +198,12 @@ def process_line(
             unit=LINE,
             stage="phase_shift",
             attempt=1,
-            parameters=changes,
+            parameters=logged,
             triggered_by="initial",
             started_at=started_at,
             finished_at=manifest.finished_at,
             status="succeeded",
-            notes=band_notes + far_notes + choice.notes,
+            notes=band_notes + far_notes + choice.notes + near_notes,
         ),
     )
     settle_images(run_id, run_folder, manifest, config, settings, usable)
@@ -279,16 +332,29 @@ def settle_records(
                     record_folder(run_folder / RECORDS_FOLDER, by_name[name]), numbers[name] - 1
                 )
             started_at = datetime.now(UTC)
-            redone = preprocess_records(
-                preset,
-                profile,
-                run_folder,
-                workers,
-                presets={
-                    name: resolve_preset(apply_overrides(preset, parameters), profile)
-                    for name, (parameters, _) in again.items()
-                },
-            )
+            stopped: Stopped | None = None
+            try:
+                redone = preprocess_records(
+                    preset,
+                    profile,
+                    run_folder,
+                    workers,
+                    presets={
+                        name: resolve_preset(apply_overrides(preset, parameters), profile)
+                        for name, (parameters, _) in again.items()
+                    },
+                    stop=stopping.current(),
+                )
+            except Stopped as error:
+                # The records that finished logged below; the others given back their previous
+                # stream (a redo's run keeps them; a new run is removed whole).
+                stopped = error
+                redone = cast(tuple[RecordOutcome, ...], error.kept or ())
+                for name in set(again) - {outcome.name for outcome in redone}:
+                    restore_record(
+                        record_folder(run_folder / RECORDS_FOLDER, by_name[name]),
+                        numbers[name] - 1,
+                    )
             for outcome in redone:
                 outcomes[outcome.name] = outcome
                 parameters, trigger = again[outcome.name]
@@ -302,6 +368,8 @@ def settle_records(
                     started_at,
                     outcome,
                 )
+            if stopped is not None:
+                raise stopped
     attempts = read_attempts(run_folder)
     for name in sorted({*exclusions.traces, *exclusions.records}):
         attempt = latest(attempts, name, "preprocessing")
@@ -313,8 +381,64 @@ def settle_records(
             else f"traces {list(exclusions.traces[name])} left out of the windows"
         )
         record_notes(run_folder, name, "preprocessing", attempt.attempt, (note,))
+    if active:
+        exclusions = settle_receivers(run_folder, profile, outcomes, exclusions, config, reach_m)
     usable: Bands = {name: result.kept.band_hz for name, result in results.items()}
     return tuple(outcomes.values()), exclusions, usable
+
+
+def settle_receivers(
+    run_folder: Path,
+    profile: Profile,
+    outcomes: Mapping[str, RecordOutcome],
+    exclusions: Exclusions,
+    config: QCConfig,
+    reach_m: float | None,
+) -> Exclusions:
+    """G1 over the line, once each record is settled: each receiver judged over every record
+    that reaches it, those off the amplitude decay in most of them left out of every window.
+    A trace off it in a few records stays (the one nearest each shot, where the fitted decay
+    overshoots; a burst of noise): a record's own is no bad geophone. Logged as G1's result on
+    the line."""
+    started_at = datetime.now(UTC)
+    off: dict[int, int] = {}
+    reached: dict[int, int] = {}
+    kept = [
+        name
+        for name, outcome in outcomes.items()
+        if outcome.status == "succeeded" and name not in exclusions.records
+    ]
+    for name in kept:
+        stream = stream_of(run_folder / outcomes[name].folder / PREPROCESSED)
+        outliers, judged = decay_outliers(
+            stream, config.signal, exclusions.traces.get(name, ()), reach_m
+        )
+        for receiver in np.flatnonzero(judged):
+            reached[int(receiver)] = reached.get(int(receiver), 0) + 1
+        for receiver in np.flatnonzero(outliers):
+            off[int(receiver)] = off.get(int(receiver), 0) + 1
+    result = judge_receivers(
+        off, reached, [receiver.x for receiver in profile.receivers], config.signal
+    )
+    append_attempt(
+        run_folder,
+        Attempt(
+            unit=LINE,
+            stage="preprocessing",
+            attempt=1,
+            parameters={},
+            triggered_by="initial",
+            started_at=started_at,
+            finished_at=datetime.now(UTC),
+            status="succeeded",
+            results={"G1": result},
+        ),
+    )
+    for flag in result.flags:
+        if isinstance(flag.action, ExcludeTraces):
+            for name in kept:
+                exclusions = exclusions.with_traces(name, flag.action.traces)
+    return exclusions
 
 
 def settle_images(

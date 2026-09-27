@@ -1,6 +1,7 @@
 """G5 on measures with a known answer: a model that fits and chains that agree, chains that do
-not, a posterior piled at a bound, a misfit only the smoothing makes, an underfit, points no
-mode reaches."""
+not, a posterior piled at a bound, a model deeper than the data inform, alike layers, a misfit
+only the smoothing makes, an underfit, points no mode reaches; the layers chosen by the data;
+and a retry's changes as one set of parameters."""
 
 from typing import Any
 
@@ -40,13 +41,15 @@ def _measures(**changes: Any) -> InversionMeasures:  # noqa: ANN401
     values: dict[str, Any] = {
         "fits": (_fit("smooth_median"), _fit("median")),
         "rhat": {"vs1": 1.01, "vs2": 1.02, "thick1": 1.01},
-        "acceptance": (60.0, 62.0, 58.0, 61.0, 64.0),
+        "ess": {"vs1": 2_400.0, "vs2": 1_900.0, "thick1": 2_100.0},
+        "autocorrelation": {"vs1": 0.1, "vs2": 0.2, "thick1": 0.15},
+        "acceptance": (25.0, 24.0, 26.0, 23.0, 27.0),
         "samples_per_chain": 600,
         "at_bounds": (
             BoundShare(parameter="vs2", bound="min", value=130.0, share=0.03),
             BoundShare(parameter="thick1", bound="max", value=5.5, share=0.02),
         ),
-        "useful_depth_m": 4.0,
+        "useful_depth_m": 5.0,
         "depth_max_m": 6.5,
         "vs_at_depths": ((1.0, 230.0), (2.0, 228.0), (3.0, 210.0), (4.0, 200.0), (5.0, 200.0)),
         "vs_layers": (230.0, 200.0),
@@ -77,10 +80,12 @@ def test_a_model_that_fits_with_agreeing_chains_passes() -> None:
         "residual_long": 1.0,
         "misfit_layered": 0.6,
         "rhat": 1.02,
-        "acceptance": 58.0,
+        "ess": 1_900.0,  # the least of the parameters', against 200
+        "autocorrelation": 0.2,  # reported
         "samples_per_chain": 600,
         "at_bound": 0.03,
-        "useful_depth": 4.0,
+        "useful_depth": 5.0,
+        "contrast": 14.0,  # 230 over 200 m/s
     }
     assert result.kept.wavelength_m == (2.0, 11.0) and result.kept.n_points == 9
 
@@ -89,8 +94,9 @@ def test_a_model_that_fits_with_agreeing_chains_passes() -> None:
     "change",
     [
         {"rhat": {"vs1": 1.01, "vs2": 1.3, "thick1": 1.01}},
-        {"acceptance": (60.0, 5.0, 58.0, 61.0, 64.0)},
         {"samples_per_chain": 50},
+        # Chains that agree, but each sample much like the one before: few independent ones.
+        {"ess": {"vs1": 2_400.0, "vs2": 150.0, "thick1": 2_100.0}},
         {"rhat": {"vs1": None, "vs2": None, "thick1": None}},
     ],
 )
@@ -102,22 +108,72 @@ def test_chains_that_do_not_agree_sample_twice_as_long(change: dict[str, Any]) -
     assert flag.action.model_dump() == {
         "kind": "override",
         "stage": "inversion",
-        "overrides": {"n_iterations": 200_000, "n_burnin_iterations": 20_000},
+        "overrides": {"n_iterations": 300_000, "n_burnin_iterations": 75_000},
     }
 
 
+QUANTILES = {"vs1": (200.0, 260.0), "vs2": (150.0, 300.0), "thick1": (2.0, 3.0)}
+
+
+def test_chains_that_do_not_agree_first_narrow_each_range_to_their_samples() -> None:
+    measures = _measures(rhat={"vs1": 1.01, "vs2": 1.3, "thick1": 1.01}, quantiles=QUANTILES)
+
+    result = _judge(measures)
+
+    assert result.verdict == "retry"
+    flag = _flags(result)["not_converged"]
+    overrides = flag.action.model_dump()["overrides"]
+    # The samples' 5th to 95th percentiles, widened by a tenth of that span on each side,
+    # within the bounds they had; the iterations kept.
+    assert [(layer["vs_min"], layer["vs_max"]) for layer in overrides["vs_layers"]] == [
+        (194.0, 266.0),
+        (135.0, 315.0),
+    ]
+    (thickness,) = overrides["thickness_layers"]
+    assert (thickness["thickness_min"], thickness["thickness_max"]) == (1.9, 3.1)
+    # The steps shrink with the ranges.
+    assert overrides["vs_layers"][0]["vs_perturb_std"] < PARAMETERS.vs_layers[0].vs_perturb_std
+    assert "n_iterations" not in overrides
+    assert "narrow each range to where its samples lie (Vs1 194-266" in flag.message
+
+
+def test_once_narrowed_chains_that_still_disagree_sample_longer() -> None:
+    measures = _measures(rhat={"vs1": 1.01, "vs2": 1.3, "thick1": 1.01}, quantiles=QUANTILES)
+
+    result = judge_model("xmid_8.88", measures, PARAMETERS, THRESHOLDS, narrowed=True)
+
+    assert _flags(result)["not_converged"].action.model_dump()["overrides"] == {
+        "n_iterations": 300_000,
+        "n_burnin_iterations": 75_000,
+    }
+
+
+def test_a_narrowed_range_keeps_a_width() -> None:
+    # Samples piled on one value: the range keeps a tenth of the one it had, about them.
+    measures = _measures(
+        rhat={"vs1": 1.3, "vs2": 1.01, "thick1": 1.01},
+        quantiles={"vs1": (300.0, 300.0), "vs2": (150.0, 300.0), "thick1": (2.0, 3.0)},
+    )
+
+    overrides = _flags(_judge(measures))["not_converged"].action.model_dump()["overrides"]
+
+    first = overrides["vs_layers"][0]
+    assert (first["vs_min"], first["vs_max"]) == (284.0, 316.0)
+
+
 def test_too_few_models_a_chain_ask_for_enough_iterations_at_once() -> None:
-    # 2,000 iterations keep 12 models a chain: doubling twice would still leave 48.
-    short = PARAMETERS.model_copy(update={"n_iterations": 2_000, "n_burnin_iterations": 200})
+    # 2,000 iterations keep 12 models a chain: doubling twice would still leave 48. 100 models a
+    # chain after a burn-in of a quarter: 20,000.
+    short = PARAMETERS.model_copy(update={"n_iterations": 2_000, "n_burnin_iterations": 500})
 
     result = _judge(_measures(samples_per_chain=12), short)
 
     flag = _flags(result)["not_converged"]
     assert flag.action.model_dump()["overrides"] == {
-        "n_iterations": 17_000,
-        "n_burnin_iterations": 1_700,
+        "n_iterations": 20_000,
+        "n_burnin_iterations": 5_000,
     }
-    assert flag.message.endswith("sample longer, 17000 iterations.")
+    assert flag.message.endswith("sample longer, 20000 iterations.")
 
 
 def test_a_posterior_piled_at_a_vs_bound_widens_that_bound() -> None:
@@ -252,3 +308,230 @@ def test_points_no_mode_of_the_model_reaches_reject_the_curve() -> None:
 def test_thresholds_round_trip() -> None:
     thresholds = ModelThresholds(max_misfit=1.5, max_rhat=1.05)
     assert ModelThresholds.model_validate_json(thresholds.model_dump_json()) == thresholds
+
+
+def _layers(n_layers: int, thickest: float, thinnest: float = 1.0) -> InversionParameters:
+    return InversionParameters.model_validate(
+        {
+            "n_layers": n_layers,
+            "vs_layers": [{"vs_min": 100.0, "vs_max": 1000.0}] * (n_layers - 1)
+            + [{"vs_min": 100.0, "vs_max": 2000.0}],
+            "thickness_layers": [
+                {"thickness_min": thinnest, "thickness_max": thickest, "thickness_perturb_std": 1.0}
+            ]
+            * (n_layers - 1),
+        }
+    )
+
+
+def test_a_model_deeper_than_the_data_inform_is_shrunk_to_them() -> None:
+    # Four layers down to 3 x 13 = 39 m, the data informing the top 18 m only: the layers end
+    # at 18 m, 6 m each at most, their steps in proportion.
+    result = _judge(_measures(useful_depth_m=18.0), _layers(4, 13.0))
+
+    assert result.verdict == "retry"
+    flag = _flags(result)["too_deep"]
+    assert flag.message == (
+        "The data inform the model down to 18 m, where its half-space may start as deep as "
+        "39 m: the layers end at 18 m."
+    )
+    layers = flag.action.model_dump()["overrides"]["thickness_layers"]
+    assert [(layer["thickness_max"], layer["thickness_perturb_std"]) for layer in layers] == [
+        (6.0, 0.417)
+    ] * 3
+    useful = next(metric for metric in result.metrics if metric.name == "useful_depth")
+    assert (useful.threshold, useful.passed) == (31.2, False)
+    # Shallower still, fewer layers fit: 3 m holds two layers of at least 1 m above the
+    # half-space, with room.
+    fewer = _flags(_judge(_measures(useful_depth_m=3.0), _layers(4, 13.0)))["too_deep"]
+    assert fewer.action.model_dump()["overrides"]["n_layers"] == 3
+    assert fewer.message.endswith("the layers end at 3 m, 3 of them.")
+    # Too little room even for three layers: the depth stays, and the flag says so.
+    kept = _flags(_judge(_measures(useful_depth_m=1.0), _layers(3, 1.5)))["too_deep"]
+    assert kept.action.model_dump()["kind"] == "keep"
+
+
+def test_the_layer_count_waits_for_the_depth() -> None:
+    # A misfit and a model too deep: the depth first, the layers once it ends where the data
+    # inform it.
+    fits = (_fit("smooth_median", (0.6, 0.4, 3.0)), _fit("median", (0.6, 0.4, 2.8)))
+    result = _judge(_measures(fits=fits, useful_depth_m=18.0), _layers(4, 13.0))
+
+    assert set(_flags(result)) == {"too_deep"}
+
+
+def test_alike_layers_of_a_model_that_fits_are_one() -> None:
+    measures = _measures(vs_layers=(210.0, 330.0, 340.0, 520.0), useful_depth_m=None)
+
+    result = _judge(measures, _layers(4, 3.0))
+
+    assert result.verdict == "retry"
+    flag = _flags(result)["alike_layers"]
+    assert flag.message == (
+        "Layers 2 and 3 of the layered median (330 and 340 m/s, 3% apart) are one: one layer fewer."
+    )
+    assert flag.action.model_dump()["overrides"] == {"n_layers": 3}
+    # Not below the fewest the loop allows: 3 layers misfit before.
+    kept = judge_model("xmid_8.88", measures, _layers(4, 3.0), THRESHOLDS, fewest_layers=4)
+    assert kept.verdict == "pass"
+    # Nor while the model misfits: then it needs a layer more, not fewer.
+    fits = (_fit("smooth_median", (0.6, 0.4, 3.0)), _fit("median", (0.6, 0.4, 2.8)))
+    assert set(_flags(_judge(measures.model_copy(update={"fits": fits}), _layers(4, 3.0)))) == {
+        "underfit"
+    }
+
+
+def test_a_retrys_changes_are_one_set_of_parameters() -> None:
+    # Two thicknesses piled at their thickest, well within the curve's reach: both flags carry
+    # the same layers, each widening in.
+    piled = (
+        BoundShare(parameter="thick1", bound="max", value=3.0, share=0.3),
+        BoundShare(parameter="thick2", bound="max", value=3.0, share=0.2),
+    )
+    result = judge_model(
+        "xmid_8.88",
+        _measures(at_bounds=piled, useful_depth_m=None),
+        _layers(3, 3.0),
+        THRESHOLDS,
+        30.0,
+    )
+
+    first, second = (flag.action.model_dump()["overrides"] for flag in result.flags)
+    assert first == second
+    assert [layer["thickness_max"] for layer in first["thickness_layers"]] == [3.75, 3.75]
+
+
+def test_a_model_the_curve_informs_nowhere_is_rejected() -> None:
+    # The posterior as wide as the prior at every depth: nothing to shrink, nothing to retry.
+    result = _judge(_measures(useful_depth_m=0.0), _layers(4, 13.0))
+
+    assert result.verdict == "reject"
+    assert set(_flags(result)) == {"uninformed"}
+    flag = _flags(result)["uninformed"]
+    assert (flag.stage, flag.fixable) == ("phase_shift", False)
+    assert "longer windows" in flag.message
+
+
+def test_implausible_profiles_are_reported_never_failed() -> None:
+    # A layer at 40 % of the Vs above it, and a half-space faster than rocks near the surface.
+    result = _judge(
+        _measures(vs_layers=(320.0, 128.0, 2_700.0), useful_depth_m=None), _layers(3, 3.0)
+    )
+
+    assert result.verdict == "pass"
+    flags = _flags(result)
+    assert flags["strong_inversion"].message.startswith(
+        "Layer 2 of the layered median (128 m/s) is 40% of the Vs above it (320 m/s)"
+    )
+    assert flags["implausible_vs"].action.model_dump()["kind"] == "keep"
+
+
+def test_the_posterior_is_judged_once_the_chains_agree() -> None:
+    # Chains that disagree say nothing yet of what the data inform: sample longer first.
+    result = _judge(_measures(useful_depth_m=0.0, samples_per_chain=50), _layers(4, 13.0))
+
+    assert set(_flags(result)) == {"not_converged"}
+    assert (
+        _judge(_measures(useful_depth_m=18.0, samples_per_chain=50), _layers(4, 13.0)).flags[0].name
+        == "not_converged"
+    )
+
+
+def test_chains_that_still_disagree_are_kept_with_a_warning() -> None:
+    # Sampled longer twice already: the model is kept, said to hold several modes.
+    disagree = _measures(rhat={"vs1": 1.01, "vs2": 1.6, "thick1": 1.01})
+
+    result = judge_model("xmid_8.88", disagree, PARAMETERS, THRESHOLDS, longer_runs=2)
+
+    assert result.verdict == "pass"
+    flag = _flags(result)["multimodal"]
+    assert flag.action.model_dump()["kind"] == "keep"
+    assert "after sampling 2 times longer (R-hat 1.6" in flag.message
+    assert judge_model("xmid_8.88", disagree, PARAMETERS, THRESHOLDS, longer_runs=1).verdict == (
+        "retry"
+    )
+
+
+def test_chains_that_agree_with_few_samples_are_kept_and_judged() -> None:
+    # R-hat within the limit, 150 effective samples: sampled longer twice, kept as it stands.
+    few = _measures(ess={"vs1": 2_400.0, "vs2": 150.0, "thick1": 2_100.0})
+
+    result = judge_model("xmid_8.88", few, PARAMETERS, THRESHOLDS, longer_runs=2)
+
+    assert (result.verdict, [flag.name for flag in result.flags]) == ("pass", ["few_samples"])
+    # Agreeing chains are enough to judge what the data inform, whatever their samples.
+    uninformed = few.model_copy(update={"useful_depth_m": 0.0})
+    assert _flags(judge_model("xmid_8.88", uninformed, PARAMETERS, THRESHOLDS))["uninformed"]
+
+
+# The layers chosen by the data: one Vs range, a depth, the most layers.
+FREE = InversionParameters.model_validate(
+    {
+        "layering": "free",
+        "free": {
+            "vs_min": 100.0,
+            "vs_max": 2_000.0,
+            "depth_min": 1.0,
+            "depth_max": 15.0,
+            "max_layers": 8,
+        },
+    }
+)
+WATCHED = {
+    "rhat": {"vs@1m": 1.01, "vs@3m": 1.02, "vs@5m": 1.01, "layers": 1.4, "noise": 1.3},
+    "ess": {"vs@1m": 900.0, "vs@3m": 600.0, "vs@5m": 700.0, "layers": 20.0, "noise": 30.0},
+    "watched": ("vs@1m", "vs@3m", "vs@5m"),
+    "at_bounds": (),
+}
+
+
+def test_the_chains_are_judged_on_vs_at_the_depths_watched() -> None:
+    # The number of layers and the noise factor mix slowly; the models' Vs is what is used.
+    result = _judge(_measures(**WATCHED), FREE)
+
+    assert result.verdict == "pass"
+    metrics = {metric.name: metric.value for metric in result.metrics}
+    assert (metrics["rhat"], metrics["ess"]) == (1.02, 600.0)
+    # Chains that disagree at a depth watched: twice as long, no range to narrow.
+    far = WATCHED | {"rhat": {"vs@1m": 1.01, "vs@3m": 1.3, "vs@5m": 1.01}}
+    flag = _flags(_judge(_measures(**far), FREE))["not_converged"]
+    assert flag.action.model_dump()["overrides"] == {
+        "n_iterations": 300_000,
+        "n_burnin_iterations": 75_000,
+    }
+
+
+def test_the_datas_layers_piled_at_a_bound_widen_it() -> None:
+    piled = (
+        BoundShare(parameter="half_space_vs", bound="max", value=2_000.0, share=0.3),
+        BoundShare(parameter="layers", bound="max", value=8.0, share=0.4),
+        BoundShare(parameter="deepest_interface", bound="max", value=15.0, share=0.5),
+    )
+
+    result = _judge(_measures(**(WATCHED | {"at_bounds": piled})), FREE)
+
+    flags = _flags(result)
+    assert result.verdict == "retry"
+    # The Vs range and the most layers widened as one set; the depth kept: the curve's reach.
+    free = flags["at_bound"].action.model_dump()["overrides"]["free"]
+    assert (free["vs_max"], free["max_layers"], free["depth_max"]) == (2_500, 10, 15.0)
+    assert flags["deep_interface"].action.kind == "keep"
+    # At the loop's limit, the layers are kept, said.
+    most = FREE.model_copy(update={"free": FREE.free.model_copy(update={"max_layers": 10})})
+    again = _flags(_judge(_measures(**(WATCHED | {"at_bounds": piled[1:2]})), most))
+    assert set(again) == {"most_layers"}
+
+
+def test_the_datas_layers_that_misfit_are_rejected() -> None:
+    misfit = _fit("smooth_median", (3.0, 0.4, 0.3))
+    result = _judge(
+        _measures(**(WATCHED | {"fits": (misfit, _fit("median", (3.0, 0.4, 0.3)))})), FREE
+    )
+
+    assert result.verdict == "reject"
+    assert "not fitted by the data's own layers, up to 8" in str(
+        _flags(result)["underfit"].action.model_dump()
+    )
+    # Deeper than the data inform: reported, the depth is the curve's reach.
+    shallow = _judge(_measures(**(WATCHED | {"useful_depth_m": 3.0})), FREE)
+    assert shallow.verdict == "pass"

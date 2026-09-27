@@ -2,10 +2,12 @@
 traces; amplitudes off the decay with offset; the SNR and the usable band,
 from a surface-wave window against a noise window; lateral coherence; the trigger; and what a
 mute removed. On a passive record, only the checks that need no trigger. The measures are
-sigpipe's (sigpipe.masw.quality.signal); G1 judges them."""
+sigpipe's (sigpipe.masw.quality.signal); G1 judges them. A trace off the decay in one record is
+reported, not left out: G1 over the line (`judge_receivers`) leaves out the receivers off it in
+most of the records that reach them, a bad geophone."""
 
 import math
-from collections.abc import Collection
+from collections.abc import Collection, Mapping, Sequence
 
 import numpy as np
 from pydantic import BaseModel, ConfigDict, Field
@@ -25,6 +27,7 @@ from sigpipe.masw.quality.signal import (
 from paco.qc.models import ExcludeRecord, ExcludeTraces, Flag, GateResult, Kept, Metric, Override
 
 GATE = "G1"
+LINE = "line"  # the unit of the line-level result, as G4's
 
 
 class SignalThresholds(BaseModel):
@@ -52,6 +55,16 @@ class SignalThresholds(BaseModel):
         default=2.0,
         gt=1,
         description="...and by at least this factor: a smooth decay has tiny MADs.",
+    )
+    rms_outlier_share: float = Field(
+        default=0.5,
+        gt=0,
+        le=1,
+        description="A receiver off the decay in at least this share of the records that reach "
+        "it is left out of every window: a bad geophone. Off in fewer, the records' own.",
+    )
+    rms_outlier_min_records: int = Field(
+        default=3, ge=1, description="...over at least this many records."
     )
     min_snr_db: float = Field(default=6.0, description="Median SNR of the traces, in dB.")
     reach_snr_db: float = Field(
@@ -100,8 +113,7 @@ def judge_signal(
     the traces within `reach_m` of the shot (the line's reach, beyond which the traces carry no
     wave)."""
     xt = preprocessed.xt
-    left_out = np.zeros(xt.shape[0], dtype=bool)
-    left_out[[index for index in excluded if 0 <= index < xt.shape[0]]] = True
+    left_out = _left_out(xt.shape[0], excluded)
     dead, clipped, nan = (
         mask & ~left_out
         for mask in dead_clipped_nan(xt, thresholds.dead_ratio, thresholds.clip_share)
@@ -170,46 +182,13 @@ def judge_signal(
 
     finite = np.nan_to_num(xt)
     rms = np.sqrt(np.mean(finite**2, axis=1))
-    # The line's reach: beyond it the traces carry no wave, and no window stacks them.
-    within = np.ones(offsets.size, dtype=bool)
-    if reach_m is not None and (offsets <= reach_m).any():
-        within = offsets <= reach_m
-    # The decay is fitted on every trace within the reach that is neither dead, clipped nor NaN,
-    # those already left out among them: excluding a trace must not move the fit, or each round
-    # excludes more. Within the reach only: over the whole line the noise floor flattens the fit,
-    # and the traces nearest the shots, the strongest, read too loud.
-    outliers = (
-        rms_decay_outliers(
-            rms,
-            offsets,
-            ~(dead | clipped | nan) & within,
-            thresholds.rms_outlier_mads,
-            thresholds.rms_outlier_factor,
-        )
-        & ~left_out
-        & within
-    )
-    metrics.append(
-        Metric(
-            name="rms_outliers",
-            value=int(outliers.sum()),
-            threshold=0,
-            bound="max",
-            passed=not outliers.any(),
-        )
-    )
-    if outliers.any():
-        traces = tuple(int(i) for i in np.flatnonzero(outliers))
-        flags.append(
-            Flag(
-                name="rms_outliers",
-                message=f"Traces {list(traces)} have an amplitude far off the decay with offset: "
-                "bad coupling, not a parameter.",
-                stage="preprocessing",
-                action=ExcludeTraces(record=record, traces=traces),
-                fixable=False,
-            )
-        )
+    within = _within(offsets, reach_m)
+    # Reported, not left out: a trace off the decay in this record alone (the one nearest the
+    # shot, where the fitted decay overshoots; a burst of noise) is no bad geophone. The line
+    # judges each receiver over every record (judge_receivers). The record's own measures leave
+    # them out.
+    outliers, _ = _off_decay(rms, offsets, ~(dead | clipped | nan), within, left_out, thresholds)
+    metrics.append(Metric(name="rms_outliers", value=int(outliers.sum()), passed=True))
 
     usable = ~(bad_traces | outliers)
     measured = usable & within if (usable & within).any() else usable
@@ -374,6 +353,116 @@ def judge_signal(
 
     kept = Kept(band_hz=band, n_traces=int(usable.sum()))
     return _result(record, metrics, flags, kept)
+
+
+def decay_outliers(
+    preprocessed: Stream,
+    thresholds: SignalThresholds,
+    excluded: Collection[int] = (),
+    reach_m: float | None = None,
+) -> tuple[np.ndarray, np.ndarray]:
+    """The record's traces off the decay with offset (receiver indices as a mask), and those
+    judged for it: alive, within `reach_m` of the shot, not `excluded`."""
+    xt = preprocessed.xt
+    left_out = _left_out(xt.shape[0], excluded)
+    dead, clipped, nan = dead_clipped_nan(xt, thresholds.dead_ratio, thresholds.clip_share)
+    offsets = np.asarray(preprocessed.acquisition.offsets, dtype=float)
+    rms = np.sqrt(np.mean(np.nan_to_num(xt) ** 2, axis=1))
+    return _off_decay(
+        rms, offsets, ~(dead | clipped | nan), _within(offsets, reach_m), left_out, thresholds
+    )
+
+
+def judge_receivers(
+    off: Mapping[int, int],
+    reached: Mapping[int, int],
+    positions: Sequence[float],
+    thresholds: SignalThresholds,
+) -> GateResult:
+    """G1 over the line: the receivers off the decay with offset (`off`: in how many records)
+    in at least `rms_outlier_share` of the records that reach them (`reached`), and in
+    `rms_outlier_min_records` at least, left out of every window: a noisy or badly coupled
+    geophone. `positions`: each receiver's x."""
+    bad = [
+        receiver
+        for receiver, count in sorted(reached.items())
+        if count >= thresholds.rms_outlier_min_records
+        and off.get(receiver, 0) >= math.ceil(thresholds.rms_outlier_share * count)
+    ]
+    metrics = [
+        Metric(
+            name="off_decay_receivers",
+            value=len(bad),
+            threshold=0,
+            bound="max",
+            passed=not bad,
+        )
+    ]
+    flags: list[Flag] = []
+    if bad:
+        each = [
+            f"{positions[receiver]:g} m ({off[receiver]} of {reached[receiver]} records)"
+            for receiver in bad
+        ]
+        which, its = (
+            (f"The receiver at {each[0]} is", "its")
+            if len(bad) == 1
+            else (f"The receivers at {', '.join(each[:-1])} and {each[-1]} are", "their")
+        )
+        flags.append(
+            Flag(
+                name="off_decay_receivers",
+                message=f"{which} too weak or too strong for {its} distance from the shot (off "
+                "the amplitude decay with offset) in most of the records that reach "
+                f"{'it' if len(bad) == 1 else 'them'}: a noisy or badly coupled geophone, left "
+                "out of every window.",
+                stage="preprocessing",
+                action=ExcludeTraces(record=LINE, traces=tuple(bad)),
+                fixable=False,
+            )
+        )
+    # The receivers left out, the line's records stand.
+    return GateResult(
+        gate=GATE, unit=LINE, verdict="pass", metrics=tuple(metrics), flags=tuple(flags)
+    )
+
+
+def _off_decay(
+    rms: np.ndarray,
+    offsets: np.ndarray,
+    alive: np.ndarray,
+    within: np.ndarray,
+    left_out: np.ndarray,
+    thresholds: SignalThresholds,
+) -> tuple[np.ndarray, np.ndarray]:
+    """The traces off the decay with offset, and those judged. The decay is fitted on every
+    trace `alive` within the reach, those already left out among them: excluding a trace must
+    not move the fit, or each round excludes more. Within the reach only: over the whole line
+    the noise floor flattens the fit, and the traces nearest the shots, the strongest, read too
+    loud."""
+    fit_on = alive & within
+    outliers = (
+        rms_decay_outliers(
+            rms, offsets, fit_on, thresholds.rms_outlier_mads, thresholds.rms_outlier_factor
+        )
+        & ~left_out
+        & within
+    )
+    return outliers, fit_on & ~left_out
+
+
+def _within(offsets: np.ndarray, reach_m: float | None) -> np.ndarray:
+    """The traces within the line's reach: beyond it they carry no wave, and no window stacks
+    them."""
+    if reach_m is not None and (offsets <= reach_m).any():
+        return offsets <= reach_m
+    return np.ones(offsets.size, dtype=bool)
+
+
+def _left_out(n_traces: int, excluded: Collection[int]) -> np.ndarray:
+    left_out = np.zeros(n_traces, dtype=bool)
+    left_out[[index for index in excluded if 0 <= index < n_traces]] = True
+    return left_out
 
 
 def _result(record: str, metrics: list[Metric], flags: list[Flag], kept: Kept) -> GateResult:

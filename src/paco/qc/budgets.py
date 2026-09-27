@@ -1,9 +1,10 @@
-"""Bounded retries (rule 4): a budget per gate and unit, and one for the whole run; a unit whose
-budget is spent is rejected with "budget spent" and the last attempt's flags."""
+"""Bounded retries (rule 4): a budget per gate and unit, and one for the whole run; a window's
+inversion has its own, whichever gate asks. A unit whose budget is spent is rejected with
+"budget spent" and the last attempt's flags."""
 
 from collections.abc import Iterable
 
-from paco.qc.log import retries_at_gate, retries_in_run
+from paco.qc.log import INVERSION_GATES, retries_at_gate, retries_in_run, retries_of_inversion
 from paco.qc.models import Attempt, Budgets, Flag, GateResult, Reject
 
 
@@ -15,8 +16,10 @@ def run_budget(budgets: Budgets, n_xmids: int) -> int:
 def can_retry(
     attempts: Iterable[Attempt], budgets: Budgets, n_xmids: int, unit: str, gate: str
 ) -> bool:
-    """Whether `unit` may be retried once more at `gate`: both budgets have something left."""
+    """Whether `unit` may be retried once more at `gate`: its budgets have something left."""
     attempts = tuple(attempts)
+    if gate in INVERSION_GATES:
+        return retries_of_inversion(attempts, unit) < budgets.inversion_per_window
     return retries_at_gate(attempts, unit, gate) < budgets.per_gate_and_unit and retries_in_run(
         attempts
     ) < run_budget(budgets, n_xmids)

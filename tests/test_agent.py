@@ -7,6 +7,8 @@ import anyio
 import httpx2
 import pytest
 from mcp import Client
+from mcp.shared.dispatcher import ProgressFnT
+from mcp.types import CallToolResult, TextContent
 from openai import AsyncOpenAI
 from openai.types.chat import ChatCompletionFunctionToolParam, ChatCompletionMessageParam
 from sigpipe.masw import profiles
@@ -23,6 +25,7 @@ from paco.agent import (
     without_thinking,
 )
 from paco.agent.loop import ROLE
+from paco.agent.record import ToolStep
 from paco.settings import Settings
 
 # Four 24-receiver windows along the active demo line, as in test_runs.py.
@@ -293,7 +296,7 @@ class PolicyModel(ScriptedModel):
 
 
 @pytest.mark.usefixtures("paco_env")
-def test_the_host_lists_the_settings_the_gates_changed() -> None:
+def test_the_host_lists_the_parameters_used_and_the_settings_the_gates_changed() -> None:
     def picks(messages: list[ChatCompletionMessageParam]) -> Reply:
         results = _tool_results(messages)
         if not results:
@@ -305,12 +308,25 @@ def test_the_host_lists_the_settings_the_gates_changed() -> None:
     answer, _, messages = _converse(PolicyModel(picks), "Process active_p1 and pick the curves.")
 
     head, listed = answer.split("\n\nSettings the gates changed:\n")
-    assert head == "3 curves passed G3 and G4."
-    assert listed.splitlines()[:2] == [
+    said, used = head.split("\n\nParameters used:\n")
+    assert said == "3 curves passed G3 and G4."
+    # The window length and the band first, then the picker's settings.
+    # Each with why: the window length as given, with what its trial windows gave.
+    assert used.splitlines()[1].startswith(
+        "- MASW windows of 24 receivers (5.75 m), 4 windows, xmid 2.875 to 20.875 m: given (in "
+        "your request, or chosen by the agent)"
+    )
+    assert used.splitlines()[-1].startswith("- picking: M0 tracked along its ridge")
+    first, second = listed.splitlines()[:2]
+    assert first == (
         "- trigger t0 the default -> 0.0188 at 1.dat, 2.dat (each window its own), by "
-        "G1:shifted_trigger",
-        "- 2.dat: traces [1, 13, 89, 90] left out of the windows",
-    ]
+        "G1:shifted_trigger"
+    )
+    # Then the line's rules: the shots' reach, the length as given, the near field. No trace
+    # left out for its amplitude in one record: the line judges its receivers over them all.
+    assert second.startswith("- line: masw distance_max ")
+    assert "near_field distance_m " in second
+    assert "left out of the windows" not in listed
     # What the user saw is what the conversation keeps.
     assert messages[-1] == {"role": "assistant", "content": answer}
 
@@ -367,6 +383,76 @@ def test_no_inversion_starts_unless_the_user_asked_for_models() -> None:
     model = ScriptedModel(_calls(("invert", {"run_id": "20260925-100000-abcd"})), _says("No run."))
     _, _, messages = _converse(model, "Invert run 20260925-100000-abcd.")
     assert "Unknown run" in _tool_results(messages)[0]
+
+
+class JobServer:
+    """Stands in for PACo's server: invert starts a job, which job_status finds running twice,
+    reporting its progress, then finished."""
+
+    def __init__(self) -> None:
+        self.calls: list[str] = []
+        self._running = 2
+
+    async def call_tool(
+        self, name: str, arguments: dict[str, Any], progress_callback: ProgressFnT
+    ) -> CallToolResult:
+        self.calls.append(name)
+        if name == "invert":
+            return _structured({"job_id": "job-1", "state": "queued", "done": 0, "total": 4})
+        assert arguments == {"job_id": "job-1"}
+        if self._running:
+            self._running -= 1
+            await progress_callback(
+                2 - self._running, 4, f"inverted: {2 - self._running} of 4 windows"
+            )
+            return _structured({"job_id": "job-1", "state": "running", "done": 1, "total": 4})
+        return _structured(
+            {
+                "job_id": "job-1",
+                "state": "succeeded",
+                "done": 4,
+                "total": 4,
+                "changed": ["n_layers 4 -> 5"],
+            }
+        )
+
+
+def _structured(value: dict[str, Any]) -> CallToolResult:
+    return CallToolResult(
+        content=[TextContent(type="text", text=json.dumps(value))], structured_content=value
+    )
+
+
+def test_an_inversion_is_followed_to_its_end_before_the_model_reads_on() -> None:
+    model = ScriptedModel(
+        _calls(("invert", {"run_id": "20260925-100000-abcd"})), _says("Four models.")
+    )
+    server_ = JobServer()
+    events: list[str] = []
+
+    async def conversation() -> tuple[str, Agent]:
+        agent = Agent(server_, model, [], None, on_event=events.append)  # pyright: ignore[reportArgumentType]
+        return await agent.answer("Invert run 20260925-100000-abcd."), agent
+
+    answer, agent = anyio.run(conversation)
+
+    # The host called job_status until the job ended; the model saw only its end, as invert's
+    # result, and answered once.
+    assert server_.calls == ["invert", "job_status", "job_status", "job_status"]
+    (result,) = _tool_results(agent.messages)
+    assert json.loads(result)["state"] == "succeeded"
+    assert len(model.seen) == 2
+    assert events == [
+        '-> invert({"run_id": "20260925-100000-abcd"})',
+        '-> job_status({"job_id": "job-1"})',
+        "   job_status: inverted: 1 of 4 windows",
+        "   job_status: inverted: 2 of 4 windows",
+    ]
+    # The settings the job changed are listed after the answer.
+    assert answer == "Four models.\n\nSettings the gates changed:\n- n_layers 4 -> 5"
+    followed = agent.steps[-2]
+    assert isinstance(followed, ToolStep)
+    assert (followed.name, followed.by_host) == ("job_status", True)
 
 
 # ---------------------------------------------------------------- the model behind vLLM's API

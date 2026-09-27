@@ -83,7 +83,7 @@ PACO_LLM_MODEL=Qwen/Qwen3-8B
 |---|---|---|
 | `PACO_INPUT_DIR` | `/data/input` | Where the profiles are |
 | `PACO_OUTPUT_DIR` | `data/output` | Where results go |
-| `PACO_WORKERS` | `1` | Windows processed, or inverted, in parallel (the evaluation uses 8) |
+| `PACO_WORKERS` | `1` | Worker processes: records preprocessed, windows imaged, picked and inverted in parallel; when fewer windows than workers are inverted (the gates' retries), each window's chains share the idle cores (the evaluation uses 8, PAC's assistant half the cores) |
 | `PACO_QC_CONFIG` | PACo's defaults | A JSON file of the gates' thresholds and retry budgets (`paco.qc.QCConfig`), changed between runs only |
 | `PACO_HOST`, `PACO_PORT` | `127.0.0.1`, `8000` | Where `paco-server` listens |
 | `PACO_ALLOWED_HOSTS` | none | Host names the server accepts, e.g. `["paco-server:*"]`; needed when it listens beyond 127.0.0.1 |
@@ -121,14 +121,24 @@ you> Process active_p1 with windows of 24 receivers, every 24 receivers, and pic
 paco> The 4 curves passed G3 and G4. G1 corrected the records' 19 and 10 ms trigger delays and
 left out traces 1, 89 and 90 of 2.dat.
 
+Parameters used:
+- mode active: the profile's kind
+- MASW windows of 24 receivers (5.75 m), 4 windows, xmid 2.875 to 20.875 m: given (in your request, or chosen by the agent); its trial windows: 26/27 at 24 receivers
+- shots 0 to 24.34 m from a window's middle: beyond it from the shot, the traces' median SNR falls under 2 dB (G1), so the windows stack no farther shot
+- ...
+
 Settings the gates changed:
 - trigger t0 the default -> 0.0188 at 1.dat, 2.dat (each window its own), by G1:shifted_trigger
 - 2.dat: traces [1, 89, 90] left out of the windows
 - ...
 ```
 
-Whatever the model writes, PACo's host (`src/paco/agent/host.py`) lists the settings the gates
-changed after the answer, as the tools gave them; once the work has started, asks the model
+Whatever the model writes, PACo's host (`src/paco/agent/host.py`) lists the parameters each
+stage ran with and why (given, a rule on the data, a gate, or a default: the window length,
+the phase shift's band, the picker's settings, the inversions' layers, bounds and effort) and
+the settings the gates changed after the answer, as
+the tools gave them; follows an inversion the model starts until it ends, its progress shown,
+before the model reads on; once the work has started, asks the model
 once more for an answer without a question or an offer, unless a tool said it is stuck (a
 question before any work, such as an impossible request, reaches you); and refuses `invert` (and a
 `redo` of the inversion) unless your message asks for models (invert, inversion, model, Vs,
@@ -166,8 +176,8 @@ each scenario three times and reports pass rates.
 | `run_processing` | Preprocesses the records (G1, its fixes applied), proposes a window length from trial windows unless given (the lengths tried listed for the model to choose from) and caps the band to the data, makes one dispersion image per window (G2, retried when it can be fixed); returns a `run_id` and the gates' summary |
 | `pick` | Picks each window's fundamental mode (G3, picked again when it can be fixed), judges the curves over the line (G4, outliers picked again), saves them in PAC's layout |
 | `inversion_settings` | The inversion's parameters; left out, each window's bounds come from its own curve |
-| `invert` | Inverts the curves G4 passed, in the background (G5 on each model, G6 over the line, each retrying what it can), then writes the line's velocity section and the picked curves against the predicted ones, as PAC does (`SeismicInversion_VelocitySection_0000.png` and `.hdf5`, `SeismicInversion_PseudoSectionComparison_0000_M0.png`, in the run folder, over the models G5 passed); returns a `job_id` |
-| `job_status` | Where an inversion stands, after waiting up to 2 minutes: the smooth median models' Vs at a few depths, the depth their curves inform them down to (half the longest wavelength) and their misfit; the gates' summary once it ends |
+| `invert` | Inverts the curves G4 passed, in the background (G5 on each model, G6 over the line, each retrying what it can), then writes the line's velocity section and the picked curves against the predicted ones, as PAC does (`SeismicInversion_VelocitySection_0000.png` and `.hdf5`, `SeismicInversion_PseudoSectionComparison_0000_M0.png`, in the run folder, over the models G5 passed); returns the job's status, which PACo's host follows to the end |
+| `job_status` | Where an inversion stands, after waiting up to 2 minutes and reporting the windows done: the smooth median models' Vs at a few depths, the depth their curves inform them down to (half the longest wavelength) and their misfit; the gates' summary once it ends |
 | `petro_models` | Only when you ask for soils or the water table: the Silex models of the petrophysical inversion, what each was trained on, and how many of the run's curves it covers |
 | `invert_petro` | Inverts the curves G4 passed that the chosen model covers into soils, N values and the water table (G7 on each, G8 over the line), then writes PAC's petrophysical sections over the models both passed; needs the `petro` extra |
 | `redo` | Goes back to a stage (preprocessing, phase shift, picking, inversion) for some windows, with the changes a gate suggested, and redoes what follows |
@@ -179,14 +189,19 @@ record, G2 each dispersion image, G3 each curve, G4 the curves over the line, G5
 the models over the line, G7 each petrophysical model, G8 those over the line. Each gives a verdict (pass, retry, reject), each metric with its threshold, and for
 each flag the stage at fault and a change that can be applied as it is. The stage tools apply
 their own gate's changes, within budgets (2 retries per gate and window, 2 per window over the
-run); a change of an earlier stage is the model's to make, with `redo`. The band (the records'
+run, and 6 inversion retries per window of its own); a change of an earlier stage is the model's to make, with `redo`. The band (the records'
 median usable band), the farthest shot a window stacks (where the traces' median SNR falls
 under 2 dB) and the inversion's bounds come from the data, the window length is proposed from
 it, for the model to choose (`docs/gates/S2_rules.md`, `docs/gates/S4_checks.md`). Each pick
 goes as far as its ridge holds, at both ends, and G3 judges sharpness and prominence against a
 perfect plane wave for the same window, so that short windows are judged fairly
-(`docs/gates/G3.md`). An inversion has at least 3 layers and starts at 4; G5 adds layers up to
-what each curve resolves. `docs/gates/` documents every gate with its thresholds, the demo's
+(`docs/gates/G3.md`). An inversion lets the data choose the number of layers (up to 8, Vs 100 to 2,000 m/s widened
+where the curve needs it, interfaces from a third of its shortest wavelength to half its
+longest), the picks' noise level sampled with the model; G5 judges the chains on the models' Vs
+at the depths the curve resolves, and adapts each window: sampling longer, a Vs bound widened,
+more layers allowed (with the layers given: a layer added or two alike merged, the depth shrunk
+to what the data inform) (`docs/gates/G5.md`). Each window's
+parameters are in its `SeismicInversion_Parameters_0000.json`. `docs/gates/` documents every gate with its thresholds, the demo's
 real outputs, and what is still to judge.
 
 The petrophysical inversion runs only when you ask for soils or the water table: the host
@@ -220,6 +235,20 @@ the Qwen3 reasoning parser:
 vllm serve Qwen/Qwen3-8B --max-model-len 16384 \
     --enable-auto-tool-choice --tool-call-parser hermes --reasoning-parser qwen3
 ```
+
+### Another model
+
+Any model behind an OpenAI-compatible chat API with tool calling works: set `PACO_LLM_BASE_URL`,
+`PACO_LLM_MODEL` and, when the server asks for one, `PACO_LLM_API_KEY`.
+- A larger Qwen3 on vLLM keeps the command above: `Qwen/Qwen3-14B-FP8` needs a 24 GB GPU,
+  `Qwen/Qwen3-32B-FP8` 48 GB (or `--tensor-parallel-size 2` over two 24 GB GPUs).
+- Another model family needs vLLM's tool-call parser for that family, in place of `hermes`, and
+  no Qwen3 reasoning parser.
+- An online service needs its address, model name and key. It then receives your messages, the
+  tools' descriptions and the gates' summaries, never the records, images or models.
+
+PACo's host and tool descriptions were tuned on Qwen3-8B: measure another model with
+`uv run paco-evaluate --repeat 3` before relying on it, and compare the pass rates.
 
 ## Docker
 

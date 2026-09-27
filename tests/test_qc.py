@@ -695,7 +695,11 @@ def test_judge_run_puts_the_four_gates_in_the_log_and_the_report(
         "xmid_20.88": "retry",
     }
     short = next(unit for unit in windows if unit.unit == "xmid_20.88")
-    assert [flag.name for flag in short.flags["G3"]] == ["too_few_points", "near_field"]
+    assert [flag.name for flag in short.flags["G3"]] == [
+        "too_few_points",
+        "narrow_span",
+        "near_field",
+    ]
     # The band reaches the image's 100 Hz: kept, not widened.
     assert all(unit.verdicts["G2"] == "pass" for unit in windows)
     assert all(

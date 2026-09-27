@@ -12,7 +12,7 @@ from collections import Counter, defaultdict
 from collections.abc import Callable, Mapping, Sequence
 from datetime import UTC, datetime
 from pathlib import Path
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, cast
 
 import numpy as np
 from pydantic import BaseModel, ConfigDict
@@ -28,8 +28,10 @@ from sigpipe.base import DispersionCurve
 from sigpipe.masw.picks import CURVES_FILE
 from sigpipe.masw.quality.line import Series
 from sigpipe.masw.runs import RunError, RunManifest, find_run, load_manifest
+from sigpipe.masw.runs.stopping import Stopped
 
-from paco.qc.attempts import invalidate
+from paco import stopping
+from paco.qc.attempts import invalidate, restore
 from paco.qc.config import QCConfig, read_qc_config
 from paco.qc.g7_petro import judge_petro
 from paco.qc.g8_petro_line import LINE, judge_petro_line
@@ -41,6 +43,7 @@ from paco.qc.report import QCReport, build_report, write_report
 from paco.settings import Settings
 
 if TYPE_CHECKING:
+    from sigpipe.masw.petro.line import PetroOutcome
     from sigpipe.masw.petro.measuring import PetroMeasures
 
 MEASURES_FILE = "PetroInversion_Measures_0000.json"  # what G7 judged, and G8 compares
@@ -147,16 +150,28 @@ def invert_petro_line(
     from sigpipe.masw.petro import invert_line_petro, save_line_sections
     from sigpipe.masw.petro.measuring import measure_petro
 
-    _archive(run_folder, manifest)
+    archived = _archive(run_folder, manifest)
 
     started_at = datetime.now(UTC)
-    outcomes = invert_line_petro(
-        run_folder,
-        covered,
-        model_name,
-        settings.workers,
-        None if on_progress is None else lambda done, total, _: on_progress(done, total),
-    )
+    stopped: Stopped | None = None
+    try:
+        outcomes = invert_line_petro(
+            run_folder,
+            covered,
+            model_name,
+            settings.workers,
+            None if on_progress is None else lambda done, total, _: on_progress(done, total),
+            stopping.current(),
+        )
+    except Stopped as error:
+        # Stopped: the windows that finished judged and kept as usual, the others given back
+        # their previous inversion, then the stop said.
+        stopped = error
+        outcomes = cast("tuple[PetroOutcome, ...]", error.kept or ())
+        finished_units = {outcome.unit for outcome in outcomes}
+        for unit, number in archived.items():
+            if unit not in finished_units:
+                restore(run_folder / unit, "petro_inversion", number)
     depths = line_depths(ready)
     others = _covering(ready, model_name)  # for G7's flags
     attempts = read_attempts(run_folder)
@@ -186,6 +201,8 @@ def invert_petro_line(
     saved = save_line_sections(run_folder, passed)
     report = build_report(run_id, run_folder, config.budgets, len(manifest.windows))
     write_report(report, run_folder)
+    if stopped is not None:
+        raise stopped
     return report, _described(card, gaps, [measured[unit] for unit in passed], saved)
 
 
@@ -254,15 +271,19 @@ def _judge_line(
     return passed
 
 
-def _archive(run_folder: Path, manifest: RunManifest) -> None:
+def _archive(run_folder: Path, manifest: RunManifest) -> dict[str, int]:
     """The run's last petrophysical inversion out of the way: each window's files into its
-    attempts/ folder, the line's sections removed (they are written again)."""
+    attempts/ folder, the line's sections removed (they are written again). The attempt each
+    window's files were archived as, by window."""
     attempts = read_attempts(run_folder)
+    archived: dict[str, int] = {}
     for window in manifest.windows:
         if done := attempts_of(attempts, window.folder, "petro_inversion"):
             invalidate(run_folder / window.folder, "petro_inversion", len(done))
+            archived[window.folder] = len(done)
     for path in run_folder.glob("PetroInversion_*"):
         path.unlink()
+    return archived
 
 
 def _covering(ready: Mapping[str, DispersionCurve], chosen: str) -> dict[str, list[str]]:

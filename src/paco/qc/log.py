@@ -11,6 +11,9 @@ from sigpipe.masw.runs.models import RunManifest
 from paco.qc.models import Attempt, GateResult, Stage
 
 LOG_FILE = "qc_log.jsonl"
+# The gates whose retries of a window's inversion the window's own budget bounds: G5, G6, and
+# S4's own when an inversion failed.
+INVERSION_GATES = ("G5", "G6", "S4")
 
 
 def append_attempt(run_folder: Path, attempt: Attempt) -> None:
@@ -84,10 +87,25 @@ def retries_at_gate(attempts: Iterable[Attempt], unit: str, gate: str) -> int:
 
 def retries_in_run(attempts: Iterable[Attempt]) -> int:
     """Retries spent on the run's budget, the windows': every gate's and the agent's, but G1's,
-    which each record's own budget bounds."""
+    which each record's own budget bounds, and the inversion's gates', which each window's
+    does."""
     return sum(
-        1 for a in attempts if a.triggered_by != "initial" and not a.triggered_by.startswith("G1:")
+        1
+        for a in attempts
+        if a.triggered_by != "initial"
+        and not a.triggered_by.startswith("G1:")
+        and not _by_inversion_gate(a)
     )
+
+
+def retries_of_inversion(attempts: Iterable[Attempt], unit: str | None = None) -> int:
+    """Retries of the inversion the gates asked, on the windows' own budgets: `unit`'s, or
+    every window's."""
+    return sum(1 for a in attempts if (unit is None or a.unit == unit) and _by_inversion_gate(a))
+
+
+def _by_inversion_gate(attempt: Attempt) -> bool:
+    return attempt.stage == "inversion" and attempt.triggered_by.split(":")[0] in INVERSION_GATES
 
 
 def retries_by_unit(attempts: Iterable[Attempt]) -> Counter[str]:

@@ -4,8 +4,9 @@
 
 FROM python:3.14-slim AS build
 COPY --from=ghcr.io/astral-sh/uv:0.10.9 /uv /bin/uv
-# sigpipe is installed from GitHub, at the commit uv.lock pins; bayesbay (sigpipe's MCMC) has no
-# wheel for Python 3.14 and compiles C++ extensions. Neither tool goes into the final image.
+# sigpipe is installed from GitHub, at the commit uv.lock pins; on an ARM machine obspy and
+# santiludo have no wheel for Python 3.14 and are compiled. Neither tool goes into the final
+# image.
 RUN apt-get update && apt-get install --yes --no-install-recommends git g++ \
     && rm -rf /var/lib/apt/lists/*
 ENV UV_COMPILE_BYTECODE=1 UV_LINK_MODE=copy UV_PYTHON_DOWNLOADS=never

@@ -34,6 +34,7 @@ QUALITY_METRICS = {"sharpness", "prominence", "on_data", "constant_wavelength", 
 CURVE_METRICS = {
     "aliased_points",
     "curve_points",
+    "wavelength_ratio",
     "max_jump",
     "air_wave_share",
     "trend",
@@ -291,14 +292,36 @@ def test_too_few_points_ask_to_keep_more_of_the_ridge() -> None:
     )
 
     assert result.verdict == "retry"
-    (flag,) = result.flags
-    assert flag.name == "too_few_points"
-    assert flag.action.model_dump() == {
-        "kind": "override",
-        "stage": "picking",
-        "overrides": {"min_relative_coherence": 0.3},
-    }
+    # Its 3 points also span too few wavelengths for a layered model: both ask the same.
+    assert [flag.name for flag in result.flags] == ["too_few_points", "narrow_span"]
+    for flag in result.flags:
+        assert flag.action.model_dump() == {
+            "kind": "override",
+            "stage": "picking",
+            "overrides": {"min_relative_coherence": 0.3},
+        }
     assert result.kept.n_points == 3
+
+
+def test_a_curve_spanning_too_few_wavelengths_asks_to_keep_more_of_the_ridge() -> None:
+    # p2: resampled finer, 9.2 to 11.2 m of wavelength passed on its points, then failed the
+    # inversion, which needs over 4/3 between the longest and the shortest.
+    image = _image(_ridge(M0, 0.8, 1.5))
+    fs = np.linspace(29.0, 33.0, 8)
+    vs = 150 + 250 * np.exp(-fs / 15)
+    result = judge_curve(
+        "xmid_12.50",
+        image,
+        _picked(image, M0, fs=fs, vs=vs),
+        THRESHOLDS,
+        picking=PickingParameters(min_relative_coherence=0.5),
+    )
+
+    assert result.verdict == "retry"
+    (flag,) = result.flags
+    assert flag.name == "narrow_span"
+    ratio = next(metric for metric in result.metrics if metric.name == "wavelength_ratio")
+    assert ratio.value is not None and ratio.value < 4 / 3 and not ratio.passed
 
 
 def test_uncertainties_beyond_what_the_inversion_can_use_reject() -> None:

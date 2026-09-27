@@ -83,10 +83,14 @@ def copy_demo(demo_input_dir: Path, input_dir: Path) -> CopyDemo:
 def paco_env(
     demo_input_dir: Path, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> Iterator[Settings]:
-    """The server's settings, as its environment gives them: the demo profiles, and outputs in
-    `tmp_path` rather than data/output."""
+    """The server's settings, as its environment gives them: the demo profiles, outputs in
+    `tmp_path` rather than data/output, and one inversion retry a window (the tests' short
+    samplers never hold the effective samples G5 asks, and each retry doubles them)."""
     monkeypatch.setenv("PACO_INPUT_DIR", str(demo_input_dir))
     monkeypatch.setenv("PACO_OUTPUT_DIR", str(tmp_path / "output"))
+    qc_config = tmp_path / "qc_config.json"
+    qc_config.write_text('{"budgets": {"inversion_per_window": 1}}')
+    monkeypatch.setenv("PACO_QC_CONFIG", str(qc_config))
     get_settings.cache_clear()
     yield get_settings()
     get_settings.cache_clear()

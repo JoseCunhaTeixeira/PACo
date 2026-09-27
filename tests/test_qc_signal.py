@@ -9,7 +9,7 @@ import pytest
 from sigpipe.base import Coordinate, LinearAcquisition, Stream
 from sigpipe.transformers import Shift
 
-from paco.qc.g1_signal import SignalThresholds, judge_signal
+from paco.qc.g1_signal import SignalThresholds, decay_outliers, judge_receivers, judge_signal
 
 SAMPLING = 1000.0
 N_TRACES = 24
@@ -102,15 +102,19 @@ def test_dead_clipped_and_nan_traces_are_found_and_excluded() -> None:
     assert result.kept.n_traces == N_TRACES - 3
 
 
-def test_an_amplitude_off_the_decay_is_an_outlier() -> None:
+def test_an_amplitude_off_the_decay_is_reported_not_left_out() -> None:
     stream = _shot()
     stream = _with_trace(stream, 10, stream.xt[10] * 30)
 
     result = judge_signal("1.dat", stream, THRESHOLDS)
 
-    (flag,) = result.flags
-    assert flag.name == "rms_outliers" and not flag.fixable
-    assert flag.action.model_dump()["traces"] == (10,)
+    # One record's trace off the decay is no bad geophone: the line judges each receiver over
+    # every record (judge_receivers).
+    assert result.flags == () and result.verdict == "pass"
+    metrics = {metric.name: metric for metric in result.metrics}
+    assert metrics["rms_outliers"].value == 1 and metrics["rms_outliers"].threshold is None
+    outliers, judged = decay_outliers(stream, THRESHOLDS)
+    assert np.flatnonzero(outliers).tolist() == [10] and judged.all()
 
 
 def test_a_record_with_too_much_noise_has_a_low_snr() -> None:
@@ -136,9 +140,9 @@ def test_a_reversed_trace_is_not_judged() -> None:
 def test_leaving_traces_out_adds_no_amplitude_outlier() -> None:
     # The decay is fitted on every trace alive: leaving the nearest six out does not move it,
     # so no new trace falls off it.
-    result = judge_signal("1.dat", _shot(), THRESHOLDS, excluded=range(6))
+    outliers, judged = decay_outliers(_shot(), THRESHOLDS, excluded=range(6))
 
-    assert "rms_outliers" not in {flag.name for flag in result.flags}
+    assert not outliers.any() and not judged[:6].any() and judged[6:].all()
 
 
 def test_a_shifted_trigger_asks_for_its_correction() -> None:
@@ -236,9 +240,40 @@ def test_the_decay_is_fitted_within_the_reach() -> None:
     far_noise = replace(shot, xt=xt)
     offsets = np.asarray(far_noise.acquisition.offsets)
 
-    whole = {flag.name: flag for flag in judge_signal("1.dat", far_noise, THRESHOLDS).flags}
-    near = judge_signal("1.dat", far_noise, THRESHOLDS, reach_m=float(offsets[5]))
+    whole, _ = decay_outliers(far_noise, THRESHOLDS)
+    near, judged = decay_outliers(far_noise, THRESHOLDS, reach_m=float(offsets[5]))
 
-    assert whole["rms_outliers"].action.model_dump()["traces"] == (0, 1, 2, 3, 4, 5)
-    assert "rms_outliers" not in {flag.name for flag in near.flags}
-    assert near.kept.n_traces == N_TRACES
+    assert np.flatnonzero(whole).tolist() == [0, 1, 2, 3, 4, 5]
+    assert not near.any() and np.flatnonzero(judged).tolist() == [0, 1, 2, 3, 4, 5]
+    assert judge_signal(
+        "1.dat", far_noise, THRESHOLDS, reach_m=float(offsets[5])
+    ).kept.n_traces == (N_TRACES)
+
+
+POSITIONS = [1.5 * i for i in range(N_TRACES)]
+
+
+def test_a_receiver_off_the_decay_in_most_records_leaves_every_window() -> None:
+    # Receiver 10 off in 5 of the 8 records that reach it; receiver 3 in 1 of 8 (the record
+    # whose shot stands next to it); receiver 4 in none.
+    result = judge_receivers({10: 5, 3: 1}, {10: 8, 3: 8, 4: 8}, POSITIONS, THRESHOLDS)
+
+    assert result.unit == "line" and result.verdict == "pass"
+    (flag,) = result.flags
+    assert flag.name == "off_decay_receivers" and not flag.fixable
+    assert flag.action.model_dump() == {"kind": "exclude_traces", "record": "line", "traces": (10,)}
+    assert flag.message.startswith(
+        "The receiver at 15 m (5 of 8 records) is too weak or too strong for its distance"
+    )
+
+
+def test_a_receiver_off_in_a_few_records_stays() -> None:
+    # Off in 3 of 8 records, under half: those records' own. Off in 2 of 2: too few to judge.
+    result = judge_receivers({3: 3, 7: 2}, {3: 8, 7: 2}, POSITIONS, THRESHOLDS)
+
+    assert result.flags == ()
+    assert result.metrics[0].value == 0 and result.metrics[0].passed
+    several = judge_receivers({3: 4, 9: 8}, {3: 8, 9: 8}, POSITIONS, THRESHOLDS)
+    assert several.flags[0].message.startswith(
+        "The receivers at 4.5 m (4 of 8 records) and 13.5 m (8 of 8 records) are too weak or"
+    )
