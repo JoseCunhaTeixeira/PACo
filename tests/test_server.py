@@ -202,7 +202,7 @@ def test_the_workflow_process_pick_redo_invert() -> None:
     assert changed[0].startswith(
         "line: masw distance_max 24.29 m: beyond it from the shot, the traces' median SNR falls "
         "under 2 dB (G1), so the windows stack no farther shot. masw length 24 for the whole "
-        "line, as given: trial windows G3 passed 25/27 at 24 (picks "
+        "line, as given: trial windows G3 passed 26/27 at 24 (picks "
     )
     assert "%). near_field distance_m " in changed[0]
     # No trace left out for its amplitude in one record: the line judges its receivers.
@@ -210,7 +210,7 @@ def test_the_workflow_process_pick_redo_invert() -> None:
     # The lengths the ladder tried, for the agent to choose from: the user's only, here.
     assert done["lengths"] == [
         "line: 96 receivers 0.25 m apart (23.75 m); windows of up to 48 receivers (half the line)",
-        "24 receivers (5.75 m): 25/27 trial windows passed G3, wavelengths 5.0-30.0 m (models "
+        "24 receivers (5.75 m): 26/27 trial windows passed G3, wavelengths 5.0-30.0 m (models "
         "down to about 15.0 m), picks within 40%, 4 windows on the line (proposed)",
     ]
     assert picked.structured_content is not None

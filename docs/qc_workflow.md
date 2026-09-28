@@ -75,7 +75,7 @@ Artifacts in [ ], gates in < >.
 
 ### G3 curve QC (per xmid)
 Since nobody looks at the curves before inversion any more, G3 is the safety net for the picking risks listed in PROGRESS.md. The current `dispersion_quality` metrics, plus:
-- Wavelength range: λmin >= 2·dx; points beyond λmax (between L and 2L, configurable) are flagged and cut. On active_p1, 64 to 91 % of the saved points lie beyond 2L.
+- Wavelength range: the picker follows its ridge as far as it holds, down to one spacing, with no cut at the long end; points under 2·dx (the aliasing zone) and over 3L (beyond the window's reach) are flagged and kept (since 2026-09-28; PAC draws both limits as λmin and λmax).
 - Mode jump: a velocity jump between adjacent frequencies above X %, or a branch continuing on M1 below the aliasing floor.
 - Air wave: near-constant velocity around 330 to 345 m/s.
 - Normal dispersion expected (velocity rising with wavelength). An inverse trend is flagged, not rejected, since a stiff layer over a soft one produces it.
@@ -447,3 +447,34 @@ Added by the user with the decisions:
   what it checks, each metric with its threshold and why, the tool's real summary on the demo
   profiles and on the synthetic defects, with the figures, so the user can judge each one at the
   end. Written at the gate's milestone, from real outputs.
+
+Taken on 2026-09-28, on the picks of the user's `active_p2` run (7 receivers every 1.5 m: "in
+easy dispersion images it does not go very far in low and high freqs"; each brought as options,
+the user's choice):
+
+- **The picker searches down to one spacing** (`min_wavelength` 1, was 2): a clear ridge is
+  followed into the aliasing zone, where its points are flagged (`aliasing_zone`) and kept. On
+  the run's 90 windows the high end goes from 68.7 Hz (median; lowest 58) to the grid's top,
+  100 Hz (lowest 74). Rejected: a setting of the picker, 2 spacings kept.
+- **The pick followed past both its ends, flagged beyond three window lengths** (the user: "the
+  goal was just making the automatic picker go to lower and higher freqs"). The pick is found
+  as before, then its ridge followed on; a lower maximum takes its place only when brighter,
+  since a dimmer one under it is its sidelobe or alias (on those 9 m windows, faint lines at 1
+  to 4 spacings reach 35 % of their column's maximum under 25 Hz, and the backward waves'
+  aliases, at 1 to 2 spacings, above 50 Hz). Every pick contains the one before. Low ends from
+  10.7 to 10.0 Hz (medians;
+  quartiles 9.1-13.6 to 7.0-11.0), tracked points kept from 169 to 269 (medians). Points over
+  3 window lengths are flagged (`beyond_reach`) and kept: on 83 of the 90 windows, a median
+  63 % of their curve's points, where the ridge climbs out of the grid under 15 Hz (64 windows
+  had such points before, the same share). Rejected: a stop at 3 window lengths, the picker as
+  it was; following the ridge from its widest stretch (on the demo's first 24-receiver window
+  the branch above the 50 Hz mains line became the pick).
+- **PAC's λmin and λmax are where the flags start**: 2 spacings and 3 window lengths, on PAC's
+  image and sigpipe's figures (they were the picker's floor and the window's length). Rejected:
+  as they were, the flag at 1 window length.
+- **PACo's rules read the whole curve**, its points over 3 window lengths included: the
+  near-field distance (half the trial curves' longest wavelength), the inversion's depth range,
+  the ladder's wavelengths and precision, G4's and G6's spreads. On the demo's ladder (24
+  receivers, 5.75 m): 3 trial windows of 3 pass (2 before), wavelengths 5-34 m (5.5-22), picks
+  within 40 % (29 %), a near field of 17 m (11 m) where 2 of the 4 windows keep near shots
+  only. Rejected: those rules within 3 window lengths, PACo's own picks stopped there.

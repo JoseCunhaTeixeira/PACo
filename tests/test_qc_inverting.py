@@ -69,10 +69,15 @@ def test_the_windows_g4_passed_are_inverted_with_bounds_from_their_curves(
     _, _, run_folder = inverted
     attempts = read_attempts(run_folder)
 
-    # G3 sent xmid 20.88 back (2 points where its ridge holds): not a curve for the line, not
-    # inverted.
+    # G4 passed the four windows (xmid 20.88's pick, 2 points before its ridge was followed past
+    # its ends on 2026-09-28, keeps 34): each inverted.
     inversions = [a for a in attempts if a.stage == "inversion" and a.unit.startswith("xmid_")]
-    assert sorted({a.unit for a in inversions}) == ["xmid_14.88", "xmid_2.88", "xmid_8.88"]
+    assert sorted({a.unit for a in inversions}) == [
+        "xmid_14.88",
+        "xmid_2.88",
+        "xmid_20.88",
+        "xmid_8.88",
+    ]
     for attempt in inversions:
         assert (attempt.attempt, attempt.status, attempt.triggered_by) == (
             1,
@@ -85,7 +90,7 @@ def test_the_windows_g4_passed_are_inverted_with_bounds_from_their_curves(
         (curve,) = load_dispersion_curves([run_folder / attempt.unit / CURVES_FILE])[0]
         velocities = np.asarray(curve.vs, dtype=float)
         wavelengths = velocities / np.asarray(curve.fs, dtype=float)
-        # The layers chosen by the data: Vs 100 to 2,000 m/s, as the curve (163 to 291 m/s)
+        # The layers chosen by the data: Vs 100 to 2,000 m/s, as the curve (163 to 325 m/s)
         # needs no wider; interfaces from a third of its shortest wavelength to half its longest
         # (deeper, the curve resolves nothing); 8 layers at most.
         assert velocities.min() >= 100 and 1.09 * velocities.max() <= 2_000
@@ -99,9 +104,9 @@ def test_the_windows_g4_passed_are_inverted_with_bounds_from_their_curves(
         assert (folder / SAMPLES_FILE).exists()
         measures = InversionMeasures.model_validate_json((folder / MEASURES_FILE).read_text())
         assert measures.samples_per_chain == 7  # (1,500 - 375) // 150
-        # Round depths down to half the line's median longest wavelength (about 11 m here: the
+        # Round depths down to half the line's median longest wavelength (about 13 m here: the
         # picks go down to where their ridge breaks).
-        assert [depth for depth, _ in measures.vs_at_depths] == [2.0, 4.0, 6.0, 8.0, 10.0]
+        assert [depth for depth, _ in measures.vs_at_depths] == [2.5, 5.0, 7.5, 10.0, 12.5]
 
 
 def test_g5_finds_the_chains_too_short_and_g6_has_no_model(
@@ -111,7 +116,7 @@ def test_g5_finds_the_chains_too_short_and_g6_has_no_model(
     report = read_report(run_folder)
     attempts = read_attempts(run_folder)
 
-    for unit in ("xmid_2.88", "xmid_8.88", "xmid_14.88"):
+    for unit in ("xmid_2.88", "xmid_8.88", "xmid_14.88", "xmid_20.88"):
         attempt = latest(attempts, unit, "inversion")
         assert attempt is not None
         g5 = attempt.results["G5"]
@@ -127,7 +132,7 @@ def test_g5_finds_the_chains_too_short_and_g6_has_no_model(
     # No model passed G5: the line has none, and says where.
     line = next(unit for unit in report.units if unit.unit == "line")
     assert line.verdicts == {"G4": "pass", "G6": "reject"}
-    assert report.counts["G5"] == {"reject": 3}
+    assert report.counts["G5"] == {"reject": 4}
 
 
 def test_the_inversion_done_again_starts_from_the_windows_parameters(
@@ -203,8 +208,9 @@ def test_what_cannot_be_inverted_is_refused(
 ) -> None:
     settings, run_id, _ = inverted
 
-    with pytest.raises(RunError, match=r"has no window xmid_20\.88 that G4 passed"):
-        rerun_inversion(run_id, ["xmid_20.88"], {}, settings)
+    # A window G4 did not pass, as one the line does not have.
+    with pytest.raises(RunError, match=r"has no window xmid_26\.88 that G4 passed"):
+        rerun_inversion(run_id, ["xmid_26.88"], {}, settings)
     with pytest.raises(RunError, match=r"Unknown inversion parameter\(s\) iterations"):
         rerun_inversion(run_id, ["xmid_2.88"], {"iterations": 5}, settings)
     # A run G4 has not judged.
