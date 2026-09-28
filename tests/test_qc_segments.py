@@ -74,8 +74,8 @@ def test_converged_halves_agree_over_their_arrivals() -> None:
     # Two halves both holding the wave agree; halves of noise alone do not.
     signal = SignalThresholds()
 
-    agreed = segments._agreement(_shot(None), _shot(None), signal)
-    noisy = segments._agreement(_shot(1), _shot(2), signal)
+    agreed = segments.halves_agreement(_shot(None), _shot(None), signal)
+    noisy = segments.halves_agreement(_shot(1), _shot(2), signal)
 
     assert agreed == pytest.approx(1.0)
     assert noisy is not None and abs(noisy) < 0.3
@@ -89,6 +89,6 @@ def test_the_lengths_tried_are_crossings_of_the_window() -> None:
     )
     profile = SimpleNamespace(records=[SimpleNamespace(duration_s=3.0)])
 
-    lengths = segments._lengths(2.0, [window], 80.0, SegmentRules(), profile)  # pyright: ignore[reportArgumentType]
+    lengths = segments.lengths_tried(2.0, [window], 80.0, SegmentRules(), profile)  # pyright: ignore[reportArgumentType]
 
     assert lengths == [0.72, 1.44, 2.0, 2.88]

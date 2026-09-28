@@ -559,7 +559,14 @@ def test_a_window_inverts_every_mode_picked_in_it(
 
     # PACo picks M0 alone; a person picks higher modes in PAC, and the inversion uses them.
     picked = [SimpleNamespace(mode=Mode("M", 1)), SimpleNamespace(mode=Mode("M", 0))]
-    monkeypatch.setattr(inverting, "load_curves", lambda _: picked)
+
+    def saved(_: Path) -> list[SimpleNamespace]:
+        return picked
+
+    def none(_: Path) -> None:
+        return None
+
+    monkeypatch.setattr(inverting, "load_curves", saved)
     assert inverting.window_modes(tmp_path) == (Mode("M", 0), Mode("M", 1))
-    monkeypatch.setattr(inverting, "load_curves", lambda _: None)
+    monkeypatch.setattr(inverting, "load_curves", none)
     assert inverting.window_modes(tmp_path) == (Mode("M", 0),)
