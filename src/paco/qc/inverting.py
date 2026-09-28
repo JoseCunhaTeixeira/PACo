@@ -19,6 +19,7 @@ from typing import Any, cast
 import numpy as np
 from pydantic import ValidationError
 from sigpipe.base import DispersionCurve
+from sigpipe.base.dispersion_curve import Mode
 from sigpipe.masw.inversion import InversionError, InversionParameters, invert_window
 from sigpipe.masw.inversion.measuring import InversionMeasures, measure_inversion, report_depths
 from sigpipe.masw.inversion.priors import (
@@ -31,7 +32,8 @@ from sigpipe.masw.inversion.priors import (
     derive_inversion,
 )
 from sigpipe.masw.inversion.section import save_comparison, save_section, save_sections_file
-from sigpipe.masw.picks import CURVES_FILE
+from sigpipe.masw.inversion.window import M0
+from sigpipe.masw.picks import CURVES_FILE, load_curves
 from sigpipe.masw.quality.line import Series
 from sigpipe.masw.runs import RunError, RunManifest, find_run, load_manifest, start_worker
 from sigpipe.masw.runs.stopping import Stopped, commit, finished, staging, undo
@@ -818,10 +820,12 @@ def _invert_and_measure(
     chain_jobs: int = 1,
     output: Path | None = None,
 ) -> InversionMeasures:
-    """Runs in a worker: the window's inversion, its chains in `chain_jobs` processes, then
-    what G5 judges, saved next to it, or in `output` (a staging folder, moved into place once
-    this ended)."""
-    invert_window(folder, parameters, chain_jobs=chain_jobs, output_folder=output)
+    """Runs in a worker: the window's inversion, of every mode picked in it, its chains in
+    `chain_jobs` processes, then what G5 judges (M0's fit), saved next to it, or in `output` (a
+    staging folder, moved into place once this ended)."""
+    invert_window(
+        folder, parameters, window_modes(folder), chain_jobs=chain_jobs, output_folder=output
+    )
     measures = measure_inversion(
         folder,
         parameters,
@@ -833,3 +837,11 @@ def _invert_and_measure(
     )
     ((output or folder) / MEASURES_FILE).write_text(measures.model_dump_json(indent=2))
     return measures
+
+
+def window_modes(folder: Path) -> tuple[Mode, ...]:
+    """The modes a window's inversion inverts: every one picked in it, as PAC inverts them by
+    default, M0 always. PACo picks M0 alone: a higher mode is too hazardous to pick without a
+    person's eye (a ridge taken for the wrong mode misleads the inversion); a person picks it in
+    PAC, and the inversion uses it."""
+    return tuple(sorted({curve.mode for curve in load_curves(folder) or ()} | {M0}))

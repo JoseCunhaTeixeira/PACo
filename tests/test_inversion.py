@@ -6,12 +6,14 @@ from collections.abc import Callable
 from dataclasses import dataclass
 from datetime import UTC, datetime
 from pathlib import Path
+from types import SimpleNamespace
 
 import h5py
 import numpy as np
 import pytest
 from pydantic import ValidationError
 from sigpipe.base import DispersionCurve
+from sigpipe.base.dispersion_curve import Mode
 from sigpipe.masw.inversion import InversionError, InversionParameters, ThicknessLayer, VsLayer
 from sigpipe.masw.inversion.priors import Derived, PriorRules
 from sigpipe.masw.inversion.section import (
@@ -42,7 +44,7 @@ from paco.settings import Settings
 SMALL_WINDOWS = {"masw": {"length": 24, "step": 24}}
 # A short sampler: every step of an inversion, in about a second per window; far too short for
 # G5, whose retries (twice the iterations, twice) are then spent.
-SHORT = {"n_iterations": 500, "n_burnin_iterations": 50, "n_chains": 1}
+SHORT = {"n_iterations": 500, "n_burnin_iterations": 50, "n_chains": 2}  # two at least
 # xmid 2.88 has no curve: 2 points once G1 leaves trace 13 out of its image (the decay fitted
 # within the reach).
 # The windows G4 passes on the demo (xmid_2.88 too before 2026-09-28, when G1 moved each record's
@@ -408,7 +410,7 @@ def test_a_window_whose_curve_gives_no_model_is_left_out_with_why(
 def test_150_iterations_after_the_burnin_are_enough(picked: Picked, tmp_path: Path) -> None:
     settings, _ = _copy(picked, tmp_path)
     # One model kept per chain (SAMPLE_EVERY is sigpipe's save_every).
-    given = {"n_iterations": 300, "n_burnin_iterations": 150, "n_chains": 1}
+    given = {"n_iterations": 300, "n_burnin_iterations": 150, "n_chains": 2}
 
     record = run_inversion_job(submit_inversion(picked.run_id, given, settings), settings)
 
@@ -548,3 +550,16 @@ def test_a_crashing_job_is_logged_and_forgotten(caplog: pytest.LogCaptureFixture
 
     assert not jobs.is_live("broken")
     assert "Job broken crashed" in caplog.text
+
+
+def test_a_window_inverts_every_mode_picked_in_it(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    from paco.qc import inverting
+
+    # PACo picks M0 alone; a person picks higher modes in PAC, and the inversion uses them.
+    picked = [SimpleNamespace(mode=Mode("M", 1)), SimpleNamespace(mode=Mode("M", 0))]
+    monkeypatch.setattr(inverting, "load_curves", lambda _: picked)
+    assert inverting.window_modes(tmp_path) == (Mode("M", 0), Mode("M", 1))
+    monkeypatch.setattr(inverting, "load_curves", lambda _: None)
+    assert inverting.window_modes(tmp_path) == (Mode("M", 0),)

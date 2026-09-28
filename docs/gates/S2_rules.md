@@ -119,3 +119,33 @@ within 20 %, and takes the most precise that passed when none is (`CoherenceRule
 first version kept the most precise at any length: on the demo, where picks stay at 36 to 40 %
 from 7 to 32 receivers and only half the line (48) did better (27 %), it kept 48, windows of half
 the line even when the user asked for lateral detail (the evaluation's `detail`, overnight).
+
+## A passive line's segments: their length and FK selection (2026-09-28)
+
+The user: PACo optimizes the parameters the passive workflow has; the segments' length matters,
+set by the window's span; the FK selection is quite important to the dispersion image; the
+correlograms must converge; the step stays the segments' length. Once the window length is
+chosen, and for the stages the user did not set, `segments.py` tries on three windows spread
+along the line (`SegmentRules`) each segment length (the line's own, and 10, 20, 40 and 80 times
+the slowest wave's crossing of the windows' span at G1's 80 m/s, within 0.1 s and the shortest
+record, each end to end) with each FK selection (the line's own, none, and the bands none and
+80-1,500 m/s at thresholds 0.05 to 0.3). Each segment is sliced, whitened, normalized, tapered
+and correlated once, as the pipeline does, flipped and not, and its f-k lopsidedness measured
+(sigpipe's `fk_ratio`, the selection's own measure); a candidate keeps the segments beyond its
+threshold, flipped where their energy runs the other way, and stacks them.
+
+A candidate is judged by the dispersion image its stack makes: the span of wavelengths its M0
+pick holds (the picker's, as S3 runs it; how much of the curve and of the depth the image gives),
+then the pick's coherence. It must keep a fifth of the segments at least, and its correlograms
+must have converged: the virtual shots of its kept segments' two halves (every other one) agree
+over their arrivals, the median correlation of their traces there 0.7 at least. The best
+replaces the line's own settings when it widens their span by a fifth, or when theirs had not
+converged. G2's share of coherent columns was tried first and told nothing: a passive line's
+stacked images come near 100 % whatever the settings. The trials are kept in `segments.json`,
+the choice in the line's notes.
+
+On the demo: passive_p1 takes 0.72 s segments (ten crossings of its windows' 5.75 m), no FK
+selection: its M0 picked over 4.5 times its shortest wavelength against 2.7 with the preset's
+2 s, every segment kept, converged (1.00), in 16 s. passive_p2 keeps 2 s and takes the FK
+selection at 0.2 at any velocity: its M0 over 9.2 times its shortest wavelength against 1.0 (the
+picker found almost nothing without it), 21 % of the segments kept, converged (0.96), in 125 s.

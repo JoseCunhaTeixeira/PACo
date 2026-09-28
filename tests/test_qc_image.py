@@ -166,7 +166,8 @@ def test_weak_or_absent_coherence_suggests_a_mute() -> None:
     mute = {
         "kind": "override",
         "stage": "preprocessing",
-        "overrides": {"muting": {"method": "mute", "vmin": 80.0, "vmax": 1500.0, "width": 0.05}},
+        # No width: each record's own pulse, filled when the records are done again (shots.py).
+        "overrides": {"muting": {"method": "mute", "vmin": 80.0, "vmax": 1500.0}},
     }
 
     assert _flags(_image(_ridge(M0, 0.8, band=(15.0, 20.0)))) == {"weak_coherence": mute}
@@ -174,6 +175,34 @@ def test_weak_or_absent_coherence_suggests_a_mute() -> None:
     assert empty.verdict == "retry"
     assert [flag.name for flag in empty.flags] == ["no_coherent_energy"]
     assert empty.kept.band_hz is None
+
+
+def test_a_passive_image_mostly_noise_is_flagged_and_kept() -> None:
+    # A passive line has no muting (the user, 2026-09-28): nothing to try, the window goes on
+    # to its pick, the later gates judging it.
+    image = _image(_ridge(M0, 0.8, band=(15.0, 20.0)))
+    weak = judge_image("xmid_12.50", image, THRESHOLDS, mode="passive")
+    (flag,) = weak.flags
+    assert flag.name == "weak_coherence" and flag.action.model_dump()["kind"] == "keep"
+    assert weak.verdict == "pass" and "mute" not in flag.message
+    empty = judge_image("xmid_12.50", _image(), THRESHOLDS, mode="passive")
+    assert [flag.name for flag in empty.flags] == ["no_coherent_energy"]
+    assert empty.verdict == "pass"
+
+
+def test_a_noisy_virtual_shot_is_flagged_and_kept() -> None:
+    image = _image(_ridge(M0, 0.8))
+    clean = judge_image("xmid_12.50", image, THRESHOLDS, mode="passive", virtual_shot=True,
+                        virtual_shot_snr_db=14.0)  # fmt: skip
+    noisy = judge_image("xmid_12.50", image, THRESHOLDS, mode="passive", virtual_shot=True,
+                        virtual_shot_snr_db=3.2)  # fmt: skip
+
+    assert clean.flags == () and clean.verdict == "pass"
+    (flag,) = noisy.flags
+    assert flag.name == "noisy_virtual_shot" and "3.2 dB" in flag.message
+    assert flag.action.model_dump()["kind"] == "keep" and noisy.verdict == "pass"
+    snr = next(metric for metric in noisy.metrics if metric.name == "virtual_shot_snr_db")
+    assert snr.value == 3.2 and not snr.passed
 
 
 def test_a_band_much_narrower_than_the_usable_one_is_reported() -> None:

@@ -21,12 +21,14 @@ Artifacts in [ ], gates in < >.
       S2 phase shift, per xmid
     [dispersion image per xmid]
       <G2 dispersion image QC, per xmid>
-      S3 picking, per xmid
+      S3 picking, per xmid (M0 alone: a higher mode is too hazardous to pick without a person's eye,
+         a ridge taken for the wrong mode misleading the inversion; a person picks it in PAC)
     [dispersion curve per xmid]
       <G3 curve QC, per xmid>
       <G4 curve profile QC, whole line>
       gate decision: S4 starts for the xmids G4 passed; the rejected ones are reported, never inverted
-      S4 MCMC inversion, per xmid
+      S4 MCMC inversion, per xmid (every mode picked, as PAC inverts them by default: M0, and the
+         higher modes a person picked in PAC; G5 judges M0's fit)
     [Vs model per xmid: PAC's smooth model is the one monitored and reported]
       <G5 model QC, per xmid>
       <G6 model profile QC, whole line>

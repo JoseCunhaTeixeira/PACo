@@ -53,7 +53,7 @@ def processing_used(
         f"MASW windows of {length} receivers ({(length - 1) * spacing:g} m){where}: {length_why}",
         f"windows every {masw['step']} receiver{'s' if masw['step'] != 1 else ''} "
         f"({masw['step'] * spacing:g} m): " + (GIVEN if asked("masw", "step") else DEFAULT),
-        f"shots {masw['distance_min']:g} to {masw['distance_max']:g} m from a window's middle: "
+        f"shots {_distances(masw['distance_min'], masw['distance_max'])} from a window's middle: "
         + _shots_why(
             GIVEN if asked("masw", "distance_min") else rule("near_field distance_m"),
             GIVEN if asked("masw", "distance_max") else rule("masw distance_max"),
@@ -196,6 +196,16 @@ def inversion_used(
         "each window's own: SeismicInversion_Parameters_0000.json in its folder",
     ]
     return tuple(said)
+
+
+def _distances(near: float | None, far: float | None) -> str:
+    """The distances a window's shots lie within, a bound left out none: "2 to 30 m", "any
+    distance"."""
+    if near is None and far is None:
+        return "at any distance"
+    if far is None:
+        return f"beyond {near:g} m"
+    return f"within {far:g} m" if near is None else f"{near:g} to {far:g} m"
 
 
 def _shots_why(near: str | None, far: str | None) -> str:

@@ -29,6 +29,7 @@ from paco.qc.loops import deep_merge
 from paco.qc.models import Attempt
 from paco.qc.report import QCReport, build_report, read_report, write_report
 from paco.qc.rerun import rerun_phase_shift
+from paco.qc.shots import pulse_widths, with_pulse
 from paco.runs import PACKAGES
 from paco.settings import Settings
 
@@ -161,11 +162,15 @@ def _redo_records(
     }
     attempts = read_attempts(run_folder)
     by_name = {record.path.name: record for record in profile.records}
+    # A mute asked without a width keeps each record's own pulse (shots.py).
+    widths = pulse_widths(attempts, names, config.signal.mute_width_s)
     parameters: dict[str, dict[str, Any]] = {}
     for name in sorted(names):
         attempt = latest(attempts, name, "preprocessing")
         number = attempt.attempt if attempt is not None else 0
-        parameters[name] = deep_merge(attempt.parameters if attempt is not None else {}, changes)
+        parameters[name] = with_pulse(
+            deep_merge(attempt.parameters if attempt is not None else {}, changes), widths[name]
+        )
         invalidate_record(record_folder(run_folder / RECORDS_FOLDER, by_name[name]), number)
     started_at = datetime.now(UTC)
 

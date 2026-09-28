@@ -31,7 +31,7 @@ from paco.settings import Settings
 # Four 24-receiver windows along the active demo line, as in test_runs.py.
 SMALL_WINDOWS = {"masw": {"length": 24, "step": 24}}
 # A short sampler: every step of an inversion, in about a second per window.
-SHORT = {"n_iterations": 500, "n_burnin_iterations": 50, "n_chains": 1}
+SHORT = {"n_iterations": 500, "n_burnin_iterations": 50, "n_chains": 2}  # two at least
 
 
 class ScriptedModel:

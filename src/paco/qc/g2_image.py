@@ -5,8 +5,9 @@ sigpipe's (sigpipe.masw.quality.image); G2 judges them."""
 
 import numpy as np
 from pydantic import BaseModel, ConfigDict, Field
-from sigpipe.base import DispersionImage
+from sigpipe.base import DispersionImage, Stream
 from sigpipe.masw.quality.image import aliased, coherent_columns, competing_ridges, edge_peaks
+from sigpipe.masw.quality.signal import signal_windows, snr_db
 
 from paco.qc.models import Flag, GateResult, Keep, Kept, Metric, Override
 
@@ -24,6 +25,12 @@ class ImageThresholds(BaseModel):
         lt=1,
         description="A column is coherent when its peak is this far from the noise floor\n"
         "1 / sqrt(N) towards 1, the most a plane wave gives: the same for every N.",
+    )
+    min_virtual_shot_snr_db: float = Field(
+        default=6.0,
+        description="dB, a passive or passive-active window's virtual shot: its traces' median "
+        "SNR, at least; under, flagged, the window kept (the user, 2026-09-28). The demo's: 12.6 "
+        "to 15.1.",
     )
     min_coherent_columns: float = Field(
         default=0.5, ge=0, le=1, description="Share of the image's columns that must be coherent."
@@ -60,12 +67,6 @@ class ImageThresholds(BaseModel):
     )
     vg_min: float = Field(default=80.0, gt=0, description="m/s, for the mute a retry suggests")
     vg_max: float = Field(default=1500.0, gt=0, description="m/s, for the mute a retry suggests")
-    mute_width_s: float = Field(
-        default=0.05,
-        ge=0,
-        description="s, kept after the slowest arrival by the mute a retry suggests: the shot's "
-        "pulse",
-    )
 
 
 def judge_image(
@@ -75,11 +76,15 @@ def judge_image(
     usable_band: tuple[float, float] | None = None,
     mode: str = "active",
     muted: bool = False,
+    virtual_shot: bool = False,
+    virtual_shot_snr_db: float | None = None,
 ) -> GateResult:
     """G2's verdict on one window's image, with G1's usable band of its records when known. A
     passive-active image (`mode`) peaking at the grid's top velocity, its records not `muted`,
     tries the surface-wave mute before a wider grid: correlated whole, a record's noise common
-    to every trace peaks there."""
+    to every trace peaks there. A passive or passive-active window's `virtual_shot` (its stacked
+    correlations) judged by its SNR (`virtual_shot_snr_db`, None: not measured): flagged when
+    low, kept. A passive image mostly noise is flagged and kept too: no muting to try there."""
     fs = np.asarray(image.fs, dtype=float)
     vs = np.asarray(image.vs, dtype=float)
     coherent = coherent_columns(image, thresholds.coherent_level)
@@ -95,6 +100,30 @@ def judge_image(
         )
     ]
     flags: list[Flag] = []
+    if virtual_shot:
+        snr = virtual_shot_snr_db
+        converged = snr is None or snr >= thresholds.min_virtual_shot_snr_db
+        metrics.append(
+            Metric(
+                name="virtual_shot_snr_db",
+                value=None if snr is None else round(snr, 1),
+                threshold=thresholds.min_virtual_shot_snr_db,
+                bound="min",
+                passed=converged,
+                unit="dB",
+            )
+        )
+        if not converged and snr is not None:
+            flags.append(
+                Flag(
+                    name="noisy_virtual_shot",
+                    message=f"The virtual shot's arrivals stand {snr:.1f} dB above the lags "
+                    "after them: its correlations are still noisy.",
+                    stage="phase_shift",
+                    action=Keep(note="a virtual shot still noisy"),
+                    fixable=False,
+                )
+            )
     mute = Override(
         stage="preprocessing",
         overrides={
@@ -102,18 +131,24 @@ def judge_image(
                 "method": "mute",
                 "vmin": thresholds.vg_min,
                 "vmax": thresholds.vg_max,
-                "width": thresholds.mute_width_s,
             }
         },
     )
+    # A passive line has no muting (the user, 2026-09-28): an image mostly noise is flagged and
+    # kept there, the later gates judging its pick.
+    mutable = mode != "passive"
     if n_coherent == 0:
+        said = (
+            f"No column of the image rises {thresholds.coherent_level:.0%} of the way from the "
+            "noise floor to 1: nothing to pick."
+        )
         flags.append(
             Flag(
                 name="no_coherent_energy",
-                message=f"No column of the image rises {thresholds.coherent_level:.0%} of the way "
-                "from the noise floor to 1: nothing to pick. Try a surface-wave mute.",
+                message=f"{said} Try a surface-wave mute." if mutable else said,
                 stage="preprocessing",
-                action=mute,
+                action=mute if mutable else Keep(note="no coherent energy, no mute to try"),
+                fixable=mutable,
             )
         )
         return _result(
@@ -122,13 +157,17 @@ def judge_image(
 
     band = (float(fs[coherent].min()), float(fs[coherent].max()))
     if share < thresholds.min_coherent_columns:
+        said = (
+            f"Only {share:.0%} of the columns are coherent ({band[0]:.1f}-{band[1]:.1f} Hz): the "
+            "image is mostly noise."
+        )
         flags.append(
             Flag(
                 name="weak_coherence",
-                message=f"Only {share:.0%} of the columns are coherent ({band[0]:.1f}-{band[1]:.1f} "
-                "Hz): the image is mostly noise. Try a surface-wave mute.",
+                message=f"{said} Try a surface-wave mute." if mutable else said,
                 stage="preprocessing",
-                action=mute,
+                action=mute if mutable else Keep(note="mostly noise, no mute to try"),
+                fixable=mutable,
             )
         )
 
@@ -280,8 +319,27 @@ def judge_image(
 
 
 def _result(unit: str, metrics: list[Metric], flags: list[Flag], kept: Kept) -> GateResult:
-    # A kept flag is information: it never changes the verdict.
-    verdict = "retry" if any(not isinstance(flag.action, Keep) for flag in flags) else "pass"
+    # A kept flag is information: it never changes the verdict; one no change fixes rejects, as
+    # G3's.
+    acted = [flag for flag in flags if not isinstance(flag.action, Keep)]
+    verdict = (
+        "pass" if not acted else "reject" if any(not flag.fixable for flag in acted) else "retry"
+    )
     return GateResult(
         gate=GATE, unit=unit, verdict=verdict, metrics=tuple(metrics), flags=tuple(flags), kept=kept
     )
+
+
+def virtual_shot_snr(stream: Stream, vmin: float, vmax: float, pad_s: float) -> float | None:
+    """A passive or passive-active window's virtual shot (its stacked correlations): the median
+    SNR of its traces, dB, the arrivals between `vmax` and `vmin` from the virtual source (padded
+    by `pad_s`) against the lags after them, the source's own trace aside; None when the lags end
+    before a noise window."""
+    offsets = np.asarray(stream.acquisition.offsets, dtype=float)
+    ts = np.asarray(stream.ts, dtype=float)
+    windows = signal_windows(offsets, ts, vmin, vmax, pad_s)
+    if windows is None:
+        return None
+    snr = snr_db(np.nan_to_num(np.asarray(stream.xt, dtype=float)), windows)
+    measured = snr[(offsets > 0) & np.isfinite(snr)]
+    return float(np.median(measured)) if measured.size else None

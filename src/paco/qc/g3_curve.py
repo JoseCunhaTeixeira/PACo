@@ -85,10 +85,12 @@ def judge_curve(
     band: tuple[float, float] | None = None,
     picking: PickingParameters | None = None,
     nearest_offset: float | None = None,
+    mutable: bool = True,
 ) -> GateResult:
     """G3's verdict on one window's M0 pick, with the band G2 found coherent (or G1 usable)
     when known, the band a fix narrows to, the picking parameters the fixes start from, and
-    the distance from the window's nearest shot to its receivers."""
+    the distance from the window's nearest shot to its receivers. Not `mutable` (a passive
+    line: no muting, the user, 2026-09-28), a flag only a mute would fix rejects."""
     picking = picking or PickingParameters()
     quality = measure_quality(image, m0, thresholds.metrics)
     metrics = _metrics(quality, thresholds)
@@ -96,7 +98,7 @@ def judge_curve(
     receivers = image.acquisition.receivers
     length = abs(receivers[-1].x - receivers[0].x)
     cut = _constant_wavelength_cut(m0, length)
-    flags = [_flag(name, quality, band, thresholds, cut) for name in quality.flags]
+    flags = [_flag(name, quality, band, thresholds, cut, mutable) for name in quality.flags]
     n_traces = len(receivers)
     if m0 is None or m0.curve is None:
         kept = Kept(band_hz=quality.band_hz, n_points=quality.n_points, n_traces=n_traces)
@@ -190,11 +192,13 @@ def judge_curve(
         )
     )
     if air > thresholds.max_air_share:
+        said = f"{air:.0%} of the points sit at {low:g}-{high:g} m/s: the air wave, not the ground."
         flags.append(
             Flag(
                 name="air_wave",
-                message=f"{air:.0%} of the points sit at {low:g}-{high:g} m/s: the air wave, not "
-                "the ground. Mute the arrivals faster than the surface wave.",
+                message=f"{said} Mute the arrivals faster than the surface wave."
+                if mutable
+                else said,
                 stage="preprocessing",
                 action=Override(
                     stage="preprocessing",
@@ -205,7 +209,10 @@ def judge_curve(
                             "vmax": thresholds.air_wave_mute_vmax,
                         }
                     },
-                ),
+                )
+                if mutable
+                else Reject(reason="the air wave, not the ground"),
+                fixable=mutable,
             )
         )
 
@@ -437,6 +444,7 @@ def _flag(
     band: tuple[float, float] | None,
     thresholds: CurveThresholds,
     cut: float | None,
+    mutable: bool = True,
 ) -> Flag:
     match name:
         case "no_ridge":
@@ -457,15 +465,32 @@ def _flag(
                 fixable=False,
             )
         case "prominence":
+            said = (
+                f"The ridge stands {quality.prominence:.1f} times above the rest of the image: "
+                "barely."
+            )
+            if not band and not mutable:
+                return Flag(
+                    name="prominence",
+                    message=f"{said} No band to filter to, and no muting on a passive line.",
+                    stage="preprocessing",
+                    action=Reject(reason="the ridge barely stands out"),
+                    fixable=False,
+                )
             overrides = (
                 {"filtering": {"method": "iir", "fmin": _low(band), "fmax": _high(band)}}
                 if band
-                else {"muting": {"method": "mute", "vmin": thresholds.mute_vmin, "vmax": 1500.0}}
+                else {
+                    "muting": {
+                        "method": "mute",
+                        "vmin": thresholds.mute_vmin,
+                        "vmax": 1500.0,
+                    }
+                }
             )
             return Flag(
                 name="prominence",
-                message=f"The ridge stands {quality.prominence:.1f} times above the rest of the "
-                "image: barely. Filter to the band, or mute.",
+                message=f"{said} Filter to the band, or mute.",
                 stage="preprocessing",
                 action=Override(stage="preprocessing", overrides=overrides),
             )

@@ -50,21 +50,31 @@ from paco.qc.coherence import (
     near_note,
 )
 from paco.qc.config import QCConfig, snapshot_qc_config
-from paco.qc.g1_signal import decay_outliers, judge_receivers, judge_signal
+from paco.qc.g1_signal import (
+    SPECTRA_MODES,
+    decay_outliers,
+    judge_receivers,
+    judge_signal,
+    judge_spectra,
+    spectral_outliers,
+)
 from paco.qc.g2_image import judge_image
 from paco.qc.g4_profile import LINE
-from paco.qc.judging import shared_band, stream_of
+from paco.qc.judging import shared_band, stream_of, virtual_shot
 from paco.qc.log import append_attempt, latest, read_attempts, record_notes, record_result
 from paco.qc.loops import RetryBudget, deep_merge, next_try, spent
 from paco.qc.models import Attempt, ExcludeRecord, ExcludeTraces, GateResult, Stage
 from paco.qc.report import QCReport, build_report, write_report
 from paco.qc.rerun import rerun_phase_shift
+from paco.qc.segments import SEGMENT_STAGES, choose_segments
 from paco.qc.shots import (
     file_triggers,
     muted_records,
     preprocessing_values,
+    pulse_widths,
     trigger_context,
     window_muted,
+    with_pulse,
 )
 from paco.runs import PACKAGES
 from paco.settings import Settings
@@ -149,6 +159,19 @@ def _process(
     )
     changes: dict[str, Any] = deep_merge(band, {"masw": {"length": choice.length}})
     preset = resolve_preset(apply_overrides(preset, changes), loaded)
+    # A passive line's segments, their length and FK selection tried on a few windows, those the
+    # user set left as they are (the user, 2026-09-28: PACo optimizes the parameters the passive
+    # workflow has).
+    segment_notes: tuple[str, ...] = ()
+    given = frozenset(overrides or {}) & SEGMENT_STAGES
+    if str(mode) == "passive" and given != SEGMENT_STAGES:
+        picked, segment_notes = choose_segments(
+            loaded, preset, run_folder, config.segments, config.signal, config.picking,
+            exclusions, given,
+        )  # fmt: skip
+        if picked is not None:
+            changes = deep_merge(changes, picked)
+            preset = resolve_preset(apply_overrides(preset, picked), loaded)
     windows = build_windows(loaded, preset.masw)
     near, longest = near_field(overrides, str(mode), choice)
     near_notes: tuple[str, ...] = ()
@@ -210,7 +233,7 @@ def _process(
             started_at=started_at,
             finished_at=manifest.finished_at,
             status="succeeded",
-            notes=band_notes + far_notes + choice.notes + near_notes,
+            notes=band_notes + far_notes + choice.notes + segment_notes + near_notes,
         ),
     )
     settle_images(run_id, run_folder, manifest, config, settings, usable)
@@ -292,6 +315,8 @@ def settle_records(
     results: dict[str, GateResult] = {}
     n_units = max(1, len(records))
     active = profile.kind == "active"
+    # The traces' spectra against their neighbours': on passive and passive-active lines.
+    spectra = preset.mode in SPECTRA_MODES
     triggers = file_triggers(profile)
     while True:
         attempts = read_attempts(run_folder)
@@ -312,6 +337,7 @@ def settle_records(
                 reach_m=reach_m,
                 shot_s=shot_s,
                 applied_s=applied_s,
+                spectra=spectra,
             )
             results[name] = result
             attempt = latest(attempts, name, "preprocessing")
@@ -326,19 +352,17 @@ def settle_records(
                     exclusions = exclusions.with_record(name)
         attempts = read_attempts(run_folder)
         budget = RetryBudget(attempts, config.budgets, n_units)
+        # A mute keeps each record's own pulse after the slowest arrival (shots.py).
+        widths = pulse_widths(attempts, results, config.signal.mute_width_s)
         again: dict[str, tuple[dict[str, Any], str]] = {}
         for name, result in results.items():
             attempt = latest(attempts, name, "preprocessing")
             previous = attempt.parameters if attempt is not None else {}
             wanted = next_try(result, "preprocessing", budget, previous)
             if wanted is not None:
+                # G1 gives the whole trigger: the shift already applied and its own measure.
                 parameters, trigger = wanted
-                # G1 measures the trigger's delay on the record as preprocessed: it adds to the
-                # correction already made.
-                shift = parameters.get("trigger", {})
-                if "t0" in shift and "trigger" in previous:
-                    shift["t0"] = round(shift["t0"] + previous["trigger"].get("t0", 0.0), 4)
-                again[name] = (parameters, trigger)
+                again[name] = (with_pulse(parameters, widths[name]), trigger)
             elif spent(result, "preprocessing"):
                 if attempt is not None:
                     record_result(
@@ -408,7 +432,11 @@ def settle_records(
         )
         record_notes(run_folder, name, "preprocessing", attempt.attempt, (note,))
     if active:
-        exclusions = settle_receivers(run_folder, profile, outcomes, exclusions, config, reach_m)
+        exclusions = settle_receivers(
+            run_folder, profile, outcomes, exclusions, config, reach_m, spectra
+        )
+    elif spectra:
+        _log_line(run_folder, _spectra_result(run_folder, profile, outcomes, exclusions, config))
     usable: Bands = {name: result.kept.band_hz for name, result in results.items()}
     return tuple(outcomes.values()), exclusions, usable
 
@@ -420,12 +448,14 @@ def settle_receivers(
     exclusions: Exclusions,
     config: QCConfig,
     reach_m: float | None,
+    spectra: bool = False,
 ) -> Exclusions:
     """G1 over the line, once each record is settled: each receiver judged over every record
     that reaches it, those off the amplitude decay in most of them left out of every window.
     A trace off it in a few records stays (the one nearest each shot, where the fitted decay
-    overshoots; a burst of noise): a record's own is no bad geophone. Logged as G1's result on
-    the line."""
+    overshoots; a burst of noise): a record's own is no bad geophone. With `spectra` (a
+    passive-active line), the receivers off their neighbours' spectra flagged too. Logged as G1's
+    result on the line."""
     started_at = datetime.now(UTC)
     off: dict[int, int] = {}
     reached: dict[int, int] = {}
@@ -446,6 +476,59 @@ def settle_receivers(
     result = judge_receivers(
         off, reached, [receiver.x for receiver in profile.receivers], config.signal
     )
+    if spectra:
+        own = _spectra_result(run_folder, profile, outcomes, exclusions, config)
+        result = result.model_copy(
+            update={
+                "metrics": result.metrics + own.metrics,
+                "flags": result.flags + own.flags,
+            }
+        )
+    _log_line(run_folder, result, started_at)
+    for flag in result.flags:
+        if isinstance(flag.action, ExcludeTraces):
+            for name in kept:
+                exclusions = exclusions.with_traces(name, flag.action.traces)
+    return exclusions
+
+
+def _spectra_result(
+    run_folder: Path,
+    profile: Profile,
+    outcomes: Mapping[str, RecordOutcome],
+    exclusions: Exclusions,
+    config: QCConfig,
+) -> GateResult:
+    """G1 over a passive or passive-active line: the receivers off their neighbours' spectra in
+    most of the records judging them, flagged (judge_spectra)."""
+    shots = profile.kind == "active"
+    off: dict[int, int] = {}
+    reached: dict[int, int] = {}
+    for name, outcome in outcomes.items():
+        if outcome.status != "succeeded" or name in exclusions.records:
+            continue
+        stream = stream_of(run_folder / outcome.folder / PREPROCESSED)
+        bad, judged = spectral_outliers(
+            stream, config.signal, exclusions.traces.get(name, ()), shots=shots
+        )
+        for receiver in np.flatnonzero(judged):
+            reached[int(receiver)] = reached.get(int(receiver), 0) + 1
+        for receiver in np.flatnonzero(bad):
+            off[int(receiver)] = off.get(int(receiver), 0) + 1
+    metric, flag = judge_spectra(
+        off, reached, [receiver.x for receiver in profile.receivers], config.signal
+    )
+    return GateResult(
+        gate="G1",
+        unit=LINE,
+        verdict="pass",
+        metrics=(metric,),
+        flags=(flag,) if flag is not None else (),
+    )
+
+
+def _log_line(run_folder: Path, result: GateResult, started_at: datetime | None = None) -> None:
+    """G1's result on the line, logged as the line's preprocessing."""
     append_attempt(
         run_folder,
         Attempt(
@@ -454,17 +537,12 @@ def settle_receivers(
             attempt=1,
             parameters={},
             triggered_by="initial",
-            started_at=started_at,
+            started_at=started_at or datetime.now(UTC),
             finished_at=datetime.now(UTC),
             status="succeeded",
             results={"G1": result},
         ),
     )
-    for flag in result.flags:
-        if isinstance(flag.action, ExcludeTraces):
-            for name in kept:
-                exclusions = exclusions.with_traces(name, flag.action.traces)
-    return exclusions
 
 
 def settle_images(
@@ -497,6 +575,7 @@ def settle_images(
                     shared_band(folder, usable),
                     mode=manifest.preset.mode,
                     muted=window_muted(folder, muted_records(manifest.preset, attempts, latest)),
+                    **virtual_shot(folder, manifest.preset.mode, config),
                 )
                 attempt = record_result(
                     run_folder, window.folder, "phase_shift", attempt.attempt, result
