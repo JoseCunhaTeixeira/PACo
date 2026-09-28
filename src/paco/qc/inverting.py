@@ -706,7 +706,6 @@ def _invert(
                 depths,
                 config.model,
                 chain_jobs(workers, len(jobs), derived.parameters.n_chains),
-                first_prior(history, unit),
                 staging(run_folder / unit),
             ): unit
             for unit, derived in jobs.items()
@@ -811,31 +810,17 @@ def chain_jobs(workers: int, windows: int, chains: int) -> int:
     return max(1, min(chains, workers // max(1, windows)))
 
 
-def first_prior(attempts: Sequence[Attempt], unit: str) -> InversionParameters | None:
-    """The priors `unit`'s first inversion ran with, the wide ones the depth the data inform is
-    judged against once the loop narrowed them; None before any."""
-    logged = attempts_of(attempts, unit, "inversion")
-    if not logged:
-        return None
-    try:
-        return InversionParameters.model_validate(logged[0].parameters)
-    except ValueError:
-        return None
-
-
 def _invert_and_measure(
     folder: Path,
     parameters: InversionParameters,
     depths: tuple[float, ...],
     thresholds: ModelThresholds,
     chain_jobs: int = 1,
-    reference: InversionParameters | None = None,
     output: Path | None = None,
 ) -> InversionMeasures:
     """Runs in a worker: the window's inversion, its chains in `chain_jobs` processes, then
     what G5 judges, saved next to it, or in `output` (a staging folder, moved into place once
-    this ended): the depth the data inform against `reference`'s priors (the first
-    inversion's) when given."""
+    this ended)."""
     invert_window(folder, parameters, chain_jobs=chain_jobs, output_folder=output)
     measures = measure_inversion(
         folder,
@@ -844,7 +829,6 @@ def _invert_and_measure(
         thresholds.n_bands,
         thresholds.bound_edge,
         thresholds.useful_std_ratio,
-        reference=reference,
         output_folder=output,
     )
     ((output or folder) / MEASURES_FILE).write_text(measures.model_dump_json(indent=2))
