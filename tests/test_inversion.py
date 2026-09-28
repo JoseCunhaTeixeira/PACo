@@ -287,7 +287,7 @@ def test_every_window_g4_passed_is_inverted(inverted: Inverted) -> None:
     assert (record.state, record.total, record.error) == ("succeeded", 4, None)
     assert record.started_at is not None and record.finished_at is not None
     assert [window.folder for window in record.windows] == list(PICKED)
-    # The smooth median is reported at round depths down to half the longest wavelength.
+    # The ensemble is reported at round depths down to half the longest wavelength.
     assert record.depths_m and record.depths_m[0] > 0
     # sigpipe's own chains: none fails (the sampler before 2026-09-27 could keep no predicted
     # curve).
@@ -330,7 +330,7 @@ def test_g5s_retries_are_in_the_jobs_summary(inverted: Inverted) -> None:
 
 
 def test_the_section_of_the_models_g5_passed_is_saved_like_pacs(inverted: Inverted) -> None:
-    # PAC's end-of-run outputs: the smooth median's section as a figure, every variant's in an
+    # PAC's end-of-run outputs: the ensemble's section as a figure, every variant's in an
     # HDF5 file, over the models G5 passed (two at least; the sampler here is short).
     passed = [window for window in inverted.record.windows if window.verdict == "pass"]
     figure, grids = inverted.folder / SECTION_FIGURE, inverted.folder / SECTION_FILE
@@ -338,7 +338,7 @@ def test_the_section_of_the_models_g5_passed_is_saved_like_pacs(inverted: Invert
         assert not figure.exists()
         return
     assert figure.exists() and grids.exists()
-    # And the picked curves against the ones the smooth medians predict, along the line.
+    # And the picked curves against the ones the ensembles predict, along the line.
     assert (inverted.folder / COMPARISON_FIGURE).exists()
     assert inverted.record.summary is not None
     assert f"Section of the {len(passed)} models G5 passed: {SECTION_FIGURE}." in (

@@ -1,5 +1,5 @@
-"""What the agent reads of an inversion job: progress, and the smooth median models found so far
-(PAC's default view)."""
+"""What the agent reads of an inversion job: progress, and the models found so far (the
+ensembles: each depth's median Vs of the kept models, PAC's default view)."""
 
 from datetime import UTC, datetime
 

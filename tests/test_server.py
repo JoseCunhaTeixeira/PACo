@@ -260,7 +260,7 @@ def test_the_workflow_process_pick_redo_invert() -> None:
     assert (status["state"], status["done"]) == ("succeeded", 4)
     # sigpipe's sampler sometimes fails a window twice (a chain keeping no predicted curve).
     assert status["n_failed"] <= 1
-    # The smooth median models, at round depths.
+    # The models (the ensembles), at round depths.
     assert status["depths_m"] and len(status["vs_m_s"]) == len(status["depths_m"])
     # G6 first, when the line reached it.
     assert any(line.startswith("G5: ") for line in status["summary"].splitlines()[:2])

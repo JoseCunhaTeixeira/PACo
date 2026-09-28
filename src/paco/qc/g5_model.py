@@ -1,5 +1,6 @@
-"""G5, the model QC per window (docs/qc_workflow.md): the fit of the monitored smooth median to
-the picked curve, by band of wavelength (a misfit only PAC's smoothing causes is kept), whether
+"""G5, the model QC per window (docs/qc_workflow.md): the fit of the monitored model (the
+ensemble: the kept models' median Vs at each depth) to the picked curve, by band of wavelength
+(a misfit only that median across the models causes is kept), whether
 the chains agree on the models' Vs at the depths the curve resolves, whether the posterior piles
 at a bound of the prior, down to which depth the data inform the model, and, when the layers are
 given, whether two adjacent layers are one. The cheapest fix first: sampling longer, a bound
@@ -137,9 +138,9 @@ def judge_model(
     is the most layers the curve resolves; `fewest_layers` the fewest the loop goes down to, one
     more than a count that misfit before; `longer_runs` the times the window was sampled longer
     already."""
-    smooth, layered = measures.fits
+    monitored, layered = measures.fits
     names = BAND_NAMES.get(
-        len(smooth.bands), tuple(f"band{i + 1}" for i in range(len(smooth.bands)))
+        len(monitored.bands), tuple(f"band{i + 1}" for i in range(len(monitored.bands)))
     )
     metrics = [
         Metric(
@@ -149,7 +150,7 @@ def judge_model(
             bound="max",
             passed=band.misfit is not None and band.misfit <= thresholds.max_misfit,
         )
-        for name, band in zip(names, smooth.bands, strict=True)
+        for name, band in zip(names, monitored.bands, strict=True)
     ]
     # PAC's residual, (modelled - picked) / modelled in %, by band: reported, never judged (the
     # misfit divides by the Lorentzian uncertainties).
@@ -160,7 +161,7 @@ def judge_model(
             passed=True,
             unit="%",
         )
-        for name, band in zip(names, smooth.bands, strict=True)
+        for name, band in zip(names, monitored.bands, strict=True)
     ]
     metrics.append(
         Metric(
@@ -359,7 +360,7 @@ def judge_model(
     # The layers are counted once the chains agree, no Vs bound holds the posterior and the
     # model ends where the data inform it.
     settled = agree and not widened and not shrunk and not more
-    worst = _worst_band(smooth, names)
+    worst = _worst_band(monitored, names)
     if settled and worst is not None and worst[1] > thresholds.max_misfit:
         name, value, band = worst
         where = f"{name} wavelengths ({band[0]:g}-{band[1]:g} m)"
@@ -367,11 +368,11 @@ def judge_model(
             loop.flags.append(
                 Flag(
                     name="smoothing_misfit",
-                    message=f"The smooth median misfits {value:.1f} at {where} where the layered "
-                    f"median fits ({layered.misfit:.1f}): PAC's smoothing spreads the layer "
-                    "boundaries.",
+                    message=f"The ensemble misfits {value:.1f} at {where} where the layered "
+                    f"median fits ({layered.misfit:.1f}): the median across the kept models "
+                    "blurs the interfaces they place apart.",
                     stage="inversion",
-                    action=Keep(note="re-inverting cannot fix a smoothing effect"),
+                    action=Keep(note="re-inverting cannot fix the models' median blurring"),
                 )
             )
         elif free:
@@ -430,7 +431,7 @@ def judge_model(
     kinds = {type(flag.action) for flag in flags}
     rejected = Reject in kinds or any(not flag.fixable for flag in flags)
     verdict = "reject" if rejected else "retry" if Override in kinds else "pass"
-    wavelengths = [band.wavelength_m for band in smooth.bands]
+    wavelengths = [band.wavelength_m for band in monitored.bands]
     return GateResult(
         gate=GATE,
         unit=unit,
@@ -439,7 +440,7 @@ def judge_model(
         flags=flags,
         kept=Kept(
             wavelength_m=(wavelengths[0][0], wavelengths[-1][1]) if wavelengths else None,
-            n_points=sum(band.n_points for band in smooth.bands),
+            n_points=sum(band.n_points for band in monitored.bands),
         ),
     )
 
