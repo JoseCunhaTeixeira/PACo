@@ -82,6 +82,7 @@ def test_a_model_that_fits_with_agreeing_chains_passes() -> None:
         "rhat": 1.02,
         "ess": 1_900.0,  # the least of the parameters', against 200
         "autocorrelation": 0.2,  # reported
+        "acceptance": 25.0,  # reported: the chains' median, %
         "samples_per_chain": 600,
         "at_bound": 0.03,
         "useful_depth": 5.0,

@@ -20,6 +20,7 @@ from mcp.server.transport_security import TransportSecuritySettings
 from pydantic import BaseModel, Field, ValidationError
 from sigpipe.masw import presets, profiles, runs
 from sigpipe.masw.inversion import InversionParameters, priors
+from sigpipe.workers import one_thread_each
 
 from paco import inversion, qc, stopping
 from paco.jobs import JobManager
@@ -444,6 +445,8 @@ def main() -> None:
     """paco-server: serve PACo's tools over Streamable HTTP, where the settings say."""
     # A wrong setting stops the server here, instead of failing every tool call.
     settings = get_settings()
+    # One thread in each process of its jobs: the workers are the cores a job takes.
+    one_thread_each()
     server.run(
         transport="streamable-http",
         host=settings.host,

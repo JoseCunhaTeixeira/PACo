@@ -10,6 +10,7 @@ flags ask them."""
 
 import itertools
 import math
+import statistics
 from collections.abc import Iterable, Mapping
 from typing import Any
 
@@ -215,6 +216,13 @@ def judge_model(
             name="autocorrelation",
             value=max(correlations) if correlations else None,
             passed=True,
+        ),
+        # Reported, not judged since the sampler of 2026-09-27: the chains' median, %.
+        Metric(
+            name="acceptance",
+            value=round(statistics.median(measures.acceptance), 2) if measures.acceptance else None,
+            passed=True,
+            unit="%",
         ),
         Metric(
             name="samples_per_chain",

@@ -37,6 +37,7 @@ from sigpipe.masw.picks import CURVES_FILE, load_curves
 from sigpipe.masw.quality.line import Series
 from sigpipe.masw.runs import RunError, RunManifest, find_run, load_manifest, start_worker
 from sigpipe.masw.runs.stopping import Stopped, commit, finished, staging, undo
+from sigpipe.workers import one_thread_each
 
 from paco import stopping
 from paco.inversion import (
@@ -695,6 +696,7 @@ def _invert(
         numbers[unit] = 1 if fresh else len(previous) + 1
     results: list[GateResult] = []
     started_at = datetime.now(UTC)
+    one_thread_each()  # the workers are the cores the inversions take
     with ProcessPoolExecutor(
         max_workers=max(1, min(workers, len(jobs))),
         initializer=start_worker,

@@ -1,6 +1,6 @@
 """The petrophysical inversion the QC way: the range check, G7 on each window, G8 along the line,
 on made-up measures, then the whole flow on the demo line, where the one bundled Silex model
-covers a single curve of six (they end below the 43 Hz it needs). Needs sigpipe's silex and
+covers a single curve of seven (they end below the 43 Hz it needs). Needs sigpipe's silex and
 santiludo extras."""
 
 import importlib.util
@@ -197,7 +197,7 @@ def test_a_model_says_how_many_curves_it_covers(judged: tuple[Settings, str, Pat
 
     (card,) = choice.models
     assert (card.name, card.n_covered) == (GRAND_EST, 1)
-    assert card.covers == "1 of the 6 curves G4 passed; 5 end below 43 Hz"
+    assert card.covers == "1 of the 7 curves G4 passed; 6 end below 43 Hz"
     assert card.trained_on == (
         "15-50 Hz, 193-415 m/s; soils clay, loam, silt, sand; up to 4 layers down to 20 m; "
         "water tables 1-10 m"
@@ -217,8 +217,8 @@ def test_the_covered_curves_are_inverted_and_judged(judged: tuple[Settings, str,
     assert (run_folder / window.unit / MEASURES_FILE).exists()
     line = next(unit for unit in report.units if unit.unit == "line")
     assert line.verdicts["G8"] == "reject"  # one model: no section
-    assert described.startswith(f"Silex model {GRAND_EST} covers 1 of the 6 curves G4 passed.")
-    assert "Left out, outside its range: 5 end below 43 Hz." in described
+    assert described.startswith(f"Silex model {GRAND_EST} covers 1 of the 7 curves G4 passed.")
+    assert "Left out, outside its range: 6 end below 43 Hz." in described
     assert "No section: fewer than two models passed." in described
     assert not list(run_folder.glob("PetroInversion_*"))
 

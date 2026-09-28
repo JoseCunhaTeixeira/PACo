@@ -114,7 +114,7 @@ Since nobody looks at the curves before inversion any more, G3 is the safety net
 
 The user's decision (2026-09-26, "Range, fit, line"), and `docs/gates/G7.md`, `G8.md`:
 
-- Range: a curve outside the chosen Silex model's trained band and velocities (beyond Silex's own 20 % margin) is not inverted; the agent says how the curves fall outside ("5 end below 43 Hz") and chooses the model covering the most (`petro_models`).
+- Range: a curve outside the chosen Silex model's trained band and velocities (beyond Silex's own 20 % margin) is not inverted; the agent says how the curves fall outside ("6 end below 43 Hz") and chooses the model covering the most (`petro_models`).
 - G7, per xmid: the curve the predicted soil column gives back against the pick, by band, as G5 (at most 2 per band); points with no fundamental mode, and a pick with no uncertainty, reject.
 - G8, whole line: the rock physics' Vs at fixed depths (G6's rule) and the water table against the neighbours; an outlier the curves do not show is left out, a change they show is kept.
 - No retry: a model gives one soil column per curve. A window G7 or G8 rejects is left out of the sections; its flag says what could change it (another model covering the curve, or the pick).
