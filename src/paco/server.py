@@ -203,9 +203,8 @@ def invert(
 @_agent_errors
 def job_status(job_id: JobId, ctx: Context) -> inversion.InversionStatus:
     """Where an inversion job stands, after waiting up to 2 minutes for it to end: windows done,
-    the models so far (each depth's median Vs of the kept models: Vs at a few depths, useful
-    depth, misfit: about 1 is within the uncertainties), failures; once ended, the gates' summary
-    and the changed settings."""
+    the models so far (Vs at a few depths, useful depth, misfit: about 1 is within the
+    uncertainties), failures; once ended, the gates' summary and the changed settings."""
     settings = get_settings()
     inversion.find_job(job_id, settings)  # an unknown job fails at once
     deadline = time.monotonic() + JOB_WAIT_S
