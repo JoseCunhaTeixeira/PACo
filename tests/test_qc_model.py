@@ -39,7 +39,7 @@ def _fit(
 
 def _measures(**changes: Any) -> InversionMeasures:  # noqa: ANN401
     values: dict[str, Any] = {
-        "fits": (_fit("smooth_median"), _fit("median")),
+        "fits": (_fit("ensemble"), _fit("median")),
         "rhat": {"vs1": 1.01, "vs2": 1.02, "thick1": 1.01},
         "ess": {"vs1": 2_400.0, "vs2": 1_900.0, "thick1": 2_100.0},
         "autocorrelation": {"vs1": 0.1, "vs2": 0.2, "thick1": 0.15},
@@ -233,24 +233,24 @@ def test_a_layer_piled_at_its_thinnest_is_dropped_above_three_layers() -> None:
     assert _judge(_measures(at_bounds=piled), three).flags == ()
 
 
-def test_a_misfit_only_the_smoothing_makes_is_kept() -> None:
-    # PAC's smoothing spreads a thin stiff layer: the smooth median misses the short
-    # wavelengths, the layered median it comes from fits them.
-    fits = (_fit("smooth_median", (2.6, 0.7, 0.3)), _fit("median", (1.1, 0.5, 0.3)))
+def test_a_misfit_only_the_models_median_makes_is_kept() -> None:
+    # The kept models place a thin stiff layer apart: their median blurs it and misses the short
+    # wavelengths, the layered median (one of them) fits them.
+    fits = (_fit("ensemble", (2.6, 0.7, 0.3)), _fit("median", (1.1, 0.5, 0.3)))
     result = _judge(_measures(fits=fits))
 
     assert result.verdict == "pass"
     flag = _flags(result)["smoothing_misfit"]
-    assert flag.message.startswith("The smooth median misfits 2.6 at short wavelengths (2-4 m)")
+    assert flag.message.startswith("The ensemble misfits 2.6 at short wavelengths (2-4 m)")
     assert flag.action.model_dump() == {
         "kind": "keep",
-        "note": "re-inverting cannot fix a smoothing effect",
+        "note": "re-inverting cannot fix the models' median blurring",
     }
     assert next(m for m in result.metrics if m.name == "misfit_short").passed is False
 
 
 def test_a_model_that_misfits_gets_one_more_layer_up_to_the_limit() -> None:
-    fits = (_fit("smooth_median", (0.6, 0.4, 3.0)), _fit("median", (0.6, 0.4, 2.8)))
+    fits = (_fit("ensemble", (0.6, 0.4, 3.0)), _fit("median", (0.6, 0.4, 2.8)))
     result = _judge(_measures(fits=fits))
 
     assert result.verdict == "retry"
@@ -276,14 +276,14 @@ def test_a_model_that_misfits_gets_one_more_layer_up_to_the_limit() -> None:
 
 
 def test_the_cheapest_fix_first_convergence_before_layers() -> None:
-    fits = (_fit("smooth_median", (0.6, 0.4, 3.0)), _fit("median", (0.6, 0.4, 2.8)))
+    fits = (_fit("ensemble", (0.6, 0.4, 3.0)), _fit("median", (0.6, 0.4, 2.8)))
     result = _judge(_measures(fits=fits, samples_per_chain=50))
 
     assert set(_flags(result)) == {"not_converged"}
 
 
 def test_points_no_mode_of_the_model_reaches_reject_the_curve() -> None:
-    fits = (_fit("smooth_median", (None, 0.4, 0.3), 2), _fit("median", (None, 0.4, 0.3), 2))
+    fits = (_fit("ensemble", (None, 0.4, 0.3), 2), _fit("median", (None, 0.4, 0.3), 2))
     result = _judge(_measures(fits=fits))
 
     assert result.verdict == "reject"
@@ -354,7 +354,7 @@ def test_a_model_deeper_than_the_data_inform_is_shrunk_to_them() -> None:
 def test_the_layer_count_waits_for_the_depth() -> None:
     # A misfit and a model too deep: the depth first, the layers once it ends where the data
     # inform it.
-    fits = (_fit("smooth_median", (0.6, 0.4, 3.0)), _fit("median", (0.6, 0.4, 2.8)))
+    fits = (_fit("ensemble", (0.6, 0.4, 3.0)), _fit("median", (0.6, 0.4, 2.8)))
     result = _judge(_measures(fits=fits, useful_depth_m=18.0), _layers(4, 13.0))
 
     assert set(_flags(result)) == {"too_deep"}
@@ -375,7 +375,7 @@ def test_alike_layers_of_a_model_that_fits_are_one() -> None:
     kept = judge_model("xmid_8.88", measures, _layers(4, 3.0), THRESHOLDS, fewest_layers=4)
     assert kept.verdict == "pass"
     # Nor while the model misfits: then it needs a layer more, not fewer.
-    fits = (_fit("smooth_median", (0.6, 0.4, 3.0)), _fit("median", (0.6, 0.4, 2.8)))
+    fits = (_fit("ensemble", (0.6, 0.4, 3.0)), _fit("median", (0.6, 0.4, 2.8)))
     assert set(_flags(_judge(measures.model_copy(update={"fits": fits}), _layers(4, 3.0)))) == {
         "underfit"
     }
@@ -523,7 +523,7 @@ def test_the_datas_layers_piled_at_a_bound_widen_it() -> None:
 
 
 def test_the_datas_layers_that_misfit_are_rejected() -> None:
-    misfit = _fit("smooth_median", (3.0, 0.4, 0.3))
+    misfit = _fit("ensemble", (3.0, 0.4, 0.3))
     result = _judge(
         _measures(**(WATCHED | {"fits": (misfit, _fit("median", (3.0, 0.4, 0.3)))})), FREE
     )

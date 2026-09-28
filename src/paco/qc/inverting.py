@@ -570,7 +570,7 @@ def invertible(run_folder: Path, manifest: RunManifest) -> dict[str, DispersionC
 def judge_model_line(
     run_folder: Path, manifest: RunManifest, config: QCConfig
 ) -> tuple[GateResult, ...]:
-    """G6 over the line: the smooth median of every window whose latest inversion passed G5,
+    """G6 over the line: the ensemble of every window whose latest inversion passed G5,
     down to its depth of investigation (half its curve's longest wavelength), against its
     neighbours. A window's verdict goes to its latest inversion attempt, the line's own to an
     attempt of the unit "line"."""

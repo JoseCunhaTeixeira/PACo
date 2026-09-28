@@ -1,5 +1,5 @@
-"""G6, the model profile QC over the whole line (docs/qc_workflow.md): the smooth median's Vs at
-fixed depths along the line, each model against its neighbours on either side (the sides of
+"""G6, the model profile QC over the whole line (docs/qc_workflow.md): the monitored model's Vs
+(the ensemble's) at fixed depths along the line, each model against its neighbours on either side (the sides of
 G4). A jump the curves do not show (G4 found the window's curve fits its neighbours) is
 non-uniqueness: invert that window again; a jump the curves show too is kept. And how evenly
 the depth of investigation (half each curve's longest wavelength, the "useful depth" here) runs
@@ -55,7 +55,7 @@ def judge_model_profile(
     without: Sequence[float] = (),
     sampled_longer: Collection[str] = (),
 ) -> tuple[GateResult, ...]:
-    """G6's verdicts: one per model (the smooth median's Vs by depth, down to its useful depth:
+    """G6's verdicts: one per model (the ensemble's Vs by depth, down to its useful depth:
     its curve's depth of investigation), then one for the line, unit "line". `curves` holds G4's
     result on each window's curve, `parameters` each model's inversion parameters,
     `useful_depths` each window's (None: the whole model), `without` the xmids without a
