@@ -222,16 +222,16 @@ def test_the_covered_curves_are_inverted_and_judged(judged: tuple[Settings, str,
     assert "No section: fewer than two models passed." in described
     assert not list(run_folder.glob("PetroInversion_*"))
 
-    # Again: the first one's files archived, a second attempt logged.
+    # Again: a new inversion replaces the last, nothing of it kept: the window afresh, the first
+    # one's files and attempt gone, what it was run with carried.
     invert_petro_line(run_id, GRAND_EST, settings)
 
-    assert [path.name for path in archived_attempts(run_folder / window.unit)] == [
-        "1_petro_inversion"
-    ]
+    assert archived_attempts(run_folder / window.unit) == ()
     again = [
         a for a in read_attempts(run_folder) if a.stage == "petro_inversion" and a.unit != "line"
     ]
-    assert [a.attempt for a in again] == [1, 2]
+    assert [(a.attempt, a.replaced) for a in again] == [(1, {"model": GRAND_EST})]
+    assert (run_folder / window.unit / MEASURES_FILE).exists()
 
 
 def test_an_unknown_model_is_refused(judged: tuple[Settings, str, Path]) -> None:
