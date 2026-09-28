@@ -91,6 +91,29 @@ def test_a_model_that_fits_with_agreeing_chains_passes() -> None:
     assert result.kept.wavelength_m == (2.0, 11.0) and result.kept.n_points == 9
 
 
+def test_an_acceptance_outside_its_band_is_a_warning() -> None:
+    # 15 % of their moves accepted, the median of the chains, when the data chose the layers:
+    # under the 20 to 30 % their adapted steps aim at (the user, 2026-09-29: a warning, never a
+    # failure).
+    slow = (15.0, 16.0, 14.0, 15.0, 17.0)
+    result = _judge(_measures(**WATCHED, acceptance=slow), FREE)
+
+    assert "acceptance" in {flag.name for flag in result.flags}
+    flag = next(flag for flag in result.flags if flag.name == "acceptance")
+    assert flag.action.kind == "keep" and flag.fixable
+    rows = [metric for metric in result.metrics if metric.name == "acceptance"]
+    assert [(row.threshold, row.bound, row.passed) for row in rows] == [
+        (20.0, "min", False),
+        (30.0, "max", True),
+    ]
+    # The layers given (DREAM, near 5 % by design): reported only.
+    fixed = _judge(_measures(acceptance=slow))
+    assert fixed.verdict == "pass" and fixed.flags == ()
+    assert [(row.threshold, row.passed) for row in fixed.metrics if row.name == "acceptance"] == [
+        (None, True)
+    ]
+
+
 @pytest.mark.parametrize(
     "change",
     [

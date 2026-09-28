@@ -59,6 +59,12 @@ class ModelThresholds(BaseModel):
     min_samples_per_chain: int = Field(
         default=100, ge=2, description="Models each chain keeps after the burn-in, at least."
     )
+    acceptance_band: tuple[float, float] = Field(
+        default=(20.0, 30.0),
+        description="%: when the data choose the layers, the chains' median acceptance outside "
+        "it is a warning, never a failure (their steps adapt in the burn-in, towards 30 % a "
+        "move); the layers given (DREAM, near 5 % by design) report it only.",
+    )
     min_ess: float = Field(
         default=200.0,
         gt=0,
@@ -185,6 +191,8 @@ def judge_model(
         if value is not None and name in judged
     ]
     free = parameters.layering == "free"
+    acceptance = round(statistics.median(measures.acceptance), 2) if measures.acceptance else None
+    low_acceptance, high_acceptance = thresholds.acceptance_band
     # The chains agree on one posterior: what it says of the data can be judged. Converged,
     # they also hold enough independent samples for its uncertainties.
     agree = (
@@ -217,13 +225,7 @@ def judge_model(
             value=max(correlations) if correlations else None,
             passed=True,
         ),
-        # Reported, not judged since the sampler of 2026-09-27: the chains' median, %.
-        Metric(
-            name="acceptance",
-            value=round(statistics.median(measures.acceptance), 2) if measures.acceptance else None,
-            passed=True,
-            unit="%",
-        ),
+        *_acceptance(acceptance, thresholds.acceptance_band if free else None),
         Metric(
             name="samples_per_chain",
             value=measures.samples_per_chain,
@@ -434,6 +436,17 @@ def judge_model(
         )
 
     loop.flags += _plausibility(measures.vs_layers, thresholds)
+    if free and acceptance is not None and not low_acceptance <= acceptance <= high_acceptance:
+        loop.flags.append(
+            Flag(
+                name="acceptance",
+                message=f"The chains accepted {acceptance:g} % of their moves (median), outside "
+                f"{low_acceptance:g} to {high_acceptance:g} %: their steps may not suit the "
+                "posterior; look at the chains.",
+                stage="inversion",
+                action=Keep(note="a warning: the steps adapt in the burn-in"),
+            )
+        )
 
     flags = loop.finished()
     kinds = {type(flag.action) for flag in flags}
@@ -740,6 +753,32 @@ def _too_deep(
         **fewer,
     )
     return True
+
+
+def _acceptance(value: float | None, band: tuple[float, float] | None) -> tuple[Metric, ...]:
+    """The chains' median acceptance (%): with a band, a floor and a ceiling (one row of two, a
+    warning outside it, the user 2026-09-29), else reported."""
+    if band is None:
+        return (Metric(name="acceptance", value=value, passed=True, unit="%"),)
+    low, high = band
+    return (
+        Metric(
+            name="acceptance",
+            value=value,
+            threshold=low,
+            bound="min",
+            passed=value is None or value >= low,
+            unit="%",
+        ),
+        Metric(
+            name="acceptance",
+            value=value,
+            threshold=high,
+            bound="max",
+            passed=value is None or value <= high,
+            unit="%",
+        ),
+    )
 
 
 def _plausibility(vs_layers: tuple[float, ...], thresholds: ModelThresholds) -> list[Flag]:
