@@ -13,7 +13,7 @@ from typing import Any, cast
 
 from pydantic import BaseModel, ConfigDict
 
-from paco.qc.log import read_attempts, retries_in_run, retries_of_inversion
+from paco.qc.log import LOG_FILE, read_attempts, retries_in_run, retries_of_inversion
 from paco.qc.models import Action, Attempt, Budgets, Flag, GateResult, Kept, Stage, Verdict
 
 REPORT_FILE = "qc_report.json"
@@ -105,9 +105,11 @@ def build_report(run_id: str, run_folder: Path, budgets: Budgets, n_xmids: int) 
         if attempt.triggered_by != "initial":
             if attempt.unit not in retried[attempt.triggered_by]:
                 retried[attempt.triggered_by].append(attempt.unit)
-            change = _changes(before.get(key, {}), attempt.parameters)
+            # Against the attempt before, or the one it replaced when it started afresh.
+            previous = before.get(key, attempt.replaced)
+            change = _changes(previous, attempt.parameters)
             changes[attempt.triggered_by].append((attempt.stage, change))
-            replaced.setdefault(attempt.triggered_by, _at(before.get(key, {}), change))
+            replaced.setdefault(attempt.triggered_by, _at(previous, change))
         before[key] = attempt.parameters
     return QCReport(
         run_id=run_id,
@@ -133,7 +135,15 @@ def write_report(report: QCReport, run_folder: Path) -> Path:
 
 
 def read_report(run_folder: Path) -> QCReport:
-    return QCReport.model_validate_json((run_folder / REPORT_FILE).read_text())
+    """The run's report; built again from the log when the log changed after it (PAC redid a
+    window by hand, which forgets the window's earlier attempts)."""
+    path = run_folder / REPORT_FILE
+    report = QCReport.model_validate_json(path.read_text())
+    log = run_folder / LOG_FILE
+    if log.exists() and log.stat().st_mtime > path.stat().st_mtime:
+        report = build_report(report.run_id, run_folder, report.budgets, report.n_xmids)
+        write_report(report, run_folder)
+    return report
 
 
 def summarize_report(report: QCReport, gates: Sequence[str] | None = None) -> str:

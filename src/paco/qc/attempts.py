@@ -6,35 +6,26 @@ window only."""
 import shutil
 from pathlib import Path
 
-from paco.qc.models import STAGES, Stage, stage_index
+# The stages' files in a window's folder, and the stages after each that use its results: sigpipe's,
+# which PAC erases a window's history with too.
+from sigpipe.masw.runs.history import ATTEMPTS_FOLDER, STAGE_FILES, downstream
 
-ATTEMPTS_FOLDER = "attempts"
+from paco.qc.models import Stage
+
+__all__ = [
+    "ATTEMPTS_FOLDER",
+    "RECORD_FILES",
+    "STAGE_FILES",
+    "archived_attempts",
+    "downstream",
+    "invalidate",
+    "invalidate_record",
+    "restore",
+    "restore_record",
+]
+
 # What the preprocessing writes in a record's folder.
 RECORD_FILES = ("Stream_*", "error.log")
-
-# What each stage writes in a window's folder; the picking redraws the image's figure.
-STAGE_FILES: dict[Stage, tuple[str, ...]] = {
-    "preprocessing": (),  # per record, in records/<record>/: nothing in a window's folder
-    "phase_shift": (
-        "DispersionImage_0000.hdf5",
-        "DispersionImage_0000.png",
-        "Stream_*.png",
-        "Stream_*.hdf5",
-        "error.log",
-    ),
-    "picking": ("DispersionCurves_*.csv", "quality.json"),
-    "inversion": ("SeismicInversion_*", "inversion_error.log"),
-    "petro_inversion": ("PetroInversion_*",),
-}
-
-
-def downstream(stage: Stage) -> tuple[Stage, ...]:
-    """`stage` and every stage after it that uses its results: the petrophysical inversion reads
-    the picks, not the seismic inversion's models."""
-    later = STAGES[stage_index(stage) :]
-    if stage == "inversion":
-        return tuple(one for one in later if one != "petro_inversion")
-    return later
 
 
 def invalidate(window_folder: Path, stage: Stage, attempt: int) -> Path:

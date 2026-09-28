@@ -1,3 +1,4 @@
+import os
 from datetime import UTC, datetime
 from pathlib import Path
 
@@ -12,6 +13,7 @@ from paco.qc import (
     ATTEMPTS_FOLDER,
     CONFIG_FILE,
     LOG_FILE,
+    REPORT_FILE,
     STAGE_FILES,
     Action,
     Attempt,
@@ -27,8 +29,10 @@ from paco.qc import (
     QCConfig,
     Reject,
     Stage,
+    afresh,
     append_attempt,
     archived_attempts,
+    attempts_of,
     budget_spent,
     build_report,
     can_retry,
@@ -167,6 +171,43 @@ def test_retries_are_counted_from_what_triggered_each_attempt() -> None:
     assert retries_at_gate(attempts, "xmid_13.00", "G3") == 1
     assert retries_in_run(attempts) == 3
     assert retries_by_unit(attempts) == {"xmid_12.50": 2, "xmid_13.00": 1}
+
+
+def test_a_stage_started_afresh_forgets_its_attempts_not_their_cost(tmp_path: Path) -> None:
+    for one in (
+        _attempt("xmid_12.50", "phase_shift", 1),
+        _attempt("xmid_12.50", "phase_shift", 2, "G2:ridge_at_vmax"),
+        _attempt("xmid_12.50", "picking", 1),
+        _attempt("xmid_13.00", "phase_shift", 1),
+    ):
+        append_attempt(tmp_path, one)
+    write_report(build_report("run", tmp_path, Budgets(), 2), tmp_path)
+    old = (tmp_path / REPORT_FILE).stat().st_mtime - 10
+    os.utime(tmp_path / REPORT_FILE, (old, old))
+
+    # The agent asked to do xmid_12.50's phase shift again, a wider range: its attempts at it
+    # and at the stages after it forgotten, what they cost and the last one's parameters carried
+    # by the new one.
+    wider = _attempt("xmid_12.50", "phase_shift", 3, "backtrack").model_copy(
+        update={"parameters": {"dispersion": {"vmax": 900}}}
+    )
+    again = afresh(tmp_path, wider)
+    append_attempt(tmp_path, again)
+
+    assert (again.attempt, again.forgotten, again.replaced) == (1, 1, {})
+    attempts = read_attempts(tmp_path)
+    assert [(a.unit, a.stage, a.attempt) for a in attempts] == [
+        ("xmid_13.00", "phase_shift", 1),
+        ("xmid_12.50", "phase_shift", 1),
+    ]
+    # The G2 retry's cost kept, the backtrack's added: the run's budget never refunded.
+    assert retries_in_run(attempts) == 2
+    # The report, older than the log now: built again from it, the change read against the
+    # attempt replaced.
+    report = read_report(tmp_path)
+    assert report.retries == 2
+    assert [unit.unit for unit in report.units] == ["xmid_13.00", "xmid_12.50"]
+    assert report.changed["backtrack"] == ("phase_shift", {"dispersion": {"vmax": 900}}, True)
 
 
 # ---------------------------------------------------------------- budgets
@@ -622,13 +663,16 @@ def test_the_phase_shift_done_again_keeps_the_old_results_and_logs_the_attempt(
     ]
     assert attempts[-1].parameters == {"dispersion": {"vmax": 500}}
     assert attempts[-1].status == "succeeded"
-    # Again: the attempts count on, and the archive of the second attempt appears.
+    # Asked of the agent (a backtrack): the window's image afresh, nothing older of it left, but
+    # what its retry cost the run's budget.
+    spent = retries_in_run(read_attempts(run_folder))
     rerun_phase_shift(run_id, ["xmid_2.88"], {"dispersion": {"vmax": 600}}, settings)
-    assert latest(read_attempts(run_folder), "xmid_2.88", "phase_shift").attempt == 3  # pyright: ignore[reportOptionalMemberAccess]
-    assert archived_attempts(run_folder / "xmid_2.88") == (
-        archive,
-        archive.parent / "2_phase_shift",
-    )
+    attempts = read_attempts(run_folder)
+    own = [(a.attempt, a.triggered_by, a.forgotten) for a in attempts if a.unit == "xmid_2.88"]
+    assert own == [(1, "backtrack", 1)]
+    assert archived_attempts(run_folder / "xmid_2.88") == ()
+    assert load_image(run_folder / "xmid_2.88").vs.max() == pytest.approx(600.0)
+    assert retries_in_run(attempts) == spent + 1
 
 
 def test_windows_cannot_move_and_must_exist(processed: tuple[Settings, str]) -> None:
@@ -730,18 +774,18 @@ def test_judge_run_puts_the_four_gates_in_the_log_and_the_report(
     assert "G3 too_few_points, xmid 20.88 (1)" in text
     assert "G4 gaps, line: No curve at xmid 20.88 (1)" in text
 
-    # The picking again for that window, with the flag's override: a second attempt, the first
-    # curve archived, G3 on the new one.
+    # The picking again for that window, with the flag's override (asked of the agent): the
+    # window's picking afresh, its only attempt now, the first curve not kept; G3 on the new one.
     looser = {"min_relative_coherence": 0.3}
     (result,) = rerun_picking(run_id, ["xmid_20.88"], looser, settings)
     assert result.gate == "G3" and result.unit == "xmid_20.88"
-    second = latest(read_attempts(run_folder), "xmid_20.88", "picking")
-    assert second is not None and second.attempt == 2 and second.triggered_by == "backtrack"
+    picks = attempts_of(read_attempts(run_folder), "xmid_20.88", "picking")
+    assert [(one.attempt, one.triggered_by) for one in picks] == [(1, "backtrack")]
+    (second,) = picks
     assert second.parameters["min_relative_coherence"] == 0.3
     assert second.parameters["max_gap_hz"] == 2.0
     assert second.results["G3"] == result
-    assert [path.name for path in archived_attempts(run_folder / "xmid_20.88")] == ["1_picking"]
-    assert (run_folder / "xmid_20.88" / "attempts" / "1_picking" / CURVES_FILE).exists()
+    assert archived_attempts(run_folder / "xmid_20.88") == ()
     with pytest.raises(RunError, match=r"no processed window xmid_1\.00"):
         rerun_picking(run_id, ["xmid_1.00"], {}, settings)
     with pytest.raises(RunError, match="Unknown picking parameter"):

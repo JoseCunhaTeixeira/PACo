@@ -27,6 +27,7 @@ from paco.qc import (
     QCConfig,
     append_attempt,
     archived_attempts,
+    attempts_of,
     inverting,
     judge_run,
     latest,
@@ -140,8 +141,11 @@ def test_the_inversion_done_again_starts_from_the_windows_parameters(
     (result,) = rerun_inversion(run_id, ["xmid_8.88"], {"n_iterations": 3_000}, settings)
 
     assert result.unit == "xmid_8.88"
-    again = latest(read_attempts(run_folder), "xmid_8.88", "inversion")
-    assert again is not None and (again.attempt, again.triggered_by) == (2, "backtrack")
+    # Asked of the agent: the window's inversion afresh, its only attempt now.
+    attempts = read_attempts(run_folder)
+    again = latest(attempts, "xmid_8.88", "inversion")
+    assert again is not None and (again.attempt, again.triggered_by) == (1, "backtrack")
+    assert attempts_of(attempts, "xmid_8.88", "inversion") == (again,)
     # The bounds of the first attempt, the iterations of the override, the burn-in following.
     assert again.parameters["free"] == before.parameters["free"]
     assert (again.parameters["n_iterations"], again.parameters["n_burnin_iterations"]) == (
@@ -150,10 +154,11 @@ def test_the_inversion_done_again_starts_from_the_windows_parameters(
     )
     measures = json.loads((run_folder / "xmid_8.88" / MEASURES_FILE).read_text())
     assert measures["samples_per_chain"] == 15  # (3,000 - 750) // 150
-    # The first attempt's files are archived; the other windows keep theirs.
-    (archive,) = archived_attempts(run_folder / "xmid_8.88")
-    assert archive.name == "1_inversion" and (archive / SAMPLES_FILE).exists()
-    assert archived_attempts(run_folder / "xmid_2.88") == ()
+    # Nothing of the first attempt left: its files replaced, none archived; the other windows
+    # keep theirs.
+    assert archived_attempts(run_folder / "xmid_8.88") == ()
+    assert (run_folder / "xmid_8.88" / SAMPLES_FILE).exists()
+    assert latest(attempts, "xmid_2.88", "inversion") is not None
 
 
 def test_another_number_of_layers_spreads_the_ranges_over_the_same_depth(

@@ -149,6 +149,12 @@ class Attempt(BaseModel):
     # What the gates said of this attempt's output, by gate: the stage's own (G3 on a picking),
     # and a line-level one judging the same output (G4).
     results: dict[str, GateResult] = {}
+    # The retries on the run's budget that the attempts this one replaced had spent: a stage
+    # started afresh forgets its window's earlier attempts, not what they cost (rule 4).
+    forgotten: int = 0
+    # The parameters of the attempt this one replaced, forgotten: what it changed is read
+    # against them.
+    replaced: dict[str, Any] = {}
 
 
 class Budgets(BaseModel):

@@ -37,7 +37,15 @@ from paco.qc.g7_petro import judge_petro
 from paco.qc.g8_petro_line import LINE, judge_petro_line
 from paco.qc.inverting import invertible, investigation_depth, line_depths
 from paco.qc.judging import saved_m0
-from paco.qc.log import append_attempt, attempts_of, latest, read_attempts, record_result
+from paco.qc.log import (
+    afresh,
+    append_attempt,
+    attempts_of,
+    forget_history,
+    latest,
+    read_attempts,
+    record_result,
+)
 from paco.qc.models import Attempt, GateResult
 from paco.qc.report import QCReport, build_report, write_report
 from paco.settings import Settings
@@ -174,13 +182,14 @@ def invert_petro_line(
                 restore(run_folder / unit, "petro_inversion", number)
     depths = line_depths(ready)
     others = _covering(ready, model_name)  # for G7's flags
-    attempts = read_attempts(run_folder)
     measured: dict[str, PetroMeasures] = {}
     for outcome in outcomes:
+        # A new inversion replaces the run's last one: each window's afresh, what it had of the
+        # last one forgotten.
         attempt = Attempt(
             unit=outcome.unit,
             stage="petro_inversion",
-            attempt=len(attempts_of(attempts, outcome.unit, "petro_inversion")) + 1,
+            attempt=1,
             parameters={"model": model_name},
             triggered_by="initial",
             started_at=started_at,
@@ -195,7 +204,12 @@ def invert_petro_line(
             measured[outcome.unit] = measures
             result = judge_petro(outcome.unit, measures, config.petro, others[outcome.unit])
             attempt = attempt.model_copy(update={"results": {result.gate: result}})
-        append_attempt(run_folder, attempt)
+        append_attempt(run_folder, afresh(run_folder, attempt))
+    if stopped is None:
+        # The windows the last inversion had and this one did not invert (their curve out of the
+        # model's range now): nothing of it left either.
+        for unit in set(archived) - {outcome.unit for outcome in outcomes}:
+            forget_history(run_folder, unit, "petro_inversion")
 
     passed = _judge_line(run_folder, manifest, config, measured)
     saved = save_line_sections(run_folder, passed)

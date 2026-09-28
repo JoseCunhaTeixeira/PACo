@@ -24,7 +24,7 @@ from paco.qc.budgets import run_budget
 from paco.qc.config import QCConfig, read_qc_config
 from paco.qc.curves import pick_line
 from paco.qc.line import line_reach, settle_images, settle_records
-from paco.qc.log import append_attempt, latest, read_attempts, retries_in_run
+from paco.qc.log import afresh, append_attempt, latest, read_attempts, retries_in_run
 from paco.qc.loops import deep_merge
 from paco.qc.models import Attempt
 from paco.qc.report import QCReport, build_report, read_report, write_report
@@ -170,22 +170,21 @@ def _redo_records(
     started_at = datetime.now(UTC)
 
     def log(outcomes: tuple[RecordOutcome, ...]) -> None:
+        # Asked of the agent: each record's preprocessing afresh, its earlier attempts forgotten.
         for outcome in outcomes:
-            previous = latest(attempts, outcome.name, "preprocessing")
-            append_attempt(
-                run_folder,
-                Attempt(
-                    unit=outcome.name,
-                    stage="preprocessing",
-                    attempt=(previous.attempt if previous is not None else 0) + 1,
-                    parameters=parameters[outcome.name],
-                    triggered_by="backtrack",
-                    started_at=started_at,
-                    finished_at=datetime.now(UTC),
-                    status=outcome.status,
-                    error=outcome.error,
-                ),
+            attempt = Attempt(
+                unit=outcome.name,
+                stage="preprocessing",
+                attempt=1,
+                parameters=parameters[outcome.name],
+                triggered_by="backtrack",
+                started_at=started_at,
+                finished_at=datetime.now(UTC),
+                status=outcome.status,
+                error=outcome.error,
             )
+            folder = record_folder(run_folder / RECORDS_FOLDER, by_name[outcome.name])
+            append_attempt(run_folder, afresh(run_folder, attempt, folder))
 
     try:
         redone = preprocess_records(

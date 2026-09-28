@@ -52,7 +52,15 @@ from paco.qc.config import QCConfig, read_qc_config
 from paco.qc.g5_model import ModelThresholds, judge_model, significant
 from paco.qc.g6_models import LINE, judge_model_profile
 from paco.qc.judging import saved_m0
-from paco.qc.log import append_attempt, attempts_of, latest, read_attempts, record_result
+from paco.qc.log import (
+    afresh,
+    append_attempt,
+    attempts_of,
+    latest,
+    read_attempts,
+    record_result,
+    starts_afresh,
+)
 from paco.qc.loops import RetryBudget, deep_merge, stage_changes
 from paco.qc.models import Attempt, GateResult
 from paco.qc.report import (
@@ -664,14 +672,25 @@ def _invert(
     """Each window of `jobs` inverted with its parameters in a worker, the previous attempt's
     files archived first; G5 on each, logged as its inversion attempt. A window's inversion
     writes into a staging folder, moved into place once it finished: stopped (see
-    paco.stopping), the windows not finished get their previous attempt back."""
+    paco.stopping), the windows not finished get their previous attempt back.
+
+    A retry a gate asked for goes on from the window's attempts; any other inversion (the first,
+    or one the agent was asked to do again) starts them afresh: once its result is in, the
+    window's earlier attempts are forgotten, their lines and archived results."""
     attempts = read_attempts(run_folder)
+    fresh = starts_afresh(triggered_by)
+    # What the gates weigh this inversion against: its window's attempts, none when afresh.
+    history = tuple(
+        a for a in attempts if not (fresh and a.stage == "inversion" and a.unit in jobs)
+    )
     numbers: dict[str, int] = {}
+    archived: dict[str, int] = {}  # the attempt each window's files were archived as, if any
     for unit in jobs:
         previous = attempts_of(attempts, unit, "inversion")
         if previous:
             invalidate(run_folder / unit, "inversion", len(previous))
-        numbers[unit] = len(previous) + 1
+        archived[unit] = len(previous)
+        numbers[unit] = 1 if fresh else len(previous) + 1
     results: list[GateResult] = []
     started_at = datetime.now(UTC)
     with ProcessPoolExecutor(
@@ -687,7 +706,7 @@ def _invert(
                 depths,
                 config.model,
                 chain_jobs(workers, len(jobs), derived.parameters.n_chains),
-                first_prior(attempts, unit),
+                first_prior(history, unit),
                 staging(run_folder / unit),
             ): unit
             for unit, derived in jobs.items()
@@ -725,9 +744,9 @@ def _invert(
                         config.model,
                         derived.reach_m,
                         derived.max_layers,
-                        fewest_layers(attempts, unit),
-                        longer_runs(attempts, unit, ran),
-                        narrowed(attempts, unit, triggered_by, ran),
+                        fewest_layers(history, unit),
+                        longer_runs(history, unit, ran),
+                        narrowed(history, unit, triggered_by, ran),
                     )
                     attempt = attempt.model_copy(update={"results": {g5.gate: g5}})
                     results.append(g5)
@@ -740,7 +759,7 @@ def _invert(
                     error = f"{type(exc).__name__}: {exc}"
                     attempt = attempt.model_copy(update={"status": "failed", "error": error})
                     window = WindowInversion(xmid=xmid, folder=unit, status="failed", error=error)
-                append_attempt(run_folder, attempt)
+                append_attempt(run_folder, afresh(run_folder, attempt) if fresh else attempt)
                 if on_window is not None:
                     on_window(window)
                 if on_progress is not None:
@@ -748,8 +767,8 @@ def _invert(
         except Stopped:
             for unit in waiting.values():
                 undo(run_folder / unit, created=False)
-                if numbers[unit] > 1:
-                    restore(run_folder / unit, "inversion", numbers[unit] - 1)
+                if archived[unit]:
+                    restore(run_folder / unit, "inversion", archived[unit])
             raise
     return tuple(sorted(results, key=lambda result: float(result.unit.removeprefix("xmid_"))))
 
@@ -761,19 +780,22 @@ def _not_invertible(
     reported with why."""
     said = f"{type(error).__name__}: {error}"
     now = datetime.now(UTC)
-    previous = attempts_of(read_attempts(run_folder), unit, "inversion")
+    # A first inversion: whatever the window had of an earlier one, forgotten.
     append_attempt(
         run_folder,
-        Attempt(
-            unit=unit,
-            stage="inversion",
-            attempt=len(previous) + 1,
-            parameters={},
-            triggered_by="initial",
-            started_at=now,
-            finished_at=now,
-            status="failed",
-            error=said,
+        afresh(
+            run_folder,
+            Attempt(
+                unit=unit,
+                stage="inversion",
+                attempt=1,
+                parameters={},
+                triggered_by="initial",
+                started_at=now,
+                finished_at=now,
+                status="failed",
+                error=said,
+            ),
         ),
     )
     if on_window is not None:
