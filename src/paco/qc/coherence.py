@@ -392,6 +392,8 @@ def _try_length(
         exclusions,
     )
     verdicts: list[str] = []
+    # A passive line has no muting: a flag only a mute fixes rejects (G3).
+    mutable = "muting" in type(trial_preset).model_fields
     flags: dict[str, int] = {}
     ranges: list[tuple[float, float]] = []
     uncertainties: list[float] = []
@@ -403,7 +405,9 @@ def _try_length(
         modes = pick_modes(image, judge.picking)
         m0 = modes[0] if modes else None
         offset = nearest_offset(folder / outcome.folder)
-        g3 = judge_curve(outcome.folder, image, m0, judge.curve, None, judge.picking, offset)
+        g3 = judge_curve(
+            outcome.folder, image, m0, judge.curve, None, judge.picking, offset, mutable
+        )
         verdicts.append(g3.verdict)
         for flag in g3.flags:
             flags[flag.name] = flags.get(flag.name, 0) + 1

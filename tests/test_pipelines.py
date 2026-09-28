@@ -46,7 +46,8 @@ from sigpipe.transformers import (
 # preprocessing works on whole records, the rest on the window's receivers), without PAC's
 # Pad(n=1000, taper=25) before the phase shift: a frequency step finer than 1/T only interpolates.
 PREPROCESSING_CHAIN = {
-    # The trigger correction (t0 = 0 by default) is PACo's, for shots only.
+    # The trigger correction (t0 = 0 by default) is PACo's, for shots only; a passive line has no
+    # muting (2026-09-28): its Mute passes the record through.
     "active": ["Load", "Shift", "Detrend", "Detrend", "Mute", "Filter", "Save"],
     "passive-active": ["Load", "Shift", "Detrend", "Detrend", "Mute", "Filter", "Save"],
     "passive": ["Load", "Detrend", "Detrend", "Mute", "Filter", "Save"],
@@ -69,7 +70,6 @@ ACTIVE_ON = {
     "dispersion": {"fmin": 5, "fmax": 60, "vmin": 50, "vmax": 500, "nv": 200},
 }
 PASSIVE_ON = {
-    "muting": {"method": "mute", "tmax": 60.0},  # a bound: a passive record has no trigger
     "filtering": {"method": "iir", "fmin": 5},
     "slicing": {"segment_duration": 0.2, "segment_step": 0.1},
     "selection": {"method": "fk", "threshold": 0.0},
@@ -170,17 +170,19 @@ def _single_pipeline(
         data_type="seismic",
         receivers_to_load=window.receiver_indices,
     )
-    if isinstance(preset, ActivePreset):
+    if "trigger" in type(preset).model_fields:
         on = stage_kwargs(preset, "muting")["method"] == "mute"
         t0 = stage_kwargs(preset, "trigger")["t0"]
         triggers = {read_seismic_header(path).trigger_s or 0.0 for path in window.selected_files}
         (own,) = triggers
         load = load >> Shift(t0=(t0 if t0 is not None else own) if on else 0.0)
+    fields = type(preset).model_fields
+    muting = stage_kwargs(preset, "muting") if "muting" in fields else {"method": "none"}
     head = (
         load
         >> Detrend(method="constant")
         >> Detrend(method="linear")
-        >> Mute(**stage_kwargs(preset, "muting"))
+        >> Mute(**muting)
         >> Filter(**stage_kwargs(preset, "filtering"))
     )
     if isinstance(preset, ActivePreset):
@@ -376,17 +378,8 @@ def test_passive_preset_values_reach_the_transformers(
 ) -> None:
     built = _build(profiles["passive_p1"], "passive", PASSIVE_ON, tmp_path)
 
-    assert vars(_only(built.preprocessing, Mute)) == {
-        "method": "mute",
-        "params": {
-            "tmin": None,
-            "tmax": 60.0,
-            "vmin": None,
-            "vmax": None,
-            "width": 0.002,
-            "taper": 0,
-        },
-    }
+    # No muting on a passive line: the record passed through.
+    assert vars(_only(built.preprocessing, Mute)) == {"method": "none", "params": {}}
     assert vars(_only(built.preprocessing, Filter)) == {
         "method": "iir",
         "params": {"fmin": 5.0, "fmax": 237.5, "order": 4},

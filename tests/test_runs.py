@@ -231,8 +231,8 @@ def test_no_valid_shot_is_refused_before_writing(demo_settings: Settings) -> Non
             "active_p1",
             "active",
             {"masw": {"length": 97}},
-            ValueError,
-            r"length \(97\) exceeds the 96 receivers",
+            PresetError,
+            r"masw\.length \(97 receivers\) must not exceed the 96 receivers",
         ),
     ],
 )

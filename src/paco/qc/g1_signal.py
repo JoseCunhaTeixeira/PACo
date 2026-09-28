@@ -17,17 +17,31 @@ from sigpipe.masw.quality.signal import (
     dead_clipped_nan,
     first_breaks,
     lateral_coherence,
+    pulse_durations,
     rms_decay_outliers,
     signal_windows,
     snr_db,
+    spectral_deviations,
     trigger_shift,
     usable_band,
 )
 
-from paco.qc.models import ExcludeRecord, ExcludeTraces, Flag, GateResult, Kept, Metric, Override
+from paco.qc.models import (
+    ExcludeRecord,
+    ExcludeTraces,
+    Flag,
+    GateResult,
+    Keep,
+    Kept,
+    Metric,
+    Override,
+)
 
 GATE = "G1"
 LINE = "line"  # the unit of the line-level result, as G4's
+# The modes whose records' traces are compared with their neighbours' spectra (the user,
+# 2026-09-28): a noise record's, and a shot's correlated whole.
+SPECTRA_MODES = frozenset({"passive", "passive-active"})
 
 
 class SignalThresholds(BaseModel):
@@ -41,8 +55,59 @@ class SignalThresholds(BaseModel):
     mute_width_s: float = Field(
         default=0.05,
         ge=0,
-        description="s, kept after the slowest arrival by the mute a retry suggests: the shot's "
-        "pulse, so that the window is not empty at the shot",
+        description="s, kept after the slowest arrival by a mute when no record's pulse could be "
+        "measured (each record's own, else the line's median, first)",
+    )
+    pulse_ratio: float = Field(
+        default=0.1,
+        gt=0,
+        lt=1,
+        description="The shot's pulse ends where its envelope falls back below this share of its "
+        "peak",
+    )
+    pulse_traces: int = Field(
+        default=3, ge=1, description="Traces nearest the shot whose pulses give the record's"
+    )
+    max_pulse_s: float = Field(
+        default=0.5, gt=0, description="s, the longest pulse searched: longer, not measured"
+    )
+    # A noise record's traces, and a shot's (passive-active), against their neighbours' spectra
+    # (the user, 2026-09-28): flagged, never left out. On the demo, a passive trace sits 1 dB
+    # from its neighbours (3.4 at the 99th percentile); a shot's, its own level taken out and
+    # the five nearest the shot aside, 1.7 (5.6).
+    spectra_fmin_hz: float = Field(
+        default=2.0, ge=0, description="Hz, where the traces' spectra are compared from"
+    )
+    spectra_fmax_share: float = Field(
+        default=0.8, gt=0, le=1, description="Share of Nyquist the spectra are compared up to"
+    )
+    spectra_neighbours: int = Field(
+        default=2, ge=1, description="Traces on each side a trace's spectrum is compared with"
+    )
+    max_spectral_deviation_db: float = Field(
+        default=6.0,
+        gt=0,
+        description="dB, a trace's spectrum's median distance from its neighbours', at most: "
+        "beyond, a gain or a response of its own",
+    )
+    dead_band_db: float = Field(
+        default=15.0, gt=0, description="dB under the neighbours' that makes a frequency dead"
+    )
+    max_dead_band_share: float = Field(
+        default=0.1, gt=0, le=1, description="Share of the band a trace may have dead, at most"
+    )
+    spectra_near_traces: int = Field(
+        default=5,
+        ge=0,
+        description="Traces nearest a shot left out of the comparison: louder and brighter by "
+        "their distance alone",
+    )
+    spectra_line_share: float = Field(
+        default=0.5,
+        gt=0,
+        le=1,
+        description="Share of the records reaching it in which a receiver is off its "
+        "neighbours' spectra, for the line to flag it",
     )
     dead_ratio: float = Field(
         default=0.01,
@@ -117,6 +182,7 @@ def judge_signal(
     reach_m: float | None = None,
     shot_s: float = 0.0,
     applied_s: float | None = None,
+    spectra: bool = False,
 ) -> GateResult:
     """G1's verdict on one record: the metrics, the flags with their actions, and what is kept.
     The traces `excluded` already (receiver indices) are left out of every measure and flag;
@@ -169,6 +235,11 @@ def judge_signal(
                 )
             )
     kept = Kept(n_traces=int((~bad_traces).sum()))
+    # With `spectra` (passive and passive-active lines): the traces off their neighbours'
+    # spectra, reported; the line flags a receiver off in most records (judge_spectra).
+    if spectra:
+        off_spectra, _ = spectral_outliers(preprocessed, thresholds, excluded, shots=active)
+        metrics.append(Metric(name="spectral_outliers", value=int(off_spectra.sum()), passed=True))
     if not active:
         return _result(record, metrics, flags, kept)
 
@@ -261,7 +332,6 @@ def judge_signal(
                             "method": "mute",
                             "vmin": thresholds.vg_min,
                             "vmax": thresholds.vg_max,
-                            "width": thresholds.mute_width_s,
                         }
                     },
                 ),
@@ -298,7 +368,6 @@ def judge_signal(
                             "method": "mute",
                             "vmin": thresholds.vg_min,
                             "vmax": thresholds.vg_max,
-                            "width": thresholds.mute_width_s,
                         }
                     },
                 ),
@@ -311,6 +380,14 @@ def judge_signal(
     # Only the traces whose own SNR passes: a noisy trace's envelope crosses the threshold on
     # noise, early or late.
     breaks[~usable | (snr < thresholds.min_snr_db)] = np.nan
+    # The shot's pulse (the user, 2026-09-28): how long its energy lasts after the first break,
+    # the median over the traces nearest the shot that show one; the width a mute keeps after
+    # the slowest arrival (shots.py). Measured on a record not muted: a mute would cut it.
+    if applied_s is None:
+        pulses = pulse_durations(finite, ts, breaks, thresholds.pulse_ratio, thresholds.max_pulse_s)
+        nearest = [i for i in np.argsort(offsets) if np.isfinite(pulses[i])]
+        pulse = float(np.median(pulses[nearest[: thresholds.pulse_traces]])) if nearest else None
+        metrics.append(Metric(name="pulse_s", value=_finite(pulse), passed=True, unit="s"))
     fit = trigger_shift(breaks, offsets)
     # Without four first breaks, or on a noisy record whose breaks come late, the trigger is
     # not measured, not wrong.
@@ -352,16 +429,27 @@ def judge_signal(
             )
         )
     elif shift is not None and off is not None and not shift_ok and applied_s is not None:
+        # The trigger never below 0 (the user, 2026-09-28): a shot before the record's start, the
+        # recording started late; the trigger at 0 and what is left said, or, at 0 already, said
+        # alone.
+        t0 = round(applied_s + off, 4)
+        said = (
+            f"The first breaks put the shot {off * 1000:+.0f} ms from the time origin the muting "
+            "moved, the same on every trace"
+        )
+        early = f"{-t0 * 1000:.0f} ms before the record starts: it began after the shot"
         flags.append(
             Flag(
                 name="shifted_trigger",
-                message=f"The first breaks put the shot {off * 1000:+.0f} ms from the time origin "
-                "the muting moved, the same on every trace: correct its trigger by them.",
+                message=f"{said}: correct its trigger by them."
+                if t0 >= 0
+                else f"{said}, {early}; its trigger set to 0."
+                if applied_s > 0
+                else f"{said}, {early}. No trigger corrects it.",
                 stage="preprocessing",
-                action=Override(
-                    stage="preprocessing",
-                    overrides={"trigger": {"t0": round(applied_s + off, 4)}},
-                ),
+                action=Override(stage="preprocessing", overrides={"trigger": {"t0": max(t0, 0.0)}})
+                if t0 >= 0 or applied_s > 0
+                else Keep(note="the shot before the record's start"),
             )
         )
 
@@ -388,6 +476,79 @@ def decay_outliers(
     rms = np.sqrt(np.mean(np.nan_to_num(xt) ** 2, axis=1))
     return _off_decay(
         rms, offsets, ~(dead | clipped | nan), _within(offsets, reach_m), left_out, thresholds
+    )
+
+
+def spectral_outliers(
+    stream: Stream,
+    thresholds: SignalThresholds,
+    excluded: Collection[int] = (),
+    shots: bool = False,
+) -> tuple[np.ndarray, np.ndarray]:
+    """The traces off their neighbours' spectra (a gain or a response of their own, a dead
+    band), and those judged: a noise record's by level and shape, a shot's by shape alone with
+    the traces nearest its shot aside; the traces `excluded`, dead, clipped or NaN neither
+    judged nor compared with."""
+    xt = stream.xt
+    dead, clipped, nan = dead_clipped_nan(xt, thresholds.dead_ratio, thresholds.clip_share)
+    usable = ~(dead | clipped | nan | _left_out(xt.shape[0], excluded))
+    if shots:
+        offsets = np.asarray(stream.acquisition.offsets, dtype=float)
+        usable[np.argsort(offsets)[: thresholds.spectra_near_traces]] = False
+    band = (
+        thresholds.spectra_fmin_hz,
+        thresholds.spectra_fmax_share * stream.sampling_freq / 2,
+    )
+    deviation, dropped = spectral_deviations(
+        np.nan_to_num(np.asarray(xt, dtype=float)),
+        stream.sampling_freq,
+        band,
+        thresholds.spectra_neighbours,
+        thresholds.dead_band_db,
+        usable,
+        shape=shots,
+    )
+    judged = np.isfinite(deviation)
+    off = judged & (
+        (deviation > thresholds.max_spectral_deviation_db)
+        | (dropped > thresholds.max_dead_band_share)
+    )
+    return off, judged
+
+
+def judge_spectra(
+    off: Mapping[int, int],
+    reached: Mapping[int, int],
+    positions: Sequence[float],
+    thresholds: SignalThresholds,
+) -> tuple[Metric, Flag | None]:
+    """G1 over the line, a passive or passive-active one: the receivers off their neighbours'
+    spectra (`off`: in how many records) in at least `spectra_line_share` of the records judging
+    them (`reached`). Flagged, kept (the user, 2026-09-28: flag, not alter the workflow)."""
+    bad = [
+        receiver
+        for receiver, count in sorted(reached.items())
+        if count and off.get(receiver, 0) >= math.ceil(thresholds.spectra_line_share * count)
+    ]
+    metric = Metric(
+        name="spectral_receivers", value=len(bad), threshold=0, bound="max", passed=not bad
+    )
+    if not bad:
+        return metric, None
+    each = [f"{positions[r]:g} m ({off[r]} of {reached[r]} records)" for r in bad]
+    which, its = (
+        (f"The receiver at {each[0]} is", "its")
+        if len(bad) == 1
+        else (f"The receivers at {', '.join(each[:-1])} and {each[-1]} are", "their")
+    )
+    return metric, Flag(
+        name="spectral_receivers",
+        message=f"{which} off {its} neighbours' spectra in most of the records that reach "
+        f"{'it' if len(bad) == 1 else 'them'}: a dead band, a gain or a response of {its} own. "
+        "Kept, to look at.",
+        stage="preprocessing",
+        action=Keep(note="a geophone of its own"),
+        fixable=False,
     )
 
 
@@ -484,9 +645,12 @@ def _left_out(n_traces: int, excluded: Collection[int]) -> np.ndarray:
 
 
 def _result(record: str, metrics: list[Metric], flags: list[Flag], kept: Kept) -> GateResult:
-    if any(not flag.fixable and isinstance(flag.action, ExcludeRecord) for flag in flags):
+    # A kept flag is information (a shot before the record's start): it never changes the
+    # verdict, as G2's and G3's.
+    acted = [flag for flag in flags if not isinstance(flag.action, Keep)]
+    if any(not flag.fixable and isinstance(flag.action, ExcludeRecord) for flag in acted):
         verdict = "reject"
-    elif flags:
+    elif acted:
         verdict = "retry"
     else:
         verdict = "pass"

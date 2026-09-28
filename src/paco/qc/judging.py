@@ -6,6 +6,7 @@ from collections.abc import Mapping
 from concurrent.futures import ProcessPoolExecutor
 from datetime import UTC, datetime
 from pathlib import Path
+from typing import Any
 
 from sigpipe.algorithms.picking.dispersion.tracking import PickingParameters, pick_modes
 from sigpipe.base import DispersionCurve, DispersionImage, Stream
@@ -23,8 +24,8 @@ from paco import stopping
 from paco.qc.attempts import invalidate
 from paco.qc.coherence import nearest_offset
 from paco.qc.config import QCConfig, snapshot_qc_config
-from paco.qc.g1_signal import judge_signal
-from paco.qc.g2_image import judge_image
+from paco.qc.g1_signal import SPECTRA_MODES, judge_signal
+from paco.qc.g2_image import judge_image, virtual_shot_snr
 from paco.qc.g3_curve import CurveThresholds, judge_curve
 from paco.qc.g4_profile import LINE, judge_profile
 from paco.qc.log import (
@@ -97,7 +98,13 @@ def judge_records(
         )
         shot_s, applied_s = trigger_context(values, (triggers or {}).get(record.name))
         result = judge_signal(
-            record.name, stream, config.signal, active=active, shot_s=shot_s, applied_s=applied_s
+            record.name,
+            stream,
+            config.signal,
+            active=active,
+            shot_s=shot_s,
+            applied_s=applied_s,
+            spectra=manifest.preset.mode in SPECTRA_MODES,
         )
         _judge_latest(run_folder, record.name, "preprocessing", result)
         usable[record.name] = result.kept.band_hz
@@ -127,6 +134,7 @@ def judge_windows(
             shared_band(folder, usable),
             mode=manifest.preset.mode,
             muted=window_muted(folder, muted),
+            **virtual_shot(folder, manifest.preset.mode, config),
         )
         _judge_latest(run_folder, window.folder, "phase_shift", g2)
         judge_picking(run_folder, window.folder, image, picking, config, g2.kept.band_hz)
@@ -146,7 +154,7 @@ def judge_picking(
     `band` (G2's coherent band), and log the attempt with the verdict."""
     started_at = datetime.now(UTC)
     previous = len(attempts_of(read_attempts(run_folder), unit, "picking"))
-    g3 = _pick(run_folder, unit, picking, config.curve, band, previous, image)
+    g3 = _pick(run_folder, unit, picking, config.curve, band, previous, _mutable(run_folder), image)
     _log_pick(run_folder, unit, previous, picking, triggered_by, started_at, g3)
     return g3
 
@@ -164,6 +172,7 @@ def pick_windows(
     they end. G3's results by window."""
     attempts = read_attempts(run_folder)
     previous = {unit: len(attempts_of(attempts, unit, "picking")) for unit in jobs}
+    mutable = _mutable(run_folder)
     started_at = datetime.now(UTC)
     results: dict[str, GateResult] = {}
 
@@ -177,14 +186,16 @@ def pick_windows(
     if workers <= 1 or len(jobs) <= 1:
         for unit, (picking, band) in jobs.items():
             stopping.check()
-            logged(unit, _pick(run_folder, unit, picking, config.curve, band, previous[unit]))
+            logged(
+                unit, _pick(run_folder, unit, picking, config.curve, band, previous[unit], mutable)
+            )
         return results
     with ProcessPoolExecutor(
         max_workers=min(workers, len(jobs)), initializer=start_worker, initargs=(run_folder,)
     ) as executor:
         futures = {
             executor.submit(
-                _pick, run_folder, unit, picking, config.curve, band, previous[unit]
+                _pick, run_folder, unit, picking, config.curve, band, previous[unit], mutable
             ): unit
             for unit, (picking, band) in jobs.items()
         }
@@ -200,10 +211,11 @@ def _pick(
     thresholds: CurveThresholds,
     band: tuple[float, float] | None,
     previous: int,
+    mutable: bool,
     image: DispersionImage | None = None,
 ) -> GateResult:
     """One window's pick, in a worker or here: the `previous` attempts' files archived, M0
-    picked and saved in PAC's layout, G3 on it."""
+    picked and saved in PAC's layout, G3 on it (`mutable`: whether the line can be muted)."""
     folder = run_folder / unit
     if previous:
         invalidate(folder, "picking", previous)
@@ -212,7 +224,14 @@ def _pick(
     m0 = modes[0] if modes else None
     if m0 is not None and m0.curve is not None:
         save_pick(folder, image, m0.curve)
-    return judge_curve(unit, image, m0, thresholds, band, picking, nearest_offset(folder))
+    return judge_curve(unit, image, m0, thresholds, band, picking, nearest_offset(folder), mutable)
+
+
+def _mutable(run_folder: Path) -> bool:
+    """Whether the run's records can be muted: not a passive line's (its preset has no muting,
+    the user, 2026-09-28)."""
+    manifest = RunManifest.model_validate_json((run_folder / "run.json").read_text())
+    return "muting" in type(manifest.preset).model_fields
 
 
 def _log_pick(
@@ -310,6 +329,22 @@ def saved_m0(path: Path) -> DispersionCurve | None:
         return None
     curves = load_dispersion_curves([path])[0]
     return next((curve for curve in curves if curve.mode.number == 0), None)
+
+
+def virtual_shot(folder: Path, mode: str, config: QCConfig) -> dict[str, Any]:
+    """G2's arguments on a passive or passive-active window's virtual shot, its stacked
+    correlations saved beside its image: that it has one, and its SNR (None: none saved)."""
+    if mode not in SPECTRA_MODES:
+        return {}
+    path = folder / PREPROCESSED
+    snr = (
+        virtual_shot_snr(
+            stream_of(path), config.signal.vg_min, config.signal.vg_max, config.signal.pad_s
+        )
+        if path.exists()
+        else None
+    )
+    return {"virtual_shot": True, "virtual_shot_snr_db": snr}
 
 
 def stream_of(path: Path) -> Stream:

@@ -21,10 +21,10 @@ from sigpipe.masw.profiles import Profile
 from sigpipe.masw.windows import MASWParameters
 from sigpipe.transformers import Filter, Load, Slice
 
-# PAC's form defaults (ActiveConfigForm.tsx and PassiveConfigForm.tsx), except distance_max:
-# 1000 m in PACo, 100 m in PAC.
+# PAC's form defaults (ActiveConfigForm.tsx and PassiveConfigForm.tsx): the shots' distances left
+# out, none (the nearest from 0, the farthest at any distance; 0 and 1,000 m before 2026-09-28).
 # PACo's window length is 5 receivers, where PAC's form has 3.
-MASW_DEFAULTS = {"length": 5, "step": 1, "distance_min": 0.0, "distance_max": 1000.0}
+MASW_DEFAULTS = {"length": 5, "step": 1, "distance_min": None, "distance_max": None}
 DISPERSION_DEFAULTS = {"fmin": 0.0, "fmax": 100.0, "vmin": 1.0, "vmax": 1000.0, "nv": 1000}
 
 ACTIVE_DEFAULTS = {
@@ -51,10 +51,10 @@ PASSIVE_ACTIVE_DEFAULTS = {
 
 # PACo's passive defaults: 2 s segments whitened and normalized one-bit, where PAC's form has
 # 0.1 s segments and neither (no curve on passive_p2).
+# No muting on a passive line, nor its trigger (2026-09-28): no shot for a velocity to count from.
 PASSIVE_DEFAULTS = {
     "mode": "passive",
     "masw": MASW_DEFAULTS,
-    "muting": {"method": "none"},
     "filtering": {"method": "none"},
     "slicing": {"segment_duration": 2.0, "segment_step": 2.0},
     "selection": {"method": "none"},
@@ -434,9 +434,8 @@ def test_resolving_the_defaults_changes_nothing(
 @pytest.mark.parametrize(
     ("profile", "name", "stage", "override", "field", "expected"),
     [
-        # The muting's width: one sample, 0.5 ms at 2,000 Hz and 2 ms at 500 Hz.
+        # The muting's width: one sample, 0.5 ms at 2,000 Hz (a passive line has no muting).
         ("active_p1", "active", "muting", {"method": "mute", "vmax": 1500.0}, "width", 0.0005),
-        ("passive_p1", "passive", "muting", {"method": "mute", "tmax": 60.0}, "width", 0.002),
         # 0.95 x Nyquist, just below sigpipe's limit.
         ("active_p1", "active", "filtering", {"method": "iir"}, "fmax", 950.0),
         ("passive_p1", "passive", "filtering", {"method": "iir"}, "fmax", 237.5),
@@ -471,12 +470,7 @@ def test_explicit_values_are_kept(profiles: dict[str, Profile]) -> None:
 
 def test_resolving_twice_changes_nothing(profiles: dict[str, Profile]) -> None:
     preset = make_preset(
-        "passive",
-        {
-            "muting": {"method": "mute", "tmax": 60.0},
-            "filtering": {"method": "iir"},
-            "whitening": {"method": "onebit_apod"},
-        },
+        "passive", {"filtering": {"method": "iir"}, "whitening": {"method": "onebit_apod"}}
     )
     resolved = resolve_preset(preset, profiles["passive_p1"])
 
@@ -540,7 +534,8 @@ def test_filter_fmax_at_or_above_nyquist_is_rejected(
             "active",
             "muting",
             {"method": "mute", "tmin": 3},
-            r"muting\.tmin \(3 s\) is past the end of profile 'active_p1''s records \(2\.00 s\)",
+            r"muting\.tmin \(3 s\) is past the end of record \S+'s data once moved by its "
+            r"trigger \(\d\.\d\d s\)",
         ),
     ],
 )
@@ -711,11 +706,13 @@ def test_whitening_band_rule_agrees_with_sigpipe(
 # The schema travels with every request to a model with an 8-16k context, so growing it has to
 # be a deliberate choice: raise the budget here if it is worth it.
 SCHEMA_BUDGET = {
-    # image_stacking (+500): the root stack the user can ask for; the muting's width and its
-    # bounds left out, "null: none" (+150, 2026-09-28): no stand-in values.
-    "active": 4_050,
-    "passive": 6_800,
-    "passive-active": 5_100,
+    # image_stacking (+500): the root stack the user can ask for; the muting's width, its bounds
+    # and the shots' distances left out, "null: none" (+260, 2026-09-28): no stand-in values.
+    "active": 4_200,
+    # No muting nor trigger on a passive line (-1,450, 2026-09-28): no shot to count from.
+    "passive": 5_800,
+    # The surface-wave mute before correlating removed (-800, 2026-09-28).
+    "passive-active": 4_460,
 }
 
 

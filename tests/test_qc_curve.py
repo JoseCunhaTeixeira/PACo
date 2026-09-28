@@ -263,8 +263,20 @@ def test_points_at_the_air_waves_speed_ask_for_a_mute() -> None:
     assert flag.action.model_dump() == {
         "kind": "override",
         "stage": "preprocessing",
+        # No width: each record's own pulse, filled when the records are done again (shots.py).
         "overrides": {"muting": {"method": "mute", "vmin": 80.0, "vmax": 320.0}},
     }
+
+
+def test_the_air_wave_on_a_passive_line_is_rejected_with_no_mute_to_try() -> None:
+    image = _image(_ridge(M0, 0.8, 1.5))
+    air = 345.0 - 15.0 * (FREQUENCIES - 10.0) / 30.0
+    picked = _picked(image, M0, vs=air)
+    result = judge_curve("xmid_12.50", image, picked, THRESHOLDS, mutable=False)
+
+    (flag,) = result.flags
+    assert flag.name == "air_wave" and not flag.fixable and result.verdict == "reject"
+    assert flag.action.model_dump() == {"kind": "reject", "reason": "the air wave, not the ground"}
 
 
 def test_velocity_falling_with_wavelength_is_flagged_and_kept() -> None:

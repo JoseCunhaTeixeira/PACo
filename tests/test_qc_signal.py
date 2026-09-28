@@ -9,7 +9,14 @@ import pytest
 from sigpipe.base import Coordinate, LinearAcquisition, Stream
 from sigpipe.transformers import Shift
 
-from paco.qc.g1_signal import SignalThresholds, decay_outliers, judge_receivers, judge_signal
+from paco.qc.g1_signal import (
+    SignalThresholds,
+    decay_outliers,
+    judge_receivers,
+    judge_signal,
+    judge_spectra,
+)
+from paco.qc.models import GateResult
 
 SAMPLING = 1000.0
 N_TRACES = 24
@@ -117,6 +124,10 @@ def test_an_amplitude_off_the_decay_is_reported_not_left_out() -> None:
     assert np.flatnonzero(outliers).tolist() == [10] and judged.all()
 
 
+def _metric(result: GateResult, name: str) -> float | None:
+    return next(metric.value for metric in result.metrics if metric.name == name)
+
+
 def test_a_record_with_too_much_noise_has_a_low_snr() -> None:
     loud = _shot(noise=0.05)
 
@@ -157,6 +168,19 @@ def test_a_shifted_trigger_asks_for_its_correction() -> None:
     # Corrected by that t0, the record passes.
     (corrected,) = Shift(t0=action["overrides"]["trigger"]["t0"]).transform([_shot(t0=0.05)])
     assert judge_signal("1.dat", corrected, THRESHOLDS, applied_s=0.05).verdict == "pass"
+
+
+def test_a_shot_before_the_records_start_sets_the_trigger_to_0() -> None:
+    # The trigger never below 0 (the user, 2026-09-28). Moved by 30 ms, the first breaks put the
+    # shot 40 ms before the time origin, 10 ms before the record's start: the trigger at 0.
+    (flag,) = judge_signal("1.dat", _shot(t0=-0.04), THRESHOLDS, applied_s=0.03).flags
+    assert flag.name == "shifted_trigger" and "its trigger set to 0" in flag.message
+    assert flag.action.model_dump()["overrides"]["trigger"]["t0"] == 0.0
+    # Not moved, the shot 20 ms before the start: nothing to correct, only said.
+    before = judge_signal("1.dat", _shot(t0=-0.02), THRESHOLDS, applied_s=0.0)
+    (flag,) = before.flags
+    assert flag.name == "shifted_trigger" and "No trigger corrects it" in flag.message
+    assert flag.action.model_dump()["kind"] == "keep" and before.verdict == "pass"
 
 
 def test_a_trigger_not_muted_is_only_reported_against_the_files() -> None:
@@ -220,6 +244,15 @@ def test_thresholds_refuse_nonsense(field: str) -> None:
 
 
 # ---------------------------------------------------------------- the line's reach
+
+
+def test_the_shots_pulse_is_measured_on_a_record_not_muted() -> None:
+    # The wavelet's energy falls to a tenth of its peak about 120 ms after the first break, on
+    # the traces nearest the shot. Muted, the record's pulse is not measured: the mute cuts it.
+    pulse = _metric(judge_signal("1.dat", _shot(), THRESHOLDS), "pulse_s")
+    assert pulse == pytest.approx(0.12, abs=0.015)
+    muted = judge_signal("1.dat", _shot(), THRESHOLDS, applied_s=0.0)
+    assert "pulse_s" not in {metric.name for metric in muted.metrics}
 
 
 def test_a_record_is_judged_within_the_reach() -> None:
@@ -288,3 +321,42 @@ def test_a_receiver_off_in_a_few_records_stays() -> None:
     assert several.flags[0].message.startswith(
         "The receivers at 4.5 m (4 of 8 records) and 13.5 m (8 of 8 records) are too weak or"
     )
+
+
+def _noise(notched: int | None = None) -> Stream:
+    """A passive record: white noise on every trace, 20 s; `notched`, a trace with nothing
+    between 20 and 120 Hz (a dead band, a quarter of the band compared)."""
+    rng = np.random.default_rng(3)
+    xt = rng.standard_normal((N_TRACES, int(20 * SAMPLING)))
+    if notched is not None:
+        spectrum = np.fft.rfft(xt[notched])
+        fs = np.fft.rfftfreq(xt.shape[1], d=1 / SAMPLING)
+        spectrum[(fs >= 20) & (fs <= 120)] = 0
+        xt[notched] = np.fft.irfft(spectrum, n=xt.shape[1])
+    receivers = tuple(Coordinate(i * DX, 0.0, 0.0) for i in range(N_TRACES))
+    acquisition = LinearAcquisition(source=receivers[0], receivers=receivers)
+    ts = np.arange(xt.shape[1]) / SAMPLING
+    return Stream(xt=xt.astype(np.float32), ts=ts.astype(np.float32),
+                  sampling_freq=SAMPLING, acquisition=acquisition)  # fmt: skip
+
+
+def test_a_noise_records_trace_off_its_neighbours_spectra_is_counted() -> None:
+    # On a passive line (the user, 2026-09-28): reported, nothing left out.
+    clean = judge_signal("1.dat", _noise(), THRESHOLDS, active=False, spectra=True)
+    notched = judge_signal("1.dat", _noise(notched=7), THRESHOLDS, active=False, spectra=True)
+
+    assert _metric(clean, "spectral_outliers") == 0
+    assert _metric(notched, "spectral_outliers") == 1
+    assert notched.verdict == "pass" and notched.kept.n_traces == N_TRACES
+
+
+def test_a_receiver_off_its_neighbours_spectra_in_most_records_is_flagged_and_kept() -> None:
+    positions = [i * DX for i in range(N_TRACES)]
+    # Receiver 7 off in 3 of the 4 records judging it, receiver 2 in 1 of 4.
+    metric, flag = judge_spectra({7: 3, 2: 1}, dict.fromkeys(range(N_TRACES), 4), positions,
+                                 THRESHOLDS)  # fmt: skip
+
+    assert metric.value == 1 and not metric.passed
+    assert flag is not None and flag.action.model_dump()["kind"] == "keep"
+    assert "7 m (3 of 4 records)" in flag.message
+    assert judge_spectra({2: 1}, {2: 4}, positions, THRESHOLDS)[1] is None
