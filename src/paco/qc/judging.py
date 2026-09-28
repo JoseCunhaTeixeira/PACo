@@ -12,6 +12,7 @@ from sigpipe.base import DispersionCurve, DispersionImage, Stream
 from sigpipe.dataio.dispersion.loading import load_dispersion_curves
 from sigpipe.masw.picks import CURVES_FILE, save_pick
 from sigpipe.masw.pipelines import PREPROCESSED
+from sigpipe.masw.profiles import ProfileError, load_profile
 from sigpipe.masw.quality.line import Series
 from sigpipe.masw.runs import RunManifest, find_run, load_image, load_manifest, start_worker
 from sigpipe.masw.runs.stopping import finished
@@ -38,6 +39,13 @@ from paco.qc.log import (
 )
 from paco.qc.models import Attempt, GateResult, Stage
 from paco.qc.report import QCReport, build_report, write_report
+from paco.qc.shots import (
+    file_triggers,
+    muted_records,
+    preprocessing_values,
+    trigger_context,
+    window_muted,
+)
 from paco.settings import Settings
 
 
@@ -55,7 +63,12 @@ def judge_run(
     snapshot_qc_config(config, run_folder)
     ensure_initial_attempts(run_folder, manifest)
 
-    usable = judge_records(run_folder, manifest, config)
+    # The records' triggers, from their files: none when the profile is gone.
+    try:
+        triggers = file_triggers(load_profile(manifest.profile.name, settings))
+    except ProfileError:
+        triggers = {}
+    usable = judge_records(run_folder, manifest, config, triggers)
     judge_windows(run_folder, manifest, config, usable, picking or config.picking)
     judge_line(run_folder, manifest, config)
     report = build_report(run_id, run_folder, config.budgets, len(manifest.windows))
@@ -64,17 +77,28 @@ def judge_run(
 
 
 def judge_records(
-    run_folder: Path, manifest: RunManifest, config: QCConfig
+    run_folder: Path,
+    manifest: RunManifest,
+    config: QCConfig,
+    triggers: Mapping[str, float | None] | None = None,
 ) -> dict[str, tuple[float, float] | None]:
-    """G1 on each preprocessed record of the run, against its latest preprocessing attempt;
-    returns each record's usable band."""
+    """G1 on each preprocessed record of the run, against its latest preprocessing attempt,
+    each record's shot where its muting and file's trigger (`triggers`) put it; returns each
+    record's usable band."""
     active = manifest.profile.kind == "active"
     usable: dict[str, tuple[float, float] | None] = {}
+    attempts = read_attempts(run_folder)
     for record in manifest.records:
         if record.status != "succeeded":
             continue
         stream = stream_of(run_folder / record.folder / PREPROCESSED)
-        result = judge_signal(record.name, stream, config.signal, active=active)
+        values = preprocessing_values(
+            manifest.preset, latest(attempts, record.name, "preprocessing")
+        )
+        shot_s, applied_s = trigger_context(values, (triggers or {}).get(record.name))
+        result = judge_signal(
+            record.name, stream, config.signal, active=active, shot_s=shot_s, applied_s=applied_s
+        )
         _judge_latest(run_folder, record.name, "preprocessing", result)
         usable[record.name] = result.kept.band_hz
     return usable
@@ -89,13 +113,21 @@ def judge_windows(
 ) -> None:
     """G2 on each window's image, against its latest phase-shift attempt; then the picking, an
     attempt of its own, and G3 on its M0 curve. The band every record of the window keeps
-    usable tells G2 what the data allow."""
+    usable tells G2 what the data allow, and whether they were muted what to try first."""
+    muted = muted_records(manifest.preset, read_attempts(run_folder), latest)
     for window in manifest.windows:
         if window.status != "succeeded":
             continue
         folder = run_folder / window.folder
         image = load_image(folder)
-        g2 = judge_image(window.folder, image, config.image, shared_band(folder, usable))
+        g2 = judge_image(
+            window.folder,
+            image,
+            config.image,
+            shared_band(folder, usable),
+            mode=manifest.preset.mode,
+            muted=window_muted(folder, muted),
+        )
         _judge_latest(run_folder, window.folder, "phase_shift", g2)
         judge_picking(run_folder, window.folder, image, picking, config, g2.kept.band_hz)
 

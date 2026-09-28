@@ -317,15 +317,14 @@ def test_the_host_lists_the_parameters_used_and_the_settings_the_gates_changed()
         "your request, or chosen by the agent)"
     )
     assert used.splitlines()[-1].startswith("- picking: M0 tracked along its ridge")
-    first, second = listed.splitlines()[:2]
-    assert first == (
-        "- trigger t0 the default -> 0.0188 at 1.dat, 2.dat (each window its own), by "
-        "G1:shifted_trigger"
-    )
-    # Then the line's rules: the shots' reach, the length as given, the near field. No trace
-    # left out for its amplitude in one record: the line judges its receivers over them all.
-    assert second.startswith("- line: masw distance_max ")
-    assert "near_field distance_m " in second
+    # No trigger changed: the demo's files say the shot comes 20 ms in, where the first breaks
+    # put it, and the muting is off (the trigger is part of it). First the line's rules: the
+    # shots' reach, the length as given, the near field. No trace left out for its amplitude in
+    # one record: the line judges its receivers over them all.
+    first = listed.splitlines()[0]
+    assert first.startswith("- line: masw distance_max ")
+    assert "near_field distance_m " in first
+    assert "trigger" not in listed
     assert "left out of the windows" not in listed
     # What the user saw is what the conversation keeps.
     assert messages[-1] == {"role": "assistant", "content": answer}

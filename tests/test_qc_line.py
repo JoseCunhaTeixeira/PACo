@@ -97,7 +97,7 @@ def _line(
     return find_run(report.run_id, settings), report
 
 
-def test_the_ladder_keeps_the_first_precise_length_that_passes(
+def test_the_ladder_keeps_the_most_precise_length_that_passes(
     demo_input_dir: Path, tmp_path: Path
 ) -> None:
     # The step keeps the line to four windows; the length is left to the ladder.
@@ -105,13 +105,15 @@ def test_the_ladder_keeps_the_first_precise_length_that_passes(
 
     choice = json.loads((run_folder / COHERENCE_FILE).read_text())
     # At 5 receivers the trial windows at the line's ends keep too few points: 1 of 3 passes.
-    # 24 passes with picks within 20 % and is kept; 32 is tried too, for the agent to compare
-    # the depth it would reach.
+    # 24 passes 2 of 3, none of the lengths with picks within 20 % (the records as recorded,
+    # their first 20 ms before the shot kept since 2026-09-28: 29 %, within 20 % before): 24,
+    # the most precise that passed, is kept; 32 is tried too, for the agent to compare the depth
+    # it would reach.
     assert [trial["length"] for trial in choice["trials"]] == [5, 24, 32]
     assert [trial["compared"] for trial in choice["trials"]] == [False, False, True]
     five, twenty_four, _ = choice["trials"]
     assert (five["passed"], len(five["xmids"])) == (1, 3)
-    assert twenty_four["uncertainty"] <= 0.2
+    assert (twenty_four["passed"], twenty_four["uncertainty"]) == (2, pytest.approx(0.288))
     assert choice["length"] == 24
     # What the agent reads to choose another length: the line, then each length tried.
     assert choice["receivers"] == 96 and choice["spacing_m"] == 0.25
@@ -124,31 +126,32 @@ def test_the_ladder_keeps_the_first_precise_length_that_passes(
     assert (manifest.preset.masw.length, manifest.preset.masw.step) == (24, 24)
     assert len(manifest.windows) == 4
     line = latest(read_attempts(run_folder), "line", "phase_shift")
-    # The farthest shot a window stacks, from the line's reach at 2 dB (G1): the demo's far
-    # shot, 21.6 m from the end windows, stays in their stack.
+    # The farthest shot a window stacks, from the line's reach at 2 dB (G1, its windows from
+    # each record's shot, 20 ms in): the demo's far shot, 21.6 m from the end windows, stays in
+    # their stack.
     assert line is not None
     assert line.parameters == {
-        "masw": {"distance_max": 24.34, "length": 24},
-        "near_field": {"distance_m": 5.75},
+        "masw": {"distance_max": 24.29, "length": 24},
+        "near_field": {"distance_m": 11.0},
     }
     far, note, near = line.notes
     assert far == (
-        "masw distance_max 24.34 m: beyond it from the shot, the traces' median SNR falls under "
+        "masw distance_max 24.29 m: beyond it from the shot, the traces' median SNR falls under "
         "2 dB (G1), so the windows stack no farther shot."
     )
     assert note.startswith(
-        "masw length 24 for the whole line, the first that passed with picks within 20%: trial "
-        "windows G3 passed 1/3 at 5 (picks "
+        "masw length 24 for the whole line, the most precise that passed (none within 20%): "
+        "trial windows G3 passed 1/3 at 5 (picks "
     )
-    assert "at 32 (picks " in note and note.endswith("; compared).")
+    assert note.endswith("0/3 at 32 (compared).")  # none passed: no picks to say
     # Out of the near field: half the longest wavelength of the trial curves from a window's
     # nearest receiver, where it has a farther shot.
-    assert near.startswith("near_field distance_m 5.75 m: a window stacks no shot nearer than")
+    assert near.startswith("near_field distance_m 11 m: a window stacks no shot nearer than")
     # The gates of the processing ran on it (the picking's are pick's), and the summary gives
     # the change.
     assert set(report.counts) == {"G1", "G2"}
     summary = summarize_report(report)
-    assert "Changes at phase_shift, line: masw distance_max 24.34 m" in summary
+    assert "Changes at phase_shift, line: masw distance_max 24.29 m" in summary
     assert "masw length 24 for the whole line" in summary
 
 

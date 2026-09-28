@@ -59,6 +59,13 @@ from paco.qc.loops import RetryBudget, deep_merge, next_try, spent
 from paco.qc.models import Attempt, ExcludeRecord, ExcludeTraces, GateResult, Stage
 from paco.qc.report import QCReport, build_report, write_report
 from paco.qc.rerun import rerun_phase_shift
+from paco.qc.shots import (
+    file_triggers,
+    muted_records,
+    preprocessing_values,
+    trigger_context,
+    window_muted,
+)
 from paco.runs import PACKAGES
 from paco.settings import Settings
 
@@ -121,7 +128,7 @@ def _process(
     )
     for record in records:
         _log(run_folder, record.name, "preprocessing", 1, {}, "initial", started_at, record)
-    reach = line_reach(run_folder, loaded, records, config)
+    reach = line_reach(run_folder, loaded, records, config, preset)
     records, exclusions, usable = settle_records(
         run_folder, loaded, preset, records, config, settings.workers, reach
     )
@@ -213,13 +220,25 @@ def _process(
 
 
 def line_reach(
-    run_folder: Path, profile: Profile, records: tuple[RecordOutcome, ...], config: QCConfig
+    run_folder: Path,
+    profile: Profile,
+    records: tuple[RecordOutcome, ...],
+    config: QCConfig,
+    preset: ActivePreset | PassivePreset,
 ) -> float | None:
     """How far from the shots the line's traces still carry the wave (G1's per-trace SNR over
-    every active record, `snr_reach`, in bins of a fifteenth of the line); None on a passive
-    line, or when no distance falls below G1's SNR limit."""
+    every active record, `snr_reach`, in bins of a fifteenth of the line, each record's times
+    from its shot where its latest preprocessing, over the run's `preset`, and its file's
+    trigger put it); None on a passive line, or when no distance falls below G1's SNR limit."""
     if profile.kind != "active":
         return None
+    triggers = file_triggers(profile)
+    attempts = read_attempts(run_folder)
+
+    def shot_of(name: str) -> float:
+        values = preprocessing_values(preset, latest(attempts, name, "preprocessing"))
+        return trigger_context(values, triggers.get(name))[0]
+
     measured = [
         found
         for record in records
@@ -230,6 +249,7 @@ def line_reach(
                 config.signal.vg_min,
                 config.signal.vg_max,
                 config.signal.pad_s,
+                shot_of(record.name),
             )
         )
         is not None
@@ -272,6 +292,7 @@ def settle_records(
     results: dict[str, GateResult] = {}
     n_units = max(1, len(records))
     active = profile.kind == "active"
+    triggers = file_triggers(profile)
     while True:
         attempts = read_attempts(run_folder)
         results = {}
@@ -279,6 +300,9 @@ def settle_records(
             if outcome.status != "succeeded" or name in exclusions.records:
                 continue
             stream = stream_of(run_folder / outcome.folder / PREPROCESSED)
+            # Its shot where its muting and its file's trigger put it.
+            values = preprocessing_values(preset, latest(attempts, name, "preprocessing"))
+            shot_s, applied_s = trigger_context(values, triggers.get(name))
             result = judge_signal(
                 name,
                 stream,
@@ -286,6 +310,8 @@ def settle_records(
                 active=active,
                 excluded=exclusions.traces.get(name, ()),
                 reach_m=reach_m,
+                shot_s=shot_s,
+                applied_s=applied_s,
             )
             results[name] = result
             attempt = latest(attempts, name, "preprocessing")
@@ -465,7 +491,12 @@ def settle_images(
             if result is None:
                 folder = run_folder / window.folder
                 result = judge_image(
-                    window.folder, load_image(folder), config.image, shared_band(folder, usable)
+                    window.folder,
+                    load_image(folder),
+                    config.image,
+                    shared_band(folder, usable),
+                    mode=manifest.preset.mode,
+                    muted=window_muted(folder, muted_records(manifest.preset, attempts, latest)),
                 )
                 attempt = record_result(
                     run_folder, window.folder, "phase_shift", attempt.attempt, result

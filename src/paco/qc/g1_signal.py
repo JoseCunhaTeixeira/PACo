@@ -38,6 +38,12 @@ class SignalThresholds(BaseModel):
     vg_min: float = Field(default=80.0, gt=0, description="m/s, the slowest surface wave kept")
     vg_max: float = Field(default=1500.0, gt=0, description="m/s, the fastest arrival kept")
     pad_s: float = Field(default=0.05, ge=0, description="s, added on both sides of the window")
+    mute_width_s: float = Field(
+        default=0.05,
+        ge=0,
+        description="s, kept after the slowest arrival by the mute a retry suggests: the shot's "
+        "pulse, so that the window is not empty at the shot",
+    )
     dead_ratio: float = Field(
         default=0.01,
         gt=0,
@@ -85,7 +91,10 @@ class SignalThresholds(BaseModel):
         default=0.5, ge=0, le=1, description="Median correlation of neighbouring traces."
     )
     max_trigger_shift_s: float = Field(
-        default=0.01, ge=0, description="s, the first breaks' time at zero offset."
+        default=0.01,
+        ge=0,
+        description="s, the first breaks' shot time off where it should be: 0 once the muting "
+        "moved the time origin, the file's trigger otherwise.",
     )
     max_trigger_scatter_s: float = Field(
         default=0.05,
@@ -106,12 +115,16 @@ def judge_signal(
     active: bool = True,
     excluded: Collection[int] = (),
     reach_m: float | None = None,
+    shot_s: float = 0.0,
+    applied_s: float | None = None,
 ) -> GateResult:
     """G1's verdict on one record: the metrics, the flags with their actions, and what is kept.
     The traces `excluded` already (receiver indices) are left out of every measure and flag;
     the decay with offset, the SNR, the usable band and the lateral coherence are measured on
     the traces within `reach_m` of the shot (the line's reach, beyond which the traces carry no
-    wave)."""
+    wave). The first breaks should put the shot at `shot_s` (`trigger_context`); `applied_s`,
+    the shift the muting applied, None with the muting off: the trigger is part of the muting,
+    so a record not muted has no trigger to correct, its shot time only reported."""
     xt = preprocessed.xt
     left_out = _left_out(xt.shape[0], excluded)
     dead, clipped, nan = (
@@ -160,9 +173,11 @@ def judge_signal(
         return _result(record, metrics, flags, kept)
 
     offsets = np.asarray(preprocessed.acquisition.offsets, dtype=float)
+    # Times from the shot where it should be: its windows on its arrivals, muted or not.
+    ts = np.asarray(preprocessed.ts, dtype=float) - shot_s
     windows = signal_windows(
         offsets,
-        np.asarray(preprocessed.ts, dtype=float),
+        ts,
         thresholds.vg_min,
         thresholds.vg_max,
         thresholds.pad_s,
@@ -246,6 +261,7 @@ def judge_signal(
                             "method": "mute",
                             "vmin": thresholds.vg_min,
                             "vmax": thresholds.vg_max,
+                            "width": thresholds.mute_width_s,
                         }
                     },
                 ),
@@ -282,6 +298,7 @@ def judge_signal(
                             "method": "mute",
                             "vmin": thresholds.vg_min,
                             "vmax": thresholds.vg_max,
+                            "width": thresholds.mute_width_s,
                         }
                     },
                 ),
@@ -290,9 +307,7 @@ def judge_signal(
     # No reversed-polarity check: a reversed geophone hardly ever happens, and near the source,
     # neighbours shifted by more than half a period look reversed.
 
-    breaks = first_breaks(
-        finite, np.asarray(preprocessed.ts, dtype=float), windows, thresholds.first_break_ratio
-    )
+    breaks = first_breaks(finite, ts, windows, thresholds.first_break_ratio)
     # Only the traces whose own SNR passes: a noisy trace's envelope crosses the threshold on
     # noise, early or late.
     breaks[~usable | (snr < thresholds.min_snr_db)] = np.nan
@@ -302,11 +317,13 @@ def judge_signal(
     shift = None if fit is None or not snr_ok else fit[0]
     scatter = None if fit is None or not snr_ok else fit[2]
     consistent = scatter is None or scatter <= thresholds.max_trigger_scatter_s
-    shift_ok = shift is None or abs(shift) <= thresholds.max_trigger_shift_s
+    # Where the first breaks put the shot, off where it should be (times from it).
+    off = shift
+    shift_ok = off is None or abs(off) <= thresholds.max_trigger_shift_s
     metrics.append(
         Metric(
             name="trigger_shift_s",
-            value=_finite(shift),
+            value=_finite(off),
             threshold=thresholds.max_trigger_shift_s,
             bound="max",
             passed=shift_ok,
@@ -334,15 +351,16 @@ def judge_signal(
                 fixable=False,
             )
         )
-    elif shift is not None and not shift_ok:
+    elif shift is not None and off is not None and not shift_ok and applied_s is not None:
         flags.append(
             Flag(
                 name="shifted_trigger",
-                message=f"The first breaks put the trigger at {shift * 1000:.0f} ms, the same on "
-                "every trace: correct the record's time origin by it.",
+                message=f"The first breaks put the shot {off * 1000:+.0f} ms from the time origin "
+                "the muting moved, the same on every trace: correct its trigger by them.",
                 stage="preprocessing",
                 action=Override(
-                    stage="preprocessing", overrides={"trigger": {"t0": round(shift, 4)}}
+                    stage="preprocessing",
+                    overrides={"trigger": {"t0": round(applied_s + off, 4)}},
                 ),
             )
         )

@@ -190,50 +190,49 @@ def test_the_workflow_process_pick_redo_invert() -> None:
     done = processed.structured_content
     assert done is not None
     assert done["summary"].splitlines()[:2] == ["G1: 3 pass", "G2: 4 pass"]
-    # Each record's own trigger correction, the first one shown.
-    assert (
-        'Retried G1:shifted_trigger, 1.dat, 2.dat with preprocessing {"trigger":{"t0":0.0188}} '
-        "(each its own): now 2 pass."
-    ) in done["summary"]
+    # No trigger corrected: the demo's files say the shot comes 20 ms in, where the first breaks
+    # put it, and the muting is off (the trigger is part of it, 2026-09-28).
+    assert "shifted_trigger" not in done["summary"]
     assert done["next"] == (
         f"pick comes next for run_id {run_id}, if the user asked for curves or models."
     )
     # The settings the gates changed, in words, for the agent to report.
     changed = done["changed"]
-    assert changed[0] == (
-        "trigger t0 the default -> 0.0188 at 1.dat, 2.dat (each window its own), by "
-        "G1:shifted_trigger"
-    )
     # The line's rules: the shots' reach, the length as given, then the near field.
-    assert changed[1].startswith(
-        "line: masw distance_max 24.34 m: beyond it from the shot, the traces' median SNR falls "
+    assert changed[0].startswith(
+        "line: masw distance_max 24.29 m: beyond it from the shot, the traces' median SNR falls "
         "under 2 dB (G1), so the windows stack no farther shot. masw length 24 for the whole "
-        "line, as given: trial windows G3 passed 26/27 at 24 (picks "
+        "line, as given: trial windows G3 passed 25/27 at 24 (picks "
     )
-    assert "%). near_field distance_m " in changed[1]
+    assert "%). near_field distance_m " in changed[0]
     # No trace left out for its amplitude in one record: the line judges its receivers.
-    assert len(changed) == 2
+    assert len(changed) == 1
     # The lengths the ladder tried, for the agent to choose from: the user's only, here.
     assert done["lengths"] == [
         "line: 96 receivers 0.25 m apart (23.75 m); windows of up to 48 receivers (half the line)",
-        "24 receivers (5.75 m): 26/27 trial windows passed G3, wavelengths 5.0-28.0 m (models "
-        "down to about 14.0 m), picks within 40%, 4 windows on the line (proposed)",
+        "24 receivers (5.75 m): 25/27 trial windows passed G3, wavelengths 5.0-30.0 m (models "
+        "down to about 15.0 m), picks within 40%, 4 windows on the line (proposed)",
     ]
     assert picked.structured_content is not None
     # Every window keeps its traces (none is off the decay in most records) and stacks its
     # shots out of the near field where it has farther ones.
-    # xmid 2.88's ridge spans a metre of wavelength: G3 resamples it finer; xmid 20.88 falls
-    # off its neighbours: G4 picks it again along their curve. Then every curve passes.
-    assert picked.structured_content["summary"].splitlines()[:2] == ["G4: 5 pass", "G3: 4 pass"]
+    # xmid 2.88's ridge spans a metre of wavelength: G3 resamples it finer and keeps more of the
+    # ridge, and rejects it when its retries are spent; xmid 20.88 falls off its neighbours: G4
+    # picks it again along their curve. Three curves pass.
+    assert picked.structured_content["summary"].splitlines()[:2] == [
+        "G4: 4 pass",
+        "G3: 3 pass, 1 reject",
+    ]
     changed = picked.structured_content["changed"]
     # Too few points, and too narrow a span: resampled finer and more of the ridge kept.
     assert changed[0] == (
-        "min_relative_coherence 0.5 -> 0.3; wavelength_step 1 -> 0.5 at xmid 2.88 (1), by "
+        "min_relative_coherence 0.5 -> 0.3; wavelength_step 1 -> 0.2 at xmid 2.88 (1), by "
         "G3:too_few_points"
     )
-    assert changed[1].endswith("at xmid 20.88 (1), by G4:outlier")
+    assert changed[1] == "min_relative_coherence 0.3 -> 0.18 at xmid 2.88 (1), by G3:narrow_span"
+    assert changed[2].endswith("at xmid 20.88 (1), by G4:outlier")
     assert picked.structured_content["next"] == (
-        f"4 curves passed G3 and G4. invert can run on run_id {run_id}, if the user asked for "
+        f"3 curves passed G3 and G4. invert can run on run_id {run_id}, if the user asked for "
         "models; otherwise answer."
     )
 

@@ -166,7 +166,7 @@ def test_weak_or_absent_coherence_suggests_a_mute() -> None:
     mute = {
         "kind": "override",
         "stage": "preprocessing",
-        "overrides": {"muting": {"method": "mute", "vmin": 80.0, "vmax": 1500.0}},
+        "overrides": {"muting": {"method": "mute", "vmin": 80.0, "vmax": 1500.0, "width": 0.05}},
     }
 
     assert _flags(_image(_ridge(M0, 0.8, band=(15.0, 20.0)))) == {"weak_coherence": mute}

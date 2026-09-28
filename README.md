@@ -149,11 +149,12 @@ PACo processes a profile in PAC's three modes: an active profile as shots (`acti
 default) or by interferometry on its shots (`passive-active`: each shot's surface waves
 cross-correlated with the receiver nearest the shot, the correlations stacked), a passive
 profile as ambient noise (`passive`). Ask for another mode in plain words ("process active_p1
-in passive-active mode"); `inspect_profile` lists a profile's modes. Two defaults differ from
-PAC's forms, measured on real lines: passive records are cut into 2 s segments, whitened and
-normalized one-bit (PAC: 0.1 s, neither; no curve on a real noise line), and passive-active
-correlates each shot's surface-wave window only (`correlation_window`, which can be switched
-off).
+in passive-active mode"); `inspect_profile` lists a profile's modes. One default differs from
+PAC's forms, measured on a real line: passive records are cut into 2 s segments, whitened and
+normalized one-bit (PAC: 0.1 s, neither; no curve on a real noise line). A passive-active shot
+is correlated whole; when its image peaks at the grid's top velocity, G2 asks for the
+surface-wave mute (80 to 1,500 m/s) before a wider grid, the records' time origin moved by the
+trigger their files state.
 
 Given no window length, `run_processing` proposes one: the shortest at which most trial windows
 along the line give a curve G3 passes, with a table of every length it tried (trial windows

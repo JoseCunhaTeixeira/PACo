@@ -426,7 +426,8 @@ each with its measurements in `PROGRESS.md` and the gate pages, to review:
   more (2.1 to 3.5 m on the others).
 - **PAC's passive-active mode** (interferometry on an active profile's shots), with two fixes
   of PAC's chain: the flipped gathers' geometry, and each shot cut to its surface-wave window
-  before correlating (`correlation_window`).
+  before correlating (`correlation_window`). The second removed on 2026-09-28 at the user's
+  request: the muting's velocities cut the same.
 - **PACo's passive defaults**: 2 s segments whitened and normalized one-bit, instead of PAC's
   0.1 s segments with neither (no curve on a real ambient-noise line).
 - **G2 counts a peak at the grid's top velocity only where the window resolves that velocity**

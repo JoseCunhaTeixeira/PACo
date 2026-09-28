@@ -221,7 +221,7 @@ def _redo_records(
         records,
         config,
         settings.workers,
-        line_reach(run_folder, profile, records, config),
+        line_reach(run_folder, profile, records, config, manifest.preset),
     )
     write_manifest(
         run_id,

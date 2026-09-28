@@ -146,7 +146,8 @@ def test_leaving_traces_out_adds_no_amplitude_outlier() -> None:
 
 
 def test_a_shifted_trigger_asks_for_its_correction() -> None:
-    shifted = judge_signal("1.dat", _shot(t0=0.05), THRESHOLDS)
+    # Muted with no shift (applied_s 0): the shot should be at 0, the first breaks put it 50 ms on.
+    shifted = judge_signal("1.dat", _shot(t0=0.05), THRESHOLDS, applied_s=0.0)
     assert shifted.verdict == "retry"
     (flag,) = shifted.flags
     assert flag.name == "shifted_trigger" and flag.fixable
@@ -155,7 +156,17 @@ def test_a_shifted_trigger_asks_for_its_correction() -> None:
     assert action["overrides"]["trigger"]["t0"] == pytest.approx(0.05, abs=0.005)
     # Corrected by that t0, the record passes.
     (corrected,) = Shift(t0=action["overrides"]["trigger"]["t0"]).transform([_shot(t0=0.05)])
-    assert judge_signal("1.dat", corrected, THRESHOLDS).verdict == "pass"
+    assert judge_signal("1.dat", corrected, THRESHOLDS, applied_s=0.05).verdict == "pass"
+
+
+def test_a_trigger_not_muted_is_only_reported_against_the_files() -> None:
+    # The trigger is part of the muting: off, nothing to correct. Where the file says the shot
+    # is, the record passes; elsewhere its measure fails, with no retry.
+    assert judge_signal("1.dat", _shot(t0=0.05), THRESHOLDS, shot_s=0.05).verdict == "pass"
+    off = judge_signal("1.dat", _shot(t0=0.05), THRESHOLDS)
+    assert off.verdict == "pass" and not off.flags
+    (metric,) = [metric for metric in off.metrics if metric.name == "trigger_shift_s"]
+    assert not metric.passed and metric.value == pytest.approx(0.05, abs=0.005)
 
 
 def test_a_trigger_that_differs_from_trace_to_trace_rejects_the_record() -> None:

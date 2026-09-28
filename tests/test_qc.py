@@ -720,14 +720,11 @@ def test_judge_run_puts_the_four_gates_in_the_log_and_the_report(
 
     assert (run_folder / CONFIG_FILE).exists()
     assert read_report(run_folder) == report
-    # G1 on the two records: both triggers are late and get their correction.
+    # G1 on the two records: their files say the shot comes 20 ms in, where the first breaks put
+    # it (within 10 ms); not muted, nothing to correct (the trigger is part of the muting).
     for name in ("1.dat", "2.dat"):
         unit = next(unit for unit in report.units if unit.unit == name)
-        assert unit.verdicts["G1"] == "retry"
-        flags = {flag.name: flag for flag in unit.flags["G1"]}
-        assert "shifted_trigger" in flags
-        t0 = flags["shifted_trigger"].action.model_dump()["overrides"]["trigger"]["t0"]
-        assert 0.005 < t0 < 0.03
+        assert "shifted_trigger" not in {flag.name for flag in unit.flags.get("G1", ())}
     # G2 and G3 on the four windows: G3 passes three 24-receiver windows; the pick of xmid 20.88,
     # the line's last window, keeps 2 points where its ridge holds, before its trigger is
     # corrected (judge_run only judges).
@@ -768,9 +765,8 @@ def test_judge_run_puts_the_four_gates_in_the_log_and_the_report(
     # The configuration's picking: as far as the ridge holds, no wavelength limit.
     assert (picked.parameters["max_gap_hz"], picked.parameters["max_wavelength"]) == (2.0, None)
     text = summarize_report(report)
-    assert text.splitlines()[0].startswith("G1: 2 retry")
     assert "G2 band_at_fmax, xmid 2.88-20.88 (4)" in text
-    assert "G1 shifted_trigger, 1.dat, 2.dat" in text
+    assert "shifted_trigger" not in text
     assert "G3 too_few_points, xmid 20.88 (1)" in text
     assert "G4 gaps, line: No curve at xmid 20.88 (1)" in text
 
