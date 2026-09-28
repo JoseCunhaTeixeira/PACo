@@ -19,6 +19,7 @@ from sigpipe.masw.runs import RunManifest, find_run, load_image, load_manifest, 
 from sigpipe.masw.runs.stopping import finished
 from sigpipe.masw.windows import MASWWindow
 from sigpipe.transformers import Load
+from sigpipe.workers import one_thread_each
 
 from paco import stopping
 from paco.qc.attempts import invalidate
@@ -190,6 +191,7 @@ def pick_windows(
                 unit, _pick(run_folder, unit, picking, config.curve, band, previous[unit], mutable)
             )
         return results
+    one_thread_each()  # the workers are the cores the picks take
     with ProcessPoolExecutor(
         max_workers=min(workers, len(jobs)), initializer=start_worker, initargs=(run_folder,)
     ) as executor:
