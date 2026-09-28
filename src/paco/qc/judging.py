@@ -27,12 +27,14 @@ from paco.qc.g2_image import judge_image
 from paco.qc.g3_curve import CurveThresholds, judge_curve
 from paco.qc.g4_profile import LINE, judge_profile
 from paco.qc.log import (
+    afresh,
     append_attempt,
     attempts_of,
     ensure_initial_attempts,
     latest,
     read_attempts,
     record_result,
+    starts_afresh,
 )
 from paco.qc.models import Attempt, GateResult, Stage
 from paco.qc.report import QCReport, build_report, write_report
@@ -113,7 +115,7 @@ def judge_picking(
     started_at = datetime.now(UTC)
     previous = len(attempts_of(read_attempts(run_folder), unit, "picking"))
     g3 = _pick(run_folder, unit, picking, config.curve, band, previous, image)
-    _log_pick(run_folder, unit, previous + 1, picking, triggered_by, started_at, g3)
+    _log_pick(run_folder, unit, previous, picking, triggered_by, started_at, g3)
     return g3
 
 
@@ -135,7 +137,7 @@ def pick_windows(
 
     def logged(unit: str, g3: GateResult) -> None:
         picking = jobs[unit][0]
-        _log_pick(run_folder, unit, previous[unit] + 1, picking, triggered_by, started_at, g3)
+        _log_pick(run_folder, unit, previous[unit], picking, triggered_by, started_at, g3)
         results[unit] = g3
 
     # Stopped between windows: a pick archives the window's previous one before it saves its
@@ -184,25 +186,28 @@ def _pick(
 def _log_pick(
     run_folder: Path,
     unit: str,
-    attempt: int,
+    previous: int,
     picking: PickingParameters,
     triggered_by: str,
     started_at: datetime,
     g3: GateResult,
 ) -> None:
+    """The window's pick logged, after its `previous` attempts: going on from them for a retry a
+    gate asked for; else afresh, the window's earlier picks and what was made of them (their
+    inversions, soil columns) forgotten."""
+    attempt = Attempt(
+        unit=unit,
+        stage="picking",
+        attempt=previous + 1,
+        parameters=picking.model_dump(),
+        triggered_by=triggered_by,
+        started_at=started_at,
+        finished_at=datetime.now(UTC),
+        status="succeeded",
+        results={g3.gate: g3},
+    )
     append_attempt(
-        run_folder,
-        Attempt(
-            unit=unit,
-            stage="picking",
-            attempt=attempt,
-            parameters=picking.model_dump(),
-            triggered_by=triggered_by,
-            started_at=started_at,
-            finished_at=datetime.now(UTC),
-            status="succeeded",
-            results={g3.gate: g3},
-        ),
+        run_folder, afresh(run_folder, attempt) if starts_afresh(triggered_by) else attempt
     )
 
 

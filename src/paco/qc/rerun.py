@@ -21,7 +21,15 @@ from paco.qc.coherence import near_field_windows
 from paco.qc.config import read_qc_config
 from paco.qc.g4_profile import LINE
 from paco.qc.judging import judge_picking
-from paco.qc.log import append_attempt, attempts_of, ensure_initial_attempts, latest, read_attempts
+from paco.qc.log import (
+    afresh,
+    append_attempt,
+    attempts_of,
+    ensure_initial_attempts,
+    latest,
+    read_attempts,
+    starts_afresh,
+)
 from paco.qc.models import Attempt, GateResult
 from paco.settings import Settings
 
@@ -59,28 +67,31 @@ def rerun_phase_shift(
         )
 
     attempts = ensure_initial_attempts(run_folder, manifest)
-    numbers = {unit: len(attempts_of(attempts, unit, "phase_shift")) + 1 for unit in units}
+    # The attempt each window's files are archived as, to give them back on a stop.
+    archived = {unit: len(attempts_of(attempts, unit, "phase_shift")) for unit in units}
     for unit in units:
-        invalidate(run_folder / unit, "phase_shift", numbers[unit] - 1)
+        invalidate(run_folder / unit, "phase_shift", archived[unit])
     started_at = datetime.now(UTC)
+    # Asked of the agent: each window's image, and all that was made of it, started afresh; a
+    # gate's retry goes on from its attempts.
+    fresh = starts_afresh(triggered_by)
 
     def log(outcomes: tuple[WindowOutcome, ...]) -> None:
         finished_at = datetime.now(UTC)
         for outcome in outcomes:
-            append_attempt(
-                run_folder,
-                Attempt(
-                    unit=outcome.folder,
-                    stage="phase_shift",
-                    attempt=numbers[outcome.folder],
-                    parameters=dict(overrides),
-                    triggered_by=triggered_by,
-                    started_at=started_at,
-                    finished_at=finished_at,
-                    status=outcome.status,
-                    error=outcome.error,
-                ),
+            unit = outcome.folder
+            attempt = Attempt(
+                unit=unit,
+                stage="phase_shift",
+                attempt=archived[unit] + 1,
+                parameters=dict(overrides),
+                triggered_by=triggered_by,
+                started_at=started_at,
+                finished_at=finished_at,
+                status=outcome.status,
+                error=outcome.error,
             )
+            append_attempt(run_folder, afresh(run_folder, attempt) if fresh else attempt)
 
     try:
         outcomes = process_windows(
@@ -97,7 +108,7 @@ def rerun_phase_shift(
         done = cast(tuple[WindowOutcome, ...], stopped.kept or ())
         log(done)
         for unit in set(units) - {outcome.folder for outcome in done}:
-            restore(run_folder / unit, "phase_shift", numbers[unit] - 1)
+            restore(run_folder / unit, "phase_shift", archived[unit])
         raise
     log(outcomes)
     return outcomes

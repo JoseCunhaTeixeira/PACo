@@ -5,20 +5,59 @@ attempts at each stage, the retries it spent) is read back from the log, never k
 from collections import Counter
 from collections.abc import Iterable
 from pathlib import Path
+from typing import Any, NamedTuple
 
+from sigpipe.masw.runs.history import LOG_FILE, downstream, forget, log_lock
 from sigpipe.masw.runs.models import RunManifest
 
 from paco.qc.models import Attempt, GateResult, Stage
 
-LOG_FILE = "qc_log.jsonl"
 # The gates whose retries of a window's inversion the window's own budget bounds: G5, G6, and
 # S4's own when an inversion failed.
 INVERSION_GATES = ("G5", "G6", "S4")
 
 
 def append_attempt(run_folder: Path, attempt: Attempt) -> None:
-    with (run_folder / LOG_FILE).open("a") as file:
+    with log_lock(run_folder), (run_folder / LOG_FILE).open("a") as file:
         file.write(attempt.model_dump_json() + "\n")
+
+
+def starts_afresh(triggered_by: str) -> bool:
+    """Whether an attempt triggered so starts its unit's stage afresh: the first one, or one the
+    agent was asked to do again (a backtrack); a retry a gate asked for goes on from the
+    attempts before it."""
+    return triggered_by in ("initial", "backtrack")
+
+
+class Forgotten(NamedTuple):
+    """What an attempt starting afresh carries of those it replaced."""
+
+    spent: int  # the retries they had spent on the run's budget
+    parameters: dict[str, Any]  # the last one's at the stage: what the new one changes
+
+
+def forget_history(
+    run_folder: Path, unit: str, stage: Stage, folder: Path | None = None
+) -> Forgotten:
+    """`unit`'s history at `stage` and the stages after it that use its results forgotten, as its
+    stage starts afresh: its earlier attempts' lines in the log and their archived results
+    (sigpipe's `forget`; the results now in place kept). Returns what the attempt starting
+    afresh carries of them."""
+    stages = set(downstream(stage))
+    gone = [a for a in read_attempts(run_folder) if a.unit == unit and a.stage in stages]
+    spent = sum(_on_run_budget(a) + a.forgotten for a in gone)
+    last = latest(gone, unit, stage)
+    forget(run_folder, unit, stage, results=False, folder=folder)
+    return Forgotten(spent, dict(last.parameters) if last is not None else {})
+
+
+def afresh(run_folder: Path, attempt: Attempt, folder: Path | None = None) -> Attempt:
+    """`attempt`, starting its unit's stage afresh: the unit's earlier attempts there forgotten
+    (`forget_history`), what they cost and the last one's parameters carried."""
+    gone = forget_history(run_folder, attempt.unit, attempt.stage, folder)
+    return attempt.model_copy(
+        update={"attempt": 1, "forgotten": gone.spent, "replaced": gone.parameters}
+    )
 
 
 def read_attempts(run_folder: Path) -> tuple[Attempt, ...]:
@@ -88,13 +127,16 @@ def retries_at_gate(attempts: Iterable[Attempt], unit: str, gate: str) -> int:
 def retries_in_run(attempts: Iterable[Attempt]) -> int:
     """Retries spent on the run's budget, the windows': every gate's and the agent's, but G1's,
     which each record's own budget bounds, and the inversion's gates', which each window's
-    does."""
-    return sum(
-        1
-        for a in attempts
-        if a.triggered_by != "initial"
-        and not a.triggered_by.startswith("G1:")
-        and not _by_inversion_gate(a)
+    does; with those of the attempts a stage started afresh forgot."""
+    return sum(_on_run_budget(a) + a.forgotten for a in attempts)
+
+
+def _on_run_budget(attempt: Attempt) -> int:
+    """1 when `attempt` is a retry the run's budget pays for, else 0."""
+    return int(
+        attempt.triggered_by != "initial"
+        and not attempt.triggered_by.startswith("G1:")
+        and not _by_inversion_gate(attempt)
     )
 
 

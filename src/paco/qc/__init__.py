@@ -39,9 +39,11 @@ from .judging import judge_line, judge_picking, judge_records, judge_run, judge_
 from .line import process_line, settle_images, settle_records
 from .log import (
     LOG_FILE,
+    afresh,
     append_attempt,
     attempts_of,
     ensure_initial_attempts,
+    forget_history,
     latest,
     read_attempts,
     record_result,
@@ -49,6 +51,7 @@ from .log import (
     retries_by_unit,
     retries_in_run,
     retries_of_inversion,
+    starts_afresh,
 )
 from .models import (
     STAGES,
@@ -125,6 +128,7 @@ __all__ = [
     "StageResult",
     "UnitReport",
     "Verdict",
+    "afresh",
     "append_attempt",
     "archived_attempts",
     "attempts_of",
@@ -139,6 +143,7 @@ __all__ = [
     "describe_lengths",
     "downstream",
     "ensure_initial_attempts",
+    "forget_history",
     "given_length",
     "invalidate",
     "inversion_used",
@@ -186,6 +191,7 @@ __all__ = [
     "settle_records",
     "snapshot_qc_config",
     "stage_index",
+    "starts_afresh",
     "stretches",
     "submit_inversion",
     "summarize_report",
