@@ -1,13 +1,18 @@
 """G3, the QC of a picked curve (docs/qc_workflow.md): paco.quality's metrics on the M0 pick,
-said in the gates' language, and the curve's own rules: wavelengths above twice the spacing
-(the picker stops where its ridge breaks, at either end), no jump onto another mode, no air
-wave, the trend, enough points, uncertainties the inversion can use."""
+said in the gates' language, and the curve's own rules: points under twice the spacing or over
+three window lengths flagged (the picker follows its ridge as far as it holds, at either end), no
+jump onto another mode, no air wave, the trend, enough points, uncertainties the inversion can
+use."""
 
 import math
 
 import numpy as np
 from pydantic import BaseModel, ConfigDict, Field
 from scipy.stats import rankdata
+from sigpipe.algorithms.picking.dispersion.curve import (
+    longest_reached_wavelength,
+    min_resolvable_wavelength,
+)
 from sigpipe.algorithms.picking.dispersion.tracking import PickedMode, PickingParameters
 from sigpipe.base import DispersionImage
 from sigpipe.masw.quality.pick import constant_wavelength_start
@@ -104,16 +109,20 @@ def judge_curve(
         kept = Kept(band_hz=quality.band_hz, n_points=quality.n_points, n_traces=n_traces)
         return _result(unit, metrics, flags, kept)
 
-    spacing = abs(receivers[1].x - receivers[0].x) if len(receivers) > 1 else 0.0
     curve = m0.curve
     fs, vs = np.asarray(curve.fs, dtype=float), np.asarray(curve.vs, dtype=float)
     wavelengths = vs / fs
     order = np.argsort(wavelengths)
     fs, vs, wavelengths = fs[order], vs[order], wavelengths[order]
 
-    # Below twice the spacing wavelengths are aliased: the picker starts above; a check that it
-    # did. At the long end the pick stops where its ridge breaks (the picking's continuity).
-    aliased = float(np.mean(wavelengths < 2 * spacing)) if spacing else 0.0
+    # The picker follows its ridge as far as it holds, at either end (the user, 2026-09-28): its
+    # points under twice the spacing (the aliasing zone, where the ridge may be its alias) and
+    # over three window lengths (beyond the window's reach, where it resolves no velocity) are
+    # flagged and kept, for the agent or G4 to judge. The lines PAC draws on the image.
+    # A point on a limit is within it: resampled every metre, a curve can hold one at exactly
+    # twice a 1.5 m spacing, which its float32 values put a hair under.
+    shortest = min_resolvable_wavelength(image.acquisition)
+    aliased = float(np.mean(_past(wavelengths, shortest, below=True))) if shortest else 0.0
     metrics.append(
         Metric(
             name="aliased_points",
@@ -123,6 +132,40 @@ def judge_curve(
             passed=aliased == 0,
         )
     )
+    if shortest and aliased > 0:
+        flags.append(
+            Flag(
+                name="aliasing_zone",
+                message=f"{aliased:.0%} of the points lie under twice the receiver spacing "
+                f"({shortest:g} m): the aliasing zone, where the ridge may be its alias.",
+                stage="picking",
+                action=Keep(note="points in the aliasing zone"),
+                fixable=False,
+            )
+        )
+    longest = longest_reached_wavelength(image.acquisition)
+    beyond = float(np.mean(_past(wavelengths, longest, below=False))) if longest else 0.0
+    metrics.append(
+        Metric(
+            name="beyond_reach_points",
+            value=round(beyond, 3),
+            threshold=0,
+            bound="max",
+            passed=beyond == 0,
+        )
+    )
+    if longest and beyond > 0:
+        flags.append(
+            Flag(
+                name="beyond_reach",
+                message=f"{beyond:.0%} of the points lie over three window lengths "
+                f"({longest:.3g} m): beyond the window's reach, where the pick may be the "
+                "tracker's.",
+                stage="picking",
+                action=Keep(note="points beyond the window's reach"),
+                fixable=False,
+            )
+        )
 
     kept_vs, kept_fs, kept_wl = vs, fs, wavelengths
     n_points = int(vs.size)
@@ -424,6 +467,13 @@ def _too_few_points(
             overrides={"min_relative_coherence": round(picking.min_relative_coherence * 0.6, 2)},
         ),
     )
+
+
+def _past(wavelengths: np.ndarray, limit: float, below: bool) -> np.ndarray:
+    """Which `wavelengths` lie past `limit`, under it or over it, those on it (within float32's
+    precision) not."""
+    past = wavelengths < limit if below else wavelengths > limit
+    return past & ~np.isclose(wavelengths, limit)
 
 
 def _constant_wavelength_cut(m0: PickedMode | None, length: float) -> float | None:

@@ -725,22 +725,18 @@ def test_judge_run_puts_the_four_gates_in_the_log_and_the_report(
     for name in ("1.dat", "2.dat"):
         unit = next(unit for unit in report.units if unit.unit == name)
         assert "shifted_trigger" not in {flag.name for flag in unit.flags.get("G1", ())}
-    # G2 and G3 on the four windows: G3 passes three 24-receiver windows; the pick of xmid 20.88,
-    # the line's last window, keeps 2 points where its ridge holds, before its trigger is
-    # corrected (judge_run only judges).
+    # G2 and G3 on the four windows: G3 passes the four 24-receiver windows, their picks
+    # followed past their ends (xmid 20.88, the line's last window, kept 2 points before
+    # 2026-09-28, now 34), its kept flags said: the long wavelengths past three window lengths,
+    # the shots nearer than half the longest, an inverse trend.
     windows = [unit for unit in report.units if unit.xmid is not None]
-    assert {unit.unit: unit.verdicts["G3"] for unit in windows} == {
-        "xmid_2.88": "pass",
-        "xmid_8.88": "pass",
-        "xmid_14.88": "pass",
-        "xmid_20.88": "retry",
+    assert all(unit.verdicts["G3"] == "pass" for unit in windows)
+    assert {unit.unit: [flag.name for flag in unit.flags["G3"]] for unit in windows} == {
+        "xmid_2.88": ["inverse_dispersion", "near_field"],
+        "xmid_8.88": ["beyond_reach", "near_field"],
+        "xmid_14.88": ["beyond_reach", "near_field"],
+        "xmid_20.88": ["beyond_reach", "near_field"],
     }
-    short = next(unit for unit in windows if unit.unit == "xmid_20.88")
-    assert [flag.name for flag in short.flags["G3"]] == [
-        "too_few_points",
-        "narrow_span",
-        "near_field",
-    ]
     # The band reaches the image's 100 Hz: kept, not widened.
     assert all(unit.verdicts["G2"] == "pass" for unit in windows)
     assert all(
@@ -750,13 +746,12 @@ def test_judge_run_puts_the_four_gates_in_the_log_and_the_report(
     assert all(unit.curve is not None and unit.curve.n_points for unit in windows)
     # S3 saved each curve in PAC's layout.
     assert all((run_folder / unit.unit / CURVES_FILE).exists() for unit in windows)
-    # G4 over the line: three curves 6 m apart, one neighbour a side, are no evidence against
-    # each other; the window without a curve is a gap.
-    assert all(unit.verdicts["G4"] == "pass" for unit in windows if unit is not short)
-    assert "G4" not in short.verdicts
+    # G4 over the line: four curves 6 m apart, one or two neighbours a side, are no evidence
+    # against each other; no window without a curve, no gap.
+    assert all(unit.verdicts["G4"] == "pass" for unit in windows)
     line = next(unit for unit in report.units if unit.unit == "line")
     assert line.verdicts == {"G4": "pass"}
-    assert [flag.name for flag in line.flags["G4"]] == ["gaps"]
+    assert line.flags["G4"] == ()
     # The picking is an attempt of its own, judged by G3.
     attempts = read_attempts(run_folder)
     assert latest(attempts, "xmid_2.88", "picking") is not None
@@ -767,11 +762,11 @@ def test_judge_run_puts_the_four_gates_in_the_log_and_the_report(
     text = summarize_report(report)
     assert "G2 band_at_fmax, xmid 2.88-20.88 (4)" in text
     assert "shifted_trigger" not in text
-    assert "G3 too_few_points, xmid 20.88 (1)" in text
-    assert "G4 gaps, line: No curve at xmid 20.88 (1)" in text
+    assert "G3 beyond_reach, xmid 8.88-20.88 (3)" in text
+    assert "gaps" not in text
 
-    # The picking again for that window, with the flag's override (asked of the agent): the
-    # window's picking afresh, its only attempt now, the first curve not kept; G3 on the new one.
+    # The picking again for a window, with an override (asked of the agent): the window's
+    # picking afresh, its only attempt now, the first curve not kept; G3 on the new one.
     looser = {"min_relative_coherence": 0.3}
     (result,) = rerun_picking(run_id, ["xmid_20.88"], looser, settings)
     assert result.gate == "G3" and result.unit == "xmid_20.88"

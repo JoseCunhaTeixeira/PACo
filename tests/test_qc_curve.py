@@ -33,6 +33,7 @@ THRESHOLDS = CurveThresholds()
 QUALITY_METRICS = {"sharpness", "prominence", "on_data", "constant_wavelength", "n_points"}
 CURVE_METRICS = {
     "aliased_points",
+    "beyond_reach_points",
     "curve_points",
     "wavelength_ratio",
     "max_jump",
@@ -212,6 +213,7 @@ def test_a_curve_given_with_the_pick_passes_the_curve_rules() -> None:
     assert result.verdict == "pass" and result.flags == ()
     values = {metric.name: metric.value for metric in result.metrics}
     assert values["aliased_points"] == 0.0
+    assert values["beyond_reach_points"] == 0.0
     assert values["curve_points"] == 61
     jump = values["max_jump"]
     assert jump is not None and jump < 0.1
@@ -289,6 +291,26 @@ def test_velocity_falling_with_wavelength_is_flagged_and_kept() -> None:
     assert flag.action.model_dump() == {"kind": "keep", "note": "an inverse trend can be geology"}
     trend = next(metric for metric in result.metrics if metric.name == "trend")
     assert trend.value == -1.0 and not trend.passed
+
+
+def test_points_the_window_does_not_resolve_are_flagged_and_kept() -> None:
+    # The picker follows its ridge as far as it holds (the user, 2026-09-28): here two points
+    # under twice the spacing (2 m), one over three window lengths (141 m). A point on each
+    # limit, a hair past it in float32 (1.9999998 and 141.000006 m, as a curve resampled every
+    # metre holds), is within it.
+    image = _image(_ridge(M0, 0.8, 1.5))
+    fs = np.array([1.0, 1.4191489219665527, 2, 5, 10, 20, 40, 75.00000762939453, 80, 100])
+    vs = np.array([200.0, 200.10000610351562, 195, 190, 185, 175, 165, 150, 155, 150])
+
+    result = judge_curve("xmid_12.50", image, _picked(image, M0, fs=fs, vs=vs), THRESHOLDS)
+
+    assert result.verdict == "pass"  # kept flags
+    flags = _flags(result)
+    assert set(flags) == {"aliasing_zone", "beyond_reach"}
+    assert all(flag.action.kind == "keep" and not flag.fixable for flag in flags.values())
+    values = {metric.name: metric.value for metric in result.metrics}
+    assert values["aliased_points"] == 0.2
+    assert values["beyond_reach_points"] == 0.1
 
 
 def test_too_few_points_ask_to_keep_more_of_the_ridge() -> None:

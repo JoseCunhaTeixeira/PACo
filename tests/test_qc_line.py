@@ -105,15 +105,15 @@ def test_the_ladder_keeps_the_most_precise_length_that_passes(
 
     choice = json.loads((run_folder / COHERENCE_FILE).read_text())
     # At 5 receivers the trial windows at the line's ends keep too few points: 1 of 3 passes.
-    # 24 passes 2 of 3, none of the lengths with picks within 20 % (the records as recorded,
-    # their first 20 ms before the shot kept since 2026-09-28: 29 %, within 20 % before): 24,
-    # the most precise that passed, is kept; 32 is tried too, for the agent to compare the depth
-    # it would reach.
+    # 24 passes 3 of 3 (2 before its picks followed their ridge past their ends, 2026-09-28),
+    # none of the lengths with picks within 20 % (40 % at 24, their longest wavelengths the least
+    # precise; 29 % before): 24, the most precise that passed, is kept; 32 is tried too, for the
+    # agent to compare the depth it would reach.
     assert [trial["length"] for trial in choice["trials"]] == [5, 24, 32]
     assert [trial["compared"] for trial in choice["trials"]] == [False, False, True]
     five, twenty_four, _ = choice["trials"]
     assert (five["passed"], len(five["xmids"])) == (1, 3)
-    assert (twenty_four["passed"], twenty_four["uncertainty"]) == (2, pytest.approx(0.288))
+    assert (twenty_four["passed"], twenty_four["uncertainty"]) == (3, pytest.approx(0.4))
     assert choice["length"] == 24
     # What the agent reads to choose another length: the line, then each length tried.
     assert choice["receivers"] == 96 and choice["spacing_m"] == 0.25
@@ -132,7 +132,7 @@ def test_the_ladder_keeps_the_most_precise_length_that_passes(
     assert line is not None
     assert line.parameters == {
         "masw": {"distance_max": 24.29, "length": 24},
-        "near_field": {"distance_m": 11.0},
+        "near_field": {"distance_m": 17.0},
     }
     far, note, near = line.notes
     assert far == (
@@ -146,7 +146,7 @@ def test_the_ladder_keeps_the_most_precise_length_that_passes(
     assert note.endswith("0/3 at 32 (compared).")  # none passed: no picks to say
     # Out of the near field: half the longest wavelength of the trial curves from a window's
     # nearest receiver, where it has a farther shot.
-    assert near.startswith("near_field distance_m 11 m: a window stacks no shot nearer than")
+    assert near.startswith("near_field distance_m 17 m: a window stacks no shot nearer than")
     # The gates of the processing ran on it (the picking's are pick's), and the summary gives
     # the change.
     assert set(report.counts) == {"G1", "G2"}
