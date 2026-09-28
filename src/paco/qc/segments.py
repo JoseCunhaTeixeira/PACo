@@ -139,7 +139,7 @@ def choose_segments(
     lengths = (
         [own_length]
         if "slicing" in given
-        else _lengths(own_length, windows, signal.vg_min, rules, profile)
+        else lengths_tried(own_length, windows, signal.vg_min, rules, profile)
     )
     selections: list[tuple[Band, float] | None] = [own_selection]
     if "selection" not in given:
@@ -299,7 +299,7 @@ def _judge(
             coherences.append(float(np.median(m0.coherence[m0.kept])))
         (first,) = stack.transform(picked[0::2])
         (second,) = stack.transform(picked[1::2])
-        agreement = _agreement(first, second, signal)
+        agreement = halves_agreement(first, second, signal)
         if agreement is not None:
             agreements.append(agreement)
         snr = virtual_shot_snr(shot, signal.vg_min, signal.vg_max, signal.pad_s)
@@ -319,7 +319,7 @@ def _judge(
     )
 
 
-def _agreement(first: Stream, second: Stream, signal: SignalThresholds) -> float | None:
+def halves_agreement(first: Stream, second: Stream, signal: SignalThresholds) -> float | None:
     """How closely two virtual shots agree over their arrivals (between G1's velocities, from
     the virtual source): the median over their traces (the source's own aside) of the
     correlation of their samples there; None without arrivals to compare."""
@@ -340,7 +340,7 @@ def _agreement(first: Stream, second: Stream, signal: SignalThresholds) -> float
     return median(correlations) if correlations else None
 
 
-def _lengths(
+def lengths_tried(
     own: float,
     windows: Sequence[MASWWindow],
     vmin: float,

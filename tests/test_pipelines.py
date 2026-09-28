@@ -177,7 +177,9 @@ def _single_pipeline(
         (own,) = triggers
         load = load >> Shift(t0=(t0 if t0 is not None else own) if on else 0.0)
     fields = type(preset).model_fields
-    muting = stage_kwargs(preset, "muting") if "muting" in fields else {"method": "none"}
+    muting: dict[str, Any] = (
+        stage_kwargs(preset, "muting") if "muting" in fields else {"method": "none"}
+    )
     head = (
         load
         >> Detrend(method="constant")
