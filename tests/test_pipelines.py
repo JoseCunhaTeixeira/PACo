@@ -7,6 +7,7 @@ import h5py
 import numpy as np
 import pytest
 from sigpipe.base import LinearAcquisition, Pipeline, Transformer
+from sigpipe.dataio.stream.loading import read_seismic_header
 from sigpipe.masw.pipelines import (
     PIPELINE_BUILDERS,
     PREPROCESSED,
@@ -35,6 +36,7 @@ from sigpipe.transformers import (
     Plot,
     Save,
     Selection,
+    Shift,
     Slice,
     Stack,
     Whiten,
@@ -54,11 +56,10 @@ PASSIVE_CHAIN = [
     "Load", "Slice", "Selection", "Whiten", "Normalize", "Apodize",
     "Correlate", "Stack", "Save", "Dispersion", "Plot", "Save",
 ]  # fmt: skip
-# PAC's adapters/passive_active.py, with PACo's surface-wave window (a mute) before the
-# correlation.
+# PAC's adapters/passive_active.py: the shots correlated as preprocessed (their surface waves
+# alone when the muting keeps them).
 PASSIVE_ACTIVE_CHAIN = [
-    "Load", "Mute", "Apodize", "ActiveShotCorrelation", "Stack", "Save", "Dispersion", "Plot",
-    "Save",
+    "Load", "Apodize", "ActiveShotCorrelation", "Stack", "Save", "Dispersion", "Plot", "Save",
 ]  # fmt: skip
 
 # Every tunable stage switched on, with values moved away from the defaults.
@@ -68,7 +69,7 @@ ACTIVE_ON = {
     "dispersion": {"fmin": 5, "fmax": 60, "vmin": 50, "vmax": 500, "nv": 200},
 }
 PASSIVE_ON = {
-    "muting": {"method": "mute"},
+    "muting": {"method": "mute", "tmax": 60.0},  # a bound: a passive record has no trigger
     "filtering": {"method": "iir", "fmin": 5},
     "slicing": {"segment_duration": 0.2, "segment_step": 0.1},
     "selection": {"method": "fk", "threshold": 0.0},
@@ -160,14 +161,23 @@ def _single_pipeline(
     preset: ActivePreset | PassivePreset, window: MASWWindow, output_folder: Path
 ) -> Pipeline:
     """PAC's single pipeline per window, from the raw records with the window's receivers, minus
-    the padding: what the two-stage path must match bit for bit."""
+    the padding: what the two-stage path must match bit for bit. A shot's time origin moved by
+    the trigger with the muting on, each record's own from its file when none is given (the
+    demo's all say 20 ms)."""
+    load = Load(
+        file_paths=window.selected_files,
+        acquisitions=window.acquisitions,
+        data_type="seismic",
+        receivers_to_load=window.receiver_indices,
+    )
+    if isinstance(preset, ActivePreset):
+        on = stage_kwargs(preset, "muting")["method"] == "mute"
+        t0 = stage_kwargs(preset, "trigger")["t0"]
+        triggers = {read_seismic_header(path).trigger_s or 0.0 for path in window.selected_files}
+        (own,) = triggers
+        load = load >> Shift(t0=(t0 if t0 is not None else own) if on else 0.0)
     head = (
-        Load(
-            file_paths=window.selected_files,
-            acquisitions=window.acquisitions,
-            data_type="seismic",
-            receivers_to_load=window.receiver_indices,
-        )
+        load
         >> Detrend(method="constant")
         >> Detrend(method="linear")
         >> Mute(**stage_kwargs(preset, "muting"))
@@ -240,17 +250,8 @@ def test_pacs_fixed_steps_of_the_passive_active_pipeline(
     assert vars(_only(built.image, Apodize)) == {"method": "hanning", "params": {"frac": 0.1}}
     assert _only(built.image, ActiveShotCorrelation).method == "cross"
     assert vars(_only(built.image, Stack)) == {"method": "linear", "params": {}}
-    window = _only(built.image, Mute)
-    # Ramps of 50 ms at the demo's 2,000 Hz.
-    assert (window.method, window.params) == ("mute", {"vmin": 80.0, "vmax": 1500.0, "taper": 100})
-    # Switched off, the shots are correlated whole, as in PAC.
-    whole = _build(
-        profiles["active_p1"],
-        "passive-active",
-        {"correlation_window": {"method": "none"}},
-        tmp_path,
-    )
-    assert _only(whole.image, Mute).method == "none"
+    # No mute of its own before correlating any more (2026-09-28): the preprocessing's muting cuts.
+    assert not any(isinstance(step, Mute) for step in built.image.steps)
 
 
 @BOTH_MODES
@@ -350,7 +351,15 @@ def test_active_preset_values_reach_the_transformers(
 
     assert vars(_only(built.preprocessing, Mute)) == {
         "method": "mute",
-        "params": {"tmin": 0.0, "tmax": 2.0, "vmin": 0.0, "vmax": 800.0, "taper": 0},
+        # The bounds left out stay out (none); the width, one sample at 2,000 Hz.
+        "params": {
+            "tmin": None,
+            "tmax": None,
+            "vmin": None,
+            "vmax": 800.0,
+            "width": 0.0005,
+            "taper": 0,
+        },
     }
     assert vars(_only(built.preprocessing, Filter)) == {
         "method": "iir",
@@ -369,7 +378,14 @@ def test_passive_preset_values_reach_the_transformers(
 
     assert vars(_only(built.preprocessing, Mute)) == {
         "method": "mute",
-        "params": {"tmin": 0.0, "tmax": 130.0, "vmin": 0.0, "vmax": 100_000.0, "taper": 0},
+        "params": {
+            "tmin": None,
+            "tmax": 60.0,
+            "vmin": None,
+            "vmax": None,
+            "width": 0.002,
+            "taper": 0,
+        },
     }
     assert vars(_only(built.preprocessing, Filter)) == {
         "method": "iir",
@@ -381,7 +397,7 @@ def test_passive_preset_values_reach_the_transformers(
     }
     assert vars(_only(built.image, Selection)) == {
         "method": "fk",
-        "params": {"threshold": 0.0, "vmin": 0.0, "vmax": 100_000.0, "flip_negatives": True},
+        "params": {"threshold": 0.0, "vmin": None, "vmax": None, "flip_negatives": True},
     }
     assert vars(_only(built.image, Whiten)) == {
         "method": "onebit_apod",
@@ -398,7 +414,7 @@ def test_passive_preset_values_reach_the_transformers(
 @pytest.mark.parametrize(
     ("profile", "name", "overrides", "missing"),
     [
-        ("active_p1", "active", {"muting": {"method": "mute"}}, "muting.tmax"),
+        ("active_p1", "active", {"muting": {"method": "mute"}}, "muting.width"),
         ("passive_p1", "passive", {"filtering": {"method": "iir"}}, "filtering.fmax"),
         ("passive_p1", "passive", {"whitening": {"method": "onebit_apod"}}, "whitening.fmax"),
     ],

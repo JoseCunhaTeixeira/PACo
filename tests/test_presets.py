@@ -30,7 +30,8 @@ DISPERSION_DEFAULTS = {"fmin": 0.0, "fmax": 100.0, "vmin": 1.0, "vmax": 1000.0, 
 ACTIVE_DEFAULTS = {
     "mode": "active",
     "masw": MASW_DEFAULTS,
-    "trigger": {"t0": 0.0},  # PACo's, not PAC's: a delay G1 measures, none by default
+    # Each record's own, from its file, applied with the muting on (the trigger is part of it).
+    "trigger": {"t0": None},
     "muting": {"method": "none"},
     "filtering": {"method": "none"},
     "dispersion": DISPERSION_DEFAULTS,
@@ -41,11 +42,9 @@ ACTIVE_DEFAULTS = {
 PASSIVE_ACTIVE_DEFAULTS = {
     "mode": "passive-active",
     "masw": MASW_DEFAULTS,
-    "trigger": {"t0": 0.0},
+    "trigger": {"t0": None},
     "muting": {"method": "none"},
     "filtering": {"method": "none"},
-    # PACo's: G1's surface-wave window, before each shot is correlated.
-    "correlation_window": {"method": "mute", "vmin": 80.0, "vmax": 1500.0, "taper": None},
     "stacking": {"method": "linear"},
     "dispersion": DISPERSION_DEFAULTS,
 }
@@ -134,12 +133,14 @@ def test_overriding_a_field_keeps_the_other_values() -> None:
             "active",
             "muting",
             {"method": "mute"},
+            # Each bound left out (none, no stand-in value); the width derived: one sample.
             {
                 "method": "mute",
-                "tmin": 0.0,
+                "tmin": None,
                 "tmax": None,
-                "vmin": 0.0,
-                "vmax": 100000.0,
+                "vmin": None,
+                "vmax": None,
+                "width": None,
                 "taper": 0,
             },
         ),
@@ -153,7 +154,7 @@ def test_overriding_a_field_keeps_the_other_values() -> None:
             "passive",
             "selection",
             {"method": "fk"},
-            {"method": "fk", "threshold": 0.1, "vmin": 0.0, "vmax": 100000.0},
+            {"method": "fk", "threshold": 0.1, "vmin": None, "vmax": None},
         ),
         (
             "passive",
@@ -433,9 +434,9 @@ def test_resolving_the_defaults_changes_nothing(
 @pytest.mark.parametrize(
     ("profile", "name", "stage", "override", "field", "expected"),
     [
-        # The longest record, rounded to 10 ms: 1.9995 s and 129.998 s.
-        ("active_p1", "active", "muting", {"method": "mute"}, "tmax", 2.0),
-        ("passive_p1", "passive", "muting", {"method": "mute"}, "tmax", 130.0),
+        # The muting's width: one sample, 0.5 ms at 2,000 Hz and 2 ms at 500 Hz.
+        ("active_p1", "active", "muting", {"method": "mute", "vmax": 1500.0}, "width", 0.0005),
+        ("passive_p1", "passive", "muting", {"method": "mute", "tmax": 60.0}, "width", 0.002),
         # 0.95 x Nyquist, just below sigpipe's limit.
         ("active_p1", "active", "filtering", {"method": "iir"}, "fmax", 950.0),
         ("passive_p1", "passive", "filtering", {"method": "iir"}, "fmax", 237.5),
@@ -459,7 +460,7 @@ def test_values_derived_from_the_profile(
 
 def test_explicit_values_are_kept(profiles: dict[str, Profile]) -> None:
     passive = make_preset("passive", {"filtering": {"method": "iir", "fmin": 5, "fmax": 100}})
-    active = make_preset("active", {"muting": {"method": "mute", "tmax": 1.0}})
+    active = make_preset("active", {"muting": {"method": "mute", "tmax": 1.0, "width": 0.01}})
 
     resolved_passive = resolve_preset(passive, profiles["passive_p1"]).model_dump()
     resolved_active = resolve_preset(active, profiles["active_p1"]).model_dump()
@@ -472,7 +473,7 @@ def test_resolving_twice_changes_nothing(profiles: dict[str, Profile]) -> None:
     preset = make_preset(
         "passive",
         {
-            "muting": {"method": "mute"},
+            "muting": {"method": "mute", "tmax": 60.0},
             "filtering": {"method": "iir"},
             "whitening": {"method": "onebit_apod"},
         },
@@ -539,7 +540,7 @@ def test_filter_fmax_at_or_above_nyquist_is_rejected(
             "active",
             "muting",
             {"method": "mute", "tmin": 3},
-            r"muting\.tmin \(3 s\) must be below muting\.tmax, which defaults to 2 s",
+            r"muting\.tmin \(3 s\) is past the end of profile 'active_p1''s records \(2\.00 s\)",
         ),
     ],
 )
@@ -710,8 +711,10 @@ def test_whitening_band_rule_agrees_with_sigpipe(
 # The schema travels with every request to a model with an 8-16k context, so growing it has to
 # be a deliberate choice: raise the budget here if it is worth it.
 SCHEMA_BUDGET = {
-    "active": 3_900,  # image_stacking (+500): the root stack the user can ask for
-    "passive": 6_600,
+    # image_stacking (+500): the root stack the user can ask for; the muting's width and its
+    # bounds left out, "null: none" (+150, 2026-09-28): no stand-in values.
+    "active": 4_050,
+    "passive": 6_800,
     "passive-active": 5_100,
 }
 

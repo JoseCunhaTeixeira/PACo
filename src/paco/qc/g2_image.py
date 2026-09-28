@@ -60,6 +60,12 @@ class ImageThresholds(BaseModel):
     )
     vg_min: float = Field(default=80.0, gt=0, description="m/s, for the mute a retry suggests")
     vg_max: float = Field(default=1500.0, gt=0, description="m/s, for the mute a retry suggests")
+    mute_width_s: float = Field(
+        default=0.05,
+        ge=0,
+        description="s, kept after the slowest arrival by the mute a retry suggests: the shot's "
+        "pulse",
+    )
 
 
 def judge_image(
@@ -67,8 +73,13 @@ def judge_image(
     image: DispersionImage,
     thresholds: ImageThresholds,
     usable_band: tuple[float, float] | None = None,
+    mode: str = "active",
+    muted: bool = False,
 ) -> GateResult:
-    """G2's verdict on one window's image, with G1's usable band of its records when known."""
+    """G2's verdict on one window's image, with G1's usable band of its records when known. A
+    passive-active image (`mode`) peaking at the grid's top velocity, its records not `muted`,
+    tries the surface-wave mute before a wider grid: correlated whole, a record's noise common
+    to every trace peaks there."""
     fs = np.asarray(image.fs, dtype=float)
     vs = np.asarray(image.vs, dtype=float)
     coherent = coherent_columns(image, thresholds.coherent_level)
@@ -87,7 +98,12 @@ def judge_image(
     mute = Override(
         stage="preprocessing",
         overrides={
-            "muting": {"method": "mute", "vmin": thresholds.vg_min, "vmax": thresholds.vg_max}
+            "muting": {
+                "method": "mute",
+                "vmin": thresholds.vg_min,
+                "vmax": thresholds.vg_max,
+                "width": thresholds.mute_width_s,
+            }
         },
     )
     if n_coherent == 0:
@@ -139,6 +155,7 @@ def judge_image(
             )
         )
         if edge_share > thresholds.max_edge_columns:
+            common_noise = name == "ridge_at_vmax" and mode == "passive-active" and not muted
             flags.append(
                 Flag(
                     name=name,
@@ -147,10 +164,15 @@ def judge_image(
                     + (
                         "an artifact below any surface wave; start the range above it."
                         if name == "ridge_at_vmin" and vs.min() < thresholds.vmin_floor
+                        else "correlated whole, a record's noise common to every trace peaks "
+                        "there: try a surface-wave mute first."
+                        if common_noise
                         else "the velocity range is too narrow."
                     ),
-                    stage="phase_shift",
-                    action=Override(stage="phase_shift", overrides={"dispersion": override}),
+                    stage="preprocessing" if common_noise else "phase_shift",
+                    action=mute
+                    if common_noise
+                    else Override(stage="phase_shift", overrides={"dispersion": override}),
                 )
             )
 
