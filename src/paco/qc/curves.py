@@ -3,12 +3,14 @@ image passed G2, the picking done again for the windows G3 asks it of, then G4 o
 and the outliers picked again along their neighbours' curve, each gate within its budgets.
 What pick runs; its verdict (G4's, on the line) is what invert reads."""
 
+import logging
 from collections.abc import Mapping, Sequence
 from pathlib import Path
 from typing import Any
 
 from sigpipe.algorithms.picking.dispersion.tracking import PickingParameters
-from sigpipe.masw.runs import RunError, RunManifest, find_run, load_manifest
+from sigpipe.masw.picks import save_picks_figures
+from sigpipe.masw.runs import RunError, RunManifest, find_run, load_manifest, window_folders
 
 from paco.qc.budgets import budget_spent
 from paco.qc.config import QCConfig, read_qc_config
@@ -19,6 +21,8 @@ from paco.qc.loops import RetryBudget, deep_merge, next_try, spent, stage_change
 from paco.qc.models import GateResult
 from paco.qc.report import QCReport, build_report, write_report
 from paco.settings import Settings
+
+logger = logging.getLogger(__name__)
 
 
 def pick_line(
@@ -54,6 +58,11 @@ def pick_line(
         jobs[unit] = (parameters, g2.kept.band_hz)
     pick_windows(run_folder, jobs, config, triggered_by, settings.workers)
     settle_curves(run_folder, manifest, config, settings.workers)
+    # The picks along the line as PAC shows them, before any inversion: best effort.
+    try:
+        save_picks_figures(run_folder, window_folders(run_folder))
+    except Exception:
+        logger.exception("Could not draw the picks' figures of %s", run_folder)
     report = build_report(run_id, run_folder, config.budgets, len(manifest.windows))
     write_report(report, run_folder)
     return report
