@@ -102,14 +102,6 @@ class ModelThresholds(BaseModel):
         "U(z) = (P90 - P10) / (2 P50), gets above this, from the surface down (sigpipe's "
         "useful_depth).",
     )
-    max_one_structure: float = Field(
-        default=0.5,
-        gt=0,
-        le=1,
-        description="The share of the model below 1 m that the models' Vs at 1 m stays "
-        "correlated with while precise (U under 10 %), at most: over it, one structure the data "
-        "pin, not its depths apart (a warning, kept).",
-    )
     min_useful_share: float = Field(
         default=0.8,
         gt=0,
@@ -235,17 +227,6 @@ def judge_model(
             passed=True,
         ),
         *_acceptance(acceptance, thresholds.acceptance_band if free else None),
-        Metric(
-            name="one_structure",
-            value=None
-            if measures.one_structure is None
-            else round(100 * measures.one_structure, 1),
-            threshold=round(100 * thresholds.max_one_structure, 1),
-            bound="max",
-            passed=measures.one_structure is None
-            or measures.one_structure <= thresholds.max_one_structure,
-            unit="%",
-        ),
         Metric(
             name="samples_per_chain",
             value=measures.samples_per_chain,
@@ -456,19 +437,6 @@ def judge_model(
         )
 
     loop.flags += _plausibility(measures.vs_layers, thresholds)
-    one = measures.one_structure
-    if one is not None and one > thresholds.max_one_structure:
-        loop.flags.append(
-            Flag(
-                name="one_structure",
-                message=f"Precise but one structure: the models' Vs at 1 m stays within about "
-                f"±10 % and correlated down through {one:.0%} of the model below it; the data "
-                "pin one structure there, not its depths apart, so the model's detail within it "
-                "is not resolved.",
-                stage="inversion",
-                action=Keep(note="a warning: a uniform Vs the data allow, not a failure"),
-            )
-        )
     if free and acceptance is not None and not low_acceptance <= acceptance <= high_acceptance:
         loop.flags.append(
             Flag(

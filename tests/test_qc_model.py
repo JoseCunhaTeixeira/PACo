@@ -83,7 +83,6 @@ def test_a_model_that_fits_with_agreeing_chains_passes() -> None:
         "ess": 1_900.0,  # the least of the parameters', against 200
         "autocorrelation": 0.2,  # reported
         "acceptance": 25.0,  # reported: the chains' median, %
-        "one_structure": None,  # measures from before it (a precise Vs one structure, %)
         "samples_per_chain": 600,
         "at_bound": 0.03,
         "useful_depth": 5.0,
@@ -113,21 +112,6 @@ def test_an_acceptance_outside_its_band_is_a_warning() -> None:
     assert [(row.threshold, row.passed) for row in fixed.metrics if row.name == "acceptance"] == [
         (None, True)
     ]
-
-
-def test_a_precise_vs_that_is_one_structure_is_a_warning() -> None:
-    # The Vs at 1 m, within about ±10 %, correlated down through 90 % of the model below it: a
-    # uniform Vs the data pin, not its depths apart (the user, 2026-09-29: flagged, kept).
-    result = _judge(_measures(one_structure=0.9))
-
-    assert result.verdict == "pass"
-    (flag,) = [flag for flag in result.flags if flag.name == "one_structure"]
-    assert flag.action.kind == "keep" and "90%" in flag.message
-    (row,) = [metric for metric in result.metrics if metric.name == "one_structure"]
-    assert (row.value, row.threshold, row.passed) == (90.0, 50.0, False)
-    # A model its interfaces part: no warning.
-    parted = _judge(_measures(one_structure=0.1))
-    assert not any(flag.name == "one_structure" for flag in parted.flags)
 
 
 @pytest.mark.parametrize(
