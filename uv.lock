@@ -1980,7 +1980,7 @@ wheels = [
 [[package]]
 name = "sigpipe"
 version = "1.0.0"
-source = { git = "https://github.com/JoseCunhaTeixeira/sigpipe#41530b1b1f35a8a37e3e3ba7fbf3c100c9084163" }
+source = { git = "https://github.com/JoseCunhaTeixeira/sigpipe#3ca485b2c9e3eb2d88b6840097272200bb8382f0" }
 dependencies = [
     { name = "disba" },
     { name = "h5py" },
