@@ -7,7 +7,9 @@ covering the curve, or the pick."""
 from collections.abc import Sequence
 from typing import TYPE_CHECKING
 
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import ConfigDict
+from sigpipe.masw.quality.model import BAND_NAMES
+from sigpipe.masw.quality.soil import SoilLimits, measure_soil
 
 from paco.qc.models import Flag, GateResult, Kept, Metric, Reject
 
@@ -16,21 +18,12 @@ if TYPE_CHECKING:
     from sigpipe.masw.petro.measuring import PetroMeasures
 
 GATE = "G7"
-BAND_NAMES = {3: ("short", "middle", "long")}
 
 
-class PetroThresholds(BaseModel):
-    """G7's limits: G5's, provisional (rule 9)."""
+class PetroThresholds(SoilLimits):
+    """G7's limits (sigpipe's SoilLimits, PAC's alike): G5's, provisional (rule 9)."""
 
     model_config = ConfigDict(frozen=True, extra="forbid")
-
-    max_misfit: float = Field(
-        default=2.0,
-        gt=0,
-        description="RMS of the residuals over the curve's uncertainties, in any band, at most: "
-        "about 1 is a fit within the errors.",
-    )
-    n_bands: int = Field(default=3, ge=1, description="Bands of wavelength the fit is judged in.")
 
 
 def judge_petro(
@@ -43,27 +36,10 @@ def judge_petro(
     models covering the window's curve."""
     fit = measures.fit
     names = BAND_NAMES.get(len(fit.bands), tuple(f"band{i + 1}" for i in range(len(fit.bands))))
+    # The soil column's measures, sigpipe's (PAC's alike), each saying what it covers.
     metrics = [
-        Metric(
-            name=f"misfit_{name}",
-            value=band.misfit,
-            threshold=thresholds.max_misfit,
-            bound="max",
-            # A band with no point to weigh says nothing: judged by the others.
-            passed=band.misfit is None or band.misfit <= thresholds.max_misfit,
-        )
-        for name, band in zip(names, fit.bands, strict=True)
+        Metric(**one.model_dump()) for one in measure_soil(fit, measures.water_table_m, thresholds)
     ]
-    metrics += [
-        Metric(
-            name=f"residual_{name}",
-            value=None if band.residual is None else round(100 * band.residual, 1),
-            passed=True,
-            unit="%",
-        )
-        for name, band in zip(names, fit.bands, strict=True)
-    ]
-    metrics.append(Metric(name="water_table", value=measures.water_table_m, passed=True, unit="m"))
 
     instead = (
         f"invert_petro with {', '.join(other_models)}, which cover{'s' if len(other_models) == 1 else ''} this curve"

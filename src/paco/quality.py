@@ -5,51 +5,17 @@ that raises a named flag. The verdict counts the flags."""
 
 from typing import Literal
 
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import BaseModel, ConfigDict
 from sigpipe.algorithms.picking.dispersion.tracking import PickedMode
 from sigpipe.base import DispersionImage
-from sigpipe.masw.quality.pick import measure_pick
+from sigpipe.masw.quality.curve import PickLimits
+from sigpipe.masw.quality.pick import PickMeasures, measure_pick
 
 
-class QualityParameters(BaseModel):
-    """Limits past which a measurement raises a flag.
-
-    Tuned on the demo windows only, so recalibrate them on a reference set of windows judged by
-    hand before trusting them. Sharpness and prominence are measured against a perfect plane
-    wave for the same window, frequency and velocity: the demo's windows score 1.00 on both at
-    every length from 5 to 24 receivers, where fixed limits would measure the array, not the
-    data (a 5-receiver window cannot be as prominent as a 24-receiver one).
-    """
+class QualityParameters(PickLimits):
+    """Limits past which a measurement raises a flag (sigpipe's PickLimits, PAC's alike)."""
 
     model_config = ConfigDict(frozen=True, extra="forbid")
-
-    min_sharpness: float = Field(
-        default=0.8,
-        gt=0,
-        description="Flag when the median peak width is below this multiple of a perfect plane "
-        "wave's width for the same window (a plane wave scores 1).",
-    )
-    min_prominence: float = Field(
-        default=0.5,
-        gt=0,
-        description="Flag when the median peak prominence (height above the noise floor over "
-        "its column's median height) is below this multiple of a perfect plane wave's for the "
-        "same window (a plane wave scores 1).",
-    )
-    min_on_data: float = Field(
-        default=0.6,
-        ge=0,
-        le=1,
-        description="Flag when a smaller share of the points sit on their column's brightest "
-        "value (within 10 %).",
-    )
-    max_constant_wavelength: float = Field(
-        default=0.4,
-        ge=0,
-        le=1,
-        description="Flag when a larger share of the points have a velocity growing like "
-        "frequency: the edge of what the window resolves, not a dispersion curve.",
-    )
 
 
 type Flag = Literal["no_ridge", "sharpness", "prominence", "on_data", "constant_wavelength"]
@@ -88,8 +54,12 @@ def measure_quality(
     image: DispersionImage, m0: PickedMode | None, parameters: QualityParameters | None = None
 ) -> ImageQuality:
     """The quality of `image`, from the measures of its M0 pick against `parameters`."""
-    parameters = parameters or QualityParameters()
-    measures = measure_pick(image, m0)
+    return quality_of(measure_pick(image, m0), parameters or QualityParameters())
+
+
+def quality_of(measures: PickMeasures, parameters: PickLimits) -> ImageQuality:
+    """The quality of an M0 pick from its `measures` (sigpipe's measure_pick) against
+    `parameters`."""
     if (
         measures.sharpness is None
         or measures.prominence is None

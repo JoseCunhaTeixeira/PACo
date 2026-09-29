@@ -318,7 +318,7 @@ def settle_records(
     results: dict[str, GateResult] = {}
     n_units = max(1, len(records))
     active = profile.kind == "active"
-    # The traces' spectra against their neighbours': on passive and passive-active lines.
+    # The traces' spectra against their neighbours': on every line (SPECTRA_MODES).
     spectra = preset.mode in SPECTRA_MODES
     triggers = file_triggers(profile)
     # Each record's spectra as drawn: its attempt, and the band G1 found.
@@ -480,8 +480,8 @@ def settle_receivers(
     """G1 over the line, once each record is settled: each receiver judged over every record
     that reaches it, those off the amplitude decay in most of them left out of every window.
     A trace off it in a few records stays (the one nearest each shot, where the fitted decay
-    overshoots; a burst of noise): a record's own is no bad geophone. With `spectra` (a
-    passive-active line), the receivers off their neighbours' spectra flagged too. Logged as G1's
+    overshoots; a burst of noise): a record's own is no bad geophone. With `spectra` (every line
+    since 2026-09-29), the receivers off their neighbours' spectra flagged too. Logged as G1's
     result on the line."""
     started_at = datetime.now(UTC)
     off: dict[int, int] = {}
@@ -526,8 +526,8 @@ def _spectra_result(
     exclusions: Exclusions,
     config: QCConfig,
 ) -> GateResult:
-    """G1 over a passive or passive-active line: the receivers off their neighbours' spectra in
-    most of the records judging them, flagged (judge_spectra)."""
+    """G1 over a line: the receivers off their neighbours' spectra in most of the records judging
+    them, flagged (judge_spectra)."""
     shots = profile.kind == "active"
     off: dict[int, int] = {}
     reached: dict[int, int] = {}

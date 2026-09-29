@@ -7,67 +7,35 @@ use."""
 import math
 
 import numpy as np
-from pydantic import BaseModel, ConfigDict, Field
-from scipy.stats import rankdata
-from sigpipe.algorithms.picking.dispersion.curve import (
-    longest_reached_wavelength,
-    min_resolvable_wavelength,
-)
+from pydantic import ConfigDict, Field
 from sigpipe.algorithms.picking.dispersion.tracking import PickedMode, PickingParameters
 from sigpipe.base import DispersionImage
+from sigpipe.masw.quality.curve import CurveLimits, measure_curve
 from sigpipe.masw.quality.pick import constant_wavelength_start
 
 from paco.qc.models import Flag, GateResult, Keep, Kept, Metric, Override, Reject
-from paco.quality import ImageQuality, QualityParameters, measure_quality
+from paco.quality import ImageQuality, QualityParameters, quality_of
 
 GATE = "G3"
 
 
-class CurveThresholds(BaseModel):
-    """G3's limits: provisional, measured on the demo profiles (rule 9)."""
+class CurveThresholds(CurveLimits):
+    """G3's limits (sigpipe's CurveLimits: how a curve is measured, PAC's alike), and what its
+    fixes use: provisional, measured on the demo profiles (rule 9)."""
 
     model_config = ConfigDict(frozen=True, extra="forbid")
 
-    metrics: QualityParameters = Field(
+    # PACo's own, refusing a limit it does not know (a typo) as the rest of its configuration;
+    # the models frozen, the narrower type is safe.
+    metrics: QualityParameters = Field(  # pyright: ignore[reportIncompatibleVariableOverride]
         default_factory=QualityParameters,
         description="Sharpness, prominence, on_data and constant wavelength.",
     )
-    max_jump: float = Field(
-        default=0.3,
-        gt=0,
-        description="Relative velocity step between consecutive points of the resampled "
-        "curve, at most: beyond it the pick jumped onto another mode.",
-    )
-    air_wave_band: tuple[float, float] = Field(
-        default=(330.0, 345.0), description="m/s, where the air wave sits"
-    )
-    max_air_share: float = Field(
-        default=0.5, gt=0, le=1, description="Share of the points in the air wave's band, at most."
-    )
     mute_vmin: float = Field(default=80.0, gt=0, description="m/s, the slowest wave the mute keeps")
-    min_points: int = Field(
-        default=4,
-        ge=2,
-        description="Points of the resampled curve, at least: fewer, the pick is resampled finer "
-        "or keeps more of the ridge.",
-    )
     finest_step: float = Field(
         default=0.1,
         gt=0,
         description="m: the finest wavelength step a pick is resampled at to keep min_points.",
-    )
-    min_wavelength_ratio: float = Field(
-        default=1.34,
-        gt=1,
-        description="The curve's longest wavelength over its shortest, at least: the inversion "
-        "needs over 4/3 for its 3 layers, each at least a third of the shortest wavelength, "
-        "down to half the longest. More points on a narrow span do not help.",
-    )
-    near_offset_wavelengths: float = Field(
-        default=0.5,
-        gt=0,
-        description="The nearest shot's offset, as a share of the longest wavelength kept, at "
-        "least: closer, the long wavelengths may read slow (near field). Reported, not applied.",
     )
 
 
@@ -87,8 +55,10 @@ def judge_curve(
     line: no muting, the user, 2026-09-28; records muted already, 2026-09-29), a flag only a
     mute would fix rejects."""
     picking = picking or PickingParameters()
-    quality = measure_quality(image, m0, thresholds.metrics)
-    metrics = _metrics(quality, thresholds)
+    # The curve's measures, sigpipe's (PAC's alike), each saying what it covers.
+    report = measure_curve(image, m0, thresholds, nearest_offset)
+    quality = quality_of(report.pick, thresholds.metrics)
+    metrics = [Metric(**one.model_dump()) for one in report.measures]
     band = band or quality.band_hz
     receivers = image.acquisition.receivers
     length = abs(receivers[-1].x - receivers[0].x)
@@ -99,96 +69,48 @@ def judge_curve(
         kept = Kept(band_hz=quality.band_hz, n_points=quality.n_points, n_traces=n_traces)
         return _result(unit, metrics, flags, kept)
 
-    curve = m0.curve
-    fs, vs = np.asarray(curve.fs, dtype=float), np.asarray(curve.vs, dtype=float)
-    wavelengths = vs / fs
-    order = np.argsort(wavelengths)
-    fs, vs, wavelengths = fs[order], vs[order], wavelengths[order]
-
     # The picker follows its ridge as far as it holds, at either end (the user, 2026-09-28): its
     # points under twice the spacing (the aliasing zone, where the ridge may be its alias) and
     # over three window lengths (beyond the window's reach, where it resolves no velocity) are
     # flagged and kept, for the agent or G4 to judge. The lines PAC draws on the image.
-    # A point on a limit is within it: resampled every metre, a curve can hold one at exactly
-    # twice a 1.5 m spacing, which its float32 values put a hair under.
-    shortest = min_resolvable_wavelength(image.acquisition)
-    aliased = float(np.mean(_past(wavelengths, shortest, below=True))) if shortest else 0.0
-    metrics.append(
-        Metric(
-            name="aliased_points",
-            value=round(aliased, 3),
-            threshold=0,
-            bound="max",
-            passed=aliased == 0,
-        )
-    )
-    if shortest and aliased > 0:
+    if report.shortest and report.aliased > 0:
         flags.append(
             Flag(
                 name="aliasing_zone",
-                message=f"{aliased:.0%} of the points lie under twice the receiver spacing "
-                f"({shortest:g} m): the aliasing zone, where the ridge may be its alias.",
+                message=f"{report.aliased:.0%} of the points lie under twice the receiver "
+                f"spacing ({report.shortest:g} m): the aliasing zone, where the ridge may be its "
+                "alias.",
                 stage="picking",
                 action=Keep(note="points in the aliasing zone"),
                 fixable=False,
             )
         )
-    longest = longest_reached_wavelength(image.acquisition)
-    beyond = float(np.mean(_past(wavelengths, longest, below=False))) if longest else 0.0
-    metrics.append(
-        Metric(
-            name="beyond_reach_points",
-            value=round(beyond, 3),
-            threshold=0,
-            bound="max",
-            passed=beyond == 0,
-        )
-    )
-    if longest and beyond > 0:
+    if report.longest and report.beyond > 0:
         flags.append(
             Flag(
                 name="beyond_reach",
-                message=f"{beyond:.0%} of the points lie over three window lengths "
-                f"({longest:.3g} m): beyond the window's reach, where the pick may be the "
-                "tracker's.",
+                message=f"{report.beyond:.0%} of the points lie over three window lengths "
+                f"({report.longest:.3g} m): beyond the window's reach, where the pick may be "
+                "the tracker's.",
                 stage="picking",
                 action=Keep(note="points beyond the window's reach"),
                 fixable=False,
             )
         )
 
-    kept_vs, kept_fs, kept_wl = vs, fs, wavelengths
-    n_points = int(vs.size)
-    metrics.append(
-        Metric(
-            name="curve_points",
-            value=n_points,
-            threshold=thresholds.min_points,
-            bound="min",
-            passed=n_points >= thresholds.min_points,
-        )
-    )
+    kept_fs, kept_vs, kept_wl = report.fs, report.vs, report.wavelengths
+    n_points = int(kept_vs.size)
     if n_points < thresholds.min_points:
         flags.append(_too_few_points(m0, n_points, thresholds, picking))
-
-    # The wavelengths the curve spans, as a ratio: however many its points, a narrow span
-    # resolves no layered model. Keeping more of the ridge may widen it.
-    ratio = float(kept_wl.max() / kept_wl.min()) if n_points else 0.0
-    metrics.append(
-        Metric(
-            name="wavelength_ratio",
-            value=round(ratio, 2),
-            threshold=thresholds.min_wavelength_ratio,
-            bound="min",
-            passed=ratio >= thresholds.min_wavelength_ratio,
-        )
-    )
-    if n_points and ratio < thresholds.min_wavelength_ratio:
+    # However many its points, a narrow span resolves no layered model. Keeping more of the ridge
+    # may widen it.
+    if n_points and report.ratio < thresholds.min_wavelength_ratio:
         flags.append(
             Flag(
                 name="narrow_span",
                 message=f"The curve spans {kept_wl.min():.1f}-{kept_wl.max():.1f} m of wavelength "
-                f"(ratio {ratio:.2f}): too narrow for a layered model. Keep more of the ridge.",
+                f"(ratio {report.ratio:.2f}): too narrow for a layered model. Keep more of the "
+                "ridge.",
                 stage="picking",
                 action=Override(
                     stage="picking",
@@ -198,118 +120,51 @@ def judge_curve(
                 ),
             )
         )
-
-    # A step between consecutive points of the resampled curve: the pick jumped onto another mode.
-    jump = float(np.max(np.abs(np.diff(kept_vs)) / kept_vs[:-1])) if n_points > 1 else 0.0
-    metrics.append(
-        Metric(
-            name="max_jump",
-            value=round(jump, 3),
-            threshold=thresholds.max_jump,
-            bound="max",
-            passed=jump <= thresholds.max_jump,
-        )
-    )
-    if jump > thresholds.max_jump:
-        flags.append(_mode_jump(jump, kept_fs, kept_vs, picking))
-
-    low, high = thresholds.air_wave_band
-    air = float(np.mean((kept_vs >= low) & (kept_vs <= high))) if n_points else 0.0
-    metrics.append(
-        Metric(
-            name="air_wave_share",
-            value=round(air, 3),
-            threshold=thresholds.max_air_share,
-            bound="max",
-            passed=air <= thresholds.max_air_share,
-        )
-    )
-    if air > thresholds.max_air_share:
+    if report.jump > thresholds.max_jump:
+        flags.append(_mode_jump(report.jump, kept_fs, kept_vs, picking))
+    if report.air > thresholds.max_air_share:
         # No mute parts them: one just under the air wave's speed cuts a fraction of a
         # millisecond of it a metre, and every surface wave faster than it.
+        low, high = thresholds.air_wave_band
         flags.append(
             Flag(
                 name="air_wave",
-                message=f"{air:.0%} of the points sit at {low:g}-{high:g} m/s: the air wave, not "
-                "the ground; no mute parts them.",
+                message=f"{report.air:.0%} of the points sit at {low:g}-{high:g} m/s: the air "
+                "wave, not the ground; no mute parts them.",
                 stage="picking",
                 action=Reject(reason="the air wave, not the ground"),
                 fixable=False,
             )
         )
-
     # Normal dispersion: velocity rising with wavelength. The opposite is flagged, not rejected.
-    trend = _spearman(kept_wl, kept_vs) if n_points >= 3 else float("nan")
-    inverse = np.isfinite(trend) and trend < 0
-    metrics.append(
-        Metric(
-            name="trend",
-            value=None if not np.isfinite(trend) else round(trend, 3),
-            threshold=0,
-            bound="min",
-            passed=not inverse,
-        )
-    )
-    if inverse:
+    if np.isfinite(report.trend) and report.trend < 0:
         flags.append(
             Flag(
                 name="inverse_dispersion",
-                message=f"Velocity falls with wavelength (rank correlation {trend:+.2f}): a stiff "
-                "layer over a softer one, if the pick is right.",
+                message=f"Velocity falls with wavelength (rank correlation {report.trend:+.2f}): "
+                "a stiff layer over a softer one, if the pick is right.",
                 stage="picking",
                 action=Keep(note="an inverse trend can be geology"),
             )
         )
-
-    # Over the points with an uncertainty: one without must not make the median unknown.
-    relative = (
-        np.asarray(curve.vs_err, dtype=float)[order] / kept_vs
-        if curve.vs_err is not None and n_points
-        else np.array([])
-    )
-    known = relative[np.isfinite(relative)]
-    uncertainty = float(np.median(known)) if known.size else None
-    # Reported (the user, 2026-09-29): the picker caps each point's at 0.4 of its velocity, so no
-    # limit over it could fail, and one under it would leave out a line's shortest windows; G5's
-    # depth informed judges what a loose curve does to the model.
-    metrics.append(
-        Metric(
-            name="uncertainty",
-            value=None if uncertainty is None else round(uncertainty, 3),
-            passed=True,
-        )
-    )
-
     # The near field: the line leaves out a window's shots nearer than half the trial curves'
     # longest wavelength where it has farther ones (coherence.near_field_windows). Its own curve
     # may reach longer wavelengths, and a window with near shots only keeps them: reported.
-    if nearest_offset is not None and n_points:
-        limit = thresholds.near_offset_wavelengths * float(kept_wl.max())
-        near = nearest_offset < limit
-        metrics.append(
-            Metric(
-                name="near_offset",
-                value=round(nearest_offset, 2),
-                threshold=round(limit, 2),
-                bound="min",
-                passed=not near,
-                unit="m",
+    limit = report.near_limit
+    if nearest_offset is not None and limit is not None and nearest_offset < limit:
+        flags.append(
+            Flag(
+                name="near_field",
+                message=f"The nearest shot is {nearest_offset:.2f} m from the window, under "
+                f"half the longest wavelength kept ({limit:.2f} m): the long wavelengths may "
+                "read slow (near field).",
+                stage="phase_shift",
+                action=Keep(
+                    note="reported: the window has no farther shot, or its curve reaches "
+                    "longer wavelengths than the line's trial curves"
+                ),
             )
         )
-        if near:
-            flags.append(
-                Flag(
-                    name="near_field",
-                    message=f"The nearest shot is {nearest_offset:.2f} m from the window, under "
-                    f"half the longest wavelength kept ({limit:.2f} m): the long wavelengths may "
-                    "read slow (near field).",
-                    stage="phase_shift",
-                    action=Keep(
-                        note="reported: the window has no farther shot, or its curve reaches "
-                        "longer wavelengths than the line's trial curves"
-                    ),
-                )
-            )
 
     kept = Kept(
         band_hz=(float(kept_fs.min()), float(kept_fs.max())) if n_points else quality.band_hz,
@@ -347,13 +202,6 @@ def _mode_jump(
     )
 
 
-def _spearman(x: np.ndarray, y: np.ndarray) -> float:
-    """Spearman's rank correlation; NaN when either input is constant."""
-    if np.ptp(x) == 0 or np.ptp(y) == 0:
-        return float("nan")
-    return float(np.corrcoef(rankdata(x), rankdata(y))[0, 1])
-
-
 def _result(unit: str, metrics: list[Metric], flags: list[Flag], kept: Kept) -> GateResult:
     acted = [flag for flag in flags if not isinstance(flag.action, Keep)]
     if not acted:
@@ -365,47 +213,6 @@ def _result(unit: str, metrics: list[Metric], flags: list[Flag], kept: Kept) -> 
     return GateResult(
         gate=GATE, unit=unit, verdict=verdict, metrics=tuple(metrics), flags=tuple(flags), kept=kept
     )
-
-
-def _metrics(quality: ImageQuality, thresholds: CurveThresholds) -> list[Metric]:
-    limits = thresholds.metrics
-    return [
-        Metric(
-            name="sharpness",
-            value=quality.sharpness,
-            threshold=limits.min_sharpness,
-            bound="min",
-            passed="sharpness" not in quality.flags,
-        ),
-        Metric(
-            name="prominence",
-            value=quality.prominence,
-            threshold=limits.min_prominence,
-            bound="min",
-            passed="prominence" not in quality.flags,
-        ),
-        Metric(
-            name="on_data",
-            value=quality.on_data,
-            threshold=limits.min_on_data,
-            bound="min",
-            passed="on_data" not in quality.flags,
-        ),
-        Metric(
-            name="constant_wavelength",
-            value=quality.constant_wavelength,
-            threshold=limits.max_constant_wavelength,
-            bound="max",
-            passed="constant_wavelength" not in quality.flags,
-        ),
-        Metric(
-            name="n_points",
-            value=quality.n_points,
-            threshold=2,
-            bound="min",
-            passed=quality.n_points >= 2,
-        ),
-    ]
 
 
 def _too_few_points(
@@ -438,13 +245,6 @@ def _too_few_points(
             overrides={"min_relative_coherence": round(picking.min_relative_coherence * 0.6, 2)},
         ),
     )
-
-
-def _past(wavelengths: np.ndarray, limit: float, below: bool) -> np.ndarray:
-    """Which `wavelengths` lie past `limit`, under it or over it, those on it (within float32's
-    precision) not."""
-    past = wavelengths < limit if below else wavelengths > limit
-    return past & ~np.isclose(wavelengths, limit)
 
 
 def _constant_wavelength_cut(m0: PickedMode | None, length: float) -> float | None:

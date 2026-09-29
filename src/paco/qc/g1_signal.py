@@ -36,9 +36,10 @@ from paco.qc.models import (
 
 GATE = "G1"
 LINE = "line"  # the unit of the line-level result, as G4's
-# The modes whose records' traces are compared with their neighbours' spectra (the user,
-# 2026-09-28): a noise record's, and a shot's correlated whole.
-SPECTRA_MODES = frozenset({"passive", "passive-active"})
+# The modes whose records' traces are compared with their neighbours' spectra: a noise record's
+# and a shot's correlated whole (the user, 2026-09-28), an active shot's too since 2026-09-29
+# (the user: the same measures for every line).
+SPECTRA_MODES = frozenset({"active", "passive", "passive-active"})
 
 
 class SignalThresholds(SignalLimits):
@@ -262,7 +263,14 @@ def judge_spectra(
         if count and off.get(receiver, 0) >= math.ceil(thresholds.spectra_line_share * count)
     ]
     metric = Metric(
-        name="spectral_receivers", value=len(bad), threshold=0, bound="max", passed=not bad
+        name="spectral_receivers",
+        value=len(bad),
+        threshold=0,
+        bound="max",
+        passed=not bad,
+        of="line",
+        over=f"the line's {len(reached)} receivers: off their neighbours' spectra in "
+        f"{thresholds.spectra_line_share:.0%} of the records reaching them",
     )
     if not bad:
         return metric, None
@@ -306,6 +314,10 @@ def judge_receivers(
             threshold=0,
             bound="max",
             passed=not bad,
+            of="line",
+            over=f"the line's {len(reached)} receivers: off the amplitude decay in "
+            f"{thresholds.rms_outlier_share:.0%} of the records reaching them, "
+            f"{thresholds.rms_outlier_min_records} at least",
         )
     ]
     flags: list[Flag] = []

@@ -80,6 +80,10 @@ def judge_profile(
                 threshold=thresholds.max_misfit,
                 bound="max",
                 passed=near.standing != "outlier",
+                of="neighbours",
+                over=f"{per_side} curves a side at most, within {thresholds.max_gap_steps:g} "
+                "line steps: on the wavelengths they share, the median relative difference to a "
+                "side's median, the worst side",
             ),
             Metric(
                 name="sides_compared",
@@ -87,6 +91,8 @@ def judge_profile(
                 threshold=1,
                 bound="min",
                 passed=bool(near.compared),
+                of="neighbours",
+                over=f"its {len(near.sides)} sides: those whose curves agree with each other",
             ),
         ]
         flags: list[Flag] = []
@@ -169,16 +175,38 @@ def _line_result(
     depth_spread = spread(longest)
     inverse = [curve.xmid for curve in curves if _falls(curve)]
     metrics = [
-        Metric(name="curves", value=len(curves), threshold=1, bound="min", passed=len(curves) >= 1),
-        Metric(name="without_curve", value=len(without), passed=True),
+        Metric(
+            name="curves",
+            value=len(curves),
+            threshold=1,
+            bound="min",
+            passed=len(curves) >= 1,
+            of="line",
+            over=f"the line's {len(curves) + len(without)} windows: a curve G3 passed",
+        ),
+        Metric(
+            name="without_curve",
+            value=len(without),
+            passed=True,
+            of="line",
+            over=f"the line's {len(curves) + len(without)} windows",
+        ),
         Metric(
             name="depth_spread",
             value=round(depth_spread, 3),
             threshold=thresholds.max_depth_spread,
             bound="max",
             passed=depth_spread <= thresholds.max_depth_spread,
+            of="line",
+            over=f"the {len(curves)} curves' longest wavelengths: MAD over median",
         ),
-        Metric(name="inverse_curves", value=len(inverse), passed=True),
+        Metric(
+            name="inverse_curves",
+            value=len(inverse),
+            passed=True,
+            of="line",
+            over=f"the {len(curves)} curves: velocity falling with wavelength",
+        ),
     ]
     step = line_step([*(one.xmid for one in curves), *without])
     flags: list[Flag] = []

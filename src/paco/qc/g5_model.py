@@ -10,20 +10,25 @@ flags ask them."""
 
 import itertools
 import math
-import statistics
 from collections.abc import Iterable, Mapping
 from typing import Any
 
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import ConfigDict, Field
 from sigpipe.algorithms.inversion.rayleigh.seismic.parameters import SAVE_EVERY
 from sigpipe.masw.inversion import InversionParameters
 from sigpipe.masw.inversion.measuring import InversionMeasures, ModelFit
 from sigpipe.masw.inversion.priors import MIN_LAYERS, THICKNESS_STEP_SHARE, VS_STEP_SHARE
+from sigpipe.masw.quality.model import (
+    BAND_NAMES,
+    ModelLimits,
+    fits_within,
+    measure_model,
+    model_depth,
+)
 
 from paco.qc.models import Flag, GateResult, Keep, Kept, Metric, Override, Reject
 
 GATE = "G5"
-BAND_NAMES = {3: ("short", "middle", "long")}
 # How far a bound the posterior piles at moves out: the checks before S4's own margins.
 WIDEN_LOW, WIDEN_HIGH = 0.8, 1.25
 # Layers more the data may choose, where their models pile at the most allowed.
@@ -36,42 +41,15 @@ NARROW_MARGIN = 0.1
 NARROW_LEAST = 0.1
 
 
-class ModelThresholds(BaseModel):
-    """G5's limits: provisional, measured on the demo profiles (rule 9)."""
+class ModelThresholds(ModelLimits):
+    """G5's limits (sigpipe's ModelLimits: how a model is measured, PAC's alike), and its own:
+    what it reports of the layered median and how far its retries go. Provisional, measured on
+    the demo profiles (rule 9)."""
 
     # The limits of runs saved before are read too: acceptance's, no longer judged (the chains'
     # moves follow the posterior; they need no step tuned to a share of their proposals).
     model_config = ConfigDict(frozen=True, extra="ignore")
 
-    max_misfit: float = Field(
-        default=2.0,
-        gt=0,
-        description="RMS of the residuals over the curve's uncertainties, in any band, at most: "
-        "about 1 is a fit within the errors.",
-    )
-    n_bands: int = Field(default=3, ge=1, description="Bands of wavelength the fit is judged in.")
-    max_rhat: float = Field(
-        default=1.1,
-        gt=1,
-        description="Split R-hat of the models' Vs at any depth watched, at most: the chains "
-        "agree.",
-    )
-    min_samples_per_chain: int = Field(
-        default=100, ge=2, description="Models each chain keeps after the burn-in, at least."
-    )
-    acceptance_band: tuple[float, float] = Field(
-        default=(20.0, 30.0),
-        description="%: when the data choose the layers, the chains' median acceptance outside "
-        "it is a warning, never a failure (their steps adapt in the burn-in, towards 30 % a "
-        "move); the layers given (DREAM, near 5 % by design) report it only.",
-    )
-    min_ess: float = Field(
-        default=200.0,
-        gt=0,
-        description="Effective samples of the models' Vs at any depth watched, over the chains, "
-        "at least: a median and 5 to 95 % band to a few percent (a Vs that jumps between two "
-        "values where an interface may be above or below holds fewer than a layer's value).",
-    )
     min_vs_ratio: float = Field(
         default=0.5,
         gt=0,
@@ -84,38 +62,6 @@ class ModelThresholds(BaseModel):
     plausible_vs: tuple[float, float] = Field(
         default=(50.0, 2_500.0),
         description="m/s: a layered median's Vs outside is reported, never failed.",
-    )
-    bound_edge: float = Field(
-        default=0.02,
-        gt=0,
-        lt=0.5,
-        description="The edge of a prior's range watched at each bound, as a share of the range.",
-    )
-    max_at_bound: float = Field(
-        default=0.1,
-        gt=0,
-        description="Share of a parameter's samples within the edge of a bound, at most: 5 times "
-        "what a flat posterior puts there.",
-    )
-    useful_uncertainty: float = Field(
-        default=0.25,
-        gt=0,
-        description="The depth informed ends where the kept models' relative uncertainty of Vs, "
-        "U(z) = (P90 - P10) / (2 P50), gets above this, from the surface down (sigpipe's "
-        "useful_depth).",
-    )
-    min_useful_share: float = Field(
-        default=0.8,
-        gt=0,
-        le=1,
-        description="The depth informed, at least this share of the depth the half-space's top "
-        "may reach: shallower, the model is shrunk to what the data inform.",
-    )
-    min_contrast: float = Field(
-        default=0.05,
-        ge=0,
-        description="Adjacent layers of the layered median whose Vs differ less, relative to "
-        "their mean, are one: a model that fits loses a layer.",
     )
     max_longer_runs: int = Field(
         default=2,
@@ -152,118 +98,14 @@ def judge_model(
     names = BAND_NAMES.get(
         len(monitored.bands), tuple(f"band{i + 1}" for i in range(len(monitored.bands)))
     )
-    metrics = [
-        Metric(
-            name=f"misfit_{name}",
-            value=band.misfit,
-            threshold=thresholds.max_misfit,
-            bound="max",
-            # A band with no point to weigh (no mode, no uncertainty) is not measured, as G7's:
-            # a picked point without a mode is no_mode's to judge.
-            passed=band.misfit is None or band.misfit <= thresholds.max_misfit,
-        )
-        for name, band in zip(names, monitored.bands, strict=True)
-    ]
-    # PAC's residual, (modelled - picked) / modelled in %, by band: reported, never judged (the
-    # misfit divides by the Lorentzian uncertainties).
-    metrics += [
-        Metric(
-            name=f"residual_{name}",
-            value=None if band.residual is None else round(100 * band.residual, 1),
-            passed=True,
-            unit="%",
-        )
-        for name, band in zip(names, monitored.bands, strict=True)
-    ]
-    metrics.append(
-        Metric(
-            name="misfit_layered",
-            value=layered.misfit,
-            threshold=thresholds.max_misfit,
-            bound="max",
-            passed=_fits(layered, thresholds),
-        )
-    )
-    judged = _judged(measures)
-    rhats = [value for name, value in measures.rhat.items() if value is not None and name in judged]
-    rhat = max(rhats) if rhats else None
-    piled = measures.at_bounds[0] if measures.at_bounds else None
-    esses = [value for name, value in measures.ess.items() if value is not None and name in judged]
-    ess = min(esses) if esses else None
-    correlations = [
-        value
-        for name, value in measures.autocorrelation.items()
-        if value is not None and name in judged
-    ]
+    # The model's measures, sigpipe's (PAC's alike), each saying what it covers.
     free = parameters.layering == "free"
-    acceptance = round(statistics.median(measures.acceptance), 2) if measures.acceptance else None
+    report = measure_model(measures, thresholds, model_depth(parameters), free)
+    metrics = [Metric(**one.model_dump()) for one in report.measures]
+    rhat, ess, acceptance = report.rhat, report.ess, report.acceptance
+    agree, converged, depth = report.agree, report.converged, report.depth
+    useful, informed, contrast = report.useful, report.informed, report.contrast
     low_acceptance, high_acceptance = thresholds.acceptance_band
-    # The chains agree on one posterior: what it says of the data can be judged. Converged,
-    # they also hold enough independent samples for its uncertainties.
-    agree = (
-        rhat is not None
-        and rhat <= thresholds.max_rhat
-        and measures.samples_per_chain >= thresholds.min_samples_per_chain
-    )
-    converged = agree and (ess is None or ess >= thresholds.min_ess)
-    depth = model_depth(parameters)
-    useful = measures.useful_depth_m
-    informed = useful is None or useful >= thresholds.min_useful_share * depth
-    contrast = _least_contrast(measures.vs_layers)
-    metrics += [
-        Metric(
-            name="rhat",
-            value=rhat,
-            threshold=thresholds.max_rhat,
-            bound="max",
-            passed=rhat is not None and rhat <= thresholds.max_rhat,
-        ),
-        Metric(
-            name="ess",
-            value=ess,
-            threshold=thresholds.min_ess,
-            bound="min",
-            passed=ess is None or ess >= thresholds.min_ess,
-        ),
-        Metric(
-            name="autocorrelation",
-            value=max(correlations) if correlations else None,
-            passed=True,
-        ),
-        *_acceptance(acceptance, thresholds.acceptance_band if free else None),
-        Metric(
-            name="samples_per_chain",
-            value=measures.samples_per_chain,
-            threshold=thresholds.min_samples_per_chain,
-            bound="min",
-            passed=measures.samples_per_chain >= thresholds.min_samples_per_chain,
-        ),
-        Metric(
-            name="at_bound",
-            value=piled.share if piled else None,
-            threshold=thresholds.max_at_bound,
-            bound="max",
-            passed=piled is None or piled.share <= thresholds.max_at_bound,
-        ),
-        # When the data choose the layers, the deepest allowed is the curve's reach whatever the
-        # data inform: reported, the model's depth is not shrunk.
-        Metric(
-            name="depth_informed",
-            value=useful,
-            threshold=round(thresholds.min_useful_share * depth, 2),
-            bound="min",
-            passed=informed or free,
-            unit="m",
-        ),
-        Metric(
-            name="contrast",
-            value=None if contrast is None else round(100 * contrast[0], 1),
-            threshold=round(100 * thresholds.min_contrast, 1),
-            bound="min",
-            passed=contrast is None or contrast[0] >= thresholds.min_contrast,
-            unit="%",
-        ),
-    ]
 
     loop = _Loop(parameters)
     if layered.n_missing:
@@ -379,7 +221,7 @@ def judge_model(
     if settled and worst is not None and worst[1] > thresholds.max_misfit:
         name, value, band = worst
         where = f"{name} wavelengths ({band[0]:g}-{band[1]:g} m)"
-        if _fits(layered, thresholds):
+        if fits_within(layered, thresholds.max_misfit):
             loop.flags.append(
                 Flag(
                     name="smoothing_misfit",
@@ -760,32 +602,6 @@ def _too_deep(
     return True
 
 
-def _acceptance(value: float | None, band: tuple[float, float] | None) -> tuple[Metric, ...]:
-    """The chains' median acceptance (%): with a band, a floor and a ceiling (one row of two, a
-    warning outside it, the user 2026-09-29), else reported."""
-    if band is None:
-        return (Metric(name="acceptance", value=value, passed=True, unit="%"),)
-    low, high = band
-    return (
-        Metric(
-            name="acceptance",
-            value=value,
-            threshold=low,
-            bound="min",
-            passed=value is None or value >= low,
-            unit="%",
-        ),
-        Metric(
-            name="acceptance",
-            value=value,
-            threshold=high,
-            bound="max",
-            passed=value is None or value <= high,
-            unit="%",
-        ),
-    )
-
-
 def _plausibility(vs_layers: tuple[float, ...], thresholds: ModelThresholds) -> list[Flag]:
     """What of the layered median to look at, reported only: a strong low-velocity layer
     (possible, under a stiff crust), a Vs outside what soils and rocks near the surface have."""
@@ -836,46 +652,9 @@ def _depth(maxima: Iterable[float]) -> float:
     return round(sum(maxima), 2)
 
 
-def model_depth(parameters: InversionParameters) -> float:
-    """The deepest the half-space's top may be: every layer given at its thickest; the deepest
-    interface allowed when the data choose the layers."""
-    if parameters.layering == "free":
-        return round(parameters.free.depth_max or 0.0, 2)
-    return _depth(layer.thickness_max for layer in parameters.thickness_layers)
-
-
-def _judged(measures: InversionMeasures) -> set[str]:
-    """The series the chains are judged on: the models' Vs at the depths watched; every one for
-    windows measured before."""
-    return set(measures.watched) or set(measures.rhat)
-
-
-def _least_contrast(vs_layers: tuple[float, ...]) -> tuple[float, int] | None:
-    """The smallest difference of Vs between adjacent layers, relative to their mean, and the
-    upper layer's index; None with fewer than two layers."""
-    pairs = [
-        (abs(below - above) / ((above + below) / 2), index)
-        for index, (above, below) in enumerate(itertools.pairwise(vs_layers))
-        if above + below > 0
-    ]
-    return min(pairs) if pairs else None
-
-
 def significant(value: float) -> float:
     """`value` to 3 significant digits: a step is never rounded to 0."""
     return float(f"{value:.3g}")
-
-
-def _fits(fit: ModelFit, thresholds: ModelThresholds) -> bool:
-    """Whether a model fits every point within the limit: it has a mode at each, and no band
-    misfits beyond it."""
-    return (
-        fit.n_missing == 0
-        and fit.misfit is not None
-        and all(
-            band.misfit is not None and band.misfit <= thresholds.max_misfit for band in fit.bands
-        )
-    )
 
 
 def _worst_band(
