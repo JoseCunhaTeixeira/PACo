@@ -28,12 +28,14 @@ SMALL_WINDOWS = {"masw": {"length": 24, "step": 24}}
 # phase shift fails in every window.
 FAILING = {**SMALL_WINDOWS, "dispersion": {"fmin": 10.1, "fmax": 10.2}}
 
-# No stream figure: PAC draws records and images from their data.
+# Each final step's figure beside its data: the image's; a passive window's stacked
+# correlations'.
 WINDOW_FILES = {
     "active": {"window.json", "DispersionImage_0000.png", "DispersionImage_0000.hdf5"},
     "passive": {
         "window.json",
         "Stream_0000.hdf5",
+        "Stream_0000.png",
         "DispersionImage_0000.png",
         "DispersionImage_0000.hdf5",
     },
@@ -396,7 +398,7 @@ def test_every_record_is_preprocessed_once(
         assert record.duration_s is not None
         assert record.folder == f"records/{Path(record.name).stem}"
         files = {path.name for path in (run.folder / record.folder).iterdir()}
-        assert files == {"Stream_0000.hdf5"}
+        assert files == {"Stream_0000.hdf5", "Stream_0000.png"}
 
 
 def test_a_record_that_fails_preprocessing_fails_its_windows(

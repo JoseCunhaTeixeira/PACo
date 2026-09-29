@@ -35,7 +35,14 @@ from sigpipe.masw.inversion.section import save_comparison, save_section, save_s
 from sigpipe.masw.inversion.window import M0
 from sigpipe.masw.picks import CURVES_FILE, load_curves
 from sigpipe.masw.quality.line import Series
-from sigpipe.masw.runs import RunError, RunManifest, find_run, load_manifest, start_worker
+from sigpipe.masw.runs import (
+    RunError,
+    RunManifest,
+    find_run,
+    load_manifest,
+    start_worker,
+    window_length,
+)
 from sigpipe.masw.runs.stopping import Stopped, commit, finished, staging, undo
 from sigpipe.workers import one_thread_each
 
@@ -170,11 +177,12 @@ def run_inversion_job(
         changed = changed_settings(report, ("inversion",))
         # The verdicts as they ended: a retry refused for want of budget is a reject.
         final = {unit.unit: unit.verdicts.get("G5") for unit in report.units}
-        # PAC's section of the line, over the models G5 passed: best effort, never the job's
-        # failure.
+        # PAC's section of the line, over the models G5 passed, as its Visualization shows it
+        # (smoothed too, over the run's window length): best effort, never the job's failure.
         passed = [unit for unit, verdict in final.items() if verdict == "pass"]
         try:
-            if (section := save_section(run_folder, passed)) is not None:
+            window_m = window_length(run_folder)
+            if (section := save_section(run_folder, passed, window_m=window_m)) is not None:
                 summary += f"\nSection of the {len(passed)} models G5 passed: {section.name}."
             save_sections_file(run_folder, passed)
             save_comparison(run_folder, passed)
