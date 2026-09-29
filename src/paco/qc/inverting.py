@@ -834,7 +834,7 @@ def _invert_and_measure(
         depths,
         thresholds.n_bands,
         thresholds.bound_edge,
-        thresholds.useful_std_ratio,
+        thresholds.useful_uncertainty,
         output_folder=output,
     )
     ((output or folder) / MEASURES_FILE).write_text(measures.model_dump_json(indent=2))
