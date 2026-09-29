@@ -27,7 +27,7 @@ from sigpipe.algorithms.inversion.rayleigh.petro.silex_catalog import (
 from sigpipe.base import DispersionCurve
 from sigpipe.masw.picks import CURVES_FILE
 from sigpipe.masw.quality.line import Series
-from sigpipe.masw.runs import RunError, RunManifest, find_run, load_manifest
+from sigpipe.masw.runs import RunError, RunManifest, find_run, load_manifest, window_length
 from sigpipe.masw.runs.stopping import Stopped
 
 from paco import stopping
@@ -212,7 +212,7 @@ def invert_petro_line(
             forget_history(run_folder, unit, "petro_inversion")
 
     passed = _judge_line(run_folder, manifest, config, measured)
-    saved = save_line_sections(run_folder, passed)
+    saved = save_line_sections(run_folder, passed, window_length(run_folder))
     report = build_report(run_id, run_folder, config.budgets, len(manifest.windows))
     write_report(report, run_folder)
     if stopped is not None:
