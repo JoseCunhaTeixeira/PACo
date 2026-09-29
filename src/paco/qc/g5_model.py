@@ -95,11 +95,12 @@ class ModelThresholds(BaseModel):
         description="Share of a parameter's samples within the edge of a bound, at most: 5 times "
         "what a flat posterior puts there.",
     )
-    useful_std_ratio: float = Field(
-        default=0.5,
+    useful_uncertainty: float = Field(
+        default=0.25,
         gt=0,
-        description="The useful depth ends where the spread of the sampled Vs reaches this share "
-        "of the prior's.",
+        description="The useful depth ends where the kept models' relative uncertainty of Vs, "
+        "U(z) = (P90 - P10) / (2 P50), gets above this, from the surface down (sigpipe's "
+        "useful_depth).",
     )
     min_useful_share: float = Field(
         default=0.8,
