@@ -1,5 +1,5 @@
 """Each record's mute width: its own pulse as G1 measured it, else the line's median, else G1's
-fallback (the user, 2026-09-28)."""
+fallback."""
 
 from datetime import UTC, datetime
 
@@ -46,7 +46,7 @@ def test_a_mute_without_a_width_takes_the_pulse_a_given_one_stays() -> None:
 
 def test_a_config_saved_with_the_retired_mute_widths_still_reads() -> None:
     saved = QCConfig().model_dump(mode="json")
-    saved["image"]["mute_width_s"] = 0.05  # G2's, before each record's pulse (2026-09-28)
+    saved["image"]["mute_width_s"] = 0.05  # G2's, retired: a mute keeps each record's pulse
     saved["curve"]["mute_width_s"] = 0.05
 
     assert QCConfig.model_validate(saved) == QCConfig()

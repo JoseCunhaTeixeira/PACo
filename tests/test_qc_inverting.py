@@ -69,8 +69,8 @@ def test_the_windows_g4_passed_are_inverted_with_bounds_from_their_curves(
     _, _, run_folder = inverted
     attempts = read_attempts(run_folder)
 
-    # G4 passed the four windows (xmid 20.88's pick, 2 points before its ridge was followed past
-    # its ends on 2026-09-28, keeps 34): each inverted.
+    # G4 passed the four windows (xmid 20.88's pick, its ridge followed past its ends, keeps 34
+    # points): each inverted.
     inversions = [a for a in attempts if a.stage == "inversion" and a.unit.startswith("xmid_")]
     assert sorted({a.unit for a in inversions}) == [
         "xmid_14.88",
@@ -225,8 +225,7 @@ def test_what_cannot_be_inverted_is_refused(
 def test_a_failed_inversion_is_tried_once_more_with_the_same_parameters(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    # sigpipe's sampler fails now and then (a chain keeping no predicted curve for some models);
-    # it is not seeded, so the same parameters may well pass the next time.
+    # The sampler is not seeded: an inversion that failed may pass with the same parameters.
     parameters = InversionParameters.model_validate(SHORT)
     started = datetime(2026, 9, 24, 12, 0, tzinfo=UTC)
     for unit, failed in (("xmid_1.00", True), ("xmid_2.00", False)):

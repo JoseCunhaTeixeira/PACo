@@ -1,7 +1,6 @@
-"""A shot's time origin as a record's preprocessing left it: the trigger is part of the muting
-(the user, 2026-09-28). Where a record's first breaks should put the shot, whether a window's
-records were muted, and each record's pulse, the width its mute keeps after the slowest
-arrival."""
+"""A shot's time origin as a record's preprocessing left it: the trigger is part of the muting.
+Where a record's first breaks should put the shot, whether a window's records were muted, and
+each record's pulse, the width its mute keeps after the slowest arrival."""
 
 from collections.abc import Callable, Iterable, Mapping
 from pathlib import Path
@@ -63,9 +62,9 @@ def muted_records(
 def pulse_widths(
     attempts: Iterable[Attempt], names: Iterable[str], fallback: float
 ) -> dict[str, float]:
-    """The width each record's mute keeps after the slowest arrival (the user, 2026-09-28): its
-    own pulse as G1 measured it on the record not muted, else the line's median pulse, else
-    `fallback` when no record's could be measured."""
+    """The width each record's mute keeps after the slowest arrival: its own pulse as G1
+    measured it on the record not muted, else the line's median pulse, else `fallback` when no
+    record's could be measured."""
     measured: dict[str, float] = {}
     for attempt in attempts:  # in the order logged: the latest measure wins
         g1 = attempt.results.get("G1") if attempt.stage == "preprocessing" else None

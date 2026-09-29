@@ -95,9 +95,9 @@ SCENARIOS = (
             only_called("run_processing", profile="active_p1", overrides=SMALL_WINDOWS),
             in_order("run_processing", "pick"),
             # The demo's records start 20 ms before the shot, as their files say: the muting off
-            # (the trigger is part of it, 2026-09-28), nothing to correct. A trace off the
-            # amplitude decay in one record stays: the line leaves out only a receiver off it in
-            # most of the records that reach it, and the demo's two records judge none.
+            # (the trigger is part of it), nothing to correct. A trace off the amplitude decay in
+            # one record stays: the line leaves out only a receiver off it in most of the records
+            # that reach it, and the demo's two records judge none.
             answer_mentions(curves),
             never_called("invert"),
             never_called("invert_petro"),

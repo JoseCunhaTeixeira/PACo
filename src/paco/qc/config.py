@@ -22,18 +22,19 @@ from paco.qc.segments import SegmentRules
 
 CONFIG_FILE = "qc_config.json"  # the snapshot in a run folder
 
-# Thresholds PACo no longer has, which a snapshot taken before may hold: dropped when it is read,
-# so that its run still reads. The mutes' width of G2 and G3: each record's pulse since
-# 2026-09-28 (G1's measure, shots.py), G1's own width left as the fallback. Since 2026-09-29
-# (the user): one SNR limit for every signal, a window's correlations' too (signal.min_snr_db);
-# G3's air-wave mute, which parts nothing; G3's uncertainty limit, which the picker's own cap
-# kept from ever failing (reported since).
+# Retired thresholds, which an older snapshot may hold: dropped when it is read, so that its run
+# still reads. The mutes' width of G2 and G3: a mute keeps each record's own pulse (G1's measure,
+# shots.py), G1's own width the fallback. One SNR limit for every signal, a window's
+# correlations' too (signal.min_snr_db). G3's air-wave mute, which parts nothing; G3's
+# uncertainty limit, which the picker's own cap keeps from ever failing: reported, not judged.
 RETIRED = {
     "image": ("mute_width_s", "min_virtual_shot_snr_db"),
     "curve": ("mute_width_s", "air_wave_mute_vmax", "max_uncertainty"),
     "signal": ("min_correlation_snr_db",),
+    # The segment trials keep G2's floor on the fk selection's share (min_fk_kept_share).
+    "segments": ("min_kept_share",),
 }
-# Thresholds renamed, their value kept under the new name (one name, one meaning, 2026-09-29):
+# Thresholds renamed, their value kept under the new name (one name, one meaning):
 # the first breaks' shot time off the trigger is an error, the trigger's shift the muting's.
 RENAMED = {
     "signal": {"max_trigger_shift_s": "max_trigger_error_s"},

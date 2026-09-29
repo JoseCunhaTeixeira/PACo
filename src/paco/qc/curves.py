@@ -53,8 +53,8 @@ def pick_line(
         base = picked.parameters if picked is not None else config.picking.model_dump()
         g2 = ready[unit]
         if picked is None and (wanted := stage_changes(g2, "picking")) is not None:
-            # G2's advice for the picking: two modes, in a log from before 2026-09-29 (G2 keeps
-            # competing ridges since, the fundamental mode picked as the slowest ridge).
+            # G2's advice for the picking, which an older log may hold: two modes (G2 keeps
+            # competing ridges, the fundamental mode picked as the slowest ridge).
             base = deep_merge(base, wanted[0])
         parameters = PickingParameters.model_validate(deep_merge(base, changes or {}))
         jobs[unit] = (parameters, g2.kept.band_hz)

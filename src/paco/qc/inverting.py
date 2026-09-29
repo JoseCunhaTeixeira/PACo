@@ -504,8 +504,7 @@ class RetryBatch:
 
 def retry_failed(batch: RetryBatch) -> None:
     """Invert once more, with the same parameters, the windows whose inversion failed: sigpipe's
-    sampler is not seeded, and its failure when a chain keeps no predicted curve for some models
-    does not come back every time."""
+    sampler is not seeded, so a failure may not come back."""
     attempts = read_attempts(batch.run_folder)
     budget = RetryBudget(attempts, batch.config.budgets, batch.n_units)
     jobs: dict[str, Derived] = {}
@@ -603,8 +602,8 @@ def judge_model_line(
             continue
         measures = InversionMeasures.model_validate_json(path.read_text())
         # Down to the depth the data inform (G5's, where the models' Vs spread U stays under its
-        # limit; the user, 2026-09-29: one depth informed), within the curve's depth of
-        # investigation: below it, the priors speak, and models differ by them alone.
+        # limit: one depth informed), within the curve's depth of investigation: below it, the
+        # priors speak, and models differ by them alone.
         curve = saved_m0(run_folder / window.folder / CURVES_FILE)
         reach = investigation_depth(curve, config) if curve is not None else np.inf
         own = measures.useful_depth_m

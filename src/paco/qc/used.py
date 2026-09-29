@@ -115,7 +115,7 @@ def inversion_used(
         return ()
     given = given or {}
     runs = list(latest.values())
-    # The layers chosen by the data, or given (the runs logged before named no layering).
+    # The layers chosen by the data, or given (an older log names no layering).
     free = [
         run
         for run in runs

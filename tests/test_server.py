@@ -191,7 +191,7 @@ def test_the_workflow_process_pick_redo_invert() -> None:
     assert done is not None
     assert done["summary"].splitlines()[:2] == ["G1: 3 pass", "G2: 4 pass"]
     # No trigger corrected: the demo's files say the shot comes 20 ms in, where the first breaks
-    # put it, and the muting is off (the trigger is part of it, 2026-09-28).
+    # put it, and the muting is off (the trigger is part of it).
     assert "shifted_trigger" not in done["summary"]
     assert done["next"] == (
         f"pick comes next for run_id {run_id}, if the user asked for curves or models."
@@ -257,7 +257,7 @@ def test_the_workflow_process_pick_redo_invert() -> None:
     assert started.structured_content["total"] == 4
     status = _wait_for(started.structured_content["job_id"])
     assert (status["state"], status["done"]) == ("succeeded", 4)
-    # sigpipe's sampler sometimes fails a window twice (a chain keeping no predicted curve).
+    # A window may fail twice (the sampler is not seeded): left out, the job still succeeds.
     assert status["n_failed"] <= 1
     # The models (the ensembles), at round depths.
     assert status["depths_m"] and len(status["vs_m_s"]) == len(status["depths_m"])

@@ -1,17 +1,17 @@
-"""S2's segments on a passive line (the user, 2026-09-28: PACo optimizes the parameters the passive
-workflow has; the segments' length matters, set by the window's span; the FK selection is quite
-important to the dispersion image; the correlograms must converge). On a few trial windows of the
-chosen length, each candidate segment length (a number of times the slowest wave's crossing of
-the window) slices the noise, and each segment is whitened, normalized, tapered and correlated
-once, as the pipeline does, flipped and not; each FK selection (none, or a velocity band and a
-threshold) then keeps the segments whose f-k energy is lopsided enough in the band, flipped where
-it runs the other way, and stacks them. A candidate is judged by the dispersion image its stack
-makes: the span of wavelengths its M0 pick holds (the picker's, as S3 runs it: how much of the
-curve, and of the depth, the image gives), then the pick's coherence; provided its correlograms
-converged (the virtual shots of the kept segments' two halves agree over their arrivals) and it
-keeps enough segments. The best wins when it widens the line's own span by `min_gain`; the trials
-are kept in segments.json. (G2's share of coherent columns tells nothing here: a passive line's
-stacked images come near 100 % whatever the settings.)"""
+"""S2's segments on a passive line: PACo optimizes the parameters the passive workflow has. The
+segments' length matters, set by the window's span; the FK selection shapes the dispersion image;
+the correlograms must converge. On a few trial windows of the chosen length, each candidate
+segment length (a number of times the slowest wave's crossing of the window) slices the noise,
+and each segment is whitened, normalized, tapered and correlated once, as the pipeline does,
+flipped and not; each FK selection (none, or a velocity band and a threshold) then keeps the
+segments whose f-k energy is lopsided enough in the band, flipped where it runs the other way,
+and stacks them. A candidate is judged by the dispersion image its stack makes: the span of
+wavelengths its M0 pick holds (the picker's, as S3 runs it: how much of the curve, and of the
+depth, the image gives), then the pick's coherence; provided its correlograms converged (the
+virtual shots of the kept segments' two halves agree over their arrivals) and it keeps enough
+segments. The best wins when it widens the line's own span by `min_gain`; the trials are kept in
+segments.json. (G2's share of coherent columns tells nothing here: a passive line's stacked
+images come near 100 % whatever the settings.)"""
 
 import json
 from collections.abc import Sequence
@@ -66,9 +66,6 @@ class SegmentRules(BaseModel):
     )
     trial_windows: int = Field(
         default=3, ge=1, description="Windows along the line the candidates are tried on"
-    )
-    min_kept_share: float = Field(
-        default=0.2, gt=0, le=1, description="Share of the segments a candidate keeps, at least"
     )
     min_convergence: float = Field(
         default=0.7,
@@ -152,9 +149,9 @@ def choose_segments(
     skipped: list[str] = []
     for length in lengths:
         try:
-            # Segments end to end (the user, 2026-09-28: PACo's step, always its segments'
-            # length); a length the whitening's band or the records cannot take refused as sigpipe
-            # checks it. The user's own slicing, as it is.
+            # Segments end to end (PACo's step, always its segments' length); a length the
+            # whitening's band or the records cannot take refused as sigpipe checks it. The user's
+            # own slicing, as it is.
             sliced = (
                 preset
                 if "slicing" in given
@@ -187,7 +184,7 @@ def choose_segments(
         one
         for one in candidates
         if one.wavelength_span is not None
-        and one.kept_share >= rules.min_kept_share
+        and one.kept_share >= signal.min_fk_kept_share
         and one.convergence is not None
         and one.convergence >= rules.min_convergence
     ]
@@ -218,7 +215,7 @@ def choose_segments(
     )
     span = median(_span(window) for window in windows)
     if chosen is None:
-        return None, (_kept_note(baseline, converged, rules),)
+        return None, (_kept_note(baseline, converged, rules, signal.min_fk_kept_share),)
     changes: dict[str, object] = {}
     if chosen.segment_s != own_length:
         changes["slicing"] = {
@@ -381,8 +378,11 @@ def _given_selection(preset: PassivePreset) -> tuple[Band, float] | None:
     return (selection.get("vmin"), selection.get("vmax")), float(selection["threshold"])
 
 
-def _kept_note(baseline: Candidate, converged: bool, rules: SegmentRules) -> str:
-    """Why the line's own segments stay."""
+def _kept_note(
+    baseline: Candidate, converged: bool, rules: SegmentRules, min_kept_share: float
+) -> str:
+    """Why the line's own segments stay (`min_kept_share`: G2's floor on the share of segments
+    the fk selection keeps, the trials' too)."""
     span = f"{baseline.wavelength_span:.1f}" if baseline.wavelength_span is not None else "none"
     if converged:
         return (
@@ -391,7 +391,7 @@ def _kept_note(baseline: Candidate, converged: bool, rules: SegmentRules) -> str
         )
     return (
         "The segments' settings kept, though their correlograms had not converged: no candidate "
-        f"converged keeping {rules.min_kept_share:.0%} of the segments."
+        f"converged keeping {min_kept_share:.0%} of the segments."
     )
 
 

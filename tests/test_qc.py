@@ -249,8 +249,8 @@ def test_a_spent_budget_rejects_with_the_last_flags() -> None:
 
 
 def test_a_retry_that_changes_nothing_is_refused_and_said() -> None:
-    # Asked with the parameters of the attempt before, it would give its result again (the user,
-    # 2026-09-29): none granted, the unit rejected with why.
+    # Asked with the parameters of the attempt before, it would give its result again: none
+    # granted, the unit rejected with why.
     asked = GateResult(gate="G2", unit="xmid_12.50", verdict="retry", flags=(RIDGE_AT_VMAX,))
     changes = RIDGE_AT_VMAX.action.model_dump()["overrides"]
     budget = RetryBudget((), Budgets(), 2)
@@ -292,8 +292,8 @@ def test_g1s_retries_draw_on_the_records_budgets_alone() -> None:
 
 
 def test_a_snapshot_with_retired_or_renamed_thresholds_still_reads(tmp_path: Path) -> None:
-    # A run judged before 2026-09-29: its thresholds since retired dropped, those renamed read
-    # under their new name (one name, one meaning).
+    # An older run's snapshot: its retired thresholds dropped, those renamed read under their new
+    # name (one name, one meaning).
     given = tmp_path / "qc.json"
     given.write_text(
         '{"signal": {"min_correlation_snr_db": 3.0, "max_trigger_shift_s": 0.02},'
@@ -786,9 +786,9 @@ def test_judge_run_puts_the_four_gates_in_the_log_and_the_report(
         unit = next(unit for unit in report.units if unit.unit == name)
         assert "shifted_trigger" not in {flag.name for flag in unit.flags.get("G1", ())}
     # G2 and G3 on the four windows: G3 passes the four 24-receiver windows, their picks
-    # followed past their ends (xmid 20.88, the line's last window, kept 2 points before
-    # 2026-09-28, now 34), its kept flags said: the long wavelengths past three window lengths,
-    # the shots nearer than half the longest, an inverse trend.
+    # followed past their ends (xmid 20.88, the line's last window, keeps 34 points), its kept
+    # flags said: the long wavelengths past three window lengths, the shots nearer than half the
+    # longest, an inverse trend.
     windows = [unit for unit in report.units if unit.xmid is not None]
     assert all(unit.verdicts["G3"] == "pass" for unit in windows)
     assert {unit.unit: [flag.name for flag in unit.flags["G3"]] for unit in windows} == {
@@ -798,7 +798,7 @@ def test_judge_run_puts_the_four_gates_in_the_log_and_the_report(
         "xmid_20.88": ["beyond_reach", "near_field"],
     }
     # The band reaches the image's 100 Hz: kept, not widened. The records are usable to 412.5 Hz,
-    # counted within the image's frequencies (since 2026-09-29): its coherent band covers them.
+    # counted within the image's frequencies: its coherent band covers them.
     assert all(unit.verdicts["G2"] == "pass" for unit in windows)
     assert all({flag.name for flag in unit.flags["G2"]} == {"band_at_fmax"} for unit in windows)
     assert all(unit.curve is not None and unit.curve.n_points for unit in windows)

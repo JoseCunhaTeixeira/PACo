@@ -22,6 +22,7 @@ from sigpipe.masw.quality.measures import (
 )
 
 from paco.qc.g2_image import ImageThresholds, judge_image, more_data
+from paco.qc.models import GateResult
 
 FREQUENCIES = np.arange(10.0, 40.5, 0.5)  # Hz
 VELOCITIES = np.arange(1.0, 1000.5, 0.5)  # m/s
@@ -143,8 +144,8 @@ def test_a_second_ridge_of_similar_strength_is_a_higher_mode() -> None:
     competing = competing_ridges(image, coherent_columns(image, 0.3), 0.7, 0.15)
 
     assert competing.sum() == 41
-    # Kept (the user, 2026-09-29): the fundamental mode is picked as the slowest ridge whatever
-    # the modes picked; two picked would change neither.
+    # Kept: the fundamental mode is picked as the slowest ridge whatever the modes picked; two
+    # picked would change neither.
     assert _flags(image) == {
         "competing_ridges": {
             "kind": "keep",
@@ -192,8 +193,8 @@ def test_weak_or_absent_coherence_suggests_a_mute() -> None:
 
 
 def test_an_image_mostly_noise_of_muted_records_is_flagged_and_kept() -> None:
-    # Muted already, a mute could not change it (the user, 2026-09-29): nothing to try, the
-    # window goes on to its pick, the later gates judging it.
+    # Muted already, a mute could not change it: nothing to try, the window goes on to its pick,
+    # the later gates judging it.
     image = _image(_ridge(M0, 0.8, band=(15.0, 20.0)))
     weak = judge_image("xmid_12.50", image, THRESHOLDS, muted=True)
     (flag,) = weak.flags
@@ -229,8 +230,8 @@ def test_a_ridge_at_the_grids_floor_is_kept_with_nothing_lower_to_try() -> None:
 
 
 def test_a_passive_image_mostly_noise_is_flagged_and_kept() -> None:
-    # A passive line has no muting (the user, 2026-09-28): nothing to try, the window goes on
-    # to its pick, the later gates judging it.
+    # A passive line has no muting: nothing to try, the window goes on to its pick, the later
+    # gates judging it.
     image = _image(_ridge(M0, 0.8, band=(15.0, 20.0)))
     weak = judge_image("xmid_12.50", image, THRESHOLDS, mode="passive")
     (flag,) = weak.flags
@@ -285,9 +286,9 @@ PASSIVE = {
 
 
 def test_a_windows_correlations_are_judged_as_a_record_is() -> None:
-    # Measured as a shot's from the virtual source, against the 6 dB of every signal (the user,
-    # 2026-09-29): falling short, the phase shift again with more of the data; a passive-active
-    # window stacks every shot within reach already, and is rejected.
+    # Measured as a shot's from the virtual source, against the 6 dB of every signal: falling
+    # short, the phase shift again with more of the data; a passive-active window stacks every
+    # shot within reach already, and is rejected.
     image = _image(_ridge(M0, 0.8))
     more = more_data("passive", PASSIVE)
 
@@ -315,20 +316,32 @@ def test_a_windows_correlations_are_judged_as_a_record_is() -> None:
     assert {metric.of for metric in noisy.metrics} == {"signal", "spectrum", "image"}
 
 
+def _kept(count: int, segments: int) -> SelectionScores:
+    """An fk selection keeping `count` of `segments`, each kept one flipped."""
+    return SelectionScores(threshold=0.1, flip=True,
+                           ratios=(0.3,) * count + (0.01,) * (segments - count),
+                           kept=(True,) * count + (False,) * (segments - count),
+                           segments=segments, kept_count=count, flipped_count=count,
+                           kept_share=count / segments)  # fmt: skip
+
+
 def test_a_passive_windows_fk_selection_is_judged() -> None:
     image = _image(_ridge(M0, 0.8))
-    few = SelectionScores(threshold=0.1, flip=True, ratios=(0.3, 0.05) + (0.01,) * 8,
-                          kept=(True,) + (False,) * 9, segments=10, kept_count=1,
-                          flipped_count=1, kept_share=0.1)  # fmt: skip
 
-    result = judge_image("xmid_12.50", image, THRESHOLDS, mode="passive",
-                         selection=selection_measures(few, SignalLimits()),
-                         more=more_data("passive", PASSIVE))  # fmt: skip
+    def judged(selection: SelectionScores) -> GateResult:
+        return judge_image("xmid_12.50", image, THRESHOLDS, mode="passive",
+                           selection=selection_measures(selection, SignalLimits()),
+                           more=more_data("passive", PASSIVE))  # fmt: skip
 
-    (flag,) = result.flags
-    assert flag.name == "few_segments_kept" and result.verdict == "retry"
-    kept = next(metric for metric in result.metrics if metric.name == "fk_kept")
-    assert (kept.value, kept.threshold, kept.of) == (0.1, 0.2, "selection")
+    few = judged(_kept(1, 200))
+    # Good segments are rare: 2 % kept is enough, 0.5 % is not.
+    rare = judged(_kept(4, 200))
+
+    (flag,) = few.flags
+    assert flag.name == "few_segments_kept" and few.verdict == "retry"
+    kept = next(metric for metric in few.metrics if metric.name == "fk_kept")
+    assert (kept.value, kept.threshold, kept.of) == (0.005, 0.01, "selection")
+    assert rare.flags == () and rare.verdict == "pass"
 
 
 def test_more_data_halves_the_fk_threshold_and_stops_when_it_keeps_every_segment() -> None:

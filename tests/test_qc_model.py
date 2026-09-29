@@ -100,8 +100,7 @@ def test_a_model_that_fits_with_agreeing_chains_passes() -> None:
 
 def test_an_acceptance_outside_its_band_is_a_warning() -> None:
     # 15 % of their moves accepted, the median of the chains, when the data chose the layers:
-    # under the 20 to 30 % their adapted steps aim at (the user, 2026-09-29: a warning, never a
-    # failure).
+    # under the 20 to 30 % their adapted steps aim at (a warning, never a failure).
     slow = (15.0, 16.0, 14.0, 15.0, 17.0)
     result = _judge(_measures(**WATCHED, acceptance=slow), FREE)
 

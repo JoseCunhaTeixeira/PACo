@@ -47,7 +47,7 @@ from sigpipe.transformers import (
 # Pad(n=1000, taper=25) before the phase shift: a frequency step finer than 1/T only interpolates.
 PREPROCESSING_CHAIN = {
     # The trigger correction (t0 = 0 by default) is PACo's, for shots only; a passive line has no
-    # muting (2026-09-28): its Mute passes the record through.
+    # muting: its Mute passes the record through.
     # Each ends with its figure (sigpipe's gather, as PAC draws it).
     "active": ["Load", "Shift", "Detrend", "Detrend", "Mute", "Filter", "Save", "Plot"],
     "passive-active": ["Load", "Shift", "Detrend", "Detrend", "Mute", "Filter", "Save", "Plot"],
@@ -258,7 +258,7 @@ def test_pacs_fixed_steps_of_the_passive_active_pipeline(
     assert vars(_only(built.image, Apodize)) == {"method": "hanning", "params": {"frac": 0.1}}
     assert _only(built.image, ActiveShotCorrelation).method == "cross"
     assert vars(_only(built.image, Stack)) == {"method": "linear", "params": {}}
-    # No mute of its own before correlating any more (2026-09-28): the preprocessing's muting cuts.
+    # No mute of its own before correlating: the preprocessing's muting cuts.
     assert not any(isinstance(step, Mute) for step in built.image.steps)
 
 

@@ -46,8 +46,8 @@ class ModelThresholds(ModelLimits):
     what it reports of the layered median and how far its retries go. Provisional, measured on
     the demo profiles (rule 9)."""
 
-    # The limits of runs saved before are read too: acceptance's, no longer judged (the chains'
-    # moves follow the posterior; they need no step tuned to a share of their proposals).
+    # An older run's limits are read too: acceptance's, not judged (the chains' moves follow the
+    # posterior; they need no step tuned to a share of their proposals).
     model_config = ConfigDict(frozen=True, extra="ignore")
 
     min_vs_ratio: float = Field(
@@ -121,7 +121,7 @@ def judge_model(
                 message=f"The chains agree but hold few independent samples {said}: the "
                 "model stands, its uncertainties are rough.",
                 stage="inversion",
-                action=Keep(note="kept with the warning, as the user chose"),
+                action=Keep(note="kept with the warning"),
             )
             if agree
             else Flag(
@@ -129,7 +129,7 @@ def judge_model(
                 message=f"The chains still disagree {said}: the posterior holds several "
                 "modes, and the median over the chains is less reliable.",
                 stage="inversion",
-                action=Keep(note="kept with the warning, as the user chose"),
+                action=Keep(note="kept with the warning"),
             )
         )
     elif (
@@ -140,8 +140,7 @@ def judge_model(
         and (ranges := loop.narrow(measures.quantiles))
     ):
         # Chains that wander a wide prior are given the part of it their samples found first
-        # (with enough samples a chain to say where they lie). The depth the data inform is still
-        # judged against the first, wide prior.
+        # (with enough samples a chain to say where they lie).
         loop.change(
             "not_converged",
             f"The chains do not agree or hold too few independent samples (R-hat "
