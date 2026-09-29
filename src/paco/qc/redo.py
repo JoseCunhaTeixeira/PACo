@@ -20,13 +20,20 @@ from sigpipe.masw.windows import MASWWindow
 
 from paco import stopping
 from paco.qc.attempts import invalidate_record, restore_record
-from paco.qc.budgets import run_budget
+from paco.qc.budgets import Refusal, budget_spent, run_budget
 from paco.qc.config import QCConfig, read_qc_config
 from paco.qc.curves import pick_line
 from paco.qc.line import line_reach, settle_images, settle_records
-from paco.qc.log import afresh, append_attempt, latest, read_attempts, retries_in_run
-from paco.qc.loops import deep_merge
-from paco.qc.models import Attempt
+from paco.qc.log import (
+    afresh,
+    append_attempt,
+    latest,
+    read_attempts,
+    record_result,
+    retries_in_run,
+)
+from paco.qc.loops import deep_merge, stage_changes
+from paco.qc.models import Attempt, Stage
 from paco.qc.report import QCReport, build_report, read_report, write_report
 from paco.qc.rerun import rerun_phase_shift
 from paco.qc.shots import pulse_widths, with_pulse
@@ -74,10 +81,12 @@ def redo_stage(
     units: Sequence[str],
     changes: Mapping[str, Any] | None,
     settings: Settings,
+    trigger: str = "backtrack",
 ) -> QCReport:
     """`stage` again for the windows `units` of run `run_id`, with `changes` over their latest
     parameters, then the stages after it up to G4, each with its gate's retries. Going back to
-    the preprocessing does again every record those windows use, and every window using them."""
+    the preprocessing does again every record those windows use, and every window using them.
+    `trigger`: who asked (the agent's backtrack, or a gate's flag, "<gate>:<flag>")."""
     run_folder = find_run(run_id, settings)
     manifest = load_manifest(run_id, settings)
     config = read_qc_config(run_folder)
@@ -90,19 +99,97 @@ def redo_stage(
         )
     windows = list(units)
     if stage == "preprocessing":
-        windows = _redo_records(run_id, manifest, windows, changes, settings)
+        windows = _redo_records(run_id, manifest, windows, changes, settings, trigger)
         manifest = load_manifest(run_id, settings)
-        _redo_images(run_id, manifest, windows, {}, settings)
+        _redo_images(run_id, manifest, windows, {}, settings, trigger)
     elif stage == "phase_shift":
-        _redo_images(run_id, manifest, windows, changes, settings)
+        _redo_images(run_id, manifest, windows, changes, settings, trigger)
     if stage == "picking":
-        pick_line(run_id, settings, windows, changes, "backtrack")
+        pick_line(run_id, settings, windows, changes, trigger)
     else:
         # The images changed: their windows are picked again from the run's first parameters.
-        pick_line(run_id, settings, windows, None, "backtrack", fresh=True)
+        pick_line(run_id, settings, windows, None, trigger, fresh=True)
     report = build_report(run_id, run_folder, config.budgets, len(manifest.windows))
     write_report(report, run_folder)
     return report
+
+
+# The gates that may ask a change of an earlier stage than the one they judge: G2 (the image)
+# its records' mute; G3 (the curve) its records', or its image made again.
+EARLIER: dict[str, tuple[Stage, tuple[RedoStage, ...]]] = {
+    "G2": ("phase_shift", ("preprocessing",)),
+    "G3": ("picking", ("preprocessing", "phase_shift")),
+}
+
+
+def settle_earlier(run_id: str, settings: Settings) -> bool:
+    """The windows whose latest G2 or G3 result asks a change of an earlier stage (their records
+    muted, their image made again): that stage done again once with it, then the stages after
+    it (redo_stage, the run's budget paying), each window once for each flag. Asked again after
+    it, asked with no change, or with the budget spent, the window is rejected, said (the user,
+    2026-09-29: none left silently without a curve). Whether any window changed."""
+    run_folder = find_run(run_id, settings)
+    changed = False
+    while True:
+        manifest = load_manifest(run_id, settings)
+        attempts = read_attempts(run_folder)
+        groups: dict[str, tuple[RedoStage, dict[str, Any], str, list[str]]] = {}
+        for window in manifest.windows:
+            for gate, (judged_at, earlier) in EARLIER.items():
+                attempt = latest(attempts, window.folder, judged_at)
+                result = attempt.results.get(gate) if attempt is not None else None
+                if attempt is None or result is None or result.verdict != "retry":
+                    continue
+                asked: tuple[RedoStage, tuple[dict[str, Any], str]] | None = next(
+                    (
+                        (stage, wanted)
+                        for stage in earlier
+                        if (wanted := stage_changes(result, stage)) is not None
+                    ),
+                    None,
+                )
+                if asked is None:
+                    continue
+                stage, (changes, flag) = asked
+                trigger = f"{gate}:{flag}"
+                # Once: its image made again for this flag already (with its records, or alone).
+                done = any(
+                    one.unit == window.folder
+                    and one.stage == "phase_shift"
+                    and one.triggered_by == trigger
+                    for one in attempts
+                )
+                if done or not changes:
+                    why: Refusal = "redone" if done else "unchanged"
+                    record_result(
+                        run_folder,
+                        window.folder,
+                        judged_at,
+                        attempt.attempt,
+                        budget_spent(result, why),
+                    )
+                    changed = True
+                    continue
+                key = json.dumps([stage, changes, trigger], sort_keys=True)
+                groups.setdefault(key, (stage, changes, trigger, []))[3].append(window.folder)
+        if not groups:
+            return changed
+        for stage, changes, trigger, units in groups.values():
+            try:
+                redo_stage(run_id, stage, units, changes, settings, trigger)
+            except RunError:
+                # The run's budget spent (check_budget): rejected, as a gate's retry without it.
+                attempts = read_attempts(run_folder)
+                gate = trigger.split(":")[0]
+                judged_at = EARLIER[gate][0]
+                for unit in units:
+                    attempt = latest(attempts, unit, judged_at)
+                    result = attempt.results.get(gate) if attempt is not None else None
+                    if attempt is not None and result is not None:
+                        record_result(
+                            run_folder, unit, judged_at, attempt.attempt, budget_spent(result)
+                        )
+        changed = True
 
 
 def check_budget(run_id: str, run_folder: Path, config: QCConfig, n_windows: int) -> None:
@@ -124,6 +211,7 @@ def _redo_images(
     windows: Sequence[str],
     changes: Mapping[str, Any],
     settings: Settings,
+    trigger: str = "backtrack",
 ) -> None:
     """The phase shift again for `windows`, each from its latest phase-shift changes with
     `changes` over them (grouped by the changes they end with), then G2's retries."""
@@ -136,7 +224,7 @@ def _redo_images(
         key = json.dumps(parameters, sort_keys=True)
         groups.setdefault(key, (parameters, []))[1].append(unit)
     for parameters, units in groups.values():
-        rerun_phase_shift(run_id, units, parameters, settings, "backtrack")
+        rerun_phase_shift(run_id, units, parameters, settings, trigger)
     usable = _usable_bands(run_folder)
     settle_images(run_id, run_folder, manifest, read_qc_config(run_folder), settings, usable)
 
@@ -147,6 +235,7 @@ def _redo_records(
     windows: Sequence[str],
     changes: Mapping[str, Any],
     settings: Settings,
+    trigger: str = "backtrack",
 ) -> list[str]:
     """The records `windows` use preprocessed again with `changes` over their latest
     parameters, then G1's fixes; returns every window that uses one of those records."""
@@ -182,7 +271,7 @@ def _redo_records(
                 stage="preprocessing",
                 attempt=1,
                 parameters=parameters[outcome.name],
-                triggered_by="backtrack",
+                triggered_by=trigger,
                 started_at=started_at,
                 finished_at=datetime.now(UTC),
                 status=outcome.status,

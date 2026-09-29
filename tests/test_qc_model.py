@@ -85,7 +85,7 @@ def test_a_model_that_fits_with_agreeing_chains_passes() -> None:
         "acceptance": 25.0,  # reported: the chains' median, %
         "samples_per_chain": 600,
         "at_bound": 0.03,
-        "useful_depth": 5.0,
+        "depth_informed": 5.0,
         "contrast": 14.0,  # 230 over 200 m/s
     }
     assert result.kept.wavelength_m == (2.0, 11.0) and result.kept.n_points == 9
@@ -363,7 +363,7 @@ def test_a_model_deeper_than_the_data_inform_is_shrunk_to_them() -> None:
     assert [(layer["thickness_max"], layer["thickness_perturb_std"]) for layer in layers] == [
         (6.0, 0.417)
     ] * 3
-    useful = next(metric for metric in result.metrics if metric.name == "useful_depth")
+    useful = next(metric for metric in result.metrics if metric.name == "depth_informed")
     assert (useful.threshold, useful.passed) == (31.2, False)
     # Shallower still, fewer layers fit: 3 m holds two layers of at least 1 m above the
     # half-space, with room.

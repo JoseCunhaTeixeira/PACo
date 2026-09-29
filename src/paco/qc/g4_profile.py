@@ -37,6 +37,12 @@ class ProfileThresholds(BaseModel):
     min_shared_points: int = Field(
         default=3, ge=1, description="Wavelengths shared with a side's median, to compare at all."
     )
+    max_gap_steps: float = Field(
+        default=3.0,
+        gt=0,
+        description="Neighbours are the windows within this many of the line's steps: windows "
+        "far apart, across a gap, are not neighbours (as G8's).",
+    )
     max_depth_spread: float = Field(
         default=0.5,
         gt=0,
@@ -56,15 +62,20 @@ def judge_profile(
     without a curve, for the coverage."""
     ordered = sorted(curves, key=lambda curve: curve.xmid)
     per_side = max(1, thresholds.neighbours // 2)
+    step = line_step([*(one.xmid for one in ordered), *without])
     found = neighbourhoods(
-        ordered, thresholds.neighbours, thresholds.max_misfit, thresholds.min_shared_points
+        ordered,
+        thresholds.neighbours,
+        thresholds.max_misfit,
+        thresholds.min_shared_points,
+        max_distance=thresholds.max_gap_steps * step if step > 0 else None,
     )
     results: list[GateResult] = []
     for curve, near in zip(ordered, found, strict=True):
         worst = near.worst
         metrics = [
             Metric(
-                name="misfit",
+                name="neighbour_misfit",
                 value=None if np.isnan(worst) else round(worst, 3),
                 threshold=thresholds.max_misfit,
                 bound="max",

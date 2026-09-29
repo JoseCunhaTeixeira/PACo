@@ -44,7 +44,7 @@ def test_a_smooth_line_passes_every_curve_and_the_line() -> None:
     }
     window = results["xmid_3.00"]
     assert {metric.name: metric.value for metric in window.metrics} == {
-        "misfit": 0.0,
+        "neighbour_misfit": 0.0,
         "sides_compared": 2,
     }
     assert window.kept.wavelength_m == (3.0, 30.0) and window.kept.n_points == 20

@@ -8,7 +8,7 @@ Today the agent processes, judges, picks and inverts with a single quality gate 
 
 The default is that I give no parameters at all: "process <profile>" must run the whole loop and end with Vs models and a report, every parameter derived from the data and the geometry, and the agent must not ask me a single question. Settings I type in the chat are the exception, and even those are not a reason to ask (see "Agent side").
 
-Scope: active profiles. Passive will get extra gates later (segment selection, FK selection, cross-correlation convergence), so build the gates as a generic mechanism passive can extend. Gates G2 to G6 must already run on passive runs unchanged; on passive, G1 runs only the checks that do not need a trigger (dead/clipped traces, spectra).
+Scope: active profiles. Passive will get extra gates later (segment selection, FK selection, cross-correlation convergence), so build the gates as a generic mechanism passive can extend (since 2026-09-29 G2 judges a passive window's FK selection and a passive or passive-active window's stacked correlations). Gates G2 to G6 must already run on passive runs unchanged; on passive, G1 runs only the checks that do not need a trigger (dead/clipped traces, spectra).
 
 ## Pipeline
 
@@ -57,34 +57,35 @@ Artifacts in [ ], gates in < >.
 ## Gates
 
 ### G1 signal QC (per preprocessed record, with the raw one when useful)
-- Dead, clipped or NaN traces; traces whose RMS is an outlier against the amplitude decay with offset; reversed polarity (negative correlation with neighbours).
-- SNR: energy in the surface-wave window (between the arrivals at vg_max and vg_min) against a noise window: pre-trigger if the record has one, otherwise after the slowest arrival if the record is long enough. Report which window was used.
+- Dead, clipped or NaN traces; traces whose RMS is an outlier against the amplitude decay with offset. (No reversed-polarity check since 2026-09-25: near the shot it flagged neighbours shifted by more than half a period.)
+- SNR: energy in the surface-wave window (between the arrivals at vg_max and vg_min) against a noise window: pre-trigger if the record has one, otherwise after the slowest arrival if the record is long enough. Report which window was used. Since 2026-09-29, in the part of the usable band the dispersion images use (as a filter to it would give it: a filter common to the traces cannot change the image), the noise measured before the muting.
 - Usable band: frequencies where the signal spectrum exceeds the noise spectrum by N dB, giving fmin_usable and fmax_usable. This band feeds S2.
-- Lateral coherence: median correlation between neighbouring traces inside the surface-wave window.
-- Trigger consistency: first-break moveout consistent with the source position (a shifted t0 is a bad record, not a parameter problem).
-- When a mute is on: share of energy removed, taper present.
-- Actions: filter band; mute on/off with vg_min, vg_max and taper (keep t in [x/vg_max - pad, x/vg_min + pad]); exclude traces; exclude the record from the windows that use it.
+- Lateral coherence: median correlation between neighbouring traces inside the surface-wave window (in the same band as the SNR, since 2026-09-29).
+- Trigger consistency: first-break moveout consistent with the source position (a shifted t0 is a bad record, not a parameter problem). Since 2026-09-24 a delay the same on every trace is corrected in S1; since 2026-09-29 read from the direct wave (the traces nearest the shot) on the record before its muting, and judged on muted records only.
+- When a mute is on: share of energy removed, taper present. (Dropped on 2026-09-29, never measured in a run: the noise, the band, the first breaks and the pulse are measured before the muting instead.)
+- Actions: filter band; mute on/off with vg_min, vg_max and taper (keep t in [x/vg_max - pad, x/vg_min + pad]); exclude traces; exclude the record from the windows that use it. Since 2026-09-29, no filter or mute: a record under its limits is left out at once, since neither could change what G1 measures; a muted record's trigger is the one correction.
 
 ### G2 dispersion image QC (per xmid, before picking)
 - Coherent energy: fraction of frequency columns whose maximum exceeds k times the noise floor 1/sqrt(N) (the floor the picker already uses).
 - Energy maximum on the grid edges: at vmin or vmax means the velocity range is too narrow; at fmin or fmax means the band is too narrow (reuse the "pinned" idea).
 - Competing ridges of similar strength at the same frequency: a higher mode dominating, or aliasing (compare with the aliasing limit v = 2·dx·f).
 - Coherent band much narrower than G1's usable band: the problem is in S2 or S1 (offsets, records used, mute), not in the data.
-- Actions: vmin/vmax, fmin/fmax, steps, offset range and records feeding the window, or back to S1 (a surface-wave mute between the expected vg_min and vg_max often cleans the image a lot).
+- Since 2026-09-29, a passive or passive-active window's stacked correlations, measured as a record is against G1's limits, and a passive window's fk selection: falling short, the phase shift again with more of the data, else the window rejected.
+- Actions: vmin/vmax, fmin/fmax, steps, offset range and records feeding the window, or back to S1 (a surface-wave mute between the expected vg_min and vg_max often cleans the image a lot; since 2026-09-29 only for records not muted yet, done once by PACo at the end of the picking).
 - The current metrics (sharpness, prominence, on_data, constant_wavelength) are computed on the picked M0, so they belong to G3. Don't duplicate them.
 
 ### G3 curve QC (per xmid)
 Since nobody looks at the curves before inversion any more, G3 is the safety net for the picking risks listed in PROGRESS.md. The current `dispersion_quality` metrics, plus:
 - Wavelength range: the picker follows its ridge as far as it holds, down to one spacing, with no cut at the long end; points under 2·dx (the aliasing zone) and over 3L (beyond the window's reach) are flagged and kept (since 2026-09-28; PAC draws both limits as λmin and λmax).
 - Mode jump: a velocity jump between adjacent frequencies above X %, or a branch continuing on M1 below the aliasing floor.
-- Air wave: near-constant velocity around 330 to 345 m/s.
+- Air wave: near-constant velocity around 330 to 345 m/s (rejected since 2026-09-29: no mute parts it from the surface waves).
 - Normal dispersion expected (velocity rising with wavelength). An inverse trend is flagged, not rejected, since a stiff layer over a soft one produces it.
-- Minimum number of kept points; Lorentzian uncertainty not above X % of the velocity.
-- Actions: picking parameters (corridor, coherence rule, max wavelength), or back to S2 or S1.
+- Minimum number of kept points; Lorentzian uncertainty not above X % of the velocity (reported only since 2026-09-29: the picker caps each point's at 40 % of its velocity).
+- Actions: picking parameters (corridor, coherence rule, max wavelength), or back to S2 or S1 (since 2026-09-29 done once by PACo at the end of the picking, `docs/gates/loop.md`).
 
 ### G4 curve profile QC (whole line)
 - Build the pseudo-section Vr(λ, xmid) from the passing curves.
-- Compare each curve with the median of its k neighbours at the same wavelengths; a relative misfit above X % marks an outlier.
+- Compare each curve with the median of its k neighbours at the same wavelengths; a relative misfit above X % marks an outlier. (Since 2026-09-29 the neighbours within 3 of the line's steps: across a gap, none.)
 - An isolated outlier (1 or 2 xmids) is suspect. A change shared by a run of adjacent xmids is geology and is kept.
 - Coverage: runs of rejected xmids, and wavelength ranges that vary a lot along the line (depths of investigation not comparable).
 - Actions for an outlier: re-pick with the corridor centred on the neighbours' median curve, then G3 again; otherwise reject. Never edit or smooth a curve to make it fit.
@@ -101,13 +102,13 @@ Since nobody looks at the curves before inversion any more, G3 is the safety net
 - Misfit: RMS, and normalised by the curve's uncertainties (about 1 means a fit within errors; much above 1 is underfit; much below 1 is suspicious). Compute it from the forward-modelled curve of the monitored smooth model.
 - Convergence: the chains agree on the models' Vs at a few depths the curve resolves (split R-hat), with enough effective and saved samples; the acceptance rate is reported, not judged (since 2026-09-27: the samplers need no step tuned to a band).
 - Posterior piled at a prior bound (Vs, a thickness, or the most layers allowed): widen that bound.
-- Posterior width against prior width, by depth: report the depth where posterior ≈ prior (the useful depth). Don't fail on this alone.
+- Posterior width against prior width, by depth: report the depth where posterior ≈ prior (the useful depth). Don't fail on this alone. (Since 2026-09-29 the depth informed, `depth_informed`: from the kept models' relative uncertainty of Vs alone, no prior; G6 and `job_status` read it too.)
 - Actions: n_iterations and burn-in (convergence), bounds, the most layers allowed (or, given, the number of layers). A failing xmid can be re-inverted with its own settings, recorded in the log.
 
 ### G6 model profile QC (whole line)
 - Vs at fixed depths and interface depths along the line.
-- An isolated jump that the curves don't show (G4 found the neighbouring curves agree) is non-uniqueness: re-invert that xmid (more iterations, other bounds or layer count). A jump the curves also show is kept.
-- Useful depth consistent along the line.
+- An isolated jump that the curves don't show (G4 found the neighbouring curves agree) is non-uniqueness: re-invert that xmid (more iterations, other bounds or layer count). A jump the curves also show is kept. (Since 2026-09-29 non-uniqueness is kept with its flag: G5 passed the model converged, and sampling longer gives the same posterior.)
+- Useful depth consistent along the line (G5's depth informed since 2026-09-29, the models compared down to it).
 - Don't build any lateral smoothing, neither by editing models nor by using neighbours as priors: it would create the smoothness it then reports.
 
 ### Range check, G7 and G8: the petrophysical inversion (milestone 15)
@@ -182,9 +183,11 @@ Brought as options, with the evidence, before building; each was the user's choi
   recorded with every verdict; the tools stop taking thresholds. Reverses milestone 4.
 - **`job_status` reports the smooth median model**, PAC's default (its visualization page starts on
   "Smooth median layered model", the backend defaults to `smooth_median`), as Vs at a few fixed
-  depths and the useful depth, plus each window's curve misfit.
+  depths and the useful depth, plus each window's curve misfit. (Since 2026-09-28 the ensemble;
+  since 2026-09-29 G5's depth informed, `depth_informed_m`.)
 - **Budgets:** 2 retries per gate and unit, 2 × xmids per run, and 6 inversion retries per
-  window (G5, G6 or a failed run, outside the run's), all configurable.
+  window (G5, G6 or a failed run, outside the run's; G6 asks none since 2026-09-29), all
+  configurable.
 - **Thresholds' values:** proposed per gate at its milestone, measured on the demo profiles and
   the synthetic defects, confirmed by the user; all in one configuration file.
 
@@ -226,13 +229,14 @@ Taken during milestone 12:
   at 330–345 m/s over half of the points (0 % on the demo), an inverse trend by the rank
   correlation of velocity with wavelength (kept, never rejected: 11 of 19 demo windows), at
   least 5 points, uncertainties at most 50 % of the velocity (8 to 15 % on 24-receiver windows,
-  56 % on 5-receiver ones, rejected: only longer windows help). G4 compares each curve with two
-  neighbours a side: an outlier is off neighbours that agree with each other and fits no side
-  (misfit 15 %; the demo's neighbours agree within 2 to 13 %); a curve off one side and fitting
-  the other is a shared change, geology, kept. Rejected: the spec's "1 or 2 xmids" for an
-  isolated outlier (two changed windows make their neighbours disagree, so nothing in a run of
-  two can be told from geology by its neighbours), and a side of one curve as evidence (it
-  agrees with itself: three curves 6 m apart said xmid 8.88 was an outlier).
+  56 % on 5-receiver ones, rejected: only longer windows help; reported only since
+  2026-09-29). G4 compares each curve with two neighbours a side: an outlier is off neighbours
+  that agree with each other and fits no side (misfit 15 %; the demo's neighbours agree within
+  2 to 13 %); a curve off one side and fitting the other is a shared change, geology, kept.
+  Rejected: the spec's "1 or 2 xmids" for an isolated outlier (two changed windows make their
+  neighbours disagree, so nothing in a run of two can be told from geology by its neighbours),
+  and a side of one curve as evidence (it agrees with itself: three curves 6 m apart said xmid
+  8.88 was an outlier).
 - **The pick is saved as it is judged.** The picking attempt writes the window's
   `DispersionCurves_0000.csv` (PAC's layout) before G3 judges it; a pick done again archives the
   previous curve and the inversion under `attempts/<n>_picking/`. What G3 and G4 judge is the
@@ -287,7 +291,9 @@ the user's choice, and Claude's):
   off agreeing neighbours, useful depths spread at most 50 %. Rejected: an at-bound limit of
   6 % (it would flag the demo's inverse windows, whose half-space presses against its lowest
   Vs, and reject them after two widenings although they fit), a misfit limit of 1.5, 20 % for
-  models, and one more layer for a non-unique model instead of longer sampling.
+  models, and one more layer for a non-unique model instead of longer sampling (since
+  2026-09-29 a non-unique model is kept: its posterior converged, sampling longer gives it
+  again).
 
 Taken at the start of milestone 14 (2026-09-24; brought as options, each the user's choice, and
 Claude's):
@@ -425,7 +431,9 @@ each with its measurements in `PROGRESS.md` and the gate pages, to review:
 - **The inversion starts at 4 layers** (the study of 4, 5 and 6 on both lines, `G5.md`).
 - **G6 and `job_status` read the curve's depth of investigation**, half its longest wavelength:
   the posterior's useful depth is 0 m on 62 of the layer study's 72 models of 3 layers or
-  more (2.1 to 3.5 m on the others).
+  more (2.1 to 3.5 m on the others). Since 2026-09-29 (the user: one depth informed), both read
+  G5's depth informed, from the models' Vs spread (a median of 7.7 m on the user's line), G6
+  within the curve's depth of investigation.
 - **PAC's passive-active mode** (interferometry on an active profile's shots), with two fixes
   of PAC's chain: the flipped gathers' geometry, and each shot cut to its surface-wave window
   before correlating (`correlation_window`). The second removed on 2026-09-28 at the user's
@@ -478,3 +486,46 @@ the user's choice):
   receivers, 5.75 m): 3 trial windows of 3 pass (2 before), wavelengths 5-34 m (5.5-22), picks
   within 40 % (29 %), a near field of 17 m (11 m) where 2 of the 4 windows keep near shots
   only. Rejected: those rules within 3 window lengths, PACo's own picks stopped there.
+
+Taken on 2026-09-29, the coherence review (the user: "make sure it is coherent, logical and
+homogeneous, that it makes physical sense and will make PACo get better results by himself";
+an audit of the gates, checked in the code and by experiment, brought as four options, each the
+user's choice, and Claude's; two more decided by the user the same night):
+
+- **One SNR limit for every signal.** A passive or passive-active window's stacked
+  correlations are measured as a record is, from their virtual source, against G1's 6 dB, each
+  lag scaled for the samples it sums (noise alone read 4 to 5 dB, over the 3 dB first chosen;
+  scaled, about 2 dB); a muted line's on the correlations of its records before their muting (a
+  mute zeroed their noise: some 300 dB whatever the data). Falling short, the phase shift again
+  with more of the data, then the window rejected (`docs/gates/G2.md`).
+- **G1 measures what the images are made of, and leaves a record under its limits out at
+  once.** The SNR and the coherence in the part of the usable band the dispersion images use,
+  as a filter to it would give them (a filter common to the traces cannot change a phase-shift
+  image, which divides each trace's spectrum by its own amplitude); the usable band capped to
+  the dispersion band (the user, later that night: on their line it reached 240 to 270 Hz from
+  energy near the shot that no image uses). The noise, the first breaks and the pulse before
+  the muting, which a mute cannot change. So no filter or mute retry, which would measure the
+  same; the trigger from the direct wave, judged on muted records only (`docs/gates/G1.md`).
+- **No retry that cannot change the result.** A retry with the parameters of the attempt
+  before is refused (`nothing_to_try`). Gone: G2's second mode, G3's filter and its air-wave
+  mute (the air wave rejected), a mute of records muted already, G2's vmin under 30 m/s, G6's
+  longer sampling of a converged model (`non_unique` kept). G3's uncertainty is reported only
+  (the user, later that night): the picker caps each point's at 40 % of its velocity, so a
+  limit of 50 % never failed, and 35 % would have left out 11 of the 69 windows of their line;
+  G5's depth informed judges what a loose curve does to the model (`docs/gates/G3.md`).
+- **An earlier stage G2 or G3 blames is done again once**, by PACo at the end of `pick`, then
+  the window rejected if it still asks (`redone_once`): G3's were never run, the window a gap,
+  unsaid (`docs/gates/loop.md`).
+- **One name, one meaning** (fixes, not choices): `trigger_error_s`; `neighbour_misfit` for G4,
+  G6 and G8, "misfit" alone a fit's (G5, G7); one depth informed, G5's (`depth_informed`), which
+  G6 compares the models down to and `job_status` reports (`depth_informed_m`); G5's
+  `min_vs_ratio`, apart from the priors' `max_vs_drop`. G4 and G6 compare no neighbours across a
+  gap (3 of the line's steps, as G8). A `qc_config.json` snapshot of before still reads: its
+  retired thresholds dropped, its renamed ones read under their new names (`config.py`).
+- On the user's two runs, measured again against the committed code (same inputs): run
+  20260927-094830-487e leaves out 4 records where the old retries ended with 6 left out (112,
+  114, 121 kept, their coherence 0.51 to 0.60 in 0 to 100 Hz; 130 out at 5.9 dB there), without
+  the retries that could not change them, and corrects 3 triggers; run 20260928-153714-f215
+  leaves out 3 instead of 6 (117, 120, 132, 144 kept; 133 out, coherence 0.498) and finds 57
+  records about 11 ms off their trigger, which the check could not see on a muted record
+  before.

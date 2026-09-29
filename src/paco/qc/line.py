@@ -15,6 +15,7 @@ from pathlib import Path
 from typing import Any, cast
 
 import numpy as np
+from sigpipe.base import Stream
 from sigpipe.masw.pipelines import PREPROCESSED, record_folder
 from sigpipe.masw.presets import (
     ActivePreset,
@@ -23,8 +24,9 @@ from sigpipe.masw.presets import (
     make_preset,
     resolve_preset,
 )
-from sigpipe.masw.profiles import Profile, load_profile
-from sigpipe.masw.quality.signal import snr_reach, trace_snrs
+from sigpipe.masw.profiles import Profile, ProfileError, load_profile
+from sigpipe.masw.quality.measures import decay_outliers, spectral_outliers
+from sigpipe.masw.quality.measures import line_reach as sigpipe_line_reach
 from sigpipe.masw.runs import RecordOutcome, RunError, RunManifest, load_image
 from sigpipe.masw.runs.processing import (
     RECORDS_FOLDER,
@@ -52,23 +54,23 @@ from paco.qc.coherence import (
 from paco.qc.config import QCConfig, snapshot_qc_config
 from paco.qc.g1_signal import (
     SPECTRA_MODES,
-    decay_outliers,
     judge_receivers,
     judge_signal,
     judge_spectra,
-    spectral_outliers,
 )
 from paco.qc.g2_image import judge_image
 from paco.qc.g4_profile import LINE
 from paco.qc.judging import (
+    RecordsBeforeMuting,
     before_muting,
+    correlations_of,
     draw_spectra,
+    image_band,
     shared_band,
     stream_of,
-    virtual_shot,
 )
 from paco.qc.log import append_attempt, latest, read_attempts, record_notes, record_result
-from paco.qc.loops import RetryBudget, deep_merge, next_try, spent
+from paco.qc.loops import RetryBudget, deep_merge, next_try, spent, unchanged
 from paco.qc.models import Attempt, ExcludeRecord, ExcludeTraces, GateResult, Stage
 from paco.qc.report import QCReport, build_report, write_report
 from paco.qc.rerun import rerun_phase_shift
@@ -265,26 +267,22 @@ def line_reach(
     triggers = file_triggers(profile)
     attempts = read_attempts(run_folder)
 
-    def snrs(record: RecordOutcome) -> tuple[np.ndarray, np.ndarray] | None:
+    def unmuted(record: RecordOutcome) -> tuple[Stream, float]:
         # Its noise as G1 measures it, before its muting; its times from its shot.
         attempt = latest(attempts, record.name, "preprocessing")
         values = preprocessing_values(preset, attempt)
         shot_s = trigger_context(values, triggers.get(record.name))[0]
-        stream, shot_s = before_muting(preset, profile, record.name, attempt, shot_s) or (
+        return before_muting(preset, profile, record.name, attempt, shot_s) or (
             stream_of(run_folder / record.folder / PREPROCESSED),
             shot_s,
         )
-        signal = config.signal
-        return trace_snrs(stream, signal.vg_min, signal.vg_max, signal.pad_s, shot_s)
 
-    measured = [
-        found
-        for record in records
-        if record.status == "succeeded" and (found := snrs(record)) is not None
-    ]
     positions = [receiver.x for receiver in profile.receivers]
-    span = max(positions) - min(positions)
-    return snr_reach(measured, config.signal.reach_snr_db, span / 15) if span > 0 else None
+    return sigpipe_line_reach(
+        (unmuted(record) for record in records if record.status == "succeeded"),
+        config.signal,
+        max(positions) - min(positions),
+    )
 
 
 def far_limit(
@@ -350,6 +348,7 @@ def settle_records(
                 applied_s=applied_s,
                 spectra=spectra,
                 before_muting=unmuted,
+                image_band=image_band(values),
             )
             results[name] = result
             if latest_attempt is not None:
@@ -385,7 +384,16 @@ def settle_records(
             elif spent(result, "preprocessing"):
                 if attempt is not None:
                     record_result(
-                        run_folder, name, "preprocessing", attempt.attempt, budget_spent(result)
+                        run_folder,
+                        name,
+                        "preprocessing",
+                        attempt.attempt,
+                        budget_spent(
+                            result,
+                            "unchanged"
+                            if unchanged(result, "preprocessing", previous)
+                            else "budget",
+                        ),
                     )
                 # Rejected, the record goes into no window.
                 exclusions = exclusions.with_record(name)
@@ -576,8 +584,15 @@ def settle_images(
     the same changes, for the windows G2 asks it of, until none is left or the budgets are
     spent."""
     n_units = max(1, len(manifest.windows))
+    # A muted passive-active line's correlations measured on its records before their muting,
+    # from their inputs.
+    try:
+        profile: Profile | None = load_profile(manifest.profile.name, settings)
+    except ProfileError:
+        profile = None
     while True:
         attempts = read_attempts(run_folder)
+        records = RecordsBeforeMuting(manifest, profile, attempts)
         budget = RetryBudget(attempts, config.budgets, n_units)
         groups: dict[str, tuple[dict[str, Any], str, list[str]]] = {}
         for window in manifest.windows:
@@ -587,14 +602,15 @@ def settle_images(
             result = attempt.results.get("G2")
             if result is None:
                 folder = run_folder / window.folder
+                muted = window_muted(folder, muted_records(manifest.preset, attempts, latest))
                 result = judge_image(
                     window.folder,
                     load_image(folder),
                     config.image,
                     shared_band(folder, usable),
                     mode=manifest.preset.mode,
-                    muted=window_muted(folder, muted_records(manifest.preset, attempts, latest)),
-                    **virtual_shot(folder, manifest.preset.mode, config),
+                    muted=muted,
+                    **correlations_of(folder, manifest, config, muted, attempt, records),
                 )
                 attempt = record_result(
                     run_folder, window.folder, "phase_shift", attempt.attempt, result
@@ -606,7 +622,16 @@ def settle_images(
                 groups.setdefault(key, (parameters, trigger, []))[2].append(window.folder)
             elif spent(result, "phase_shift"):
                 record_result(
-                    run_folder, window.folder, "phase_shift", attempt.attempt, budget_spent(result)
+                    run_folder,
+                    window.folder,
+                    "phase_shift",
+                    attempt.attempt,
+                    budget_spent(
+                        result,
+                        "unchanged"
+                        if unchanged(result, "phase_shift", attempt.parameters)
+                        else "budget",
+                    ),
                 )
         if not groups:
             return

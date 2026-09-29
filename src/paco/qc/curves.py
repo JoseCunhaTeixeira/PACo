@@ -17,7 +17,7 @@ from paco.qc.config import QCConfig, read_qc_config
 from paco.qc.g4_profile import LINE
 from paco.qc.judging import judge_line, pick_windows
 from paco.qc.log import latest, read_attempts, record_result
-from paco.qc.loops import RetryBudget, deep_merge, next_try, spent, stage_changes
+from paco.qc.loops import RetryBudget, deep_merge, next_try, spent, stage_changes, unchanged
 from paco.qc.models import GateResult
 from paco.qc.report import QCReport, build_report, write_report
 from paco.settings import Settings
@@ -53,11 +53,20 @@ def pick_line(
         base = picked.parameters if picked is not None else config.picking.model_dump()
         g2 = ready[unit]
         if picked is None and (wanted := stage_changes(g2, "picking")) is not None:
-            base = deep_merge(base, wanted[0])  # G2's advice for the picking: two modes
+            # G2's advice for the picking: two modes, in a log from before 2026-09-29 (G2 keeps
+            # competing ridges since, the fundamental mode picked as the slowest ridge).
+            base = deep_merge(base, wanted[0])
         parameters = PickingParameters.model_validate(deep_merge(base, changes or {}))
         jobs[unit] = (parameters, g2.kept.band_hz)
     pick_windows(run_folder, jobs, config, triggered_by, settings.workers)
     settle_curves(run_folder, manifest, config, settings.workers)
+    if triggered_by == "initial":
+        # The earlier stages G2 and G3 blame, done again once (the redo tool picks again
+        # through here, as another trigger: no loop); then the line again.
+        from paco.qc.redo import settle_earlier  # redo imports pick_line
+
+        if settle_earlier(run_id, settings):
+            settle_curves(run_folder, load_manifest(run_id, settings), config, settings.workers)
     # The picks along the line as PAC shows them, before any inversion: best effort.
     try:
         save_picks_figures(run_folder, window_folders(run_folder))
@@ -116,7 +125,16 @@ def _retries(
         if wanted is not None:
             again[result.unit] = wanted
         elif spent(result, "picking"):
-            record_result(run_folder, result.unit, "picking", attempt.attempt, budget_spent(result))
+            record_result(
+                run_folder,
+                result.unit,
+                "picking",
+                attempt.attempt,
+                budget_spent(
+                    result,
+                    "unchanged" if unchanged(result, "picking", attempt.parameters) else "budget",
+                ),
+            )
     return again
 
 
