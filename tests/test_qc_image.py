@@ -4,6 +4,7 @@ test_quality.py, each defect planted alone."""
 import math
 
 import numpy as np
+import pytest
 from sigpipe.base import Coordinate, DispersionImage, LinearAcquisition, VelocityType
 from sigpipe.dataio.selection_plotting import SelectionScores
 from sigpipe.masw.quality.image import (
@@ -348,15 +349,20 @@ def test_more_data_halves_the_fk_threshold_and_stops_when_it_keeps_every_segment
 
 
 def test_a_band_much_narrower_than_the_usable_one_is_reported() -> None:
+    # Against the part of the records' usable band the image spans (10 to 40 Hz here): beyond
+    # its frequencies, nothing it could use.
     image = _image(_ridge(M0, 0.8))  # coherent from 15 to 35 Hz
 
     assert _flags(image, usable=(12.0, 38.0)) == {}
-    narrow = judge_image("xmid_12.50", image, THRESHOLDS, (5.0, 80.0))
-    (flag,) = narrow.flags
-    assert flag.name == "narrower_than_usable"
-    assert flag.stage == "phase_shift"
-    assert "27%" in flag.message
-    assert flag.action.model_dump()["kind"] == "keep" and narrow.verdict == "pass"
+    wide = judge_image("xmid_12.50", image, THRESHOLDS, (5.0, 80.0))
+    share = next(metric for metric in wide.metrics if metric.name == "band_share_of_usable")
+    assert wide.flags == () and share.value == pytest.approx(20 / 30, abs=0.001)
+    assert share.over.endswith("usable band within the image's, 10-40 Hz")
+    narrow = judge_image("xmid_12.50", _image(_ridge(M0, 0.8, band=(15.0, 25.0))), THRESHOLDS,
+                         (10.0, 40.0))  # fmt: skip
+    (flag,) = [one for one in narrow.flags if one.name == "narrower_than_usable"]
+    assert flag.stage == "phase_shift" and "33%" in flag.message
+    assert flag.action.model_dump()["kind"] == "keep"
 
 
 def test_a_peak_at_a_vmin_below_any_wave_is_an_artifact_to_start_above() -> None:

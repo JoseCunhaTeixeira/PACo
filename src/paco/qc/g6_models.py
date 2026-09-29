@@ -73,6 +73,7 @@ def judge_model_profile(
         thresholds.min_shared_depths,
         max_distance=thresholds.max_gap_steps * step if step > 0 else None,
     )
+    per_side = max(1, thresholds.neighbours // 2)
     results: list[GateResult] = []
     for model, near in zip(ordered, found, strict=True):
         worst = near.worst
@@ -83,6 +84,10 @@ def judge_model_profile(
                 threshold=thresholds.max_misfit,
                 bound="max",
                 passed=near.standing != "outlier",
+                of="neighbours",
+                over=f"{per_side} models a side at most, within {thresholds.max_gap_steps:g} "
+                "line steps: Vs down to their depth informed, the median relative difference to "
+                "a side's median, the worst side",
             ),
             Metric(
                 name="sides_compared",
@@ -90,6 +95,8 @@ def judge_model_profile(
                 threshold=1,
                 bound="min",
                 passed=bool(near.compared),
+                of="neighbours",
+                over=f"its {len(near.sides)} sides: those whose models agree with each other",
             ),
         ]
         flags: list[Flag] = []
@@ -178,14 +185,30 @@ def _line_result(
     ]
     depth_spread = spread(depths)
     metrics = [
-        Metric(name="models", value=len(models), threshold=1, bound="min", passed=bool(models)),
-        Metric(name="without_model", value=len(without), passed=True),
+        Metric(
+            name="models",
+            value=len(models),
+            threshold=1,
+            bound="min",
+            passed=bool(models),
+            of="line",
+            over=f"the line's {len(models) + len(without)} windows: a model G5 passed",
+        ),
+        Metric(
+            name="without_model",
+            value=len(without),
+            passed=True,
+            of="line",
+            over=f"the line's {len(models) + len(without)} windows",
+        ),
         Metric(
             name="depth_informed_spread",
             value=round(depth_spread, 3),
             threshold=thresholds.max_depth_informed_spread,
             bound="max",
             passed=depth_spread <= thresholds.max_depth_informed_spread,
+            of="line",
+            over=f"the {len(models)} models' depths informed: MAD over median",
         ),
     ]
     step = line_step([*(one.xmid for one in models), *without])

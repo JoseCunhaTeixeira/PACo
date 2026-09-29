@@ -444,6 +444,10 @@ class RecordsBeforeMuting:
         return self._streams[name]
 
 
+# The modes whose windows' images are made of stacked correlations, a virtual shot's.
+CORRELATION_MODES = frozenset({"passive", "passive-active"})
+
+
 def correlations_of(
     folder: Path,
     manifest: RunManifest,
@@ -460,7 +464,7 @@ def correlations_of(
     again with more of the data (more_data, from the values it last ran with: the run's preset,
     its latest `attempt`'s changes on top)."""
     mode = str(manifest.preset.mode)
-    if mode not in SPECTRA_MODES:
+    if mode not in CORRELATION_MODES:
         return {}
     values = deep_merge(
         manifest.preset.model_dump(mode="json"), attempt.parameters if attempt is not None else {}

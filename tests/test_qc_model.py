@@ -7,7 +7,13 @@ from typing import Any
 
 import pytest
 from sigpipe.masw.inversion import InversionParameters
-from sigpipe.masw.inversion.measuring import BandFit, BoundShare, InversionMeasures, ModelFit
+from sigpipe.masw.inversion.measuring import (
+    USEFUL_REFERENCE,
+    BandFit,
+    BoundShare,
+    InversionMeasures,
+    ModelFit,
+)
 
 from paco.qc.g5_model import ModelThresholds, judge_model
 from paco.qc.models import Flag, GateResult
@@ -50,6 +56,7 @@ def _measures(**changes: Any) -> InversionMeasures:  # noqa: ANN401
             BoundShare(parameter="thick1", bound="max", value=5.5, share=0.02),
         ),
         "useful_depth_m": 5.0,
+        "useful_reference": USEFUL_REFERENCE,  # read by the current rule, as a run's are
         "depth_max_m": 6.5,
         "vs_at_depths": ((1.0, 230.0), (2.0, 228.0), (3.0, 210.0), (4.0, 200.0), (5.0, 200.0)),
         "vs_layers": (230.0, 200.0),

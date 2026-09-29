@@ -797,12 +797,10 @@ def test_judge_run_puts_the_four_gates_in_the_log_and_the_report(
         "xmid_14.88": ["beyond_reach", "near_field"],
         "xmid_20.88": ["beyond_reach", "near_field"],
     }
-    # The band reaches the image's 100 Hz: kept, not widened.
+    # The band reaches the image's 100 Hz: kept, not widened. The records are usable to 412.5 Hz,
+    # counted within the image's frequencies (since 2026-09-29): its coherent band covers them.
     assert all(unit.verdicts["G2"] == "pass" for unit in windows)
-    assert all(
-        {flag.name for flag in unit.flags["G2"]} == {"band_at_fmax", "narrower_than_usable"}
-        for unit in windows
-    )
+    assert all({flag.name for flag in unit.flags["G2"]} == {"band_at_fmax"} for unit in windows)
     assert all(unit.curve is not None and unit.curve.n_points for unit in windows)
     # S3 saved each curve in PAC's layout.
     assert all((run_folder / unit.unit / CURVES_FILE).exists() for unit in windows)

@@ -19,6 +19,7 @@ from sigpipe.masw.profiles import Profile
 from sigpipe.masw.runs import RecordOutcome, RunError, WindowOutcome, load_image
 from sigpipe.masw.runs.processing import RECORDS_FOLDER, process_windows
 from sigpipe.masw.windows import Exclusions, MASWWindow, build_windows
+from sigpipe.masw.windows import nearest_offset as window_nearest_offset
 
 from paco import stopping
 from paco.qc.g2_image import ImageThresholds, judge_image
@@ -449,17 +450,10 @@ def trial_indices(n_windows: int, trials: int) -> list[int]:
 
 def nearest_offset(window_folder: Path) -> float | None:
     """The distance from the window's nearest shot to its nearest receiver, over the records it
-    uses (window.json); None when the window has none."""
-    window = MASWWindow.model_validate_json((window_folder / "window.json").read_text())
-    distances = [
-        math.dist(
-            (acquisition.source.x, acquisition.source.y, acquisition.source.z),
-            (receiver.x, receiver.y, receiver.z),
-        )
-        for acquisition in window.acquisitions
-        for receiver in acquisition.receivers
-    ]
-    return round(min(distances), 3) if distances else None
+    uses (window.json, sigpipe's nearest_offset); None when the window has none."""
+    return window_nearest_offset(
+        MASWWindow.model_validate_json((window_folder / "window.json").read_text())
+    )
 
 
 def _fix_grids(

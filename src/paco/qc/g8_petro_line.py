@@ -103,6 +103,10 @@ def _window_result(
             threshold=thresholds.max_misfit,
             bound="max",
             passed=vs.standing != "outlier",
+            of="neighbours",
+            over=f"{max(1, thresholds.neighbours // 2)} soil columns a side at most, within "
+            f"{thresholds.max_gap_steps:g} line steps: the rock physics' Vs, the median relative "
+            "difference to a side's median, the worst side",
         ),
         Metric(
             name="water_table_jump",
@@ -111,6 +115,8 @@ def _window_result(
             bound="max",
             passed=table.standing != "outlier",
             unit="m",
+            of="neighbours",
+            over="the same neighbours: the water table against a side's median, the worst side",
         ),
     ]
     shown = {flag.name for flag in curve.flags} if curve is not None else set()
@@ -157,11 +163,37 @@ def _line_result(
     depths = [water_tables[one.unit] for one in profiles]
     metrics = [
         Metric(
-            name="models", value=len(profiles), threshold=2, bound="min", passed=len(profiles) >= 2
+            name="models",
+            value=len(profiles),
+            threshold=2,
+            bound="min",
+            passed=len(profiles) >= 2,
+            of="line",
+            over=f"the line's {len(profiles) + len(without)} windows: a soil column G7 passed",
         ),
-        Metric(name="without_model", value=len(without), passed=True),
-        Metric(name="water_table_min", value=min(depths, default=None), passed=True, unit="m"),
-        Metric(name="water_table_max", value=max(depths, default=None), passed=True, unit="m"),
+        Metric(
+            name="without_model",
+            value=len(without),
+            passed=True,
+            of="line",
+            over=f"the line's {len(profiles) + len(without)} windows",
+        ),
+        Metric(
+            name="water_table_min",
+            value=min(depths, default=None),
+            passed=True,
+            unit="m",
+            of="line",
+            over=f"the {len(profiles)} soil columns",
+        ),
+        Metric(
+            name="water_table_max",
+            value=max(depths, default=None),
+            passed=True,
+            unit="m",
+            of="line",
+            over=f"the {len(profiles)} soil columns",
+        ),
     ]
     flags: list[Flag] = []
     if without:
