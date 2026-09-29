@@ -535,15 +535,16 @@ def _retry_models(results: Sequence[GateResult], batch: RetryBatch) -> bool:
         wanted = stage_changes(result, "inversion")
         if attempt is None or result.verdict != "retry" or wanted is None:
             continue
-        if not budget.grant(result.unit, result.gate):
-            spent = budget_spent(result)
+        changes, flag = wanted
+        given = given_again(attempt.parameters, changes)
+        # Its parameters already the attempt's: it would give its result again.
+        unchanged = given == dict(attempt.parameters)
+        if unchanged or not budget.grant(result.unit, result.gate):
+            spent = budget_spent(result, "unchanged" if unchanged else "budget")
             record_result(run_folder, result.unit, "inversion", attempt.attempt, spent)
             continue
-        changes, flag = wanted
         try:
-            derived = derive_inversion(
-                ready[result.unit], config.priors, given_again(attempt.parameters, changes)
-            )
+            derived = derive_inversion(ready[result.unit], config.priors, given)
         except InversionError:
             spent = budget_spent(result)
             record_result(run_folder, result.unit, "inversion", attempt.attempt, spent)
@@ -591,8 +592,7 @@ def judge_model_line(
     attempts = read_attempts(run_folder)
     models: list[Series] = []
     curves: dict[str, GateResult] = {}
-    parameters: dict[str, InversionParameters] = {}
-    useful: dict[str, float | None] = {}
+    informed: dict[str, float | None] = {}
     without: list[float] = []
     for window in manifest.windows:
         inverted = latest(attempts, window.folder, "inversion")
@@ -602,11 +602,13 @@ def judge_model_line(
             without.append(window.xmid)
             continue
         measures = InversionMeasures.model_validate_json(path.read_text())
-        # Down to the curve's depth of investigation, not the posterior's: with 3 layers or more
-        # each layer's Vs spans most of its prior, so the posterior's own useful depth is
-        # mostly 0 m.
+        # Down to the depth the data inform (G5's, where the models' Vs spread U stays under its
+        # limit; the user, 2026-09-29: one depth informed), within the curve's depth of
+        # investigation: below it, the priors speak, and models differ by them alone.
         curve = saved_m0(run_folder / window.folder / CURVES_FILE)
-        limit = investigation_depth(curve, config) if curve is not None else np.inf
+        reach = investigation_depth(curve, config) if curve is not None else np.inf
+        own = measures.useful_depth_m
+        limit = min(reach, own) if own is not None else reach
         depths = [(depth, vs) for depth, vs in measures.vs_at_depths if depth <= limit]
         if not depths:
             without.append(window.xmid)
@@ -622,15 +624,9 @@ def judge_model_line(
         picked = latest(attempts, window.folder, "picking")
         if picked is not None and "G4" in picked.results:
             curves[window.folder] = picked.results["G4"]
-        parameters[window.folder] = InversionParameters.model_validate(inverted.parameters)
-        useful[window.folder] = None if np.isinf(limit) else limit
+        informed[window.folder] = None if np.isinf(limit) else limit
     started_at = datetime.now(UTC)
-    capped = [
-        unit for unit in parameters if longer_runs(attempts, unit) >= config.model.max_longer_runs
-    ]
-    results = judge_model_profile(
-        models, curves, parameters, useful, config.models, without, capped
-    )
+    results = judge_model_profile(models, curves, informed, config.models, without)
     for result in results:
         if result.unit != LINE:
             inverted = latest(attempts, result.unit, "inversion")

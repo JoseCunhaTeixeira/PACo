@@ -21,7 +21,9 @@ def summarize_inversion(record: InversionRecord, live: bool) -> InversionStatus:
 
     succeeded = [window for window in record.windows if window.status == "succeeded"]
     vs = [window.vs_at_depths_m_s for window in succeeded if window.vs_at_depths_m_s is not None]
-    useful = [window.useful_depth_m for window in succeeded if window.useful_depth_m is not None]
+    informed = [
+        window.depth_informed_m for window in succeeded if window.depth_informed_m is not None
+    ]
     misfits = [window.misfit for window in succeeded if window.misfit is not None]
     elapsed_s = None
     if record.started_at is not None:
@@ -38,7 +40,7 @@ def summarize_inversion(record: InversionRecord, live: bool) -> InversionStatus:
         elapsed_s=elapsed_s,
         depths_m=record.depths_m,
         vs_m_s=_ranges(vs),
-        useful_depth_m=(round(min(useful), 1), round(max(useful), 1)) if useful else None,
+        depth_informed_m=(round(min(informed), 1), round(max(informed), 1)) if informed else None,
         misfit=(round(min(misfits), 2), round(max(misfits), 2)) if misfits else None,
         errors=_distinct_errors(record),
         error=error,

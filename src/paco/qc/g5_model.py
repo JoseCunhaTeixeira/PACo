@@ -72,12 +72,14 @@ class ModelThresholds(BaseModel):
         "at least: a median and 5 to 95 % band to a few percent (a Vs that jumps between two "
         "values where an interface may be above or below holds fewer than a layer's value).",
     )
-    max_vs_drop: float = Field(
+    min_vs_ratio: float = Field(
         default=0.5,
         gt=0,
         lt=1,
-        description="A layer of the layered median under this share of the Vs above it is "
-        "reported (a strong low-velocity layer), never failed.",
+        description="A layer of the layered median whose Vs is under this share of the one above "
+        "it is reported (a strong low-velocity layer), never failed. Only an inversion whose "
+        "priors let a layer's Vs drop by more (max_vs_drop over 1 - it; 0.2 by default) can "
+        "make one.",
     )
     plausible_vs: tuple[float, float] = Field(
         default=(50.0, 2_500.0),
@@ -98,7 +100,7 @@ class ModelThresholds(BaseModel):
     useful_uncertainty: float = Field(
         default=0.25,
         gt=0,
-        description="The useful depth ends where the kept models' relative uncertainty of Vs, "
+        description="The depth informed ends where the kept models' relative uncertainty of Vs, "
         "U(z) = (P90 - P10) / (2 P50), gets above this, from the surface down (sigpipe's "
         "useful_depth).",
     )
@@ -106,8 +108,8 @@ class ModelThresholds(BaseModel):
         default=0.8,
         gt=0,
         le=1,
-        description="The useful depth, at least this share of the depth the half-space's top may "
-        "reach: shallower, the model is shrunk to what the data inform.",
+        description="The depth informed, at least this share of the depth the half-space's top "
+        "may reach: shallower, the model is shrunk to what the data inform.",
     )
     min_contrast: float = Field(
         default=0.05,
@@ -156,7 +158,9 @@ def judge_model(
             value=band.misfit,
             threshold=thresholds.max_misfit,
             bound="max",
-            passed=band.misfit is not None and band.misfit <= thresholds.max_misfit,
+            # A band with no point to weigh (no mode, no uncertainty) is not measured, as G7's:
+            # a picked point without a mode is no_mode's to judge.
+            passed=band.misfit is None or band.misfit <= thresholds.max_misfit,
         )
         for name, band in zip(names, monitored.bands, strict=True)
     ]
@@ -244,7 +248,7 @@ def judge_model(
         # When the data choose the layers, the deepest allowed is the curve's reach whatever the
         # data inform: reported, the model's depth is not shrunk.
         Metric(
-            name="useful_depth",
+            name="depth_informed",
             value=useful,
             threshold=round(thresholds.min_useful_share * depth, 2),
             bound="min",
@@ -341,10 +345,10 @@ def judge_model(
         loop.flags.append(
             Flag(
                 name="uninformed",
-                message="The curve informs no depth of the model: the spread of the sampled Vs "
-                "is at least half the prior's everywhere, the model is the prior's. The picks' "
-                "uncertainties are too large for it: longer windows (run_processing again) give "
-                "smaller ones.",
+                message="The curve informs no depth of the model: the models' Vs spread U is over "
+                f"{thresholds.useful_uncertainty:.0%} at every depth, the model is the prior's. "
+                "The picks' uncertainties are too large for it: longer windows (run_processing "
+                "again) give smaller ones.",
                 stage="phase_shift",
                 action=Reject(reason="the curve constrains no depth of the model"),
                 fixable=False,
@@ -789,7 +793,7 @@ def _plausibility(vs_layers: tuple[float, ...], thresholds: ModelThresholds) -> 
     drops = [
         (below / above, index)
         for index, (above, below) in enumerate(itertools.pairwise(vs_layers))
-        if above > 0 and below < thresholds.max_vs_drop * above
+        if above > 0 and below < thresholds.min_vs_ratio * above
     ]
     if drops:
         ratio, index = min(drops)

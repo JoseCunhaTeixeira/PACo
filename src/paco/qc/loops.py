@@ -1,7 +1,7 @@
 """What the stage tools' retry loops share (option B of docs/qc_workflow.md): a gate's changes for
 the stage being run, merged into the parameters of the attempt before, and whether a unit may
-have one more try. Changes a gate asks of an earlier stage are left to the agent: going back is
-its call."""
+have one more try: never one with the parameters of the attempt before, which would give its
+result again."""
 
 from collections import Counter
 from collections.abc import Iterable, Mapping
@@ -58,9 +58,13 @@ class RetryBudget:
                 return False
             self._inversions[unit] += 1
             return True
-        if self.left <= 0:
-            return False
         if retries_at_gate(self._attempts, unit, gate) >= self._budgets.per_gate_and_unit:
+            return False
+        # G1's retries are each record's own: the run's budget is the windows' (retries_in_run
+        # leaves them out).
+        if gate == "G1":
+            return True
+        if self.left <= 0:
             return False
         self.left -= 1
         return True
@@ -71,15 +75,26 @@ def next_try(
 ) -> tuple[dict[str, Any], str] | None:
     """The parameters of `result`'s unit's next attempt at `stage` (`previous`, the latest
     attempt's, with the gate's changes over them) and what triggers it ("<gate>:<flag>"); None
-    when the gate asks nothing of this stage, or `budget` has no retry left for it."""
+    when the gate asks nothing of this stage, when its changes are already the attempt's (it
+    would give the same result: `unchanged`), or `budget` has no retry left for it."""
     wanted = stage_changes(result, stage)
-    if wanted is None or result.verdict != "retry" or not budget.grant(result.unit, result.gate):
+    if wanted is None or result.verdict != "retry":
         return None
     changes, flag = wanted
-    return deep_merge(previous, changes), f"{result.gate}:{flag}"
+    parameters = deep_merge(previous, changes)
+    if parameters == dict(previous) or not budget.grant(result.unit, result.gate):
+        return None
+    return parameters, f"{result.gate}:{flag}"
+
+
+def unchanged(result: GateResult, stage: Stage, previous: Mapping[str, Any]) -> bool:
+    """Whether the retry `result` asks of `stage` would run with the parameters of the attempt
+    before (`previous`): nothing left to try."""
+    wanted = stage_changes(result, stage)
+    return wanted is not None and deep_merge(previous, wanted[0]) == dict(previous)
 
 
 def spent(result: GateResult, stage: Stage) -> bool:
     """Whether `result` asks for a change of `stage`: once `next_try` gave it none, the budget
-    is spent."""
+    is spent, or the change was the attempt's already (`unchanged`)."""
     return result.verdict == "retry" and stage_changes(result, stage) is not None

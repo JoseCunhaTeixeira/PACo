@@ -98,7 +98,7 @@ def _window_result(
 ) -> GateResult:
     metrics = [
         Metric(
-            name="misfit",
+            name="neighbour_misfit",
             value=None if np.isnan(vs.worst) else round(vs.worst, 3),
             threshold=thresholds.max_misfit,
             bound="max",

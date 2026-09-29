@@ -44,11 +44,6 @@ class CurveThresholds(BaseModel):
     max_air_share: float = Field(
         default=0.5, gt=0, le=1, description="Share of the points in the air wave's band, at most."
     )
-    air_wave_mute_vmax: float = Field(
-        default=320.0,
-        gt=0,
-        description="m/s, the mute that removes the air wave: faster arrivals go",
-    )
     mute_vmin: float = Field(default=80.0, gt=0, description="m/s, the slowest wave the mute keeps")
     min_points: int = Field(
         default=4,
@@ -74,12 +69,6 @@ class CurveThresholds(BaseModel):
         description="The nearest shot's offset, as a share of the longest wavelength kept, at "
         "least: closer, the long wavelengths may read slow (near field). Reported, not applied.",
     )
-    max_uncertainty: float = Field(
-        default=0.5,
-        gt=0,
-        description="Median Lorentzian uncertainty over the velocity, at most: it depends on the "
-        "window's geometry, the same for every window of a line.",
-    )
 
 
 def judge_curve(
@@ -95,7 +84,8 @@ def judge_curve(
     """G3's verdict on one window's M0 pick, with the band G2 found coherent (or G1 usable)
     when known, the band a fix narrows to, the picking parameters the fixes start from, and
     the distance from the window's nearest shot to its receivers. Not `mutable` (a passive
-    line: no muting, the user, 2026-09-28), a flag only a mute would fix rejects."""
+    line: no muting, the user, 2026-09-28; records muted already, 2026-09-29), a flag only a
+    mute would fix rejects."""
     picking = picking or PickingParameters()
     quality = measure_quality(image, m0, thresholds.metrics)
     metrics = _metrics(quality, thresholds)
@@ -235,27 +225,16 @@ def judge_curve(
         )
     )
     if air > thresholds.max_air_share:
-        said = f"{air:.0%} of the points sit at {low:g}-{high:g} m/s: the air wave, not the ground."
+        # No mute parts them: one just under the air wave's speed cuts a fraction of a
+        # millisecond of it a metre, and every surface wave faster than it.
         flags.append(
             Flag(
                 name="air_wave",
-                message=f"{said} Mute the arrivals faster than the surface wave."
-                if mutable
-                else said,
-                stage="preprocessing",
-                action=Override(
-                    stage="preprocessing",
-                    overrides={
-                        "muting": {
-                            "method": "mute",
-                            "vmin": thresholds.mute_vmin,
-                            "vmax": thresholds.air_wave_mute_vmax,
-                        }
-                    },
-                )
-                if mutable
-                else Reject(reason="the air wave, not the ground"),
-                fixable=mutable,
+                message=f"{air:.0%} of the points sit at {low:g}-{high:g} m/s: the air wave, not "
+                "the ground; no mute parts them.",
+                stage="picking",
+                action=Reject(reason="the air wave, not the ground"),
+                fixable=False,
             )
         )
 
@@ -282,32 +261,24 @@ def judge_curve(
             )
         )
 
-    uncertainty = (
-        float(np.median(np.asarray(curve.vs_err, dtype=float)[order] / kept_vs))
+    # Over the points with an uncertainty: one without must not make the median unknown.
+    relative = (
+        np.asarray(curve.vs_err, dtype=float)[order] / kept_vs
         if curve.vs_err is not None and n_points
-        else None
+        else np.array([])
     )
-    uncertain = uncertainty is not None and uncertainty > thresholds.max_uncertainty
+    known = relative[np.isfinite(relative)]
+    uncertainty = float(np.median(known)) if known.size else None
+    # Reported (the user, 2026-09-29): the picker caps each point's at 0.4 of its velocity, so no
+    # limit over it could fail, and one under it would leave out a line's shortest windows; G5's
+    # depth informed judges what a loose curve does to the model.
     metrics.append(
         Metric(
             name="uncertainty",
             value=None if uncertainty is None else round(uncertainty, 3),
-            threshold=thresholds.max_uncertainty,
-            bound="max",
-            passed=not uncertain,
+            passed=True,
         )
     )
-    if uncertain:
-        flags.append(
-            Flag(
-                name="uncertain",
-                message=f"The array resolves velocity to {uncertainty:.0%} at best: the inversion "
-                "cannot use the curve. Longer windows, for the whole profile.",
-                stage="phase_shift",
-                action=Reject(reason="uncertainties beyond what the inversion can use"),
-                fixable=False,
-            )
-        )
 
     # The near field: the line leaves out a window's shots nearer than half the trial curves'
     # longest wavelength where it has farther ones (coherence.near_field_windows). Its own curve
@@ -519,30 +490,26 @@ def _flag(
                 f"The ridge stands {quality.prominence:.1f} times above the rest of the image: "
                 "barely."
             )
-            if not band and not mutable:
+            # A filter cannot change the image (the phase shift divides each trace's spectrum
+            # by its own amplitude): a mute alone, on records not muted yet.
+            if not mutable:
                 return Flag(
                     name="prominence",
-                    message=f"{said} No band to filter to, and no muting on a passive line.",
+                    message=f"{said} Its records muted already, or a passive line: nothing to try.",
                     stage="preprocessing",
                     action=Reject(reason="the ridge barely stands out"),
                     fixable=False,
                 )
-            overrides = (
-                {"filtering": {"method": "iir", "fmin": _low(band), "fmax": _high(band)}}
-                if band
-                else {
-                    "muting": {
-                        "method": "mute",
-                        "vmin": thresholds.mute_vmin,
-                        "vmax": 1500.0,
-                    }
-                }
-            )
             return Flag(
                 name="prominence",
-                message=f"{said} Filter to the band, or mute.",
+                message=f"{said} Mute its records to their surface waves.",
                 stage="preprocessing",
-                action=Override(stage="preprocessing", overrides=overrides),
+                action=Override(
+                    stage="preprocessing",
+                    overrides={
+                        "muting": {"method": "mute", "vmin": thresholds.mute_vmin, "vmax": 1500.0}
+                    },
+                ),
             )
         case "on_data":
             overrides = {"dispersion": {"fmin": _low(band), "fmax": _high(band)}} if band else {}

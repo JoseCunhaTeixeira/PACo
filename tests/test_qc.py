@@ -61,6 +61,7 @@ from paco.qc import (
     xmid_of,
 )
 from paco.qc.g3_curve import CurveThresholds
+from paco.qc.loops import RetryBudget, next_try, unchanged
 from paco.settings import Settings
 
 SMALL_WINDOWS = {"masw": {"length": 24, "step": 24}}
@@ -247,7 +248,66 @@ def test_a_spent_budget_rejects_with_the_last_flags() -> None:
     assert "ridge_at_vmax" in rejected.flags[0].message
 
 
+def test_a_retry_that_changes_nothing_is_refused_and_said() -> None:
+    # Asked with the parameters of the attempt before, it would give its result again (the user,
+    # 2026-09-29): none granted, the unit rejected with why.
+    asked = GateResult(gate="G2", unit="xmid_12.50", verdict="retry", flags=(RIDGE_AT_VMAX,))
+    changes = RIDGE_AT_VMAX.action.model_dump()["overrides"]
+    budget = RetryBudget((), Budgets(), 2)
+
+    assert next_try(asked, "phase_shift", budget, changes) is None
+    assert unchanged(asked, "phase_shift", changes) and not unchanged(asked, "phase_shift", {})
+    assert next_try(asked, "phase_shift", budget, {}) is not None
+    said = {why: budget_spent(asked, why).flags[0] for why in ("budget", "unchanged", "redone")}
+    assert [flag.name for flag in said.values()] == [
+        "budget_spent",
+        "nothing_to_try",
+        "redone_once",
+    ]
+    assert all(not flag.fixable and "ridge_at_vmax" in flag.message for flag in said.values())
+
+
+def test_g1s_retries_draw_on_the_records_budgets_alone() -> None:
+    # The run's budget spent by the windows: a record may still have its trigger corrected.
+    started = datetime(2026, 9, 25, 12, 0, tzinfo=UTC)
+    spent = tuple(
+        Attempt(
+            unit="xmid_2.88",
+            stage="phase_shift",
+            attempt=attempt,
+            parameters={},
+            triggered_by="G2:ridge_at_vmax",
+            started_at=started,
+            status="succeeded",
+        )
+        for attempt in (2, 3, 4, 5)
+    )
+    budget = RetryBudget(spent, Budgets(), 2)
+
+    assert budget.left == 0
+    assert budget.grant("1.dat", "G1") and not budget.grant("xmid_8.88", "G2")
+
+
 # ---------------------------------------------------------------- the configuration
+
+
+def test_a_snapshot_with_retired_or_renamed_thresholds_still_reads(tmp_path: Path) -> None:
+    # A run judged before 2026-09-29: its thresholds since retired dropped, those renamed read
+    # under their new name (one name, one meaning).
+    given = tmp_path / "qc.json"
+    given.write_text(
+        '{"signal": {"min_correlation_snr_db": 3.0, "max_trigger_shift_s": 0.02},'
+        ' "image": {"min_virtual_shot_snr_db": 3.0},'
+        ' "curve": {"air_wave_mute_vmax": 320.0},'
+        ' "model": {"max_vs_drop": 0.4},'
+        ' "models": {"max_useful_depth_spread": 0.6}}'
+    )
+
+    config = load_qc_config(given)
+
+    assert config.signal.max_trigger_error_s == 0.02
+    assert config.model.min_vs_ratio == 0.4
+    assert config.models.max_depth_informed_spread == 0.6
 
 
 def test_g1s_retries_are_the_records_not_the_windows() -> None:

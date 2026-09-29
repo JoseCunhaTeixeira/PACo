@@ -2,25 +2,33 @@
 
 How the gates act (milestone 14, option B of `docs/qc_workflow.md`): each stage tool runs its
 own gate's retries and returns one summary; going back across stages is the agent's, with
-`redo`; the agent asks the user only when it is stuck. Code: `src/paco/qc/line.py`
-(`run_processing`), `curves.py` (`pick`), `inverting.py` (`invert`, a job), `redo.py`,
-`loops.py` (what the loops share); tools: `src/paco/server.py`; tests: `tests/test_server.py`
-(the tools end to end), `tests/test_inversion.py` (the job), `tests/test_qc_*.py`.
+`redo`, but for the change of an earlier stage G2 or G3 asks, which `pick` does once itself
+(since 2026-09-29, below); the agent asks the user only when it is stuck. Code:
+`src/paco/qc/line.py` (`run_processing`), `curves.py` (`pick`), `inverting.py` (`invert`, a
+job), `redo.py` (`redo_stage`, `settle_earlier`), `loops.py` (what the loops share),
+`budgets.py` (the budgets, and why a retry is refused); tools: `src/paco/server.py`; tests:
+`tests/test_server.py` (the tools end to end), `tests/test_inversion.py` (the job),
+`tests/test_qc_*.py`.
 
 ## What each tool runs
 
 | Tool | Stages | Its gate's retries | Left to the agent |
 |---|---|---|---|
-| `run_processing` | S1 per record, G1, the S2 rules (band, window length), S2 per window, G2 | G1: a record preprocessed again with the change it asks (a trigger delay corrected); traces and records it excludes left out of the windows. G2: the phase shift again, in groups sharing the same change (the velocity range first) | G1's filter or mute, G2's mute: an earlier stage |
-| `pick` | S3 and G3 per window, G4 over the line | G3: the picking again with its change (corridor, coherence rule, longest wavelength, mode rule). G4: an outlier picked again along its neighbours' median curve, then G3 on it | G3's filter, mute or band: an earlier stage |
-| `invert` (a job) | S4 per window (bounds from its curve), G5, G6 | G5: longer sampling (the iterations 100 models a chain need, or twice), a Vs bound widened, a layer more or fewer. G6: a non-unique model inverted again, sampling twice as long | - |
+| `run_processing` | S1 per record, G1, the S2 rules (band, window length), S2 per window, G2 | G1: a muted record preprocessed again with its trigger corrected; traces and records it excludes left out of the windows. G2: the phase shift again, in groups sharing the same change (the velocity range first; a passive window's fk threshold halved) | none since 2026-09-29: G2's mute, an earlier stage, is done once at the end of `pick` |
+| `pick` | S3 and G3 per window, G4 over the line; then the earlier stage G2 or G3 asks for, once | G3: the picking again with its change (corridor, coherence rule, longest wavelength, mode rule, resampling). G4: an outlier picked again along its neighbours' median curve, then G3 on it. At the end, the changes G2 and G3 ask of an earlier stage (the records' mute, the phase shift's band) done once, the stages after it again, then G3 and G4 (`settle_earlier`, since 2026-09-29) | another change of an earlier stage (`redo`) |
+| `invert` (a job) | S4 per window (bounds from its curve), G5, G6 | G5: longer sampling (the iterations 100 models a chain need, or twice), a Vs bound widened, a layer more or fewer. G6: none since 2026-09-29 (a non-unique model kept: its posterior converged, sampling longer gives it again) | G5's `no_mode` band: the phase shift, an earlier stage |
 | `redo` | the stage given, for the windows given (by xmid or by flag), then what follows up to G4; the inversion as a job | the gates' own, as above | |
 
-Every retry is an attempt in the run's QC log, triggered by `<gate>:<flag>` (a gate's retry) or
-`backtrack` (the agent's `redo`); its results move to `attempts/<n>_<stage>/`. The budgets
-(rule 4): 2 retries per gate and window, 2 per window over the run, counted as each is
-granted (a batch of windows cannot overshoot); a window asking for a retry past its budget is
-rejected, "budget spent", with its last flags. `redo` is refused once the run's budget is spent.
+Every retry is an attempt in the run's QC log, triggered by `<gate>:<flag>` (a gate's retry, or
+an earlier stage done again at the end of `pick`) or `backtrack` (the agent's `redo`); its
+results move to `attempts/<n>_<stage>/`. The budgets (rule 4): 2 retries per gate and window, 2
+per window over the run (the earlier stages done again at the end of `pick` among them),
+counted as each is granted (a batch of windows cannot overshoot); G1's retries draw on each
+record's own budget, a window's inversion on its own 6. A unit asking for a retry it cannot
+have is rejected with its last flags: its budget spent (`budget_spent`), the retry would run
+with the parameters of the attempt before (`nothing_to_try`, since 2026-09-29), or the earlier
+stage it blames was done again once already (`redone_once`). `redo` is refused once the run's
+budget is spent.
 
 ## What the agent reads
 
@@ -121,5 +129,27 @@ else the agent decides from the summaries, and says which settings the gates cha
 - **A step back says what came of it**: the summary's "Retried backtrack, ... now ..." gives
   the verdict of the gate that judges the stage redone (G3 for the picking). It said "no
   verdict" for every window, looking for a gate named "backtrack".
+
+## Since 2026-09-29: the coherence review
+
+The user's decisions of 2026-09-29, the coherence review (`docs/qc_workflow.md`): a retry only
+where it can change the result, and no window left out unsaid.
+
+- **A retry with the parameters of the attempt before is refused** (`next_try`, `unchanged`):
+  it would give its result again, and PACo could grant the same retry twice. The unit is
+  rejected, `nothing_to_try`.
+- **The retries that could not change what they judge went**: G1's filter and mute (G1
+  measures in the band the images use, the noise before the muting: `G1.md`), G2's second mode,
+  G3's filter and air-wave mute (`G2.md`, `G3.md`), G6's longer sampling of a converged model
+  (`G6.md`); a mute is asked only of records not muted yet.
+- **The earlier stage G2 or G3 blames is done again once, by PACo** (`settle_earlier`, at the
+  end of the agent's `pick`; `redo_stage` with the trigger `<gate>:<flag>`, the run's budget
+  paying): the records muted, or the image made again with the pick's band, then the stages
+  after it up to G4. Asked again after it, the window is rejected (`redone_once`); the run's
+  budget spent, `budget_spent`. Until then those changes were the agent's, and G3's were never
+  run: the window was a gap, unsaid. A `pick` that `redo` runs does not start it again: no loop.
+- **G1's retries no longer wait on the run's budget**: once the windows had spent it, a
+  record's trigger correction in a step back was refused, against the rule of 2026-09-25
+  (above).
 
 Nothing left to judge here.

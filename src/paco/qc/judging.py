@@ -3,7 +3,7 @@ as an attempt of its own (the curve saved in PAC's layout) and G3 on its curve, 
 line at the end, each verdict recorded in the QC log, and the report written."""
 
 import logging
-from collections.abc import Mapping
+from collections.abc import Mapping, Sequence
 from concurrent.futures import ProcessPoolExecutor
 from datetime import UTC, datetime
 from pathlib import Path
@@ -12,11 +12,24 @@ from typing import Any
 from sigpipe.algorithms.picking.dispersion.tracking import PickingParameters, pick_modes
 from sigpipe.base import DispersionCurve, DispersionImage, Stream
 from sigpipe.dataio.dispersion.loading import load_dispersion_curves
+from sigpipe.dataio.selection_plotting import load_selection
 from sigpipe.masw.picks import CURVES_FILE, save_pick
-from sigpipe.masw.pipelines import PREPROCESSED, trigger_shift_s, unmuted_record
-from sigpipe.masw.presets import ActivePreset, PassivePreset, apply_overrides, resolve_preset
+from sigpipe.masw.pipelines import (
+    PREPROCESSED,
+    trigger_shift_s,
+    unmuted_record,
+    window_correlations,
+)
+from sigpipe.masw.presets import (
+    ActivePreset,
+    PassiveActivePreset,
+    PassivePreset,
+    apply_overrides,
+    resolve_preset,
+)
 from sigpipe.masw.profiles import Profile, ProfileError, load_profile
 from sigpipe.masw.quality.line import Series
+from sigpipe.masw.quality.measures import measure_signal, selection_measures
 from sigpipe.masw.quality.spectra import save_record_spectra
 from sigpipe.masw.runs import RunManifest, find_run, load_image, load_manifest, start_worker
 from sigpipe.masw.runs.stopping import finished
@@ -29,7 +42,7 @@ from paco.qc.attempts import invalidate
 from paco.qc.coherence import nearest_offset
 from paco.qc.config import QCConfig, snapshot_qc_config
 from paco.qc.g1_signal import SPECTRA_MODES, judge_signal
-from paco.qc.g2_image import judge_image, virtual_shot_snr
+from paco.qc.g2_image import judge_image, more_data
 from paco.qc.g3_curve import CurveThresholds, judge_curve
 from paco.qc.g4_profile import LINE, judge_profile
 from paco.qc.log import (
@@ -42,6 +55,7 @@ from paco.qc.log import (
     record_result,
     starts_afresh,
 )
+from paco.qc.loops import deep_merge
 from paco.qc.models import Attempt, GateResult, Stage
 from paco.qc.report import QCReport, build_report, write_report
 from paco.qc.shots import (
@@ -77,7 +91,7 @@ def judge_run(
         profile = None
     triggers = file_triggers(profile) if profile is not None else {}
     usable = judge_records(run_folder, manifest, config, triggers, profile)
-    judge_windows(run_folder, manifest, config, usable, picking or config.picking)
+    judge_windows(run_folder, manifest, config, usable, picking or config.picking, profile)
     judge_line(run_folder, manifest, config)
     report = build_report(run_id, run_folder, config.budgets, len(manifest.windows))
     write_report(report, run_folder)
@@ -116,6 +130,7 @@ def judge_records(
             applied_s=applied_s,
             spectra=manifest.preset.mode in SPECTRA_MODES,
             before_muting=unmuted,
+            image_band=image_band(values),
         )
         _judge_latest(run_folder, record.name, "preprocessing", result)
         draw_spectra(stream, folder, result.kept.band_hz)
@@ -152,6 +167,17 @@ def before_muting(
     return unmuted_record(preset, record, profile), shot_s + trigger_shift_s(preset, record)
 
 
+def image_band(values: Mapping[str, Any]) -> tuple[float, float] | None:
+    """The band the dispersion images use (a preset's values, or a stage's: its dispersion's
+    fmin and fmax): what G1 and G2 measure a signal's SNR and coherence in; None when either
+    is not set."""
+    dispersion: Mapping[str, Any] = values.get("dispersion") or {}
+    fmin, fmax = dispersion.get("fmin"), dispersion.get("fmax")
+    if isinstance(fmin, int | float) and isinstance(fmax, int | float):
+        return float(fmin), float(fmax)
+    return None
+
+
 def draw_spectra(stream: Stream, folder: Path, band: tuple[float, float] | None) -> None:
     """Preprocessed record `stream`'s spectra beside it in `folder`, G1's usable band (`band`)
     dashed (sigpipe's save_record_spectra). Best effort."""
@@ -167,24 +193,31 @@ def judge_windows(
     config: QCConfig,
     usable: dict[str, tuple[float, float] | None],
     picking: PickingParameters,
+    profile: Profile | None = None,
 ) -> None:
     """G2 on each window's image, against its latest phase-shift attempt; then the picking, an
     attempt of its own, and G3 on its M0 curve. The band every record of the window keeps
-    usable tells G2 what the data allow, and whether they were muted what to try first."""
-    muted = muted_records(manifest.preset, read_attempts(run_folder), latest)
+    usable tells G2 what the data allow, and whether they were muted what to try first; a muted
+    passive-active window's correlations are measured on its records before their muting, from
+    their inputs in `profile`."""
+    attempts = read_attempts(run_folder)
+    records = RecordsBeforeMuting(manifest, profile, attempts)
+    muted = muted_records(manifest.preset, attempts, latest)
     for window in manifest.windows:
         if window.status != "succeeded":
             continue
         folder = run_folder / window.folder
         image = load_image(folder)
+        attempt = latest(attempts, window.folder, "phase_shift")
+        muting = window_muted(folder, muted)
         g2 = judge_image(
             window.folder,
             image,
             config.image,
             shared_band(folder, usable),
             mode=manifest.preset.mode,
-            muted=window_muted(folder, muted),
-            **virtual_shot(folder, manifest.preset.mode, config),
+            muted=muting,
+            **correlations_of(folder, manifest, config, muting, attempt, records),
         )
         _judge_latest(run_folder, window.folder, "phase_shift", g2)
         judge_picking(run_folder, window.folder, image, picking, config, g2.kept.band_hz)
@@ -204,7 +237,9 @@ def judge_picking(
     `band` (G2's coherent band), and log the attempt with the verdict."""
     started_at = datetime.now(UTC)
     previous = len(attempts_of(read_attempts(run_folder), unit, "picking"))
-    g3 = _pick(run_folder, unit, picking, config.curve, band, previous, _mutable(run_folder), image)
+    g3 = _pick(
+        run_folder, unit, picking, config.curve, band, previous, _mutable(run_folder, unit), image
+    )
     _log_pick(run_folder, unit, previous, picking, triggered_by, started_at, g3)
     return g3
 
@@ -222,7 +257,7 @@ def pick_windows(
     they end. G3's results by window."""
     attempts = read_attempts(run_folder)
     previous = {unit: len(attempts_of(attempts, unit, "picking")) for unit in jobs}
-    mutable = _mutable(run_folder)
+    mutable = {unit: _mutable(run_folder, unit) for unit in jobs}
     started_at = datetime.now(UTC)
     results: dict[str, GateResult] = {}
 
@@ -237,7 +272,8 @@ def pick_windows(
         for unit, (picking, band) in jobs.items():
             stopping.check()
             logged(
-                unit, _pick(run_folder, unit, picking, config.curve, band, previous[unit], mutable)
+                unit,
+                _pick(run_folder, unit, picking, config.curve, band, previous[unit], mutable[unit]),
             )
         return results
     one_thread_each()  # the workers are the cores the picks take
@@ -246,7 +282,7 @@ def pick_windows(
     ) as executor:
         futures = {
             executor.submit(
-                _pick, run_folder, unit, picking, config.curve, band, previous[unit], mutable
+                _pick, run_folder, unit, picking, config.curve, band, previous[unit], mutable[unit]
             ): unit
             for unit, (picking, band) in jobs.items()
         }
@@ -278,11 +314,15 @@ def _pick(
     return judge_curve(unit, image, m0, thresholds, band, picking, nearest_offset(folder), mutable)
 
 
-def _mutable(run_folder: Path) -> bool:
-    """Whether the run's records can be muted: not a passive line's (its preset has no muting,
-    the user, 2026-09-28)."""
+def _mutable(run_folder: Path, unit: str) -> bool:
+    """Whether window `unit`'s records can be muted: not a passive line's (its preset has no
+    muting, the user, 2026-09-28), nor records muted already (the user, 2026-09-29: no retry
+    that could not change them)."""
     manifest = RunManifest.model_validate_json((run_folder / "run.json").read_text())
-    return "muting" in type(manifest.preset).model_fields
+    if "muting" not in type(manifest.preset).model_fields:
+        return False
+    muted = muted_records(manifest.preset, read_attempts(run_folder), latest)
+    return not window_muted(run_folder / unit, muted)
 
 
 def _log_pick(
@@ -382,20 +422,101 @@ def saved_m0(path: Path) -> DispersionCurve | None:
     return next((curve for curve in curves if curve.mode.number == 0), None)
 
 
-def virtual_shot(folder: Path, mode: str, config: QCConfig) -> dict[str, Any]:
-    """G2's arguments on a passive or passive-active window's virtual shot, its stacked
-    correlations saved beside its image: that it has one, and its SNR (None: none saved)."""
+class RecordsBeforeMuting:
+    """A run's records before their muting, each preprocessed once, as its latest attempt had
+    it, from its input in `profile` (before_muting): what a muted passive-active window's
+    correlations are measured on (a muting zeroes a record's noise, and its correlations'
+    after the slowest arrival). None for a record whose input is not at hand."""
+
+    def __init__(
+        self, manifest: RunManifest, profile: Profile | None, attempts: Sequence[Attempt]
+    ) -> None:
+        self._manifest = manifest
+        self._profile = profile
+        self._attempts = attempts
+        self._streams: dict[str, Stream | None] = {}
+
+    def stream(self, name: str) -> Stream | None:
+        if name not in self._streams:
+            attempt = latest(self._attempts, name, "preprocessing")
+            found = before_muting(self._manifest.preset, self._profile, name, attempt)
+            self._streams[name] = found[0] if found is not None else None
+        return self._streams[name]
+
+
+def correlations_of(
+    folder: Path,
+    manifest: RunManifest,
+    config: QCConfig,
+    muted: bool,
+    attempt: Attempt | None,
+    records: RecordsBeforeMuting | None = None,
+) -> dict[str, Any]:
+    """G2's arguments on a passive or passive-active window (none for an active one): its
+    stacked correlations, saved beside its image, measured as a record is (sigpipe's
+    measure_signal from the virtual source; `muted`, its records muted before correlating: its
+    SNR and band measured on the correlations of its `records` before their muting, else not),
+    its fk selection's measures (a passive window's, as its job saved it), and the phase shift
+    again with more of the data (more_data, from the values it last ran with: the run's preset,
+    its latest `attempt`'s changes on top)."""
+    mode = str(manifest.preset.mode)
     if mode not in SPECTRA_MODES:
         return {}
+    values = deep_merge(
+        manifest.preset.model_dump(mode="json"), attempt.parameters if attempt is not None else {}
+    )
     path = folder / PREPROCESSED
-    snr = (
-        virtual_shot_snr(
-            stream_of(path), config.signal.vg_min, config.signal.vg_max, config.signal.pad_s
+    unmuted = (
+        _correlations_before_muting(folder, manifest, attempt, records)
+        if muted and records is not None
+        else None
+    )
+    correlations = (
+        measure_signal(
+            stream_of(path),
+            config.signal,
+            source="virtual",
+            spectra=True,
+            records_muted=muted,
+            before_muting=None if unmuted is None else (unmuted, 0.0),
+            image_band=image_band(values),
         )
         if path.exists()
         else None
     )
-    return {"virtual_shot": True, "virtual_shot_snr_db": snr}
+    selection = load_selection(folder)
+    return {
+        "correlations": correlations,
+        "selection": selection_measures(selection, config.signal) if selection else (),
+        "more": more_data(mode, values),
+    }
+
+
+def _correlations_before_muting(
+    folder: Path,
+    manifest: RunManifest,
+    attempt: Attempt | None,
+    records: RecordsBeforeMuting,
+) -> Stream | None:
+    """A passive-active window's stacked correlations made again from its records before their
+    muting, as its latest `attempt` stacked them; None without them all."""
+    preset = manifest.preset
+    if not isinstance(preset, PassiveActivePreset):
+        return None
+    window = MASWWindow.model_validate_json((folder / "window.json").read_text())
+    streams: dict[str, Stream] = {}
+    for path in window.selected_files:
+        found = records.stream(path.name)
+        if found is None:
+            return None
+        streams[path.name] = found
+    if attempt is not None and attempt.parameters:
+        preset = apply_overrides(preset, attempt.parameters)
+    try:
+        return window_correlations(preset, window, streams)
+    except Exception:
+        logger.exception("Could not correlate the records of %s before their muting", folder)
+        return None
 
 
 def stream_of(path: Path) -> Stream:

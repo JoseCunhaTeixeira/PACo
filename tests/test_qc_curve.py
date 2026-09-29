@@ -142,7 +142,9 @@ def test_peaks_too_narrow_for_the_window_reject_the_window() -> None:
     }
 
 
-def test_a_ridge_barely_above_the_image_asks_for_a_filter_on_the_band() -> None:
+def test_a_ridge_barely_above_the_image_asks_for_a_mute_on_records_not_muted() -> None:
+    # A filter cannot change the image (the phase shift divides each trace's spectrum by its own
+    # amplitude): a mute alone, on records not muted yet; muted already, nothing to try.
     image = _image(_ridge(M0, 0.8, 1.5), background=0.6)
     result = judge_curve("xmid_12.50", image, _pick(image, M0), THRESHOLDS, (12.0, 38.0))
 
@@ -152,8 +154,12 @@ def test_a_ridge_barely_above_the_image_asks_for_a_filter_on_the_band() -> None:
     assert flag.action.model_dump() == {
         "kind": "override",
         "stage": "preprocessing",
-        "overrides": {"filtering": {"method": "iir", "fmin": 12.0, "fmax": 38.0}},
+        "overrides": {"muting": {"method": "mute", "vmin": 80.0, "vmax": 1500.0}},
     }
+    muted = judge_curve(
+        "xmid_12.50", image, _pick(image, M0), THRESHOLDS, (12.0, 38.0), mutable=False
+    )
+    assert muted.verdict == "reject" and not muted.flags[0].fixable
     # No curve with the pick: only the quality metrics.
     assert {metric.name for metric in result.metrics} == QUALITY_METRICS
 
@@ -254,31 +260,21 @@ def test_a_jump_between_consecutive_points_means_another_mode() -> None:
     }
 
 
-def test_points_at_the_air_waves_speed_ask_for_a_mute() -> None:
+def test_points_at_the_air_waves_speed_are_rejected() -> None:
+    # No mute parts them (the user, 2026-09-29): one just under the air wave's speed cuts a
+    # fraction of a millisecond of it a metre, and every surface wave faster than it.
     image = _image(_ridge(M0, 0.8, 1.5))
     air = 345.0 - 15.0 * (FREQUENCIES - 10.0) / 30.0  # 345 at 10 Hz to 330 at 40 Hz
-    result = judge_curve("xmid_12.50", image, _picked(image, M0, vs=air), THRESHOLDS)
+    for mutable in (True, False):
+        picked = _picked(image, M0, vs=air)
+        result = judge_curve("xmid_12.50", image, picked, THRESHOLDS, mutable=mutable)
 
-    assert result.verdict == "retry"
-    (flag,) = result.flags
-    assert flag.name == "air_wave" and flag.stage == "preprocessing"
-    assert flag.action.model_dump() == {
-        "kind": "override",
-        "stage": "preprocessing",
-        # No width: each record's own pulse, filled when the records are done again (shots.py).
-        "overrides": {"muting": {"method": "mute", "vmin": 80.0, "vmax": 320.0}},
-    }
-
-
-def test_the_air_wave_on_a_passive_line_is_rejected_with_no_mute_to_try() -> None:
-    image = _image(_ridge(M0, 0.8, 1.5))
-    air = 345.0 - 15.0 * (FREQUENCIES - 10.0) / 30.0
-    picked = _picked(image, M0, vs=air)
-    result = judge_curve("xmid_12.50", image, picked, THRESHOLDS, mutable=False)
-
-    (flag,) = result.flags
-    assert flag.name == "air_wave" and not flag.fixable and result.verdict == "reject"
-    assert flag.action.model_dump() == {"kind": "reject", "reason": "the air wave, not the ground"}
+        (flag,) = result.flags
+        assert flag.name == "air_wave" and not flag.fixable and result.verdict == "reject"
+        assert flag.action.model_dump() == {
+            "kind": "reject",
+            "reason": "the air wave, not the ground",
+        }
 
 
 def test_velocity_falling_with_wavelength_is_flagged_and_kept() -> None:
@@ -358,17 +354,20 @@ def test_a_curve_spanning_too_few_wavelengths_asks_to_keep_more_of_the_ridge() -
     assert ratio.value is not None and ratio.value < 4 / 3 and not ratio.passed
 
 
-def test_uncertainties_beyond_what_the_inversion_can_use_reject() -> None:
+def test_the_uncertainty_is_reported_not_judged() -> None:
+    # The picker caps each point's at 0.4 of its velocity: no limit over it could fail, one under
+    # it would leave out a line's shortest windows (the user, 2026-09-29). Reported; a point
+    # without one leaves the median to the others.
     image = _image(_ridge(M0, 0.8, 1.5))
-    picked = _picked(image, M0, vs_err=0.6 * M0)
+    errors = 0.6 * M0
+    errors[:3] = np.nan
+    picked = _picked(image, M0, vs_err=errors)
     result = judge_curve("xmid_12.50", image, picked, THRESHOLDS)
 
-    assert result.verdict == "reject"
-    (flag,) = result.flags
-    assert flag.name == "uncertain" and not flag.fixable and flag.stage == "phase_shift"
-    assert flag.action.model_dump()["kind"] == "reject"
+    assert "uncertain" not in {flag.name for flag in result.flags}
     uncertainty = next(metric for metric in result.metrics if metric.name == "uncertainty")
     assert uncertainty.value is not None and math.isclose(uncertainty.value, 0.6, abs_tol=0.01)
+    assert uncertainty.threshold is None and uncertainty.passed
 
 
 def test_a_shot_closer_than_half_the_longest_wavelength_is_reported() -> None:

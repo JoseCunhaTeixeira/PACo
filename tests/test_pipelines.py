@@ -458,9 +458,11 @@ EXPECTED_FILES = {
 
 def _expected(name: str, overrides: dict[str, Any]) -> set[str]:
     """The files a window of mode `name` gets with `overrides`: the fk selection adds its
-    figure."""
+    figure and its data."""
     selecting = overrides.get("selection", {}).get("method") == "fk"
-    return EXPECTED_FILES[name] | ({"Selection_0000.png"} if selecting else set())
+    return EXPECTED_FILES[name] | (
+        {"Selection_0000.png", "Selection_0000.json"} if selecting else set()
+    )
 
 
 @DEMO_CASES

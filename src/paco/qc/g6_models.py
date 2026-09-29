@@ -1,18 +1,18 @@
 """G6, the model profile QC over the whole line (docs/qc_workflow.md): the monitored model's Vs
-(the ensemble's) at fixed depths along the line, each model against its neighbours on either side (the sides of
-G4). A jump the curves do not show (G4 found the window's curve fits its neighbours) is
-non-uniqueness: invert that window again; a jump the curves show too is kept. And how evenly
-the depth of investigation (half each curve's longest wavelength, the "useful depth" here) runs
+(the ensemble's) at fixed depths down to its depth informed (G5's), each model against its
+neighbours on either side within a few of the line's steps (the sides of G4). A jump the curves
+do not show (G4 found the window's curve fits its neighbours) is non-uniqueness, kept with its
+flag: G5 passed the model converged, and sampling longer draws the same posterior again (the
+user, 2026-09-29). A jump the curves show too is kept. And how evenly the depth informed runs
 along the line. No lateral smoothing: neither models edited, nor neighbours used as priors."""
 
-from collections.abc import Collection, Mapping, Sequence
+from collections.abc import Mapping, Sequence
 
 import numpy as np
 from pydantic import BaseModel, ConfigDict, Field
-from sigpipe.masw.inversion import InversionParameters
 from sigpipe.masw.quality.line import Series, neighbourhoods, spread
 
-from paco.qc.models import Flag, GateResult, Keep, Kept, Metric, Override
+from paco.qc.models import Flag, GateResult, Keep, Kept, Metric
 from paco.qc.report import line_step, stretches
 
 GATE = "G6"
@@ -37,39 +37,48 @@ class ModelProfileThresholds(BaseModel):
     min_shared_depths: int = Field(
         default=2, ge=1, description="Depths shared with a side's median model, to compare at all."
     )
-    max_useful_depth_spread: float = Field(
+    max_depth_informed_spread: float = Field(
         default=0.5,
         gt=0,
-        description="MAD over median of the models' depths of investigation (half each curve's "
-        "longest wavelength) along the line, at most: beyond it the models do not see equally "
-        "deep.",
+        description="MAD over median of the models' depths informed (where their Vs spread U "
+        "stays under its limit, G5's) along the line, at most: beyond it the models do not see "
+        "equally deep.",
+    )
+    max_gap_steps: float = Field(
+        default=3.0,
+        gt=0,
+        description="Neighbours are the windows within this many of the line's steps: windows "
+        "far apart, across a gap, are not neighbours (as G8's).",
     )
 
 
 def judge_model_profile(
     models: Sequence[Series],
     curves: Mapping[str, GateResult],
-    parameters: Mapping[str, InversionParameters],
-    useful_depths: Mapping[str, float | None],
+    depths_informed: Mapping[str, float | None],
     thresholds: ModelProfileThresholds,
     without: Sequence[float] = (),
-    sampled_longer: Collection[str] = (),
 ) -> tuple[GateResult, ...]:
-    """G6's verdicts: one per model (the ensemble's Vs by depth, down to its useful depth:
-    its curve's depth of investigation), then one for the line, unit "line". `curves` holds G4's
-    result on each window's curve, `parameters` each model's inversion parameters,
-    `useful_depths` each window's (None: the whole model), `without` the xmids without a
-    model, `sampled_longer` the windows already sampled longer as often as the loop allows."""
+    """G6's verdicts: one per model (the ensemble's Vs by depth, down to its depth informed:
+    below it the priors speak, not the data), then one for the line, unit "line". `curves`
+    holds G4's result on each window's curve, `depths_informed` each window's (None: the whole
+    model), `without` the xmids without a model. Neighbours are the models within
+    `max_gap_steps` of the line's steps."""
     ordered = sorted(models, key=lambda model: model.xmid)
+    step = line_step([*(one.xmid for one in ordered), *without])
     found = neighbourhoods(
-        ordered, thresholds.neighbours, thresholds.max_misfit, thresholds.min_shared_depths
+        ordered,
+        thresholds.neighbours,
+        thresholds.max_misfit,
+        thresholds.min_shared_depths,
+        max_distance=thresholds.max_gap_steps * step if step > 0 else None,
     )
     results: list[GateResult] = []
     for model, near in zip(ordered, found, strict=True):
         worst = near.worst
         metrics = [
             Metric(
-                name="misfit",
+                name="neighbour_misfit",
                 value=None if np.isnan(worst) else round(worst, 3),
                 threshold=thresholds.max_misfit,
                 bound="max",
@@ -107,35 +116,17 @@ def judge_model_profile(
                         action=Keep(note="the curves cannot tell"),
                     )
                 )
-            elif model.unit in sampled_longer:
-                flags.append(
-                    Flag(
-                        name="non_unique",
-                        message=f"The model is {worst:.0%} off its neighbours {near.where}, while "
-                        "its curve fits theirs: another model fits the same data, and it was "
-                        "sampled longer as often as the loop allows.",
-                        stage="inversion",
-                        action=Keep(
-                            note="kept with the warning: sampling longer did not settle it"
-                        ),
-                    )
-                )
             else:
-                inverted = parameters[model.unit]
+                # Its chains agree (G5 passed it converged): sampling longer draws the same
+                # posterior again (the user, 2026-09-29: no retry that could not change it).
                 flags.append(
                     Flag(
                         name="non_unique",
                         message=f"The model is {worst:.0%} off its neighbours {near.where}, while "
-                        "its curve fits theirs: another model fits the same data. Invert it "
-                        "again, sampling twice as long.",
+                        "its curve fits theirs: another model fits the same data. Kept, to look "
+                        "at.",
                         stage="inversion",
-                        action=Override(
-                            stage="inversion",
-                            overrides={
-                                "n_iterations": 2 * inverted.n_iterations,
-                                "n_burnin_iterations": 2 * inverted.n_burnin_iterations,
-                            },
-                        ),
+                        action=Keep(note="a converged posterior: sampling longer gives it again"),
                     )
                 )
         elif near.standing == "shared_change":
@@ -169,20 +160,20 @@ def judge_model_profile(
                 kept=Kept(n_points=int(model.x.size)),
             )
         )
-    results.append(_line_result(ordered, useful_depths, without, thresholds))
+    results.append(_line_result(ordered, depths_informed, without, thresholds))
     return tuple(results)
 
 
 def _line_result(
     models: Sequence[Series],
-    useful_depths: Mapping[str, float | None],
+    depths_informed: Mapping[str, float | None],
     without: Sequence[float],
     thresholds: ModelProfileThresholds,
 ) -> GateResult:
-    """Coverage: the xmids without a model, and how evenly the useful depth runs along the line
-    (a model informed down to its bottom counts at its deepest compared depth)."""
+    """Coverage: the xmids without a model, and how evenly the depth informed runs along the
+    line (a model informed down to its bottom counts at its deepest compared depth)."""
     depths = [
-        depth if (depth := useful_depths.get(model.unit)) is not None else float(model.x[-1])
+        depth if (depth := depths_informed.get(model.unit)) is not None else float(model.x[-1])
         for model in models
     ]
     depth_spread = spread(depths)
@@ -190,11 +181,11 @@ def _line_result(
         Metric(name="models", value=len(models), threshold=1, bound="min", passed=bool(models)),
         Metric(name="without_model", value=len(without), passed=True),
         Metric(
-            name="useful_depth_spread",
+            name="depth_informed_spread",
             value=round(depth_spread, 3),
-            threshold=thresholds.max_useful_depth_spread,
+            threshold=thresholds.max_depth_informed_spread,
             bound="max",
-            passed=depth_spread <= thresholds.max_useful_depth_spread,
+            passed=depth_spread <= thresholds.max_depth_informed_spread,
         ),
     ]
     step = line_step([*(one.xmid for one in models), *without])
@@ -208,14 +199,14 @@ def _line_result(
                 action=Keep(note="the gaps stay in the report"),
             )
         )
-    if depth_spread > thresholds.max_useful_depth_spread:
+    if depth_spread > thresholds.max_depth_informed_spread:
         flags.append(
             Flag(
-                name="uneven_useful_depth",
-                message=f"The depth of investigation (half the longest wavelength) varies by "
-                f"{depth_spread:.0%} along the line: the models do not see equally deep.",
+                name="uneven_depth_informed",
+                message=f"The depth informed varies by {depth_spread:.0%} along the line: the "
+                "models do not see equally deep.",
                 stage="inversion",
-                action=Keep(note="compare the models only down to the shallowest useful depth"),
+                action=Keep(note="compare the models only down to the shallowest depth informed"),
             )
         )
     return GateResult(

@@ -7,12 +7,12 @@ from dataclasses import replace
 import numpy as np
 import pytest
 from sigpipe.base import Coordinate, LinearAcquisition, Stream
+from sigpipe.masw.quality.measures import decay_outliers
 from sigpipe.masw.quality.signal import signal_windows
 from sigpipe.transformers import Shift
 
 from paco.qc.g1_signal import (
     SignalThresholds,
-    decay_outliers,
     judge_receivers,
     judge_signal,
     judge_spectra,
@@ -77,10 +77,10 @@ def test_a_clean_shot_passes_with_its_wave_in_the_window() -> None:
     assert (
         by_name["lateral_coherence"].value is not None and by_name["lateral_coherence"].value > 0.9
     )
-    assert (
-        by_name["trigger_shift_s"].value is not None
-        and abs(by_name["trigger_shift_s"].value) < THRESHOLDS.max_trigger_shift_s
-    )
+    # Not muted: the trigger measured, reported alone (a common delay changes no image).
+    error = by_name["trigger_error_s"]
+    assert error.value is not None and abs(error.value) < THRESHOLDS.max_trigger_error_s
+    assert error.threshold is None
     assert result.kept.n_traces == N_TRACES
     assert result.kept.band_hz is not None
     fmin, fmax = result.kept.band_hz
@@ -129,13 +129,30 @@ def _metric(result: GateResult, name: str) -> float | None:
     return next(metric.value for metric in result.metrics if metric.name == name)
 
 
-def test_a_record_with_too_much_noise_has_a_low_snr() -> None:
-    loud = _shot(noise=0.05)
+def test_a_record_with_too_much_noise_is_left_out_at_once() -> None:
+    # Its SNR in its usable band (9.5-30 Hz at a noise of 0.5): under 6 dB, the record left
+    # out, no retry (a filter or a mute would measure the same, the user, 2026-09-29). Noisier,
+    # no band at all.
+    assert judge_signal("1.dat", _shot(noise=0.05), THRESHOLDS).verdict == "pass"
+    weak = judge_signal("1.dat", _shot(noise=0.5), THRESHOLDS)
+    (low,) = [flag for flag in weak.flags if flag.name == "low_snr"]
+    assert weak.verdict == "reject" and "in its usable band" in low.message
+    assert low.action.model_dump() == {"kind": "exclude_record", "record": "1.dat"}
+    assert not low.fixable
+    drowned = judge_signal("1.dat", _shot(noise=1.0), THRESHOLDS)
+    assert "no_usable_band" in {flag.name for flag in drowned.flags}
+    assert drowned.verdict == "reject"
 
-    assert judge_signal("1.dat", loud, THRESHOLDS).verdict == "pass"
-    weak = _shot(noise=1.0)
-    result = judge_signal("1.dat", weak, THRESHOLDS)
-    assert "low_snr" in {flag.name for flag in result.flags}
+
+def test_a_record_is_measured_where_the_images_look() -> None:
+    # Its SNR and coherence in the part of its usable band the dispersion images use (the user,
+    # 2026-09-29); a band that misses theirs leaves nothing to image.
+    kept = judge_signal("1.dat", _shot(), THRESHOLDS, image_band=(0.0, 30.0))
+    snr = next(metric for metric in kept.metrics if metric.name == "snr_db")
+    assert kept.verdict == "pass" and "within the images', 0-30 Hz" in snr.over
+    missed = judge_signal("1.dat", _shot(), THRESHOLDS, image_band=(200.0, 300.0))
+    (flag,) = [flag for flag in missed.flags if flag.name == "no_usable_band"]
+    assert missed.verdict == "reject" and "misses the images' band" in flag.message
 
 
 def test_a_reversed_trace_is_not_judged() -> None:
@@ -158,40 +175,52 @@ def test_leaving_traces_out_adds_no_amplitude_outlier() -> None:
 
 
 def test_a_shifted_trigger_asks_for_its_correction() -> None:
-    # Muted with no shift (applied_s 0): the shot should be at 0, the first breaks put it 50 ms on.
-    shifted = judge_signal("1.dat", _shot(t0=0.05), THRESHOLDS, applied_s=0.0)
+    # Muted with no shift (applied_s 0): the shot should be at 0; the first breaks, on the record
+    # before its muting, put it 50 ms on.
+    late = _shot(t0=0.05)
+    shifted = judge_signal("1.dat", late, THRESHOLDS, applied_s=0.0, before_muting=(late, 0.0))
     assert shifted.verdict == "retry"
     (flag,) = shifted.flags
     assert flag.name == "shifted_trigger" and flag.fixable
     action = flag.action.model_dump()
     assert action["kind"] == "override" and action["stage"] == "preprocessing"
     assert action["overrides"]["trigger"]["t0"] == pytest.approx(0.05, abs=0.005)
-    # Corrected by that t0, the record passes.
-    (corrected,) = Shift(t0=action["overrides"]["trigger"]["t0"]).transform([_shot(t0=0.05)])
-    assert judge_signal("1.dat", corrected, THRESHOLDS, applied_s=0.05).verdict == "pass"
+    # Corrected by that t0, the record passes: before its muting, its shot 50 ms on.
+    (corrected,) = Shift(t0=action["overrides"]["trigger"]["t0"]).transform([late])
+    fixed = judge_signal("1.dat", corrected, THRESHOLDS, applied_s=0.05, before_muting=(late, 0.05))
+    assert fixed.verdict == "pass"
+    # Without the record before its muting, no break is taken: on the muted record they would
+    # be the mute's edge.
+    blind = judge_signal("1.dat", corrected, THRESHOLDS, applied_s=0.0)
+    assert _metric(blind, "trigger_error_s") is None
 
 
 def test_a_shot_before_the_records_start_sets_the_trigger_to_0() -> None:
-    # The trigger never below 0 (the user, 2026-09-28). Moved by 30 ms, the first breaks put the
-    # shot 40 ms before the time origin, 10 ms before the record's start: the trigger at 0.
-    (flag,) = judge_signal("1.dat", _shot(t0=-0.04), THRESHOLDS, applied_s=0.03).flags
+    # The trigger never below 0 (the user, 2026-09-28). Moved by 30 ms, the first breaks (on the
+    # record before its muting, its shot 10 ms before its start) put the shot 40 ms before the
+    # time origin: the trigger at 0.
+    moved = _shot(t0=-0.04)
+    early = (_shot(t0=-0.01), 0.03)
+    (flag,) = judge_signal("1.dat", moved, THRESHOLDS, applied_s=0.03, before_muting=early).flags
     assert flag.name == "shifted_trigger" and "its trigger set to 0" in flag.message
     assert flag.action.model_dump()["overrides"]["trigger"]["t0"] == 0.0
     # Not moved, the shot 20 ms before the start: nothing to correct, only said.
-    before = judge_signal("1.dat", _shot(t0=-0.02), THRESHOLDS, applied_s=0.0)
+    unmoved = _shot(t0=-0.02)
+    before = judge_signal("1.dat", unmoved, THRESHOLDS, applied_s=0.0, before_muting=(unmoved, 0.0))
     (flag,) = before.flags
     assert flag.name == "shifted_trigger" and "No trigger corrects it" in flag.message
     assert flag.action.model_dump()["kind"] == "keep" and before.verdict == "pass"
 
 
 def test_a_trigger_not_muted_is_only_reported_against_the_files() -> None:
-    # The trigger is part of the muting: off, nothing to correct. Where the file says the shot
-    # is, the record passes; elsewhere its measure fails, with no retry.
+    # The trigger is part of the muting: off, nothing to correct, and a common delay changes no
+    # image. Measured against where the file says the shot is, reported, not judged.
     assert judge_signal("1.dat", _shot(t0=0.05), THRESHOLDS, shot_s=0.05).verdict == "pass"
     off = judge_signal("1.dat", _shot(t0=0.05), THRESHOLDS)
     assert off.verdict == "pass" and not off.flags
-    (metric,) = [metric for metric in off.metrics if metric.name == "trigger_shift_s"]
-    assert not metric.passed and metric.value == pytest.approx(0.05, abs=0.005)
+    (metric,) = [metric for metric in off.metrics if metric.name == "trigger_error_s"]
+    assert metric.passed and metric.threshold is None
+    assert metric.value == pytest.approx(0.05, abs=0.005)
 
 
 def test_a_trigger_that_differs_from_trace_to_trace_rejects_the_record() -> None:
@@ -225,19 +254,6 @@ def test_a_passive_record_gets_only_the_checks_without_a_trigger() -> None:
     assert [flag.name for flag in result.flags] == ["dead_traces"]
 
 
-def test_the_energy_a_mute_removed_is_reported() -> None:
-    stream = _shot()
-    muted = replace(
-        stream, xt=np.where(np.asarray(stream.ts)[None, :] > 0.5, 0.0, stream.xt).astype(np.float32)
-    )
-
-    result = judge_signal("1.dat", muted, THRESHOLDS, raw=stream)
-
-    removed = next(metric for metric in result.metrics if metric.name == "energy_removed")
-    assert removed.value is not None
-    assert 0.0 < removed.value < 0.5
-
-
 def test_a_muted_records_noise_is_measured_before_its_muting() -> None:
     # A muting zeroes the noise window after the slowest arrival: measured there, the noise is
     # none. Before the muting (its record 0.1 s later, as a trigger's shift leaves it), the SNR
@@ -255,10 +271,11 @@ def test_a_muted_records_noise_is_measured_before_its_muting() -> None:
     before = judge_signal("1.dat", muted, THRESHOLDS, before_muting=(later, 0.1))
     own = judge_signal("1.dat", noisy, THRESHOLDS)
 
-    assert (_metric(zeroed, "snr_db") or 0.0) > 100
-    assert _metric(before, "snr_db") == pytest.approx(_metric(own, "snr_db"))
+    # Its noise zeroed, the SNR reads far over the record's own.
+    assert (_metric(zeroed, "snr_db") or 0.0) > (_metric(own, "snr_db") or 0.0) + 20
+    # The same, but for the traces off the amplitude decay, taken on the muted record.
+    assert _metric(before, "snr_db") == pytest.approx(_metric(own, "snr_db"), abs=0.1)
     assert before.kept.band_hz == own.kept.band_hz
-    assert _metric(before, "lateral_coherence") == _metric(zeroed, "lateral_coherence")
 
 
 @pytest.mark.parametrize("field", ["dead_ratio", "clip_share", "band_db"])

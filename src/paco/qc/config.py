@@ -24,8 +24,24 @@ CONFIG_FILE = "qc_config.json"  # the snapshot in a run folder
 
 # Thresholds PACo no longer has, which a snapshot taken before may hold: dropped when it is read,
 # so that its run still reads. The mutes' width of G2 and G3: each record's pulse since
-# 2026-09-28 (G1's measure, shots.py), G1's own width left as the fallback.
-RETIRED = {"image": ("mute_width_s",), "curve": ("mute_width_s",)}
+# 2026-09-28 (G1's measure, shots.py), G1's own width left as the fallback. Since 2026-09-29
+# (the user): one SNR limit for every signal, a window's correlations' too (signal.min_snr_db);
+# G3's air-wave mute, which parts nothing; G3's uncertainty limit, which the picker's own cap
+# kept from ever failing (reported since).
+RETIRED = {
+    "image": ("mute_width_s", "min_virtual_shot_snr_db"),
+    "curve": ("mute_width_s", "air_wave_mute_vmax", "max_uncertainty"),
+    "signal": ("min_correlation_snr_db",),
+}
+# Thresholds renamed, their value kept under the new name (one name, one meaning, 2026-09-29):
+# the first breaks' shot time off the trigger is an error, the trigger's shift the muting's.
+RENAMED = {
+    "signal": {"max_trigger_shift_s": "max_trigger_error_s"},
+    # G5's floor on a layer's Vs over the one above, not the priors' drop (their max_vs_drop).
+    "model": {"max_vs_drop": "min_vs_ratio"},
+    # G6 compares the models down to their depth informed, G5's (one depth informed).
+    "models": {"max_useful_depth_spread": "max_depth_informed_spread"},
+}
 
 
 class QCConfig(BaseModel):
@@ -63,6 +79,13 @@ class QCConfig(BaseModel):
                     key: value
                     for key, value in given.items()  # pyright: ignore[reportUnknownVariableType]
                     if key not in keys
+                }
+        for section, names in RENAMED.items():
+            given = values.get(section)
+            if isinstance(given, dict):
+                values[section] = {
+                    names.get(key, key): value  # pyright: ignore[reportUnknownArgumentType]
+                    for key, value in given.items()  # pyright: ignore[reportUnknownVariableType]
                 }
         return values
 

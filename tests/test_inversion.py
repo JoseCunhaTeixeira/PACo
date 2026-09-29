@@ -133,7 +133,7 @@ def _window(
     vs: tuple[float, ...],
     thicknesses: tuple[float, ...],
     smooth: tuple[float, ...] = (),
-    useful_depth: float | None = None,
+    depth_informed: float | None = None,
     misfit: float | None = None,
 ) -> WindowInversion:
     return WindowInversion(
@@ -143,7 +143,7 @@ def _window(
         vs_m_s=vs,
         thicknesses_m=thicknesses,
         vs_at_depths_m_s=smooth or None,
-        useful_depth_m=useful_depth,
+        depth_informed_m=depth_informed,
         misfit=misfit,
     )
 
@@ -303,7 +303,7 @@ def test_every_window_g4_passed_is_inverted(inverted: Inverted) -> None:
         assert len(window.thicknesses_m) == len(window.vs_m_s) - 1
         assert window.vs_at_depths_m_s is not None
         assert len(window.vs_at_depths_m_s) == len(record.depths_m)
-        assert window.useful_depth_m is not None and window.useful_depth_m > 0
+        assert window.depth_informed_m is not None and window.depth_informed_m > 0
         assert window.misfit is not None and window.misfit >= 0
     # The first pass reports its progress, then each batch of the gates' retries its own.
     assert inverted.progress[:4] == [(done, 3, "inverted") for done in range(4)]
@@ -478,7 +478,7 @@ def test_summary_gives_the_range_of_the_models() -> None:
         "elapsed_s": 125.0,
         "depths_m": (1.0, 2.0),
         "vs_m_s": ((200.0, 220.0), (240.0, 260.0)),
-        "useful_depth_m": (4.0, 5.5),
+        "depth_informed_m": (4.0, 5.5),
         "misfit": (0.8, 1.26),
         "errors": ("xmid 3.00: ValueError: x",),
         "error": None,
@@ -491,7 +491,7 @@ def test_summary_gives_the_range_of_the_models() -> None:
 def test_the_summary_reports_nothing_of_models_before_any_window() -> None:
     status = summarize_inversion(_record(depths_m=(1.0, 2.0, 3.0)), live=True)
 
-    assert (status.depths_m, status.vs_m_s, status.useful_depth_m, status.misfit) == (
+    assert (status.depths_m, status.vs_m_s, status.depth_informed_m, status.misfit) == (
         (1.0, 2.0, 3.0),
         (),
         None,
