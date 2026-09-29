@@ -1,5 +1,5 @@
-"""S2's segments on a passive line (the user, 2026-09-28): their length, set by the window's span,
-and the FK selection, judged by the M0 pick their images give, the correlograms converged."""
+"""S2's segments on a passive line: their length, set by the window's span, and the FK selection,
+judged by the M0 pick their images give, the correlograms converged."""
 
 import json
 from pathlib import Path
@@ -26,9 +26,9 @@ def test_the_demos_passive_line_takes_shorter_segments(
     profiles: dict[str, Profile], tmp_path: Path
 ) -> None:
     # passive_p1's windows span 5.75 m, crossed in 72 ms at 80 m/s: 0.72 s segments (ten
-    # crossings) give an M0 pick over 4.5 times its shortest wavelength, against 2.7 with the
-    # preset's 2 s, every segment kept and the correlograms converged; no FK selection does
-    # better keeping a fifth of the segments.
+    # crossings) with the FK selection at 0.1 give an M0 pick over 4.6 times its shortest
+    # wavelength, against 3.4 with the preset's 2 s, 8 % of the segments kept and the
+    # correlograms converged (0.83); without the selection, 4.5 with every segment kept.
     profile = profiles["passive_p1"]
     preset = resolve_preset(make_preset("passive", WINDOWS), profile)
     preprocess_records(preset, profile, tmp_path, workers=1)
@@ -38,7 +38,10 @@ def test_the_demos_passive_line_takes_shorter_segments(
         profile, preset, tmp_path, rules, SignalThresholds(), PickingParameters(), Exclusions()
     )
 
-    assert changes == {"slicing": {"segment_duration": 0.72, "segment_step": 0.72}}
+    assert changes == {
+        "slicing": {"segment_duration": 0.72, "segment_step": 0.72},
+        "selection": {"method": "fk", "threshold": 0.1, "vmin": None, "vmax": None},
+    }
     (note,) = notes
     assert note.startswith("Segments of 0.72 s (10 crossings of the windows' 5.75 m at 80 m/s)")
     trials = json.loads((tmp_path / SEGMENTS_FILE).read_text())

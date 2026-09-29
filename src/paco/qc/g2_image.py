@@ -49,8 +49,7 @@ def judge_image(
     `selection` (the share of segments kept): falling short, the phase shift again with more of
     the data (`more`: more_data), else rejected. An image mostly noise tries the surface-wave
     mute when its records are not muted yet; else (a passive line has no muting) it is flagged
-    and kept, the later gates judging its pick: no retry that could not change it (the user,
-    2026-09-29)."""
+    and kept, the later gates judging its pick: no retry that could not change it."""
     fs = np.asarray(image.fs, dtype=float)
     vs = np.asarray(image.vs, dtype=float)
     # The image's measures, sigpipe's (PAC's alike), each saying what it covers.
@@ -92,8 +91,8 @@ def judge_image(
             }
         },
     )
-    # A passive line has no muting (the user, 2026-09-28), and muted records have theirs: an image
-    # mostly noise is flagged and kept there, the later gates judging its pick.
+    # A passive line has no muting, and muted records have theirs: an image mostly noise is
+    # flagged and kept there, the later gates judging its pick.
     mutable = mode != "passive" and not muted
     if n_coherent == 0:
         said = (

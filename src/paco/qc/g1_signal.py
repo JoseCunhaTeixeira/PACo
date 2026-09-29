@@ -6,11 +6,11 @@ record, only the checks that need no shot. The measures are sigpipe's
 is reported, not left out: G1 over the line (`judge_receivers`) leaves out the receivers off it
 in most of the records that reach them, a bad geophone.
 
-A record under its limits is left out at once (the user, 2026-09-29): its SNR and coherence are
-measured in its usable band, which a filter cannot change (nor can a filter change the
-dispersion image: the phase shift divides each trace's spectrum by its own amplitude), its noise
-before its muting, which a mute cannot; a retry would measure them again. Its trigger alone is
-corrected: a muted record's, the trigger being the muting's."""
+A record under its limits is left out at once: its SNR and coherence are measured in its usable
+band, which a filter cannot change (nor can a filter change the dispersion image: the phase shift
+divides each trace's spectrum by its own amplitude), its noise before its muting, which a mute
+cannot; a retry would measure them again. Its trigger alone is corrected: a muted record's, the
+trigger being the muting's."""
 
 import math
 from collections.abc import Collection, Mapping, Sequence
@@ -36,9 +36,8 @@ from paco.qc.models import (
 
 GATE = "G1"
 LINE = "line"  # the unit of the line-level result, as G4's
-# The modes whose records' traces are compared with their neighbours' spectra: a noise record's
-# and a shot's correlated whole (the user, 2026-09-28), an active shot's too since 2026-09-29
-# (the user: the same measures for every line).
+# The modes whose records' traces are compared with their neighbours' spectra: a noise record's,
+# a shot's correlated whole and an active shot's (the same measures for every line).
 SPECTRA_MODES = frozenset({"active", "passive", "passive-active"})
 
 
@@ -219,9 +218,8 @@ def judge_signal(
     elif (
         error is not None and applied_s is not None and abs(error) > thresholds.max_trigger_error_s
     ):
-        # The trigger never below 0 (the user, 2026-09-28): a shot before the record's start, the
-        # recording started late; the trigger at 0 and what is left said, or, at 0 already, said
-        # alone.
+        # The trigger never below 0: a shot before the record's start, the recording started late;
+        # the trigger at 0 and what is left said, or, at 0 already, said alone.
         t0 = round(applied_s + error, 4)
         said_error = (
             f"The first breaks put the shot {error * 1000:+.0f} ms from the time origin the "
@@ -254,9 +252,9 @@ def judge_spectra(
     positions: Sequence[float],
     thresholds: SignalThresholds,
 ) -> tuple[Metric, Flag | None]:
-    """G1 over the line, a passive or passive-active one: the receivers off their neighbours'
-    spectra (`off`: in how many records) in at least `spectra_line_share` of the records judging
-    them (`reached`). Flagged, kept (the user, 2026-09-28: flag, not alter the workflow)."""
+    """G1 over the line: the receivers off their neighbours' spectra (`off`: in how many records)
+    in at least `spectra_line_share` of the records judging them (`reached`). Flagged, kept: the
+    workflow unchanged."""
     bad = [
         receiver
         for receiver, count in sorted(reached.items())

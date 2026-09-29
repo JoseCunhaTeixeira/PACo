@@ -168,8 +168,7 @@ def _process(
     changes: dict[str, Any] = deep_merge(band, {"masw": {"length": choice.length}})
     preset = resolve_preset(apply_overrides(preset, changes), loaded)
     # A passive line's segments, their length and FK selection tried on a few windows, those the
-    # user set left as they are (the user, 2026-09-28: PACo optimizes the parameters the passive
-    # workflow has).
+    # user set left as they are: PACo optimizes the parameters the passive workflow has.
     segment_notes: tuple[str, ...] = ()
     given = frozenset(overrides or {}) & SEGMENT_STAGES
     if str(mode) == "passive" and given != SEGMENT_STAGES:
@@ -480,9 +479,9 @@ def settle_receivers(
     """G1 over the line, once each record is settled: each receiver judged over every record
     that reaches it, those off the amplitude decay in most of them left out of every window.
     A trace off it in a few records stays (the one nearest each shot, where the fitted decay
-    overshoots; a burst of noise): a record's own is no bad geophone. With `spectra` (every line
-    since 2026-09-29), the receivers off their neighbours' spectra flagged too. Logged as G1's
-    result on the line."""
+    overshoots; a burst of noise): a record's own is no bad geophone. With `spectra` (every
+    line), the receivers off their neighbours' spectra flagged too. Logged as G1's result on the
+    line."""
     started_at = datetime.now(UTC)
     off: dict[int, int] = {}
     reached: dict[int, int] = {}

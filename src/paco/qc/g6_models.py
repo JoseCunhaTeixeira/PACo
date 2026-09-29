@@ -2,9 +2,9 @@
 (the ensemble's) at fixed depths down to its depth informed (G5's), each model against its
 neighbours on either side within a few of the line's steps (the sides of G4). A jump the curves
 do not show (G4 found the window's curve fits its neighbours) is non-uniqueness, kept with its
-flag: G5 passed the model converged, and sampling longer draws the same posterior again (the
-user, 2026-09-29). A jump the curves show too is kept. And how evenly the depth informed runs
-along the line. No lateral smoothing: neither models edited, nor neighbours used as priors."""
+flag: G5 passed the model converged, and sampling longer draws the same posterior again. A jump
+the curves show too is kept. And how evenly the depth informed runs along the line. No lateral
+smoothing: neither models edited, nor neighbours used as priors."""
 
 from collections.abc import Mapping, Sequence
 
@@ -125,7 +125,7 @@ def judge_model_profile(
                 )
             else:
                 # Its chains agree (G5 passed it converged): sampling longer draws the same
-                # posterior again (the user, 2026-09-29: no retry that could not change it).
+                # posterior again (no retry that could not change it).
                 flags.append(
                     Flag(
                         name="non_unique",

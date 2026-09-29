@@ -732,8 +732,7 @@ def test_the_loops_checks_read_a_real_run(paco_env: Settings, tmp_path: Path) ->
             True,
         ),
         ("in order: run_processing, pick", True),
-        # 3 curves (4 before 2026-09-28, when G1 moved each record's time origin by its own
-        # first breaks: 2.dat's by 10 ms, where its file says 20).
+        # 3 curves passed G3 and G4.
         ("answer mentions 3", True),
         ("invert never called", True),
         ("invert_petro never called", True),

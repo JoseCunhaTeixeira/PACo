@@ -52,8 +52,7 @@ def judge_curve(
     """G3's verdict on one window's M0 pick, with the band G2 found coherent (or G1 usable)
     when known, the band a fix narrows to, the picking parameters the fixes start from, and
     the distance from the window's nearest shot to its receivers. Not `mutable` (a passive
-    line: no muting, the user, 2026-09-28; records muted already, 2026-09-29), a flag only a
-    mute would fix rejects."""
+    line, which has no muting, or records muted already), a flag only a mute would fix rejects."""
     picking = picking or PickingParameters()
     # The curve's measures, sigpipe's (PAC's alike), each saying what it covers.
     report = measure_curve(image, m0, thresholds, nearest_offset)
@@ -69,10 +68,10 @@ def judge_curve(
         kept = Kept(band_hz=quality.band_hz, n_points=quality.n_points, n_traces=n_traces)
         return _result(unit, metrics, flags, kept)
 
-    # The picker follows its ridge as far as it holds, at either end (the user, 2026-09-28): its
-    # points under twice the spacing (the aliasing zone, where the ridge may be its alias) and
-    # over three window lengths (beyond the window's reach, where it resolves no velocity) are
-    # flagged and kept, for the agent or G4 to judge. The lines PAC draws on the image.
+    # The picker follows its ridge as far as it holds, at either end: its points under twice the
+    # spacing (the aliasing zone, where the ridge may be its alias) and over three window lengths
+    # (beyond the window's reach, where it resolves no velocity) are flagged and kept, for the
+    # agent or G4 to judge. The lines PAC draws on the image.
     if report.shortest and report.aliased > 0:
         flags.append(
             Flag(

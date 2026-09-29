@@ -22,7 +22,7 @@ from sigpipe.masw.windows import MASWParameters
 from sigpipe.transformers import Filter, Load, Slice
 
 # PAC's form defaults (ActiveConfigForm.tsx and PassiveConfigForm.tsx): the shots' distances left
-# out, none (the nearest from 0, the farthest at any distance; 0 and 1,000 m before 2026-09-28).
+# out, none (the nearest from 0, the farthest at any distance).
 # PACo's window length is 5 receivers, where PAC's form has 3.
 MASW_DEFAULTS = {"length": 5, "step": 1, "distance_min": None, "distance_max": None}
 DISPERSION_DEFAULTS = {"fmin": 0.0, "fmax": 100.0, "vmin": 1.0, "vmax": 1000.0, "nv": 1000}
@@ -51,7 +51,7 @@ PASSIVE_ACTIVE_DEFAULTS = {
 
 # PACo's passive defaults: 2 s segments whitened and normalized one-bit, where PAC's form has
 # 0.1 s segments and neither (no curve on passive_p2).
-# No muting on a passive line, nor its trigger (2026-09-28): no shot for a velocity to count from.
+# No muting on a passive line, nor its trigger: no shot for a velocity to count from.
 PASSIVE_DEFAULTS = {
     "mode": "passive",
     "masw": MASW_DEFAULTS,
@@ -706,12 +706,12 @@ def test_whitening_band_rule_agrees_with_sigpipe(
 # The schema travels with every request to a model with an 8-16k context, so growing it has to
 # be a deliberate choice: raise the budget here if it is worth it.
 SCHEMA_BUDGET = {
-    # image_stacking (+500): the root stack the user can ask for; the muting's width, its bounds
-    # and the shots' distances left out, "null: none" (+260, 2026-09-28): no stand-in values.
+    # image_stacking: the root stack the user can ask for; the muting's width, its bounds and the
+    # shots' distances left out, "null: none": no stand-in values.
     "active": 4_200,
-    # No muting nor trigger on a passive line (-1,450, 2026-09-28): no shot to count from.
+    # No muting nor trigger on a passive line: no shot to count from.
     "passive": 5_800,
-    # The surface-wave mute before correlating removed (-800, 2026-09-28).
+    # No surface-wave mute of its own before correlating: the preprocessing's muting cuts.
     "passive-active": 4_460,
 }
 

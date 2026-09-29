@@ -261,8 +261,8 @@ def test_a_jump_between_consecutive_points_means_another_mode() -> None:
 
 
 def test_points_at_the_air_waves_speed_are_rejected() -> None:
-    # No mute parts them (the user, 2026-09-29): one just under the air wave's speed cuts a
-    # fraction of a millisecond of it a metre, and every surface wave faster than it.
+    # No mute parts them: one just under the air wave's speed cuts a fraction of a millisecond of
+    # it a metre, and every surface wave faster than it.
     image = _image(_ridge(M0, 0.8, 1.5))
     air = 345.0 - 15.0 * (FREQUENCIES - 10.0) / 30.0  # 345 at 10 Hz to 330 at 40 Hz
     for mutable in (True, False):
@@ -290,10 +290,9 @@ def test_velocity_falling_with_wavelength_is_flagged_and_kept() -> None:
 
 
 def test_points_the_window_does_not_resolve_are_flagged_and_kept() -> None:
-    # The picker follows its ridge as far as it holds (the user, 2026-09-28): here two points
-    # under twice the spacing (2 m), one over three window lengths (141 m). A point on each
-    # limit, a hair past it in float32 (1.9999998 and 141.000006 m, as a curve resampled every
-    # metre holds), is within it.
+    # The picker follows its ridge as far as it holds: here two points under twice the spacing
+    # (2 m), one over three window lengths (141 m). A point on each limit, a hair past it in
+    # float32 (1.9999998 and 141.000006 m, as a curve resampled every metre holds), is within it.
     image = _image(_ridge(M0, 0.8, 1.5))
     fs = np.array([1.0, 1.4191489219665527, 2, 5, 10, 20, 40, 75.00000762939453, 80, 100])
     vs = np.array([200.0, 200.10000610351562, 195, 190, 185, 175, 165, 150, 155, 150])
@@ -334,8 +333,8 @@ def test_too_few_points_ask_to_keep_more_of_the_ridge() -> None:
 
 
 def test_a_curve_spanning_too_few_wavelengths_asks_to_keep_more_of_the_ridge() -> None:
-    # p2: resampled finer, 9.2 to 11.2 m of wavelength passed on its points, then failed the
-    # inversion, which needs over 4/3 between the longest and the shortest.
+    # On p2, a curve resampled finer spans 9.2 to 11.2 m of wavelength: enough points, but the
+    # inversion needs over 4/3 between the longest and the shortest.
     image = _image(_ridge(M0, 0.8, 1.5))
     fs = np.linspace(29.0, 33.0, 8)
     vs = 150 + 250 * np.exp(-fs / 15)
@@ -356,8 +355,8 @@ def test_a_curve_spanning_too_few_wavelengths_asks_to_keep_more_of_the_ridge() -
 
 def test_the_uncertainty_is_reported_not_judged() -> None:
     # The picker caps each point's at 0.4 of its velocity: no limit over it could fail, one under
-    # it would leave out a line's shortest windows (the user, 2026-09-29). Reported; a point
-    # without one leaves the median to the others.
+    # it would leave out a line's shortest windows. Reported; a point without one leaves the
+    # median to the others.
     image = _image(_ridge(M0, 0.8, 1.5))
     errors = 0.6 * M0
     errors[:3] = np.nan

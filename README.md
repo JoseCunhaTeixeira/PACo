@@ -157,8 +157,9 @@ surface-wave mute (80 to 1,500 m/s) before a wider grid, the records' time origi
 trigger their files state.
 
 Given no window length, `run_processing` proposes one: the shortest at which most trial windows
-along the line give a curve G3 passes, with a table of every length it tried (trial windows
-passed, the wavelengths their curves reach, windows on the line). The model keeps it, or runs
+along the line give a curve G3 passes, or a longer one while it makes the picks more precise,
+with a table of every length it tried (trial windows passed, the wavelengths their curves
+reach, the picks' precision, windows on the line). The model keeps it, or runs
 again with another length when the request asks for more depth (longer windows) or lateral
 detail (shorter), and says why; a length you or the model give is kept as it is.
 
@@ -185,25 +186,28 @@ each scenario three times and reports pass rates.
 
 ## Quality control
 
-Eight gates judge the stages (`docs/qc_workflow.md`, the spec, with its decisions): G1 each
-record, G2 each dispersion image, G3 each curve, G4 the curves over the line, G5 each model, G6
-the models over the line, G7 each petrophysical model, G8 those over the line. Each gives a verdict (pass, retry, reject), each metric with its threshold, and for
-each flag the stage at fault and a change that can be applied as it is. The stage tools apply
-their own gate's changes, within budgets (2 retries per gate and window, 2 per window over the
-run, and 6 inversion retries per window of its own); a change of an earlier stage is the model's to make, with `redo`. The band (the records'
-median usable band), the farthest shot a window stacks (where the traces' median SNR falls
-under 2 dB) and the inversion's bounds come from the data, the window length is proposed from
-it, for the model to choose (`docs/gates/S2_rules.md`, `docs/gates/S4_checks.md`). Each pick
+Eight gates judge the stages (`docs/qc_workflow.md`, the spec, with its design decisions): G1
+each record, G2 each dispersion image, G3 each curve, G4 the curves over the line, G5 each
+model, G6 the models over the line, G7 each petrophysical model, G8 those over the line. Each
+gives a verdict (pass, retry, reject), each metric with its threshold, and for each flag the
+stage at fault and a change that can be applied as it is. The stage tools apply their own
+gate's changes, within budgets (2 retries per gate and window, 2 per window over the run, and 6
+inversion retries per window of its own); `pick` makes the change of an earlier stage G2 or G3
+asks for, once, and any other change of an earlier stage is the model's to make, with `redo`.
+The band (the records' median usable band), the farthest shot a window stacks (where the
+traces' median SNR falls under 2 dB), the nearest (half the longest wavelength its trial curves
+reach) and the inversion's bounds come from the data; the window length is proposed from it,
+for the model to choose (`docs/gates/S2_rules.md`, `docs/gates/S4_checks.md`). Each pick
 goes as far as its ridge holds, at both ends, and G3 judges sharpness and prominence against a
 perfect plane wave for the same window, so that short windows are judged fairly
-(`docs/gates/G3.md`). An inversion lets the data choose the number of layers (up to 8, Vs 100 to 2,000 m/s widened
-where the curve needs it, interfaces from a third of its shortest wavelength to half its
-longest), the picks' noise level sampled with the model; G5 judges the chains on the models' Vs
-at the depths the curve resolves, and adapts each window: sampling longer, a Vs bound widened,
-more layers allowed (with the layers given: a layer added or two alike merged, the depth shrunk
-to what the data inform) (`docs/gates/G5.md`). Each window's
-parameters are in its `SeismicInversion_Parameters_0000.json`. `docs/gates/` documents every gate with its thresholds, the demo's
-real outputs, and what is still to judge.
+(`docs/gates/G3.md`). An inversion lets the data choose the number of layers (up to 8, Vs 100
+to 2,000 m/s widened where the curve needs it, interfaces from a third of its shortest
+wavelength to half its longest), the picks' noise level sampled with the model; G5 judges the
+chains on the models' Vs at the depths the curve resolves, and adapts each window: sampling
+longer, a Vs bound widened, more layers allowed (with the layers given: a layer added or two
+alike merged, the depth shrunk to what the data inform) (`docs/gates/G5.md`). Each window's
+parameters are in its `SeismicInversion_Parameters_0000.json`. `docs/gates/` documents every
+gate with its thresholds, the demo's real outputs, and what is still to judge.
 
 The petrophysical inversion runs only when you ask for soils or the water table: the host
 refuses it otherwise, as it refuses an inversion you did not ask for. A Silex model predicts

@@ -105,10 +105,9 @@ def test_the_ladder_keeps_the_most_precise_length_that_passes(
 
     choice = json.loads((run_folder / COHERENCE_FILE).read_text())
     # At 5 receivers the trial windows at the line's ends keep too few points: 1 of 3 passes.
-    # 24 passes 3 of 3 (2 before its picks followed their ridge past their ends, 2026-09-28),
-    # none of the lengths with picks within 20 % (40 % at 24, their longest wavelengths the least
-    # precise; 29 % before): 24, the most precise that passed, is kept; 32 is tried too, for the
-    # agent to compare the depth it would reach.
+    # 24 passes 3 of 3, none of the lengths with picks within 20 % (40 % at 24, their longest
+    # wavelengths the least precise): 24, the most precise that passed, is kept; 32 is tried too,
+    # for the agent to compare the depth it would reach.
     assert [trial["length"] for trial in choice["trials"]] == [5, 24, 32]
     assert [trial["compared"] for trial in choice["trials"]] == [False, False, True]
     five, twenty_four, _ = choice["trials"]

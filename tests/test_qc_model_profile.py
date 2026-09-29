@@ -54,7 +54,7 @@ def test_a_smooth_line_of_models_passes() -> None:
 
 def test_a_jump_the_curves_do_not_show_is_kept_as_non_unique() -> None:
     # Its chains agree (G5 passed it converged): sampling longer draws the same posterior again,
-    # so the model is kept with the warning (the user, 2026-09-29).
+    # so the model is kept with the warning.
     models = [_model(x, 1.3 if x == 4 else 1.0) for x in range(8)]
     results = _judge(models)
 

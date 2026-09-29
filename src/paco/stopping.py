@@ -7,7 +7,7 @@ that started it (the agent follows a job to its end within that answer).
 The work reads the event where it waits on its tasks: sigpipe's loops, and PACo's own
 (sigpipe.masw.runs.stopping): at once, what finished kept, nothing half-written, a window redone
 given back its previous attempt. Without a host that sets a Signal (the terminal, the MCP
-server alone, the evaluation) nothing can stop, as before."""
+server alone, the evaluation) nothing can stop."""
 
 from __future__ import annotations
 

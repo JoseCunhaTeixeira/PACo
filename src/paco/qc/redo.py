@@ -126,8 +126,8 @@ def settle_earlier(run_id: str, settings: Settings) -> bool:
     """The windows whose latest G2 or G3 result asks a change of an earlier stage (their records
     muted, their image made again): that stage done again once with it, then the stages after
     it (redo_stage, the run's budget paying), each window once for each flag. Asked again after
-    it, asked with no change, or with the budget spent, the window is rejected, said (the user,
-    2026-09-29: none left silently without a curve). Whether any window changed."""
+    it, asked with no change, or with the budget spent, the window is rejected, said: none left
+    silently without a curve. Whether any window changed."""
     run_folder = find_run(run_id, settings)
     changed = False
     while True:

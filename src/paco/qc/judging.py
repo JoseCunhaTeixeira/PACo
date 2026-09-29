@@ -146,12 +146,12 @@ def before_muting(
     shot_s: float = 0.0,
 ) -> tuple[Stream, float] | None:
     """Record `name` before its muting, and where its shot is on it (s; `shot_s` on its saved
-    record): what G1 measures its noise on (the user, 2026-09-29: a muting zeroes the noise
-    window after the slowest arrival; a trigger's shift, part of the muting, drops the one
-    before the trigger). Preprocessed as its latest `attempt` had it (the run's `preset` with
-    its changes), from its input file in `profile` (sigpipe's unmuted_record: neither its
-    trigger shifted nor muted, its shot later by the shift). None when it is not muted (its
-    saved record is the same), or its input is not at hand."""
+    record): what G1 measures its noise on (a muting zeroes the noise window after the slowest
+    arrival; a trigger's shift, part of the muting, drops the one before the trigger).
+    Preprocessed as its latest `attempt` had it (the run's `preset` with its changes), from its
+    input file in `profile` (sigpipe's unmuted_record: neither its trigger shifted nor muted, its
+    shot later by the shift). None when it is not muted (its saved record is the same), or its
+    input is not at hand."""
     muting = preprocessing_values(preset, attempt).get("muting") or {}
     records = profile.records if profile is not None else ()
     record = next((one for one in records if one.path.name == name), None)
@@ -316,8 +316,7 @@ def _pick(
 
 def _mutable(run_folder: Path, unit: str) -> bool:
     """Whether window `unit`'s records can be muted: not a passive line's (its preset has no
-    muting, the user, 2026-09-28), nor records muted already (the user, 2026-09-29: no retry
-    that could not change them)."""
+    muting), nor records muted already (no retry that could not change them)."""
     manifest = RunManifest.model_validate_json((run_folder / "run.json").read_text())
     if "muting" not in type(manifest.preset).model_fields:
         return False

@@ -131,8 +131,7 @@ def _metric(result: GateResult, name: str) -> float | None:
 
 def test_a_record_with_too_much_noise_is_left_out_at_once() -> None:
     # Its SNR in its usable band (9.5-30 Hz at a noise of 0.5): under 6 dB, the record left
-    # out, no retry (a filter or a mute would measure the same, the user, 2026-09-29). Noisier,
-    # no band at all.
+    # out, no retry (a filter or a mute would measure the same). Noisier, no band at all.
     assert judge_signal("1.dat", _shot(noise=0.05), THRESHOLDS).verdict == "pass"
     weak = judge_signal("1.dat", _shot(noise=0.5), THRESHOLDS)
     (low,) = [flag for flag in weak.flags if flag.name == "low_snr"]
@@ -145,8 +144,8 @@ def test_a_record_with_too_much_noise_is_left_out_at_once() -> None:
 
 
 def test_a_record_is_measured_where_the_images_look() -> None:
-    # Its SNR and coherence in the part of its usable band the dispersion images use (the user,
-    # 2026-09-29); a band that misses theirs leaves nothing to image.
+    # Its SNR and coherence in the part of its usable band the dispersion images use; a band that
+    # misses theirs leaves nothing to image.
     kept = judge_signal("1.dat", _shot(), THRESHOLDS, image_band=(0.0, 30.0))
     snr = next(metric for metric in kept.metrics if metric.name == "snr_db")
     assert kept.verdict == "pass" and "within the images', 0-30 Hz" in snr.over
@@ -196,9 +195,9 @@ def test_a_shifted_trigger_asks_for_its_correction() -> None:
 
 
 def test_a_shot_before_the_records_start_sets_the_trigger_to_0() -> None:
-    # The trigger never below 0 (the user, 2026-09-28). Moved by 30 ms, the first breaks (on the
-    # record before its muting, its shot 10 ms before its start) put the shot 40 ms before the
-    # time origin: the trigger at 0.
+    # The trigger never below 0. Moved by 30 ms, the first breaks (on the record before its
+    # muting, its shot 10 ms before its start) put the shot 40 ms before the time origin: the
+    # trigger at 0.
     moved = _shot(t0=-0.04)
     early = (_shot(t0=-0.01), 0.03)
     (flag,) = judge_signal("1.dat", moved, THRESHOLDS, applied_s=0.03, before_muting=early).flags
@@ -382,7 +381,7 @@ def _noise(notched: int | None = None) -> Stream:
 
 
 def test_a_noise_records_trace_off_its_neighbours_spectra_is_counted() -> None:
-    # On a passive line (the user, 2026-09-28): reported, nothing left out.
+    # On a passive line: reported, nothing left out.
     clean = judge_signal("1.dat", _noise(), THRESHOLDS, active=False, spectra=True)
     notched = judge_signal("1.dat", _noise(notched=7), THRESHOLDS, active=False, spectra=True)
 

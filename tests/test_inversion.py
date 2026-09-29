@@ -47,8 +47,7 @@ SMALL_WINDOWS = {"masw": {"length": 24, "step": 24}}
 SHORT = {"n_iterations": 500, "n_burnin_iterations": 50, "n_chains": 2}  # two at least
 # xmid 2.88 has no curve: 2 points once G1 leaves trace 13 out of its image (the decay fitted
 # within the reach).
-# The windows G4 passes on the demo (xmid_2.88 too before 2026-09-28, when G1 moved each record's
-# time origin by its own first breaks: 2.dat's by 10 ms, where its file says 20).
+# The windows G4 passes on the demo.
 PICKED = ("xmid_8.88", "xmid_14.88", "xmid_20.88")
 # The files PAC's invert_position writes in a window folder.
 PAC_FILES = {
@@ -293,8 +292,7 @@ def test_every_window_g4_passed_is_inverted(inverted: Inverted) -> None:
     assert [window.folder for window in record.windows] == list(PICKED)
     # The ensemble is reported at round depths down to half the longest wavelength.
     assert record.depths_m and record.depths_m[0] > 0
-    # sigpipe's own chains: none fails (the sampler before 2026-09-27 could keep no predicted
-    # curve).
+    # sigpipe's own chains: none fails.
     assert [window.status for window in record.windows] == ["succeeded"] * 3
     for window in record.windows:
         # The layers chosen by the data, up to 8.
@@ -377,8 +375,8 @@ def test_a_window_whose_curve_is_gone_is_left_out(picked: Picked, tmp_path: Path
 def test_a_window_whose_curve_gives_no_model_is_left_out_with_why(
     picked: Picked, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    # p2: one curve spanning 9.2 to 11.2 m of wavelength failed the whole job. Now it is left
-    # out, with why, and the line's other windows are inverted.
+    # A curve too narrow in wavelength for a layered model (on p2, one spans 9.2 to 11.2 m) is
+    # left out, with why, and the line's other windows are inverted.
     from paco.qc import inverting
 
     derive = inverting.derive_inversion
