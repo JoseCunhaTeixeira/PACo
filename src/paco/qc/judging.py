@@ -2,6 +2,7 @@
 as an attempt of its own (the curve saved in PAC's layout) and G3 on its curve, G4 over the
 line at the end, each verdict recorded in the QC log, and the report written."""
 
+import logging
 from collections.abc import Mapping
 from concurrent.futures import ProcessPoolExecutor
 from datetime import UTC, datetime
@@ -12,9 +13,11 @@ from sigpipe.algorithms.picking.dispersion.tracking import PickingParameters, pi
 from sigpipe.base import DispersionCurve, DispersionImage, Stream
 from sigpipe.dataio.dispersion.loading import load_dispersion_curves
 from sigpipe.masw.picks import CURVES_FILE, save_pick
-from sigpipe.masw.pipelines import PREPROCESSED
-from sigpipe.masw.profiles import ProfileError, load_profile
+from sigpipe.masw.pipelines import PREPROCESSED, trigger_shift_s, unmuted_record
+from sigpipe.masw.presets import ActivePreset, PassivePreset, apply_overrides, resolve_preset
+from sigpipe.masw.profiles import Profile, ProfileError, load_profile
 from sigpipe.masw.quality.line import Series
+from sigpipe.masw.quality.spectra import save_record_spectra
 from sigpipe.masw.runs import RunManifest, find_run, load_image, load_manifest, start_worker
 from sigpipe.masw.runs.stopping import finished
 from sigpipe.masw.windows import MASWWindow
@@ -50,6 +53,8 @@ from paco.qc.shots import (
 )
 from paco.settings import Settings
 
+logger = logging.getLogger(__name__)
+
 
 def judge_run(
     run_id: str,
@@ -65,12 +70,13 @@ def judge_run(
     snapshot_qc_config(config, run_folder)
     ensure_initial_attempts(run_folder, manifest)
 
-    # The records' triggers, from their files: none when the profile is gone.
+    # The records' triggers, from their files, and their inputs: none when the profile is gone.
     try:
-        triggers = file_triggers(load_profile(manifest.profile.name, settings))
+        profile: Profile | None = load_profile(manifest.profile.name, settings)
     except ProfileError:
-        triggers = {}
-    usable = judge_records(run_folder, manifest, config, triggers)
+        profile = None
+    triggers = file_triggers(profile) if profile is not None else {}
+    usable = judge_records(run_folder, manifest, config, triggers, profile)
     judge_windows(run_folder, manifest, config, usable, picking or config.picking)
     judge_line(run_folder, manifest, config)
     report = build_report(run_id, run_folder, config.budgets, len(manifest.windows))
@@ -83,21 +89,24 @@ def judge_records(
     manifest: RunManifest,
     config: QCConfig,
     triggers: Mapping[str, float | None] | None = None,
+    profile: Profile | None = None,
 ) -> dict[str, tuple[float, float] | None]:
-    """G1 on each preprocessed record of the run, against its latest preprocessing attempt,
-    each record's shot where its muting and file's trigger (`triggers`) put it; returns each
-    record's usable band."""
+    """G1 on each preprocessed record of the run, against its latest preprocessing attempt (its
+    noise on the record before its muting, from its input in `profile`: before_muting), each
+    record's shot where its muting and file's trigger (`triggers`) put it; its spectra drawn
+    beside it. Returns each record's usable band."""
     active = manifest.profile.kind == "active"
     usable: dict[str, tuple[float, float] | None] = {}
     attempts = read_attempts(run_folder)
     for record in manifest.records:
         if record.status != "succeeded":
             continue
-        stream = stream_of(run_folder / record.folder / PREPROCESSED)
-        values = preprocessing_values(
-            manifest.preset, latest(attempts, record.name, "preprocessing")
-        )
+        attempt = latest(attempts, record.name, "preprocessing")
+        folder = run_folder / record.folder
+        values = preprocessing_values(manifest.preset, attempt)
         shot_s, applied_s = trigger_context(values, (triggers or {}).get(record.name))
+        stream = stream_of(folder / PREPROCESSED)
+        unmuted = before_muting(manifest.preset, profile, record.name, attempt, shot_s)
         result = judge_signal(
             record.name,
             stream,
@@ -106,10 +115,50 @@ def judge_records(
             shot_s=shot_s,
             applied_s=applied_s,
             spectra=manifest.preset.mode in SPECTRA_MODES,
+            before_muting=unmuted,
         )
         _judge_latest(run_folder, record.name, "preprocessing", result)
+        draw_spectra(stream, folder, result.kept.band_hz)
         usable[record.name] = result.kept.band_hz
     return usable
+
+
+def before_muting(
+    preset: ActivePreset | PassivePreset,
+    profile: Profile | None,
+    name: str,
+    attempt: Attempt | None,
+    shot_s: float = 0.0,
+) -> tuple[Stream, float] | None:
+    """Record `name` before its muting, and where its shot is on it (s; `shot_s` on its saved
+    record): what G1 measures its noise on (the user, 2026-09-29: a muting zeroes the noise
+    window after the slowest arrival; a trigger's shift, part of the muting, drops the one
+    before the trigger). Preprocessed as its latest `attempt` had it (the run's `preset` with
+    its changes), from its input file in `profile` (sigpipe's unmuted_record: neither its
+    trigger shifted nor muted, its shot later by the shift). None when it is not muted (its
+    saved record is the same), or its input is not at hand."""
+    muting = preprocessing_values(preset, attempt).get("muting") or {}
+    records = profile.records if profile is not None else ()
+    record = next((one for one in records if one.path.name == name), None)
+    if (
+        profile is None
+        or record is None
+        or muting.get("method", "none") == "none"
+        or not record.path.exists()
+    ):
+        return None
+    if attempt is not None and attempt.parameters:
+        preset = resolve_preset(apply_overrides(preset, attempt.parameters), profile)
+    return unmuted_record(preset, record, profile), shot_s + trigger_shift_s(preset, record)
+
+
+def draw_spectra(stream: Stream, folder: Path, band: tuple[float, float] | None) -> None:
+    """Preprocessed record `stream`'s spectra beside it in `folder`, G1's usable band (`band`)
+    dashed (sigpipe's save_record_spectra). Best effort."""
+    try:
+        save_record_spectra(stream, folder, band)
+    except Exception:
+        logger.exception("Could not draw the spectra of %s", folder)
 
 
 def judge_windows(
