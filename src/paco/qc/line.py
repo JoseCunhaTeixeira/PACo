@@ -60,7 +60,13 @@ from paco.qc.g1_signal import (
 )
 from paco.qc.g2_image import judge_image
 from paco.qc.g4_profile import LINE
-from paco.qc.judging import shared_band, stream_of, virtual_shot
+from paco.qc.judging import (
+    before_muting,
+    draw_spectra,
+    shared_band,
+    stream_of,
+    virtual_shot,
+)
 from paco.qc.log import append_attempt, latest, read_attempts, record_notes, record_result
 from paco.qc.loops import RetryBudget, deep_merge, next_try, spent
 from paco.qc.models import Attempt, ExcludeRecord, ExcludeTraces, GateResult, Stage
@@ -250,32 +256,31 @@ def line_reach(
     preset: ActivePreset | PassivePreset,
 ) -> float | None:
     """How far from the shots the line's traces still carry the wave (G1's per-trace SNR over
-    every active record, `snr_reach`, in bins of a fifteenth of the line, each record's times
-    from its shot where its latest preprocessing, over the run's `preset`, and its file's
-    trigger put it); None on a passive line, or when no distance falls below G1's SNR limit."""
+    every active record, its noise before its muting as G1 measures it, `snr_reach`, in bins of
+    a fifteenth of the line, each record's times from its shot where its latest preprocessing,
+    over the run's `preset`, and its file's trigger put it); None on a passive line, or when no
+    distance falls below G1's SNR limit."""
     if profile.kind != "active":
         return None
     triggers = file_triggers(profile)
     attempts = read_attempts(run_folder)
 
-    def shot_of(name: str) -> float:
-        values = preprocessing_values(preset, latest(attempts, name, "preprocessing"))
-        return trigger_context(values, triggers.get(name))[0]
+    def snrs(record: RecordOutcome) -> tuple[np.ndarray, np.ndarray] | None:
+        # Its noise as G1 measures it, before its muting; its times from its shot.
+        attempt = latest(attempts, record.name, "preprocessing")
+        values = preprocessing_values(preset, attempt)
+        shot_s = trigger_context(values, triggers.get(record.name))[0]
+        stream, shot_s = before_muting(preset, profile, record.name, attempt, shot_s) or (
+            stream_of(run_folder / record.folder / PREPROCESSED),
+            shot_s,
+        )
+        signal = config.signal
+        return trace_snrs(stream, signal.vg_min, signal.vg_max, signal.pad_s, shot_s)
 
     measured = [
         found
         for record in records
-        if record.status == "succeeded"
-        and (
-            found := trace_snrs(
-                stream_of(run_folder / record.folder / PREPROCESSED),
-                config.signal.vg_min,
-                config.signal.vg_max,
-                config.signal.pad_s,
-                shot_of(record.name),
-            )
-        )
-        is not None
+        if record.status == "succeeded" and (found := snrs(record)) is not None
     ]
     positions = [receiver.x for receiver in profile.receivers]
     span = max(positions) - min(positions)
@@ -318,16 +323,22 @@ def settle_records(
     # The traces' spectra against their neighbours': on passive and passive-active lines.
     spectra = preset.mode in SPECTRA_MODES
     triggers = file_triggers(profile)
+    # Each record's spectra as drawn: its attempt, and the band G1 found.
+    drawn: dict[str, tuple[object, ...]] = {}
     while True:
         attempts = read_attempts(run_folder)
         results = {}
         for name, outcome in outcomes.items():
             if outcome.status != "succeeded" or name in exclusions.records:
                 continue
-            stream = stream_of(run_folder / outcome.folder / PREPROCESSED)
-            # Its shot where its muting and its file's trigger put it.
-            values = preprocessing_values(preset, latest(attempts, name, "preprocessing"))
+            latest_attempt = latest(attempts, name, "preprocessing")
+            folder = run_folder / outcome.folder
+            stream = stream_of(folder / PREPROCESSED)
+            # Its shot where its muting and its file's trigger put it; its noise measured
+            # before its muting.
+            values = preprocessing_values(preset, latest_attempt)
             shot_s, applied_s = trigger_context(values, triggers.get(name))
+            unmuted = before_muting(preset, profile, name, latest_attempt, shot_s)
             result = judge_signal(
                 name,
                 stream,
@@ -338,11 +349,19 @@ def settle_records(
                 shot_s=shot_s,
                 applied_s=applied_s,
                 spectra=spectra,
+                before_muting=unmuted,
             )
             results[name] = result
-            attempt = latest(attempts, name, "preprocessing")
-            if attempt is not None:
-                record_result(run_folder, name, "preprocessing", attempt.attempt, result)
+            if latest_attempt is not None:
+                record_result(run_folder, name, "preprocessing", latest_attempt.attempt, result)
+            # Its spectra beside it, drawn again when the record or its usable band changed.
+            shown = (
+                latest_attempt.attempt if latest_attempt is not None else 0,
+                result.kept.band_hz,
+            )
+            if drawn.get(name) != shown:
+                draw_spectra(stream, folder, result.kept.band_hz)
+                drawn[name] = shown
         before = exclusions
         for name, result in results.items():
             for flag in result.flags:

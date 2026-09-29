@@ -7,6 +7,7 @@ from dataclasses import replace
 import numpy as np
 import pytest
 from sigpipe.base import Coordinate, LinearAcquisition, Stream
+from sigpipe.masw.quality.signal import signal_windows
 from sigpipe.transformers import Shift
 
 from paco.qc.g1_signal import (
@@ -235,6 +236,29 @@ def test_the_energy_a_mute_removed_is_reported() -> None:
     removed = next(metric for metric in result.metrics if metric.name == "energy_removed")
     assert removed.value is not None
     assert 0.0 < removed.value < 0.5
+
+
+def test_a_muted_records_noise_is_measured_before_its_muting() -> None:
+    # A muting zeroes the noise window after the slowest arrival: measured there, the noise is
+    # none. Before the muting (its record 0.1 s later, as a trigger's shift leaves it), the SNR
+    # and the band are the record's own; the rest is measured on the muted record.
+    noisy = _shot(noise=0.2)
+    offsets = np.asarray(noisy.acquisition.offsets, dtype=float)
+    windows = signal_windows(
+        offsets, np.asarray(noisy.ts), THRESHOLDS.vg_min, THRESHOLDS.vg_max, THRESHOLDS.pad_s
+    )
+    assert windows is not None
+    muted = replace(noisy, xt=np.where(windows.noise, 0.0, noisy.xt).astype(np.float32))
+    later = replace(noisy, ts=(np.asarray(noisy.ts) + 0.1).astype(np.float32))
+
+    zeroed = judge_signal("1.dat", muted, THRESHOLDS)
+    before = judge_signal("1.dat", muted, THRESHOLDS, before_muting=(later, 0.1))
+    own = judge_signal("1.dat", noisy, THRESHOLDS)
+
+    assert (_metric(zeroed, "snr_db") or 0.0) > 100
+    assert _metric(before, "snr_db") == pytest.approx(_metric(own, "snr_db"))
+    assert before.kept.band_hz == own.kept.band_hz
+    assert _metric(before, "lateral_coherence") == _metric(zeroed, "lateral_coherence")
 
 
 @pytest.mark.parametrize("field", ["dead_ratio", "clip_share", "band_db"])

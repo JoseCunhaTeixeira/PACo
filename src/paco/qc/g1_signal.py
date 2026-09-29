@@ -183,6 +183,7 @@ def judge_signal(
     shot_s: float = 0.0,
     applied_s: float | None = None,
     spectra: bool = False,
+    before_muting: tuple[Stream, float] | None = None,
 ) -> GateResult:
     """G1's verdict on one record: the metrics, the flags with their actions, and what is kept.
     The traces `excluded` already (receiver indices) are left out of every measure and flag;
@@ -190,7 +191,10 @@ def judge_signal(
     the traces within `reach_m` of the shot (the line's reach, beyond which the traces carry no
     wave). The first breaks should put the shot at `shot_s` (`trigger_context`); `applied_s`,
     the shift the muting applied, None with the muting off: the trigger is part of the muting,
-    so a record not muted has no trigger to correct, its shot time only reported."""
+    so a record not muted has no trigger to correct, its shot time only reported. The SNR and
+    the usable band measure the noise on the record before its muting (`before_muting`: it, and
+    where its shot is on it; the user, 2026-09-29: a muting zeroes the noise window after the
+    slowest arrival), when muted; the other measures, `preprocessed`."""
     xt = preprocessed.xt
     left_out = _left_out(xt.shape[0], excluded)
     dead, clipped, nan = (
@@ -278,7 +282,8 @@ def judge_signal(
 
     usable = ~(bad_traces | outliers)
     measured = usable & within if (usable & within).any() else usable
-    snr = snr_db(finite, windows)
+    noisy, noise = _before_muting(before_muting, finite, windows, offsets, thresholds)
+    snr = snr_db(noisy, noise)
     median_snr = float(np.median(snr[measured])) if measured.any() else float("nan")
     snr_ok = median_snr >= thresholds.min_snr_db
     metrics.append(
@@ -293,9 +298,9 @@ def judge_signal(
     )
     band = (
         usable_band(
-            finite[measured],
+            noisy[measured],
             preprocessed.sampling_freq,
-            Windows(windows.signal[measured], windows.noise[measured], windows.where),
+            Windows(noise.signal[measured], noise.noise[measured], noise.where),
             thresholds.band_db,
             thresholds.peak_db,
         )
@@ -316,7 +321,7 @@ def judge_signal(
         flags.append(
             Flag(
                 name="low_snr",
-                message=f"Median SNR {median_snr:.1f} dB in the surface-wave window ({windows.where})"
+                message=f"Median SNR {median_snr:.1f} dB in the surface-wave window ({noise.where})"
                 + (
                     f"; usable band {band[0]:.1f}-{band[1]:.1f} Hz."
                     if band
@@ -459,6 +464,31 @@ def judge_signal(
 
     kept = Kept(band_hz=band, n_traces=int(usable.sum()))
     return _result(record, metrics, flags, kept)
+
+
+def _before_muting(
+    before_muting: tuple[Stream, float] | None,
+    finite: np.ndarray,
+    windows: Windows,
+    offsets: np.ndarray,
+    thresholds: SignalThresholds,
+) -> tuple[np.ndarray, Windows]:
+    """The traces and windows G1 measures the noise on: the record before its muting's, its
+    times from its shot (`before_muting`); the preprocessed record's (`finite`, `windows`) when
+    not muted, or when the record before its muting leaves no room for a noise window."""
+    if before_muting is None:
+        return finite, windows
+    stream, shot_s = before_muting
+    found = signal_windows(
+        offsets,
+        np.asarray(stream.ts, dtype=float) - shot_s,
+        thresholds.vg_min,
+        thresholds.vg_max,
+        thresholds.pad_s,
+    )
+    if found is None or stream.xt.shape != finite.shape:
+        return finite, windows
+    return np.nan_to_num(stream.xt), found
 
 
 def decay_outliers(

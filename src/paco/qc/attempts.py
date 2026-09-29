@@ -24,8 +24,8 @@ __all__ = [
     "restore_record",
 ]
 
-# What the preprocessing writes in a record's folder.
-RECORD_FILES = ("Stream_*", "error.log")
+# What the preprocessing writes in a record's folder, and G1 beside it (its spectra).
+RECORD_FILES = ("Stream_*", "Spectrum_*", "error.log")
 
 
 def invalidate(window_folder: Path, stage: Stage, attempt: int) -> Path:
