@@ -29,13 +29,15 @@ SMALL_WINDOWS = {"masw": {"length": 24, "step": 24}}
 FAILING = {**SMALL_WINDOWS, "dispersion": {"fmin": 10.1, "fmax": 10.2}}
 
 # Each final step's figure beside its data: the image's; a passive window's stacked
-# correlations'.
+# correlations' and their spectra's.
 WINDOW_FILES = {
     "active": {"window.json", "DispersionImage_0000.png", "DispersionImage_0000.hdf5"},
     "passive": {
         "window.json",
         "Stream_0000.hdf5",
         "Stream_0000.png",
+        "Spectrum_0000.png",
+        "Spectrum_0000.npz",
         "DispersionImage_0000.png",
         "DispersionImage_0000.hdf5",
     },
