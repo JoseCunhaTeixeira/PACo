@@ -32,6 +32,7 @@ from sigpipe.masw.inversion.priors import (
     derive_inversion,
 )
 from sigpipe.masw.inversion.section import save_comparison, save_section, save_sections_file
+from sigpipe.masw.inversion.summary import save_line_summary
 from sigpipe.masw.inversion.window import M0
 from sigpipe.masw.picks import CURVES_FILE, load_curves
 from sigpipe.masw.quality.line import Series
@@ -186,6 +187,8 @@ def run_inversion_job(
                 summary += f"\nSection of the {len(passed)} models G5 passed: {section.name}."
             save_sections_file(run_folder, passed)
             save_comparison(run_folder, passed)
+            model = read_qc_config(run_folder).model
+            save_line_summary(run_folder, passed, model.max_misfit, model.max_rhat)
         except Exception:
             logger.exception("Could not save the velocity section of %s", run_folder)
         record = record.model_copy(
