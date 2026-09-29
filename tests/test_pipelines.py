@@ -54,16 +54,17 @@ PREPROCESSING_CHAIN = {
     "passive": ["Load", "Detrend", "Detrend", "Mute", "Filter", "Save", "Plot"],
 }  # fmt: skip
 ACTIVE_CHAIN = ["Load", "Dispersion", "Stack", "Plot", "Save"]
-# The segments' selection and the stacked correlations each followed by their figure.
+# The segments' selection and the stacked correlations each followed by their figure, the
+# correlations by their spectra too.
 PASSIVE_CHAIN = [
     "Load", "Slice", "Selection", "PlotSelection", "Whiten", "Normalize", "Apodize",
-    "Correlate", "Stack", "Save", "Plot", "Dispersion", "Plot", "Save",
+    "Correlate", "Stack", "Save", "Plot", "PlotSpectra", "Dispersion", "Plot", "Save",
 ]  # fmt: skip
 # PAC's adapters/passive_active.py: the shots correlated as preprocessed (their surface waves
 # alone when the muting keeps them).
 PASSIVE_ACTIVE_CHAIN = [
-    "Load", "Apodize", "ActiveShotCorrelation", "Stack", "Save", "Plot", "Dispersion", "Plot",
-    "Save",
+    "Load", "Apodize", "ActiveShotCorrelation", "Stack", "Save", "Plot", "PlotSpectra",
+    "Dispersion", "Plot", "Save",
 ]  # fmt: skip
 
 # Every tunable stage switched on, with values moved away from the defaults.
@@ -442,11 +443,13 @@ def test_an_unresolved_preset_is_refused(
 EXPECTED_FILES = {
     # The stacked dispersion image, plotted and saved.
     "active": {"DispersionImage_0000.png", "DispersionImage_0000.hdf5"},
-    # The stacked correlation saved and plotted, then its dispersion image (with the fk
-    # selection on, the segments' figure too: `_expected`).
+    # The stacked correlation saved and plotted, its spectra drawn and saved, then its
+    # dispersion image (with the fk selection on, the segments' figure too: `_expected`).
     "passive": {
         "Stream_0000.hdf5",
         "Stream_0000.png",
+        "Spectrum_0000.png",
+        "Spectrum_0000.npz",
         "DispersionImage_0000.png",
         "DispersionImage_0000.hdf5",
     },
