@@ -1,6 +1,7 @@
 import os
 from datetime import UTC, datetime
 from pathlib import Path
+from typing import Any
 
 import pytest
 from pydantic import TypeAdapter, ValidationError
@@ -12,6 +13,7 @@ from sigpipe.masw.runs import RunError, find_run, load_image, run_processing
 from paco.qc import (
     ATTEMPTS_FOLDER,
     CONFIG_FILE,
+    LINE,
     LOG_FILE,
     REPORT_FILE,
     STAGE_FILES,
@@ -47,6 +49,8 @@ from paco.qc import (
     read_attempts,
     read_qc_config,
     read_report,
+    record_result,
+    redo,
     rerun_phase_shift,
     rerun_picking,
     retries_at_gate,
@@ -354,9 +358,45 @@ def test_going_back_is_refused_once_the_runs_budget_is_spent(tmp_path: Path) -> 
             ),
         )
 
-    with pytest.raises(RunError, match=r"The retry budget of run 'r' is spent \(4 of 4\): you"):
+    with pytest.raises(redo.BudgetSpent, match=r"The retry budget of run 'r' is spent \(4 of 4\)"):
         check_budget("r", tmp_path, QCConfig(), 2)
     check_budget("r", tmp_path, QCConfig(), 3)  # 4 of 6: not spent
+
+
+def test_the_windows_imaged_again_are_picked_again_but_those_g2_rejects(
+    demo_input_dir: Path, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    # An earlier stage done again may leave a window's new image rejected by G2: the others are
+    # picked again, and the line keeps their curves for G4.
+    monkeypatch.chdir(tmp_path)
+    settings = Settings(input_dir=demo_input_dir, output_dir=tmp_path / "outputs", workers=2)
+    run_id = run_processing("active_p1", "active", SMALL_WINDOWS, settings).run_id
+    judge_run(run_id, settings, QCConfig())
+    run_folder = find_run(run_id, settings)
+    imaged = redo._redo_images  # pyright: ignore[reportPrivateUsage]
+
+    def rejecting(*args: Any, **kwargs: Any) -> None:  # noqa: ANN401
+        imaged(*args, **kwargs)
+        attempt = latest(read_attempts(run_folder), "xmid_2.88", "phase_shift")
+        assert attempt is not None
+        g2 = attempt.results["G2"].model_copy(update={"verdict": "reject"})
+        record_result(run_folder, "xmid_2.88", "phase_shift", attempt.attempt, g2)
+
+    monkeypatch.setattr(redo, "_redo_images", rejecting)
+    redo.redo_stage(
+        run_id,
+        "phase_shift",
+        ["xmid_2.88", "xmid_8.88"],
+        {"dispersion": {"vmax": 900}},
+        settings,
+        "G2:ridge_at_vmax",
+    )
+
+    attempts = read_attempts(run_folder)
+    picked = {a.unit for a in attempts if a.stage == "picking" and a.triggered_by != "initial"}
+    assert picked == {"xmid_8.88"}
+    line = latest(attempts, LINE, "picking")
+    assert line is not None and line.results["G4"].verdict == "pass"
 
 
 def test_the_configuration_defaults_hold_the_thresholds_and_the_budgets() -> None:

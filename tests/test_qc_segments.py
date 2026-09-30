@@ -26,9 +26,9 @@ def test_the_demos_passive_line_takes_shorter_segments(
     profiles: dict[str, Profile], tmp_path: Path
 ) -> None:
     # passive_p1's windows span 5.75 m, crossed in 72 ms at 80 m/s: 0.72 s segments (ten
-    # crossings) with the FK selection at 0.1 give an M0 pick over 4.6 times its shortest
-    # wavelength, against 3.4 with the preset's 2 s, 8 % of the segments kept and the
-    # correlograms converged (0.83); without the selection, 4.5 with every segment kept.
+    # crossings) with the FK selection at 0.1 give an M0 pick over 7.8 times its shortest
+    # wavelength, 8 % of the segments kept and the correlograms converged (0.85), against 5.0
+    # with the defaults (1 s, FK at 0.2), whose correlograms do not converge (0.48).
     profile = profiles["passive_p1"]
     preset = resolve_preset(make_preset("passive", WINDOWS), profile)
     preprocess_records(preset, profile, tmp_path, workers=1)
@@ -45,7 +45,8 @@ def test_the_demos_passive_line_takes_shorter_segments(
     (note,) = notes
     assert note.startswith("Segments of 0.72 s (10 crossings of the windows' 5.75 m at 80 m/s)")
     trials = json.loads((tmp_path / SEGMENTS_FILE).read_text())
-    selections = 1 + len(rules.bands) * len(rules.thresholds)
+    # The FK selection always on: every band and threshold tried, the line's own among them.
+    selections = len(rules.bands) * len(rules.thresholds)
     lengths = {one["segment_s"] for one in trials["candidates"]}
     assert len(trials["candidates"]) == len(lengths) * selections
     assert trials["chosen"]["convergence"] >= rules.min_convergence

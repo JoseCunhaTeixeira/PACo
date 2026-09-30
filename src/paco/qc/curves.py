@@ -41,7 +41,7 @@ def pick_line(
     manifest = load_manifest(run_id, settings)
     config = read_qc_config(run_folder)
     attempts = read_attempts(run_folder)
-    ready = _imaged(run_folder, manifest)
+    ready = imaged_windows(run_folder, manifest)
     if units is not None and (unknown := [unit for unit in units if unit not in ready]):
         raise RunError(
             f"Run '{run_id}' has no window {', '.join(unknown)} with an image G2 did not reject. "
@@ -160,7 +160,7 @@ def _repick(
         pick_windows(run_folder, jobs, config, trigger, workers)
 
 
-def _imaged(run_folder: Path, manifest: RunManifest) -> dict[str, GateResult]:
+def imaged_windows(run_folder: Path, manifest: RunManifest) -> dict[str, GateResult]:
     """The windows whose latest image G2 judged and did not reject, with G2's result."""
     attempts = read_attempts(run_folder)
     if latest(attempts, LINE, "phase_shift") is None and not any(

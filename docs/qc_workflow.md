@@ -269,13 +269,12 @@ Each decision states what the system does and the evidence it rests on; the gate
   interpolates. The images have a 0.5 Hz step on the 2 s demo records; on the passive demo, the
   window at xmid 2.88 is bad without the padding, doubtful with it.
 - **The window length: the shortest that passes, as precise as the inversion needs.** A ladder
-  of lengths (5, 7, 9, 11, then 16, 24, 32 ... receivers; PAC's form has 3) is tried on 27
+  of short lengths (5, 7, 9 and 11 receivers; PAC's form has 3) is tried on 27
   windows spread over the whole line, its ends included; the ladder climbs while 80 % of them
   pass G3 and the picks gain precision (`docs/gates/S2_rules.md`). The 27 trials follow the
-  line within a few % (5 receivers: 63 %, 7: 74 %, 9: 74 %, 11: 85 %, 16: 96 %, against 65, 68,
-  77, 85 and 98 % of the line's windows); nine trials without the end windows all pass at 5
-  receivers. The ladder takes about a minute on the demo. Not the deepest length that passes
-  (48, windows of 12 m on a 24 m line), nor full runs escalated by the gates (whole runs and
+  line within a few % (5 receivers: 63 %, 7: 74 %, 9: 74 %, 11: 85 %, against 65, 68, 77 and
+  85 % of the line's windows). The ladder takes about a minute on the demo. Not a long window
+  that passes more often on poor images, nor full runs escalated by the gates (whole runs and
   tool calls). The tests' and scenarios' 24-receiver windows are an explicit request.
 - **The ladder proposes, the agent decides.** `run_processing` keeps the ladder's length when
   none is given, and returns every length tried (trial windows passing G3, the wavelengths their
@@ -311,9 +310,9 @@ Each decision states what the system does and the evidence it rests on; the gate
 - **PAC's passive-active mode** (interferometry on an active profile's shots), with a fix of
   PAC's chain: the flipped gathers' geometry. A shot is correlated whole: the muting's
   velocities cut what a surface-wave window of the chain's own would.
-- **PACo's passive defaults**: 2 s segments whitened and normalized one-bit, instead of PAC's
-  0.1 s segments with neither (no curve on a real ambient-noise line); S2 then tries other
-  segment lengths and FK selections on the line (`docs/gates/S2_rules.md`).
+- **The passive defaults**, PAC's and PACo's: 1 s segments end to end, the FK selection always
+  on (0.2), whitened and normalized one-bit, the correlations stacked phase-weighted (power 2);
+  S2 then tries other segment lengths and FK thresholds from them (`docs/gates/S2_rules.md`).
 
 ### The picks (S3, G3, G4)
 

@@ -81,7 +81,8 @@ The loop retries only where a retry can change the result, and leaves no window 
 - **The earlier stage G2 or G3 blames is done again once, by PACo** (`settle_earlier`, at the
   end of the agent's `pick`; `redo_stage` with the trigger `<gate>:<flag>`, the run's budget
   paying): the records muted, or the image made again with the pick's band, then the stages
-  after it up to G4. Asked again after it, the window is rejected (`redone_once`); the run's
+  after it up to G4, the windows whose new image G2 rejects left out of the picking (nothing to
+  pick there), the others picked again. Asked again after it, the window is rejected (`redone_once`); the run's
   budget spent, `budget_spent`. Left to the agent, such a change is not made, and the window is
   a gap, unsaid. A `pick` that `redo` runs does not start it again: no loop.
 - **G1's retries are the records'**: they count against each record's own budget (2 per
