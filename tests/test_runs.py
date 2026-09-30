@@ -38,6 +38,9 @@ WINDOW_FILES = {
         "Stream_0000.png",
         "Spectrum_0000.png",
         "Spectrum_0000.npz",
+        # The fk selection, always on: each segment's score, drawn and saved.
+        "Selection_0000.png",
+        "Selection_0000.json",
         "DispersionImage_0000.png",
         "DispersionImage_0000.hdf5",
     },

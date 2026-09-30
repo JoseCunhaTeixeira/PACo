@@ -45,22 +45,22 @@ PASSIVE_ACTIVE_DEFAULTS = {
     "trigger": {"t0": None},
     "muting": {"method": "none"},
     "filtering": {"method": "none"},
-    "stacking": {"method": "linear"},
+    "stacking": {"method": "phase_weighted", "nu": 2},
     "dispersion": DISPERSION_DEFAULTS,
 }
 
-# PACo's passive defaults: 2 s segments whitened and normalized one-bit, where PAC's form has
-# 0.1 s segments and neither (no curve on passive_p2).
+# The passive defaults: 1 s segments end to end, the fk selection always on (0.2), whitened and
+# normalized one-bit, the correlations stacked phase-weighted (power 2).
 # No muting on a passive line, nor its trigger: no shot for a velocity to count from.
 PASSIVE_DEFAULTS = {
     "mode": "passive",
     "masw": MASW_DEFAULTS,
     "filtering": {"method": "none"},
-    "slicing": {"segment_duration": 2.0, "segment_step": 2.0},
-    "selection": {"method": "none"},
+    "slicing": {"segment_duration": 1.0, "segment_step": 1.0},
+    "selection": {"method": "fk", "threshold": 0.2, "vmin": None, "vmax": None},
     "whitening": {"method": "onebit"},
     "normalization": {"method": "onebit"},
-    "stacking": {"method": "linear"},
+    "stacking": {"method": "phase_weighted", "nu": 2},
     "dispersion": DISPERSION_DEFAULTS,
 }
 
@@ -154,7 +154,7 @@ def test_overriding_a_field_keeps_the_other_values() -> None:
             "passive",
             "selection",
             {"method": "fk"},
-            {"method": "fk", "threshold": 0.1, "vmin": None, "vmax": None},
+            {"method": "fk", "threshold": 0.2, "vmin": None, "vmax": None},
         ),
         (
             "passive",
@@ -709,8 +709,9 @@ SCHEMA_BUDGET = {
     # image_stacking: the root stack the user can ask for; the muting's width, its bounds and the
     # shots' distances left out, "null: none": no stand-in values.
     "active": 4_200,
-    # No muting nor trigger on a passive line: no shot to count from.
-    "passive": 5_800,
+    # No muting nor trigger on a passive line: no shot to count from. Its fk selection and
+    # phase-weighted stack are on by default.
+    "passive": 5_860,
     # No surface-wave mute of its own before correlating: the preprocessing's muting cuts.
     "passive-active": 4_460,
 }

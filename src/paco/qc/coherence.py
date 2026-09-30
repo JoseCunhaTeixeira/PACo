@@ -37,9 +37,9 @@ class CoherenceRules(BaseModel):
     model_config = ConfigDict(frozen=True, extra="forbid")
 
     lengths: tuple[int, ...] = Field(
-        default=(5, 7, 9, 11, 16, 24, 32, 48, 64, 96, 128),
-        description="Window lengths tried, in receivers, shortest first: the short ones the "
-        "user works with, then longer ones for a line where none of them passes.",
+        default=(5, 7, 9, 11),
+        description="Window lengths tried, in receivers, shortest first: short windows only, for "
+        "the lateral detail; a line where none passes takes the one that passed most.",
     )
     trials: int = Field(
         default=27,
@@ -69,8 +69,7 @@ class CoherenceRules(BaseModel):
         lt=1,
         description="A longer length is worth the lateral detail it costs while its picks are "
         "this much more precise than the best so far: past it the climb stops. On the demo, "
-        "picks stayed at 36 to 40 % from 7 to 32 receivers, and only half the line (48) did "
-        "better (27 %).",
+        "picks stay at 36 to 40 % from 7 to 11 receivers.",
     )
 
 

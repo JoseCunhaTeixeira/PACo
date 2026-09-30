@@ -66,11 +66,11 @@ def test_the_band_is_capped_by_the_records_and_nyquist_never_widened() -> None:
 
 
 def test_the_ladder_defaults_to_27_trials_and_four_fifths() -> None:
-    # 80 % of the trials, 27 of them over the whole line, the short lengths first, then longer
-    # ones for a line where none passes.
+    # 80 % of the trials, 27 of them over the whole line, short lengths only: a line where none
+    # passes takes the one that passed most.
     rules = CoherenceRules()
     assert (rules.trials, rules.min_pass_share) == (27, 0.8)
-    assert rules.lengths[:6] == (5, 7, 9, 11, 16, 24)
+    assert rules.lengths == (5, 7, 9, 11)
 
 
 def test_the_trial_windows_cover_the_whole_line() -> None:

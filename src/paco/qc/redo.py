@@ -22,7 +22,7 @@ from paco import stopping
 from paco.qc.attempts import invalidate_record, restore_record
 from paco.qc.budgets import Refusal, budget_spent, run_budget
 from paco.qc.config import QCConfig, read_qc_config
-from paco.qc.curves import pick_line
+from paco.qc.curves import imaged_windows, pick_line
 from paco.qc.line import line_reach, settle_images, settle_records
 from paco.qc.log import (
     afresh,
@@ -107,8 +107,12 @@ def redo_stage(
     if stage == "picking":
         pick_line(run_id, settings, windows, changes, trigger)
     else:
-        # The images changed: their windows are picked again from the run's first parameters.
-        pick_line(run_id, settings, windows, None, trigger, fresh=True)
+        # The images changed: their windows are picked again from the run's first parameters,
+        # those whose new image G2 rejected left out (nothing to pick).
+        kept = imaged_windows(run_folder, load_manifest(run_id, settings))
+        pick_line(
+            run_id, settings, [unit for unit in windows if unit in kept], None, trigger, fresh=True
+        )
     report = build_report(run_id, run_folder, config.budgets, len(manifest.windows))
     write_report(report, run_folder)
     return report
@@ -177,8 +181,8 @@ def settle_earlier(run_id: str, settings: Settings) -> bool:
         for stage, changes, trigger, units in groups.values():
             try:
                 redo_stage(run_id, stage, units, changes, settings, trigger)
-            except RunError:
-                # The run's budget spent (check_budget): rejected, as a gate's retry without it.
+            except BudgetSpent:
+                # Rejected, as a gate's retry without the budget.
                 attempts = read_attempts(run_folder)
                 gate = trigger.split(":")[0]
                 judged_at = EARLIER[gate][0]
@@ -192,13 +196,17 @@ def settle_earlier(run_id: str, settings: Settings) -> bool:
         changed = True
 
 
+class BudgetSpent(RunError):
+    """The run's retry budget is spent: no stage may be done again."""
+
+
 def check_budget(run_id: str, run_folder: Path, config: QCConfig, n_windows: int) -> None:
     """Refuse to go back once the run's retry budget is spent (rule 4): the agent's backtracks
     count against it, as the gates' retries do."""
     spent = retries_in_run(read_attempts(run_folder))
     total = run_budget(config.budgets, max(1, n_windows))
     if spent >= total:
-        raise RunError(
+        raise BudgetSpent(
             f"The retry budget of run '{run_id}' is spent ({spent} of {total}): you are stuck. "
             "Tell the user what the run has, and ask whether to start a new run with other "
             "settings, or to stop here."

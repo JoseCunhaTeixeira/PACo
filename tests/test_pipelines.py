@@ -257,7 +257,7 @@ def test_pacs_fixed_steps_of_the_passive_active_pipeline(
 
     assert vars(_only(built.image, Apodize)) == {"method": "hanning", "params": {"frac": 0.1}}
     assert _only(built.image, ActiveShotCorrelation).method == "cross"
-    assert vars(_only(built.image, Stack)) == {"method": "linear", "params": {}}
+    assert vars(_only(built.image, Stack)) == {"method": "phase_weighted", "params": {"nu": 2}}
     # No mute of its own before correlating: the preprocessing's muting cuts.
     assert not any(isinstance(step, Mute) for step in built.image.steps)
 
@@ -347,7 +347,15 @@ def test_pacs_fixed_steps_of_the_passive_pipeline(
         "method": "cross",
         "params": {"virtual_source_index": 0, "part": "causal"},
     }
-    assert _only(built.image, Selection).params == {"flip_negatives": True}
+    # The fk selection always on, at 0.2 by default, its kept segments flipped to run one way.
+    selection = _only(built.image, Selection)
+    assert selection.method == "fk"
+    assert selection.params == {
+        "threshold": 0.2,
+        "vmin": None,
+        "vmax": None,
+        "flip_negatives": True,
+    }
 
 
 # ---------------------------------------------------------------- preset values
@@ -456,12 +464,11 @@ EXPECTED_FILES = {
 }
 
 
-def _expected(name: str, overrides: dict[str, Any]) -> set[str]:
-    """The files a window of mode `name` gets with `overrides`: the fk selection adds its
-    figure and its data."""
-    selecting = overrides.get("selection", {}).get("method") == "fk"
+def _expected(name: str) -> set[str]:
+    """The files a window of mode `name` gets: a passive window's fk selection, always on, adds
+    its figure and its data."""
     return EXPECTED_FILES[name] | (
-        {"Selection_0000.png", "Selection_0000.json"} if selecting else set()
+        {"Selection_0000.png", "Selection_0000.json"} if name == "passive" else set()
     )
 
 
@@ -482,7 +489,7 @@ def test_the_split_runs_and_gives_the_single_pipelines_results(
     reference.mkdir()
     _single_pipeline(built.preset, built.window, reference).run(show_log=False)
 
-    assert {path.name for path in built.window_folder.iterdir()} == _expected(name, overrides)
+    assert {path.name for path in built.window_folder.iterdir()} == _expected(name)
     for path in built.window.selected_files:
         folder = record_folder(built.records_folder, _record(built.profile, path))
         assert {path.name for path in folder.iterdir()} == {"Stream_0000.hdf5", "Stream_0000.png"}

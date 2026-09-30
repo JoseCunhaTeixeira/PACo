@@ -15,7 +15,7 @@ the agent reads them first in the summary; the ladder's trials are kept in the r
 | The band | fmax capped at the smaller of the median usable fmax of the records G1 kept and Nyquist; fmin raised to their median usable fmin. Never widened: PAC's 100 Hz stays when the records go higher | Widening the band makes G3 worse at every window length on the demo (below): above 100 Hz a second ridge competes and the picker jumps. The median, not the worst record: on `active_p2` the worst records' limits (24 to 86 Hz) would cut the whole line's long wavelengths, where the median record is usable from 2.3 to 298 Hz |
 | The far limit | `masw.distance_max` at the line's reach, where the traces' median SNR falls under 2 dB (sigpipe's `line_reach`, G1's `reach_snr_db`), unless the user gave one | A window stacks no shot whose traces there are mostly noise: PAC's 100 m takes `active_p2`'s traces beyond about 60 m, which are noise |
 | The near limit | on an active line, a window stacks no shot nearer to its nearest receiver than half the longest wavelength the kept length's trial curves reached (the line's note `near_field`), where it has a farther one; a window with near shots only keeps them, and G3 flags their near field (`near_field`). A `masw.distance_min` the user gives rules instead | Nearer, the wave is not yet a plane surface wave and the long wavelengths read slow (Park et al.). A window keeps its near shots when it has no other: leaving out every window's near shots costs the demo a third of its curves (below) |
-| The window length | one length for the whole line. Given none: a ladder of lengths (5, 7, 9, 11, then 16, 24, 32, 48, 64, 96, 128 receivers, at most half the line), each tried on 27 windows spread evenly along the line, its ends included (S2, the picking and G3). Up the ladder while 80 % of them pass G3 and each length's picks are at least 10 % more precise than the best so far: the first length whose passed curves' median velocity uncertainty is within 20 % is proposed; the climb stopping first, the most precise that passed (the shorter on a tie); none passing, the one that passed most (the shortest on a tie). One length more is tried for comparison. A length given (by the user or the agent) is kept, its trial windows tried for the record | Lateral resolution, and picks precise enough for the inversion: the shortest windows pass G3 with loose picks (`active_p2`: 40 % at 5 receivers, 26 % at 11) |
+| The window length | one length for the whole line. Given none: a ladder of short lengths (5, 7, 9 and 11 receivers, at most half the line: longer windows lose the lateral detail, and on poor images pass G3 more often only because they resolve velocity better), each tried on 27 windows spread evenly along the line, its ends included (S2, the picking and G3). Up the ladder while 80 % of them pass G3 and each length's picks are at least 10 % more precise than the best so far: the first length whose passed curves' median velocity uncertainty is within 20 % is proposed; the climb stopping first, the most precise that passed (the shorter on a tie); none passing, the one that passed most (the shortest on a tie). The next length, when there is one, is tried for comparison. A length given (by the user or the agent) is kept, its trial windows tried for the record | Lateral resolution, and picks precise enough for the inversion: the shortest windows pass G3 with loose picks (`active_p2`: 40 % at 5 receivers, 26 % at 11) |
 | The frequency step | 1/T by construction: no padding before the phase shift, so the image's step follows the record length | A finer step only interpolates |
 | The velocity range | left to G2, which flags a ridge on the grid's edges per window | The trial images could set it; not needed on the demo (1 to 1,000 m/s) |
 
@@ -29,12 +29,9 @@ shortest and longest wavelengths (a model reaches about half the longest), the p
 precision, the windows the line gets at that length, and which length is proposed.
 
 The trials' shares follow the whole line's. On `active_p1`, the 27 trials pass 17 at 5
-receivers, 20 at 7 and 9, 23 at 11 and 26 at 16; processed and picked with the gates' retries,
-the line gives curves on 65 % of its windows at 5 receivers, 68 % at 7, 77 % at 9, 85 % at 11
-and 98 % at 16, the failures mostly the windows at the line's ends (1 or 2 points next to the
-shot). Nine trials do not follow the line: with the line's two end windows among them, no short
-length reaches 80 %, and the ladder proposes 16; with the ends left out, all nine pass at 5
-receivers.
+receivers, 20 at 7 and 9 and 23 at 11; processed and picked with the gates' retries, the line
+gives curves on 65 % of its windows at 5 receivers, 68 % at 7, 77 % at 9 and 85 % at 11, the
+failures mostly the windows at the line's ends (1 or 2 points next to the shot).
 
 Its `next` says the length is the ladder's proposal, to change with `masw.length` when the
 request needs more depth or lateral detail, saying why; the ideal scripted agent then takes 24
@@ -48,13 +45,10 @@ On `active_p2` (96 receivers, 1.5 m apart), the ladder's trial windows give, by 
 receivers, 25 of 27 passed with picks at 40 % (the median velocity uncertainty of the curves
 passed); 7: 24, 30 %; 9: 24, 30 %; 11: 23, 26 %; 16: 13, 18 %; 24: 13, 9 %; 32: 11, 5 %; 48: 15,
 5 %. The shortest that passes (5) gives curves the inversion can hardly use; the longest ones
-are precise but fail G3 on half the line. The ladder climbs while the lengths pass and buy
-precision, stops at the first within 20 %, and takes the most precise that passed when none is
-(`CoherenceRules.max_uncertainty`, `min_precision_gain`): 7 receivers on `active_p2` (30 %,
-where 9 gives no better), 7 on the demo (39 %). The most precise at any length would not do: on
-the demo, where picks stay at 36 to 40 % from 7 to 32 receivers and only half the line (48)
-does better (27 %), it takes windows of half the line, even when the request asks for lateral
-detail (the evaluation's `detail`).
+are precise but fail G3 on half the line, and are not tried. The ladder climbs while the
+lengths pass and buy precision, stops at the first within 20 %, and takes the most precise that
+passed when none is (`CoherenceRules.max_uncertainty`, `min_precision_gain`): 7 receivers on
+`active_p2` (30 %, where 9 gives no better), 7 on the demo (39 %).
 
 ## On the demo profile, the picks cut at 2 window lengths
 
@@ -127,13 +121,15 @@ settings when it widens their span by a fifth, or when theirs had not converged.
 coherent columns tells nothing here: a passive line's stacked images come near 100 % whatever
 the settings. The trials are kept in `segments.json`, the choice in the line's notes.
 
-On the demo, with 24-receiver windows: passive_p1 takes 0.72 s segments (ten crossings of its
-windows' 5.75 m) and the FK selection at 0.1 at any velocity: its M0 picked over 4.6 times its
-shortest wavelength against 3.4 with the preset's 2 s, 8 % of the segments kept, converged
-(0.83); without the selection, 4.5 with every segment kept. passive_p2 takes 4.31 s segments (ten
-crossings of 34.5 m) and the FK selection at 0.1 at any velocity: its M0 over 5.5 times its
-shortest wavelength against 1.0 (the picker finds almost nothing with the preset's settings), 60 %
-of the segments kept, converged (0.96). With 9 m windows, 0.7 s segments and the FK selection at
-0.5, passive_p2 keeps 0.2 % of its segments and its correlograms do not converge (0.54); the
-trials take 4.5 s segments and the FK selection at 0.2 within 80 to 1,500 m/s: its M0 over 7.8
-times its shortest wavelength against 3.1, 32 % of the segments kept, converged (0.98).
+On the demo, with 24-receiver windows, the trials start from the defaults (1 s segments end to
+end, the FK selection at 0.2, the correlations stacked phase-weighted). passive_p1 takes 0.72 s
+segments (ten crossings of its windows' 5.75 m) and the FK selection at 0.1: its M0 picked over
+7.8 times its shortest wavelength, 8 % of the segments kept, converged (0.85), against 5.0 with
+the defaults, whose correlograms do not converge (0.48). passive_p2 takes 8.62 s segments (20
+crossings of 34.5 m), the FK selection kept at 0.2: its M0 over 17.4 times its shortest
+wavelength, 22 % of the segments kept, converged (0.86), against 1.0 with the defaults (the
+picker finds almost nothing). With 9 m windows, 0.7 s segments, the FK selection at 0.5 and a
+linear stack, passive_p2 keeps 0.2 % of its segments and its correlograms do not converge
+(0.54); the trials take 4.5 s segments and the FK selection at 0.2 within 80 to 1,500 m/s: its
+M0 over 7.8 times its shortest wavelength against 3.1, 32 % of the segments kept, converged
+(0.98).

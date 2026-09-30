@@ -3,9 +3,9 @@ segments' length matters, set by the window's span; the FK selection shapes the 
 the correlograms must converge. On a few trial windows of the chosen length, each candidate
 segment length (a number of times the slowest wave's crossing of the window) slices the noise,
 and each segment is whitened, normalized, tapered and correlated once, as the pipeline does,
-flipped and not; each FK selection (none, or a velocity band and a threshold) then keeps the
-segments whose f-k energy is lopsided enough in the band, flipped where it runs the other way,
-and stacks them. A candidate is judged by the dispersion image its stack makes: the span of
+flipped and not; each FK selection (a velocity band and a threshold, the selection always on)
+then keeps the segments whose f-k energy is lopsided enough in the band, flipped where it runs the
+other way, and stacks them. A candidate is judged by the dispersion image its stack makes: the span of
 wavelengths its M0 pick holds (the picker's, as S3 runs it: how much of the curve, and of the
 depth, the image gives), then the pick's coherence; provided its correlograms converged (the
 virtual shots of the kept segments' two halves agree over their arrivals) and it keeps enough
@@ -140,7 +140,8 @@ def choose_segments(
     )
     selections: list[tuple[Band, float] | None] = [own_selection]
     if "selection" not in given:
-        for one in [None, *((band, t) for band in rules.bands for t in rules.thresholds)]:
+        # The FK selection always on: its thresholds and bands tried, never none.
+        for one in ((band, t) for band in rules.bands for t in rules.thresholds):
             if one not in selections:
                 selections.append(one)
     stack = Stack(**stage_kwargs(preset, "stacking"))
