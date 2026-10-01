@@ -340,6 +340,27 @@ def line_muted(vmin: float | None = None, vmax: float | None = None) -> Check:
     return check
 
 
+def compared_lengths(*receivers: int) -> Check:
+    """The agent's latest comparison compared windows of these lengths, in receivers, whatever
+    its call wrote: the windows actually tried."""
+    name = f"compared windows of {', '.join(map(str, receivers))} receivers"
+
+    def check(trial: Trial) -> CheckResult:
+        for step in reversed(_called(trial)):
+            if step.name != "compare" or step.is_error:
+                continue
+            try:
+                compared = json.loads(step.result)
+            except json.JSONDecodeError:
+                break
+            lengths = tuple(one.get("length") for one in compared.get("variants", ()))
+            passed = lengths == receivers
+            return CheckResult(name=name, passed=passed, detail="" if passed else f"{lengths}")
+        return CheckResult(name=name, passed=False, detail="no comparison")
+
+    return check
+
+
 def compare_best(trial: Trial) -> str:
     """The metric's value of the best variant of the latest comparison the agent made."""
     for step in reversed(_called(trial)):

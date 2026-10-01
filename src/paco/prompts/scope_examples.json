@@ -32,6 +32,6 @@
   {"message": "Pick the fundamental mode and M2 on line_b.", "form": {"pick": true, "profile": "line_b"}},
   {
     "message": "Compare windows of 3 m and 6 m on line_b for depth.",
-    "form": {"process": true, "profile": "line_b"}
+    "form": {"process": true, "profile": "line_b", "compare_lengths_m": [3, 6]}
   }
 ]

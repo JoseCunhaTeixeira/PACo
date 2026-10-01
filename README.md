@@ -211,8 +211,8 @@ one before (`--model` for one model).
 Before any tool runs, the model reads your message into a form, its scope: the stages it asks
 (process, pick, invert, soils; none for a question about what exists, or a request no tool
 makes), the profile or run, the positions in metres, the windows' length and step in the unit
-you give them (receivers or metres), whether to do again work already there, what it says of
-your hand work,
+you give them (receivers or metres), the window lengths a comparison names, whether to do again
+work already there, what it says of your hand work,
 and which option it chooses among those a tool offered last. The form's JSON schema constrains
 the model's output, thinking off; a form that does not parse goes back once with its error,
 and a second failure ends the answer asking you to say it again. Code then checks what it can
@@ -221,8 +221,8 @@ within the scope (`src/paco/agent/scope.py`):
 - a call outside it is refused, unmade, with the reason for the model; an earlier stage stays
   within a scope that asks a later one, the server deciding whether the run needs it;
 - each call carries the scope, and the tools apply the rules below with it; the positions a
-  tool works at are those your message named (none: the whole line), and the windows those it
-  gave (metres converted by PACo), whatever the model wrote;
+  tool works at are those your message named (none: the whole line), and the windows and the
+  lengths compared those it gave (metres converted by PACo), whatever the model wrote;
 - the answer starts with the scope's line (`Scope: pick, invert · active_p1 · at 9 m.`), for
   you to check what PACo read;
 - the options a tool offered are kept, so that "the second one" is the call it offered; once a

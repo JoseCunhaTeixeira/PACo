@@ -64,6 +64,12 @@ class Scope(BaseModel):
     length_m: float | None = Field(gt=0, description="The windows' length it gives in metres.")
     step_receivers: int | None = Field(ge=1, description="The windows' step it gives in receivers.")
     step_m: float | None = Field(gt=0, description="The windows' step it gives in metres.")
+    compare_lengths_receivers: list[int] = Field(
+        max_length=10, description="The window lengths it compares, in receivers."
+    )
+    compare_lengths_m: list[float] = Field(
+        max_length=10, description="The window lengths it compares, in metres."
+    )
     redo: bool = Field(description="It asks to do again work already done.")
     replace_hand_work: bool = Field(description="It asks to replace work made by hand.")
     option: int | None = Field(description="The option it chooses among those offered last.")
@@ -100,6 +106,27 @@ class Scope(BaseModel):
         return ", ".join(one for one in said if one) or None
 
     @property
+    def compared(self) -> dict[str, list[float]]:
+        """The window lengths the message compares, as compare's masw overrides take them: in
+        receivers ("length") or in metres ("length_m", converted by the server)."""
+        if self.compare_lengths_receivers:
+            return {"length": [float(one) for one in self.compare_lengths_receivers]}
+        if self.compare_lengths_m:
+            return {"length_m": list(self.compare_lengths_m)}
+        return {}
+
+    def _compared_said(self) -> str | None:
+        """The lengths compared, in words: "comparing windows of 3, 6 m"."""
+        if self.compare_lengths_receivers:
+            shown = ", ".join(str(one) for one in self.compare_lengths_receivers)
+            return f"comparing windows of {shown} receivers"
+        if self.compare_lengths_m:
+            return (
+                f"comparing windows of {', '.join(f'{one:g}' for one in self.compare_lengths_m)} m"
+            )
+        return None
+
+    @property
     def asked(self) -> frozenset[Stage]:
         """The stages the message asks for (none: it only looks at what exists)."""
         return frozenset(stage for stage in STAGES if getattr(self, stage))
@@ -114,6 +141,8 @@ class Scope(BaseModel):
             parts.append("at " + ", ".join(f"{position:g}" for position in self.positions_m) + " m")
         if windows := self._windows_said():
             parts.append(windows)
+        if compared := self._compared_said():
+            parts.append(compared)
         if self.redo:
             parts.append("again")
         if self.replace_hand_work:
@@ -133,6 +162,8 @@ class Scope(BaseModel):
             said.append("positions " + ", ".join(f"{p:g}" for p in self.positions_m) + " m")
         if windows := self._windows_said():
             said.append(windows)
+        if compared := self._compared_said():
+            said.append(compared)
         said.append("to do again" if self.redo else "not to do again")
         said.append(
             "to replace the work made by hand"
@@ -152,6 +183,7 @@ class Scope(BaseModel):
             "hand_work": "replace" if self.replace_hand_work else "unsaid",
             "positions_m": list(self.positions_m),
             "window": self.window,
+            "compared": self.compared,
         }
 
 
@@ -170,6 +202,8 @@ _BLANK: dict[str, Any] = {
     "length_m": None,
     "step_receivers": None,
     "step_m": None,
+    "compare_lengths_receivers": [],
+    "compare_lengths_m": [],
     "redo": False,
     "replace_hand_work": False,
     "option": None,

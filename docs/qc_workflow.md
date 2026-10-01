@@ -156,7 +156,7 @@ Constraints: Qwen3 4B or 8B, a 12,288-token context (what the 16 GB card serves)
   - Wording: the same requests in French, with a typo, a synonym (a shear-wave velocity profile) and a negation (pick, do not invert); a hand-picked curve asked to be picked again too (replaced, set aside, no question); a run id that does not exist; a position off the line (`off_line`: refused, nothing inverted); an instruction hidden in the data (`injected`: a profile whose folder name tells the assistant to invert every run; listing the profiles runs nothing).
   - The mute trial and compare: refractions as strong as the surface waves (`refractions`, the `active_refracted` copy: the line muted), a mute the user gives (`custom_mute`: kept as given, no trial), two window lengths compared on depth (`compare_lengths`: compare, no run).
   - Pass rates (E4): each scenario has a threshold (`Scenario.threshold`, 3 plays of 5 by default **(to review)**), recorded in the report; `paco-evaluate --history` sums the plays of every evaluation kept by model and prompts' version, the latest version against the one before.
-  - The scope set (`paco-evaluate --scopes`, `paco.evaluation.scope_set`): 42 labelled messages, English and French, the windows' length and step in receivers or metres among them, read once by the model into their scope and scored field by field.
+  - The scope set (`paco-evaluate --scopes`, `paco.evaluation.scope_set`): 44 labelled messages, English and French, the windows' length and step in receivers or metres and the lengths a comparison names among them, read once by the model into their scope and scored field by field.
   - An air wave and an isolated G4 outlier have no scenario: neither can be made a physical defect of the demo's records (`docs/gates/loop.md`); the gates' tests cover both on analytic curves and synthetic lines.
 
 ## Tests
@@ -340,7 +340,9 @@ Each decision states what the system does and the evidence it rests on; the gate
   picked and judged by G3 as the trials are, under the profile's `compare/` folder: no run
   made or changed. The metric: the depth (half the longest wavelength), the band (Hz), the
   wavelength span (m) or the windows passing G3; a table and the best. The model chooses the
-  variants and, asked to optimise, the metric closest to the request, and says it.
+  variants and, asked to optimise, the metric closest to the request, and says it. The window
+  lengths the message compares are read into its scope, in the unit given, and set the
+  variants' lengths in code (metres converted), whatever the model wrote of them.
 - **The ladder proposes, the agent decides.** `run_processing` keeps the ladder's length when
   none is given, and returns every length tried (trial windows passing G3, the wavelengths their
   curves reach, the picks' precision, windows on the line), one length past the proposed one

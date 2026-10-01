@@ -25,6 +25,8 @@ LOOK: dict[str, Any] = {
     "length_m": None,
     "step_receivers": None,
     "step_m": None,
+    "compare_lengths_receivers": [],
+    "compare_lengths_m": [],
     "redo": False,
     "replace_hand_work": False,
     "option": None,

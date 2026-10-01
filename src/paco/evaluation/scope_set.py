@@ -32,6 +32,8 @@ NOTHING: dict[str, Any] = {
     "length_m": None,
     "step_receivers": None,
     "step_m": None,
+    "compare_lengths_receivers": [],
+    "compare_lengths_m": [],
     "redo": False,
     "replace_hand_work": False,
     "option": None,
@@ -116,6 +118,15 @@ CASES: tuple[Case, ...] = (
             "profile": "active_p1",
             "length_receivers": 24,
         },
+    ),
+    # The lengths a comparison names, in the unit the message gives.
+    Case(
+        "On active_p1, compare windows of 3 m and of 6 m: which reaches deeper?",
+        {"process": True, "profile": "active_p1", "compare_lengths_m": [3, 6]},
+    ),
+    Case(
+        "Compare des fenêtres de 12, 24 et 48 capteurs sur active_p1.",
+        {"process": True, "profile": "active_p1", "compare_lengths_receivers": [12, 24, 48]},
     ),
     # The windows, in the unit the message gives.
     Case(

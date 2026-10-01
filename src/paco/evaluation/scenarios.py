@@ -18,6 +18,7 @@ from paco.evaluation.checks import (
     called,
     checks_ask,
     compare_best,
+    compared_lengths,
     curves,
     excluded,
     in_order,
@@ -283,12 +284,10 @@ SCENARIOS = (
         kind="the loop",
         questions=("On active_p1, compare windows of 3 m and of 6 m: which reaches deeper?",),
         checks=(
-            # The lengths in the unit the user gave them: metres.
-            called(
-                "compare",
-                metric="depth",
-                variants=[{"masw": {"length_m": 3}}, {"masw": {"length_m": 6}}],
-            ),
+            # The lengths in the unit the user gave them: 3 and 6 m, 13 and 25 receivers 0.25 m
+            # apart, whatever the call wrote (the scope sets them).
+            called("compare", metric="depth"),
+            compared_lengths(13, 25),
             never_called("run_processing"),
             answer_mentions(compare_best),
             asked_nothing(),
