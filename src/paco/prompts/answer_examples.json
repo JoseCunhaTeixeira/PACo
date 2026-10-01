@@ -1,0 +1,23 @@
+[
+  {
+    "message": "Pick line_b.",
+    "draft": "Picked 12 windows of run R: G3 passed 11. Would you like me to invert them?",
+    "form": {"said": "Picked 12 windows of run R: G3 passed 11.", "question": null}
+  },
+  {
+    "message": "Pick and invert line_b.",
+    "draft": "Run R already has curves. Should I pick every window again, or complete the 2 windows without a curve?",
+    "form": {
+      "said": "Run R already has curves at 10 of its 12 windows.",
+      "question": "Pick every window again, or complete the 2 windows without a curve?"
+    }
+  },
+  {
+    "message": "Process line_c.",
+    "draft": "No image passed G2: the records hold no coherent surface wave. Which should I try: a longer window, or stopping here?",
+    "form": {
+      "said": "No image passed G2: the records hold no coherent surface wave.",
+      "question": "Try a longer window, or stop here?"
+    }
+  }
+]

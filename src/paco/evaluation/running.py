@@ -71,6 +71,7 @@ async def run_evaluation(
         started_at=started_at,
         repeat=repeat,
         results=tuple(results),
+        thresholds={scenario.name: scenario.threshold for scenario in scenarios},
     )
     folder.mkdir(parents=True, exist_ok=True)
     (folder / "report.json").write_text(report.model_dump_json(indent=2))

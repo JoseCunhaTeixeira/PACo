@@ -7,7 +7,8 @@ from collections import Counter
 from collections.abc import Iterable, Mapping
 from typing import Any, cast
 
-from paco.qc.budgets import run_budget
+from paco.qc.budgets import Refusal, run_budget
+from paco.qc.given import said, unlocked
 from paco.qc.log import INVERSION_GATES, retries_at_gate, retries_in_run, retries_of_inversion
 from paco.qc.models import Attempt, Budgets, GateResult, Override, Stage
 
@@ -27,16 +28,30 @@ def deep_merge(base: Mapping[str, Any], changes: Mapping[str, Any]) -> dict[str,
     return merged
 
 
-def stage_changes(result: GateResult, stage: Stage) -> tuple[dict[str, Any], str] | None:
+def stage_changes(
+    result: GateResult, stage: Stage, given: Mapping[str, Any] | None = None
+) -> tuple[dict[str, Any], str] | None:
     """The changes `result`'s flags ask of `stage`, merged, and the first flag asking; None when
-    none do."""
+    none do. A flag whose change touches a setting the user gave (`given`) is held back whole: its
+    parts go together (G5's longer sampling doubles the iterations and the burn-in)."""
     changes: dict[str, Any] = {}
     first: str | None = None
     for flag in result.flags:
         if isinstance(flag.action, Override) and flag.action.stage == stage:
-            changes = deep_merge(changes, flag.action.overrides)
-            first = first or flag.name
+            _, held = unlocked(flag.action.overrides, given or {})
+            if not held and flag.action.overrides:
+                changes = deep_merge(changes, flag.action.overrides)
+                first = first or flag.name
     return (changes, first) if first is not None else None
+
+
+def held_changes(result: GateResult, stage: Stage, given: Mapping[str, Any]) -> dict[str, Any]:
+    """The changes `result`'s flags ask of `stage` that the settings the user gave hold back."""
+    held: dict[str, Any] = {}
+    for flag in result.flags:
+        if isinstance(flag.action, Override) and flag.action.stage == stage:
+            held = deep_merge(held, unlocked(flag.action.overrides, given)[1])
+    return held
 
 
 class RetryBudget:
@@ -71,13 +86,18 @@ class RetryBudget:
 
 
 def next_try(
-    result: GateResult, stage: Stage, budget: RetryBudget, previous: Mapping[str, Any]
+    result: GateResult,
+    stage: Stage,
+    budget: RetryBudget,
+    previous: Mapping[str, Any],
+    given: Mapping[str, Any] | None = None,
 ) -> tuple[dict[str, Any], str] | None:
     """The parameters of `result`'s unit's next attempt at `stage` (`previous`, the latest
     attempt's, with the gate's changes over them) and what triggers it ("<gate>:<flag>"); None
-    when the gate asks nothing of this stage, when its changes are already the attempt's (it
-    would give the same result: `unchanged`), or `budget` has no retry left for it."""
-    wanted = stage_changes(result, stage)
+    when the gate asks nothing of this stage but changes of settings the user gave (`given`),
+    when its changes are already the attempt's (it would give the same result: `unchanged`), or
+    `budget` has no retry left for it."""
+    wanted = stage_changes(result, stage, given)
     if wanted is None or result.verdict != "retry":
         return None
     changes, flag = wanted
@@ -87,11 +107,31 @@ def next_try(
     return parameters, f"{result.gate}:{flag}"
 
 
-def unchanged(result: GateResult, stage: Stage, previous: Mapping[str, Any]) -> bool:
+def unchanged(
+    result: GateResult,
+    stage: Stage,
+    previous: Mapping[str, Any],
+    given: Mapping[str, Any] | None = None,
+) -> bool:
     """Whether the retry `result` asks of `stage` would run with the parameters of the attempt
     before (`previous`): nothing left to try."""
-    wanted = stage_changes(result, stage)
+    wanted = stage_changes(result, stage, given)
     return wanted is not None and deep_merge(previous, wanted[0]) == dict(previous)
+
+
+def refusal(
+    result: GateResult,
+    stage: Stage,
+    previous: Mapping[str, Any],
+    given: Mapping[str, Any] | None = None,
+) -> tuple[Refusal, str]:
+    """Why `result`'s unit gets no retry at `stage`, with the changes held back in words: it
+    asks only changes of settings the user gave ("locked"), its changes are the attempt's
+    already ("unchanged"), or its budget is spent ("budget")."""
+    given = given or {}
+    if stage_changes(result, stage, given) is None and (held := held_changes(result, stage, given)):
+        return "locked", said(held, given)
+    return ("unchanged" if unchanged(result, stage, previous, given) else "budget"), ""
 
 
 def spent(result: GateResult, stage: Stage) -> bool:

@@ -18,9 +18,11 @@ from sigpipe.masw.runs.origin import JUDGED, mark_auto, mark_edited
 from paco import inspection
 from paco.qc import (
     LINE,
+    REPORT_FILE,
     Attempt,
     ProfileThresholds,
     QCConfig,
+    QCReport,
     build_report,
     invertible,
     judge_profile,
@@ -28,6 +30,8 @@ from paco.qc import (
     latest,
     pick_line,
     read_attempts,
+    read_report,
+    rebuild_state,
     redo_stage,
     retries_in_run,
     submit_inversion,
@@ -37,7 +41,7 @@ from paco.qc.curves import imaged_windows, judge_curves
 from paco.qc.inverting import window_modes
 from paco.qc.judging import judge_line
 from paco.qc.origin import run_work
-from paco.qc.positions import at_positions
+from paco.qc.positions import at_positions, in_receivers
 from paco.settings import Settings
 
 SMALL_WINDOWS = {"masw": {"length": 24, "step": 24}}
@@ -307,3 +311,39 @@ def test_positions_are_the_nearest_windows_the_line_holds(
         RunError, match=r"50 m is off the line of run .*: its windows are at xmid 2\.88 to 20\.88 m"
     ):
         at_positions(manifest, [50.0])
+
+
+def test_a_window_given_in_metres_is_the_nearest_receiver_count() -> None:
+    # 0.25 m between receivers: 15 m spans 61 receivers (60 gaps); a step of 3 m, 12 receivers.
+    overrides, notes = in_receivers(
+        {"masw": {"length_m": 15.0, "step_m": 3.0}, "mode": "active"}, 0.25
+    )
+
+    assert overrides == {"masw": {"length": 61, "step": 12}, "mode": "active"}
+    assert notes == (
+        "masw length_m 15 m: 61 receivers (15 m).",
+        "masw step_m 3 m: 12 receivers (3 m).",
+    )
+    assert in_receivers({"masw": {"length": 24}}, 0.25) == ({"masw": {"length": 24}}, ())
+    with pytest.raises(ValueError, match="length_m must be over"):
+        in_receivers({"masw": {"length_m": 0.1}}, 0.25)
+
+
+def test_the_state_is_rebuilt_from_the_files_a_page_of_pac_changed(
+    outputs: tuple[Settings, str, str],
+) -> None:
+    # A curve picked in PAC changes the window's files, not the QC log: the state read after
+    # it says so, the saved report, older, written again (S3).
+    settings, _, run_id = outputs
+    run_folder = find_run(run_id, settings)
+    window = load_manifest(run_id, settings).windows[1].folder
+    before = rebuild_state(run_folder)
+    assert read_report(run_folder) == before
+
+    _picked_by_hand(run_folder / window)
+
+    after = rebuild_state(run_folder)
+    unit = next(one for one in after.units if one.unit == window)
+    assert "M0" in unit.by_hand and after != before
+    assert read_report(run_folder) == after
+    assert QCReport.model_validate_json((run_folder / REPORT_FILE).read_text()) == after

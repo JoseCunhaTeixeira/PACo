@@ -28,6 +28,10 @@ NOTHING: dict[str, Any] = {
     "profile": None,
     "run_id": None,
     "positions_m": [],
+    "length_receivers": None,
+    "length_m": None,
+    "step_receivers": None,
+    "step_m": None,
     "redo": False,
     "replace_hand_work": False,
     "option": None,
@@ -105,7 +109,22 @@ CASES: tuple[Case, ...] = (
     ),
     Case(
         "Process active_p1 with windows of 24 receivers, then pick and invert.",
-        {"process": True, "pick": True, "invert": True, "profile": "active_p1"},
+        {
+            "process": True,
+            "pick": True,
+            "invert": True,
+            "profile": "active_p1",
+            "length_receivers": 24,
+        },
+    ),
+    # The windows, in the unit the message gives.
+    Case(
+        "Process active_p1 with 6 m windows every 3 m.",
+        {"process": True, "profile": "active_p1", "length_m": 6, "step_m": 3},
+    ),
+    Case(
+        "Traite active_p1 avec des fenêtres de 12 capteurs, tous les 12 capteurs.",
+        {"process": True, "profile": "active_p1", "length_receivers": 12, "step_receivers": 12},
     ),
     Case(
         "Process passive_p1 and give me the soils.",
@@ -126,7 +145,8 @@ CASES: tuple[Case, ...] = (
         "Invert active_p1 with 4 layers and Vs up to 800 m/s.",
         {"invert": True, "profile": "active_p1"},
     ),
-    Case("Make me a 3D shear-wave model of active_p1.", {"invert": True, "profile": "active_p1"}),
+    # A request no stage makes asks none: the host then runs nothing.
+    Case("Make me a 3D shear-wave model of active_p1.", {"profile": "active_p1"}),
     # Negations.
     Case(
         "Pick the curves of active_p1 but don't invert them.",

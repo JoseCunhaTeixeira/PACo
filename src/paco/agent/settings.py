@@ -31,6 +31,13 @@ class AgentSettings(BaseSettings):
     mcp_url: str = "http://127.0.0.1:8000/mcp"  # PACo's server (python -m paco.server)
     # Tool calls the model may make to answer one message, before the loop stops it.
     max_tool_calls: int = Field(default=15, ge=1)
+    # The caps on one answer (the model's tokens include its thinking) and one tool call's
+    # timeout: a whole line inverted at PAC's effort takes about 40 min on 8 cores.
+    max_turn_s: float = Field(default=7200.0, gt=0)
+    max_turn_tokens: int = Field(default=40_000, ge=1)
+    tool_timeout_s: float = Field(default=3600.0, gt=0)
+    # The model's context, in tokens, as its server serves it: the loop warns near it.
+    llm_context: int = Field(default=12_288, ge=1)
     # Where the chat saves its conversations, one JSON file each.
     log_dir: Path = Path("data/output/agent_logs")
 

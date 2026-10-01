@@ -27,6 +27,7 @@ READ_ONLY = frozenset(
 # with the run's state).
 _SERVES: dict[str, frozenset[Stage]] = {
     "run_processing": frozenset(STAGES),
+    "compare": frozenset({"process"}),
     "pick": frozenset({"pick", "invert", "soils"}),
     "judge": frozenset({"pick", "invert", "soils"}),
     "invert": frozenset({"invert"}),
@@ -57,9 +58,46 @@ class Scope(BaseModel):
     positions_m: list[float] = Field(
         max_length=10, description="Positions along the line the message names, in metres."
     )
+    length_receivers: int | None = Field(
+        ge=2, description="The windows' length it gives in receivers."
+    )
+    length_m: float | None = Field(gt=0, description="The windows' length it gives in metres.")
+    step_receivers: int | None = Field(ge=1, description="The windows' step it gives in receivers.")
+    step_m: float | None = Field(gt=0, description="The windows' step it gives in metres.")
     redo: bool = Field(description="It asks to do again work already done.")
     replace_hand_work: bool = Field(description="It asks to replace work made by hand.")
     option: int | None = Field(description="The option it chooses among those offered last.")
+
+    @property
+    def window(self) -> dict[str, float]:
+        """The windows the message gives, as run_processing's masw overrides take them (a
+        length or step in metres converted by the server)."""
+        given = {
+            "length": self.length_receivers,
+            "length_m": self.length_m,
+            "step": self.step_receivers,
+            "step_m": self.step_m,
+        }
+        return {key: value for key, value in given.items() if value is not None}
+
+    def _windows_said(self) -> str | None:
+        """The windows the message gives, in words: "windows of 24 receivers, every 24"."""
+        length = (
+            f"{self.length_receivers} receivers"
+            if self.length_receivers is not None
+            else f"{self.length_m:g} m"
+            if self.length_m is not None
+            else None
+        )
+        step = (
+            f"{self.step_receivers} receivers"
+            if self.step_receivers is not None
+            else f"{self.step_m:g} m"
+            if self.step_m is not None
+            else None
+        )
+        said = [f"windows of {length}" if length else "", f"every {step}" if step else ""]
+        return ", ".join(one for one in said if one) or None
 
     @property
     def asked(self) -> frozenset[Stage]:
@@ -74,6 +112,8 @@ class Scope(BaseModel):
             parts.append(f"run {self.run_id}" if self.run_id else str(self.profile))
         if self.positions_m:
             parts.append("at " + ", ".join(f"{position:g}" for position in self.positions_m) + " m")
+        if windows := self._windows_said():
+            parts.append(windows)
         if self.redo:
             parts.append("again")
         if self.replace_hand_work:
@@ -91,6 +131,8 @@ class Scope(BaseModel):
             said.append(f"run {self.run_id}" if self.run_id else f"profile {self.profile}")
         if self.positions_m:
             said.append("positions " + ", ".join(f"{p:g}" for p in self.positions_m) + " m")
+        if windows := self._windows_said():
+            said.append(windows)
         said.append("to do again" if self.redo else "not to do again")
         said.append(
             "to replace the work made by hand"
@@ -109,6 +151,7 @@ class Scope(BaseModel):
             "redo": self.redo,
             "hand_work": "replace" if self.replace_hand_work else "unsaid",
             "positions_m": list(self.positions_m),
+            "window": self.window,
         }
 
 
@@ -123,6 +166,10 @@ _BLANK: dict[str, Any] = {
     "profile": None,
     "run_id": None,
     "positions_m": [],
+    "length_receivers": None,
+    "length_m": None,
+    "step_receivers": None,
+    "step_m": None,
     "redo": False,
     "replace_hand_work": False,
     "option": None,

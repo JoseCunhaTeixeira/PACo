@@ -29,6 +29,7 @@ from sigpipe.masw.picks import CURVES_FILE
 from sigpipe.masw.quality.line import Series
 from sigpipe.masw.runs import RunError, RunManifest, find_run, load_manifest, window_length
 from sigpipe.masw.runs.stopping import Stopped
+from sigpipe.masw.runs.writing import write_atomic
 
 from paco import stopping
 from paco.qc.attempts import invalidate, restore, set_aside
@@ -225,7 +226,7 @@ def invert_petro_line(
         if outcome.model is not None:
             folder = run_folder / outcome.unit
             measures = measure_petro(folder, model_name, depths, config.petro.n_bands)
-            (folder / MEASURES_FILE).write_text(measures.model_dump_json(indent=2))
+            write_atomic(folder / MEASURES_FILE, measures.model_dump_json(indent=2))
             measured[outcome.unit] = measures
             result = judge_petro(outcome.unit, measures, config.petro, others[outcome.unit])
             attempt = attempt.model_copy(update={"results": {result.gate: result}})

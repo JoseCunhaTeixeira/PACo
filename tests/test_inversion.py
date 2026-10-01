@@ -25,7 +25,9 @@ from sigpipe.masw.inversion.section import (
     save_section,
 )
 from sigpipe.masw.runs import RunError
+from sigpipe.masw.runs.writing import run_lock
 
+from paco import logs
 from paco.inversion import (
     InversionRecord,
     WindowInversion,
@@ -258,7 +260,7 @@ def test_an_inversion_needs_g4(picked: Picked, tmp_path: Path) -> None:
     kept: list[str] = []
     for line in (folder / "qc_log.jsonl").read_text().splitlines():
         entry = json.loads(line)
-        if entry["stage"] == "picking":
+        if entry.get("stage") == "picking":  # the log's events have none
             if entry["unit"] == "line":
                 continue
             entry["results"].pop("G4", None)
@@ -390,7 +392,9 @@ def test_a_window_whose_curve_gives_no_model_is_left_out_with_why(
     derive = inverting.derive_inversion
     seen: list[DispersionCurve] = []
 
-    def narrow(curve: DispersionCurve, rules: PriorRules, given: object = None) -> Derived:
+    def narrow(
+        curve: DispersionCurve, rules: PriorRules, given: object = None, locked: object = None
+    ) -> Derived:
         # The second curve gives no parameters, every time it is tried.
         if len(seen) == 1 and not any(np.array_equal(curve.fs, one.fs) for one in seen):
             seen.append(curve)
@@ -398,7 +402,7 @@ def test_a_window_whose_curve_gives_no_model_is_left_out_with_why(
             raise InversionError("The curve's wavelengths resolve fewer than 3 layers.")
         if not seen:
             seen.append(curve)
-        return derive(curve, rules, given)  # pyright: ignore[reportArgumentType]
+        return derive(curve, rules, given, locked)  # pyright: ignore[reportArgumentType]
 
     monkeypatch.setattr(inverting, "derive_inversion", narrow)
     settings, _ = _copy(picked, tmp_path)
@@ -492,6 +496,8 @@ def test_summary_gives_the_range_of_the_models() -> None:
         "changed": (),
         "used": (),
         "notes": (),
+        "did": "",  # the server's, from the run's report, once the job ended
+        "left": (),
     }
 
 
@@ -541,6 +547,40 @@ def test_jobs_run_one_at_a_time_and_stay_live_until_done() -> None:
     assert finished.wait(timeout=10)
     assert not jobs.is_live("first")
     assert not jobs.is_live("second")
+
+
+def test_a_job_on_a_run_another_writer_keeps_fails_saying_who(
+    picked: Picked, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    from paco.qc import inverting
+
+    monkeypatch.setattr(inverting, "JOB_WAIT_S", 0.0)
+    settings, run_folder = _copy(picked, tmp_path)
+    record = submit_inversion(picked.run_id, SHORT, settings)
+    done: list[InversionRecord] = []
+    with run_lock(run_folder, "PAC", shared=True):
+        thread = threading.Thread(target=lambda: done.append(run_inversion_job(record, settings)))
+        thread.start()
+        thread.join(timeout=60)
+
+    (failed,) = done
+    assert failed.state == "failed" and failed.windows == ()
+    assert failed.error is not None and "being written by one of PAC's pages" in failed.error
+
+
+def test_a_job_runs_in_the_context_of_the_call_that_submitted_it() -> None:
+    # Its log lines and what it makes name the call's conversation and model (C6, S4).
+    jobs = JobManager()
+    seen: list[str | None] = []
+    done = threading.Event()
+    token = logs.CONVERSATION.set("c7")
+    try:
+        jobs.submit("job", lambda: (seen.append(logs.CONVERSATION.get()), done.set()))
+    finally:
+        logs.CONVERSATION.reset(token)
+
+    assert done.wait(timeout=10)
+    assert seen == ["c7"]
 
 
 def test_a_crashing_job_is_logged_and_forgotten(caplog: pytest.LogCaptureFixture) -> None:

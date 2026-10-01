@@ -5,7 +5,8 @@ soils (soils). Fill the form with what the message asks, nothing more.
 - process, pick, invert, soils: true only for the stages the message names, or whose result it
   names. The stages before them are not asked: PACo runs what they need itself (Invert
   active_p1: invert only). A question about what exists (which profiles, which runs, what a run
-  holds) asks for none: all false.
+  holds) asks for none: all false. So does a request none of these stages makes (a 3D model, a
+  map from one line).
 - Vs models, a velocity profile, a shear-wave section: invert. Soils, soil types, the water
   table, N values: soils.
 - A negation (do not invert, without models) makes that stage false.
@@ -14,6 +15,9 @@ soils (soils). Fill the form with what the message asks, nothing more.
   "it" or "them" means the current profile and run, given below.
 - positions_m: the positions along the line the message names, in metres (at 9 m: [9]), else
   [].
+- length_receivers or length_m: the windows' length the message gives, in the unit it gives it
+  (windows of 24 receivers: length_receivers 24; 6 m windows: length_m 6), else null. The
+  same for the step between windows: step_receivers or step_m (every 12 receivers: 12).
 - redo: true only if the message asks to do again work already done (again, from scratch,
   redo, re-pick).
 - replace_hand_work: true only if the message itself asks to redo or replace the work the user

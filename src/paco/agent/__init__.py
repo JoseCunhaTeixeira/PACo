@@ -5,17 +5,27 @@ asks for tool calls, and reads compact results.
 """
 
 from .conversion import result_for_model, tools_for_model
-from .loop import Agent
+from .loop import Agent, Limits
 from .model import ChatModel, Filled, OpenAIChat, Reply, ToolCall, without_thinking
-from .record import ModelStep, ScopeStep, Step, ToolStep, Transcript, save_transcript
+from .record import (
+    AnswerStep,
+    ModelStep,
+    ScopeStep,
+    Step,
+    ToolStep,
+    Transcript,
+    save_transcript,
+)
 from .settings import AgentSettings
 from .terminal import chat
 
 __all__ = [
     "Agent",
     "AgentSettings",
+    "AnswerStep",
     "ChatModel",
     "Filled",
+    "Limits",
     "ModelStep",
     "OpenAIChat",
     "Reply",

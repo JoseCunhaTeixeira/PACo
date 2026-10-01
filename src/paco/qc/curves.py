@@ -32,9 +32,10 @@ from paco.qc.coherence import nearest_offset
 from paco.qc.config import QCConfig, run_qc_config
 from paco.qc.g3_curve import judge_curve
 from paco.qc.g4_profile import LINE
+from paco.qc.given import locked
 from paco.qc.judging import judge_line, mutable_window, pick_windows, saved_m0
 from paco.qc.log import append_attempt, attempts_of, latest, read_attempts, record_result
-from paco.qc.loops import RetryBudget, deep_merge, next_try, spent, stage_changes, unchanged
+from paco.qc.loops import RetryBudget, deep_merge, next_try, refusal, spent, stage_changes
 from paco.qc.models import Attempt, GateResult
 from paco.qc.origin import assistant_run, run_work
 from paco.qc.report import QCReport, build_report, write_report
@@ -69,6 +70,7 @@ def pick_line(
             f"Those it has: {', '.join(ready) or 'none'}."
         )
     work = run_work(run_folder, manifest, attempts)
+    given = locked(run_folder, "picking")
     jobs: dict[str, tuple[PickingParameters, tuple[float, float] | None]] = {}
     for unit in units if units is not None else list(ready):
         if work[unit].m0 == "user":
@@ -78,7 +80,7 @@ def pick_line(
         picked = None if fresh else latest(attempts, unit, "picking")
         base = picked.parameters if picked is not None else config.picking.model_dump()
         g2 = ready[unit]
-        if picked is None and g2 is not None and (wanted := stage_changes(g2, "picking")):
+        if picked is None and g2 is not None and (wanted := stage_changes(g2, "picking", given)):
             # G2's advice for the picking, which an older log may hold: two modes (G2 keeps
             # competing ridges, the fundamental mode picked as the slowest ridge).
             base = deep_merge(base, wanted[0])
@@ -147,12 +149,13 @@ def _retries(
     that ask for it without budget left are rejected ("budget spent")."""
     attempts = read_attempts(run_folder)
     budget = RetryBudget(attempts, config.budgets, max(1, len(manifest.windows)))
+    given = locked(run_folder, "picking")
     again: dict[str, tuple[dict[str, Any], str]] = {}
     for result in results:
         attempt = latest(attempts, result.unit, "picking")
         if attempt is None:
             continue
-        wanted = next_try(result, "picking", budget, attempt.parameters)
+        wanted = next_try(result, "picking", budget, attempt.parameters, given)
         if wanted is not None:
             again[result.unit] = wanted
         elif spent(result, "picking"):
@@ -161,10 +164,7 @@ def _retries(
                 result.unit,
                 "picking",
                 attempt.attempt,
-                budget_spent(
-                    result,
-                    "unchanged" if unchanged(result, "picking", attempt.parameters) else "budget",
-                ),
+                budget_spent(result, *refusal(result, "picking", attempt.parameters, given)),
             )
     return again
 

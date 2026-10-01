@@ -1,0 +1,2141 @@
+{
+ "tools": {
+  "compare": {
+   "annotations": {
+    "destructive_hint": false,
+    "open_world_hint": false,
+    "read_only_hint": false
+   },
+   "description": "Compare processing settings on a sample of the line's windows, changing no run: a\ntable and the best. To optimise, take the metric closest to the request and say it.",
+   "input_schema": {
+    "$defs": {
+     "CompareMetric": {
+      "enum": [
+       "depth",
+       "band",
+       "curve_length",
+       "windows_passing"
+      ],
+      "type": "string"
+     }
+    },
+    "properties": {
+     "metric": {
+      "$ref": "#/$defs/CompareMetric",
+      "description": "depth (half the longest wavelength), band (Hz), curve_length (wavelength span) or windows_passing (G3)."
+     },
+     "profile": {
+      "description": "A profile name from inspect(what=profiles).",
+      "title": "Profile",
+      "type": "string"
+     },
+     "variants": {
+      "description": "2 to 4 sets of the settings compared, each as run_processing's overrides; a length in metres as masw.length_m, in receivers as masw.length.",
+      "items": {
+       "additionalProperties": true,
+       "type": "object"
+      },
+      "maxItems": 4,
+      "minItems": 2,
+      "title": "Variants",
+      "type": "array"
+     }
+    },
+    "required": [
+     "profile",
+     "variants",
+     "metric"
+    ],
+    "title": "compareArguments",
+    "type": "object"
+   },
+   "output_schema": {
+    "$defs": {
+     "CompareMetric": {
+      "enum": [
+       "depth",
+       "band",
+       "curve_length",
+       "windows_passing"
+      ],
+      "type": "string"
+     },
+     "Variant": {
+      "description": "One variant on its trial windows: its settings, the windows G3 passed, what the passed\ncurves reach, and the metric's value (None: no curve passed).",
+      "properties": {
+       "band_hz": {
+        "anyOf": [
+         {
+          "maxItems": 2,
+          "minItems": 2,
+          "prefixItems": [
+           {
+            "type": "number"
+           },
+           {
+            "type": "number"
+           }
+          ],
+          "type": "array"
+         },
+         {
+          "type": "null"
+         }
+        ],
+        "title": "Band Hz"
+       },
+       "depth_m": {
+        "anyOf": [
+         {
+          "type": "number"
+         },
+         {
+          "type": "null"
+         }
+        ],
+        "title": "Depth M"
+       },
+       "label": {
+        "title": "Label",
+        "type": "string"
+       },
+       "length": {
+        "title": "Length",
+        "type": "integer"
+       },
+       "passed": {
+        "title": "Passed",
+        "type": "integer"
+       },
+       "settings": {
+        "additionalProperties": true,
+        "title": "Settings",
+        "type": "object"
+       },
+       "value": {
+        "anyOf": [
+         {
+          "type": "number"
+         },
+         {
+          "type": "null"
+         }
+        ],
+        "title": "Value"
+       },
+       "wavelengths_m": {
+        "anyOf": [
+         {
+          "maxItems": 2,
+          "minItems": 2,
+          "prefixItems": [
+           {
+            "type": "number"
+           },
+           {
+            "type": "number"
+           }
+          ],
+          "type": "array"
+         },
+         {
+          "type": "null"
+         }
+        ],
+        "title": "Wavelengths M"
+       },
+       "windows": {
+        "title": "Windows",
+        "type": "integer"
+       }
+      },
+      "required": [
+       "label",
+       "settings",
+       "length",
+       "passed",
+       "windows",
+       "depth_m",
+       "band_hz",
+       "wavelengths_m",
+       "value"
+      ],
+      "title": "Variant",
+      "type": "object"
+     }
+    },
+    "description": "The variants side by side on one metric, and the best (the highest value; ties to the\nearlier).",
+    "properties": {
+     "best": {
+      "anyOf": [
+       {
+        "type": "string"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "Best"
+     },
+     "did": {
+      "title": "Did",
+      "type": "string"
+     },
+     "metric": {
+      "$ref": "#/$defs/CompareMetric"
+     },
+     "next": {
+      "title": "Next",
+      "type": "string"
+     },
+     "profile": {
+      "title": "Profile",
+      "type": "string"
+     },
+     "table": {
+      "items": {
+       "type": "string"
+      },
+      "title": "Table",
+      "type": "array"
+     },
+     "variants": {
+      "items": {
+       "$ref": "#/$defs/Variant"
+      },
+      "title": "Variants",
+      "type": "array"
+     }
+    },
+    "required": [
+     "profile",
+     "metric",
+     "did",
+     "variants",
+     "best",
+     "table",
+     "next"
+    ],
+    "title": "Comparison",
+    "type": "object"
+   }
+  },
+  "inspect": {
+   "annotations": {
+    "open_world_hint": false,
+    "read_only_hint": true
+   },
+   "description": "Read what exists, changing nothing: the profiles, a profile's acquisition, the runs, a\nrun (its settings, then its windows: who made each image, curve and model, the gates'\nverdicts), or a window in detail. Work made in PAC's pages is said by hand.",
+   "input_schema": {
+    "properties": {
+     "position": {
+      "anyOf": [
+       {
+        "type": "number"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "default": null,
+      "description": "For what=window, m.",
+      "title": "Position"
+     },
+     "profile": {
+      "anyOf": [
+       {
+        "type": "string"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "default": null,
+      "description": "For what=profile.",
+      "title": "Profile"
+     },
+     "run_id": {
+      "anyOf": [
+       {
+        "type": "string"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "default": null,
+      "description": "For what=run or window.",
+      "title": "Run Id"
+     },
+     "what": {
+      "description": "What to read.",
+      "enum": [
+       "profiles",
+       "profile",
+       "runs",
+       "run",
+       "window"
+      ],
+      "title": "What",
+      "type": "string"
+     }
+    },
+    "required": [
+     "what"
+    ],
+    "title": "inspectArguments",
+    "type": "object"
+   },
+   "output_schema": {
+    "properties": {
+     "result": {
+      "title": "Result",
+      "type": "string"
+     }
+    },
+    "required": [
+     "result"
+    ],
+    "title": "inspectOutput",
+    "type": "object"
+   }
+  },
+  "inversion_settings": {
+   "annotations": {
+    "open_world_hint": false,
+    "read_only_hint": true
+   },
+   "description": "The inversion parameters invert can take, as a JSON Schema with PAC's defaults. Left out,\nthe bounds come from each curve.",
+   "input_schema": {
+    "properties": {},
+    "title": "inversion_settingsArguments",
+    "type": "object"
+   },
+   "output_schema": {
+    "properties": {
+     "result": {
+      "title": "Result",
+      "type": "string"
+     }
+    },
+    "required": [
+     "result"
+    ],
+    "title": "inversion_settingsOutput",
+    "type": "object"
+   }
+  },
+  "invert": {
+   "annotations": {
+    "destructive_hint": true,
+    "open_world_hint": false,
+    "read_only_hint": false
+   },
+   "description": "Invert curves into layered Vs models as a background job, every mode of each window:\nthose G3 and G4 passed, and those picked by hand (taken as they are); unjudged automatic\ncurves are judged first. By default the windows without a model. Bounds from each curve\n(values given are checked), G5 and G6 retrying what they can. Follow it with job_status.\nModels already there, or made by hand, give options first.",
+   "input_schema": {
+    "properties": {
+     "hand": {
+      "anyOf": [
+       {
+        "enum": [
+         "keep",
+         "replace"
+        ],
+        "type": "string"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "default": null,
+      "description": "Only the user's reply to the keep-or-replace question.",
+      "title": "Hand"
+     },
+     "parameters": {
+      "anyOf": [
+       {
+        "additionalProperties": true,
+        "type": "object"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "default": null,
+      "description": "Only the inversion parameters the user typed, e.g. {\"n_iterations\": <n>, \"vs_layers\": [{\"vs_min\": <m/s>, \"vs_max\": <m/s>}]} (one range for every layer); see inversion_settings. Left out otherwise.",
+      "title": "Parameters"
+     },
+     "positions": {
+      "anyOf": [
+       {
+        "items": {
+         "type": "number"
+        },
+        "type": "array"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "default": null,
+      "description": "Only the windows nearest these positions (m). Left out, the whole line.",
+      "title": "Positions"
+     },
+     "run_id": {
+      "description": "A run_id returned by run_processing.",
+      "title": "Run Id",
+      "type": "string"
+     },
+     "windows": {
+      "anyOf": [
+       {
+        "enum": [
+         "all",
+         "missing"
+        ],
+        "type": "string"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "default": null,
+      "description": "Only if the user said which: every window, or those without one.",
+      "title": "Windows"
+     }
+    },
+    "required": [
+     "run_id"
+    ],
+    "title": "invertArguments",
+    "type": "object"
+   },
+   "output_schema": {
+    "$defs": {
+     "InversionStatus": {
+      "description": "Short description of an inversion job for the agent.",
+      "properties": {
+       "changed": {
+        "default": [],
+        "items": {
+         "type": "string"
+        },
+        "title": "Changed",
+        "type": "array"
+       },
+       "depth_informed_m": {
+        "anyOf": [
+         {
+          "maxItems": 2,
+          "minItems": 2,
+          "prefixItems": [
+           {
+            "type": "number"
+           },
+           {
+            "type": "number"
+           }
+          ],
+          "type": "array"
+         },
+         {
+          "type": "null"
+         }
+        ],
+        "title": "Depth Informed M"
+       },
+       "depths_m": {
+        "items": {
+         "type": "number"
+        },
+        "title": "Depths M",
+        "type": "array"
+       },
+       "did": {
+        "default": "",
+        "title": "Did",
+        "type": "string"
+       },
+       "done": {
+        "title": "Done",
+        "type": "integer"
+       },
+       "elapsed_s": {
+        "anyOf": [
+         {
+          "type": "number"
+         },
+         {
+          "type": "null"
+         }
+        ],
+        "title": "Elapsed S"
+       },
+       "error": {
+        "anyOf": [
+         {
+          "type": "string"
+         },
+         {
+          "type": "null"
+         }
+        ],
+        "title": "Error"
+       },
+       "errors": {
+        "items": {
+         "type": "string"
+        },
+        "title": "Errors",
+        "type": "array"
+       },
+       "job_id": {
+        "title": "Job Id",
+        "type": "string"
+       },
+       "left": {
+        "default": [],
+        "items": {
+         "type": "string"
+        },
+        "title": "Left",
+        "type": "array"
+       },
+       "misfit": {
+        "anyOf": [
+         {
+          "maxItems": 2,
+          "minItems": 2,
+          "prefixItems": [
+           {
+            "type": "number"
+           },
+           {
+            "type": "number"
+           }
+          ],
+          "type": "array"
+         },
+         {
+          "type": "null"
+         }
+        ],
+        "title": "Misfit"
+       },
+       "n_failed": {
+        "title": "N Failed",
+        "type": "integer"
+       },
+       "notes": {
+        "default": [],
+        "items": {
+         "type": "string"
+        },
+        "title": "Notes",
+        "type": "array"
+       },
+       "run_id": {
+        "title": "Run Id",
+        "type": "string"
+       },
+       "state": {
+        "$ref": "#/$defs/JobState"
+       },
+       "summary": {
+        "anyOf": [
+         {
+          "type": "string"
+         },
+         {
+          "type": "null"
+         }
+        ],
+        "default": null,
+        "title": "Summary"
+       },
+       "total": {
+        "title": "Total",
+        "type": "integer"
+       },
+       "used": {
+        "default": [],
+        "items": {
+         "type": "string"
+        },
+        "title": "Used",
+        "type": "array"
+       },
+       "vs_m_s": {
+        "items": {
+         "maxItems": 2,
+         "minItems": 2,
+         "prefixItems": [
+          {
+           "type": "number"
+          },
+          {
+           "type": "number"
+          }
+         ],
+         "type": "array"
+        },
+        "title": "Vs M S",
+        "type": "array"
+       }
+      },
+      "required": [
+       "job_id",
+       "run_id",
+       "state",
+       "done",
+       "total",
+       "n_failed",
+       "elapsed_s",
+       "depths_m",
+       "vs_m_s",
+       "depth_informed_m",
+       "misfit",
+       "errors",
+       "error"
+      ],
+      "title": "InversionStatus",
+      "type": "object"
+     },
+     "JobState": {
+      "enum": [
+       "queued",
+       "running",
+       "succeeded",
+       "failed",
+       "interrupted",
+       "stopped"
+      ],
+      "type": "string"
+     },
+     "Option": {
+      "description": "An option a tool offers the user: its words, and the call that makes it.",
+      "properties": {
+       "call": {
+        "title": "Call",
+        "type": "string"
+       },
+       "label": {
+        "title": "Label",
+        "type": "string"
+       }
+      },
+      "required": [
+       "label",
+       "call"
+      ],
+      "title": "Option",
+      "type": "object"
+     },
+     "StageResult": {
+      "description": "What a stage tool returns to the agent: the run, what the gates found (their summary:\ncounts, what they fixed or changed, flags with their suggested change), and what to do\nnext.",
+      "properties": {
+       "changed": {
+        "default": [],
+        "items": {
+         "type": "string"
+        },
+        "title": "Changed",
+        "type": "array"
+       },
+       "did": {
+        "default": "",
+        "title": "Did",
+        "type": "string"
+       },
+       "job_id": {
+        "anyOf": [
+         {
+          "type": "string"
+         },
+         {
+          "type": "null"
+         }
+        ],
+        "default": null,
+        "title": "Job Id"
+       },
+       "kept": {
+        "default": [],
+        "items": {
+         "type": "string"
+        },
+        "title": "Kept",
+        "type": "array"
+       },
+       "left": {
+        "default": [],
+        "items": {
+         "type": "string"
+        },
+        "title": "Left",
+        "type": "array"
+       },
+       "lengths": {
+        "default": [],
+        "items": {
+         "type": "string"
+        },
+        "title": "Lengths",
+        "type": "array"
+       },
+       "mutes": {
+        "default": [],
+        "items": {
+         "type": "string"
+        },
+        "title": "Mutes",
+        "type": "array"
+       },
+       "next": {
+        "title": "Next",
+        "type": "string"
+       },
+       "options": {
+        "default": [],
+        "items": {
+         "$ref": "#/$defs/Option"
+        },
+        "title": "Options",
+        "type": "array"
+       },
+       "run_id": {
+        "title": "Run Id",
+        "type": "string"
+       },
+       "status": {
+        "$ref": "#/$defs/Status",
+        "default": "ok"
+       },
+       "summary": {
+        "title": "Summary",
+        "type": "string"
+       },
+       "truncated": {
+        "default": false,
+        "title": "Truncated",
+        "type": "boolean"
+       },
+       "used": {
+        "default": [],
+        "items": {
+         "type": "string"
+        },
+        "title": "Used",
+        "type": "array"
+       }
+      },
+      "required": [
+       "run_id",
+       "summary",
+       "next"
+      ],
+      "title": "StageResult",
+      "type": "object"
+     },
+     "Status": {
+      "enum": [
+       "ok",
+       "partial",
+       "refused",
+       "stuck"
+      ],
+      "type": "string"
+     }
+    },
+    "properties": {
+     "result": {
+      "anyOf": [
+       {
+        "$ref": "#/$defs/InversionStatus"
+       },
+       {
+        "$ref": "#/$defs/StageResult"
+       }
+      ],
+      "title": "Result"
+     }
+    },
+    "required": [
+     "result"
+    ],
+    "title": "invertOutput",
+    "type": "object"
+   }
+  },
+  "invert_petro": {
+   "annotations": {
+    "destructive_hint": true,
+    "open_world_hint": false,
+    "read_only_hint": false
+   },
+   "description": "Only if the user asks: invert the run's curves G4 passed that `model` covers into soils,\nN values and the water table, checked by G7 per window and G8 along the line; writes PAC's\npetrophysical sections. Returns the gates' summary and what the models say. Soil columns\nalready there, or made by hand, give options first.",
+   "input_schema": {
+    "properties": {
+     "hand": {
+      "anyOf": [
+       {
+        "enum": [
+         "keep",
+         "replace"
+        ],
+        "type": "string"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "default": null,
+      "description": "Only the user's reply to the keep-or-replace question.",
+      "title": "Hand"
+     },
+     "model": {
+      "description": "A Silex model name from petro_models.",
+      "title": "Model",
+      "type": "string"
+     },
+     "run_id": {
+      "description": "A run_id returned by run_processing.",
+      "title": "Run Id",
+      "type": "string"
+     },
+     "windows": {
+      "anyOf": [
+       {
+        "enum": [
+         "all",
+         "missing"
+        ],
+        "type": "string"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "default": null,
+      "description": "Only if the user said which: every window, or those without one.",
+      "title": "Windows"
+     }
+    },
+    "required": [
+     "run_id",
+     "model"
+    ],
+    "title": "invert_petroArguments",
+    "type": "object"
+   },
+   "output_schema": {
+    "$defs": {
+     "Option": {
+      "description": "An option a tool offers the user: its words, and the call that makes it.",
+      "properties": {
+       "call": {
+        "title": "Call",
+        "type": "string"
+       },
+       "label": {
+        "title": "Label",
+        "type": "string"
+       }
+      },
+      "required": [
+       "label",
+       "call"
+      ],
+      "title": "Option",
+      "type": "object"
+     },
+     "Status": {
+      "enum": [
+       "ok",
+       "partial",
+       "refused",
+       "stuck"
+      ],
+      "type": "string"
+     }
+    },
+    "description": "What a stage tool returns to the agent: the run, what the gates found (their summary:\ncounts, what they fixed or changed, flags with their suggested change), and what to do\nnext.",
+    "properties": {
+     "changed": {
+      "default": [],
+      "items": {
+       "type": "string"
+      },
+      "title": "Changed",
+      "type": "array"
+     },
+     "did": {
+      "default": "",
+      "title": "Did",
+      "type": "string"
+     },
+     "job_id": {
+      "anyOf": [
+       {
+        "type": "string"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "default": null,
+      "title": "Job Id"
+     },
+     "kept": {
+      "default": [],
+      "items": {
+       "type": "string"
+      },
+      "title": "Kept",
+      "type": "array"
+     },
+     "left": {
+      "default": [],
+      "items": {
+       "type": "string"
+      },
+      "title": "Left",
+      "type": "array"
+     },
+     "lengths": {
+      "default": [],
+      "items": {
+       "type": "string"
+      },
+      "title": "Lengths",
+      "type": "array"
+     },
+     "mutes": {
+      "default": [],
+      "items": {
+       "type": "string"
+      },
+      "title": "Mutes",
+      "type": "array"
+     },
+     "next": {
+      "title": "Next",
+      "type": "string"
+     },
+     "options": {
+      "default": [],
+      "items": {
+       "$ref": "#/$defs/Option"
+      },
+      "title": "Options",
+      "type": "array"
+     },
+     "run_id": {
+      "title": "Run Id",
+      "type": "string"
+     },
+     "status": {
+      "$ref": "#/$defs/Status",
+      "default": "ok"
+     },
+     "summary": {
+      "title": "Summary",
+      "type": "string"
+     },
+     "truncated": {
+      "default": false,
+      "title": "Truncated",
+      "type": "boolean"
+     },
+     "used": {
+      "default": [],
+      "items": {
+       "type": "string"
+      },
+      "title": "Used",
+      "type": "array"
+     }
+    },
+    "required": [
+     "run_id",
+     "summary",
+     "next"
+    ],
+    "title": "StageResult",
+    "type": "object"
+   }
+  },
+  "job_status": {
+   "annotations": {
+    "open_world_hint": false,
+    "read_only_hint": true
+   },
+   "description": "Where an inversion job stands, after waiting up to 2 minutes for it to end: windows done,\nthe models so far (Vs at a few depths, depth informed, misfit: about 1 is within the\nuncertainties), failures; once ended, the gates' summary and the changed settings.",
+   "input_schema": {
+    "properties": {
+     "job_id": {
+      "description": "A job_id returned by invert or redo.",
+      "title": "Job Id",
+      "type": "string"
+     }
+    },
+    "required": [
+     "job_id"
+    ],
+    "title": "job_statusArguments",
+    "type": "object"
+   },
+   "output_schema": {
+    "$defs": {
+     "JobState": {
+      "enum": [
+       "queued",
+       "running",
+       "succeeded",
+       "failed",
+       "interrupted",
+       "stopped"
+      ],
+      "type": "string"
+     }
+    },
+    "description": "Short description of an inversion job for the agent.",
+    "properties": {
+     "changed": {
+      "default": [],
+      "items": {
+       "type": "string"
+      },
+      "title": "Changed",
+      "type": "array"
+     },
+     "depth_informed_m": {
+      "anyOf": [
+       {
+        "maxItems": 2,
+        "minItems": 2,
+        "prefixItems": [
+         {
+          "type": "number"
+         },
+         {
+          "type": "number"
+         }
+        ],
+        "type": "array"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "Depth Informed M"
+     },
+     "depths_m": {
+      "items": {
+       "type": "number"
+      },
+      "title": "Depths M",
+      "type": "array"
+     },
+     "did": {
+      "default": "",
+      "title": "Did",
+      "type": "string"
+     },
+     "done": {
+      "title": "Done",
+      "type": "integer"
+     },
+     "elapsed_s": {
+      "anyOf": [
+       {
+        "type": "number"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "Elapsed S"
+     },
+     "error": {
+      "anyOf": [
+       {
+        "type": "string"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "Error"
+     },
+     "errors": {
+      "items": {
+       "type": "string"
+      },
+      "title": "Errors",
+      "type": "array"
+     },
+     "job_id": {
+      "title": "Job Id",
+      "type": "string"
+     },
+     "left": {
+      "default": [],
+      "items": {
+       "type": "string"
+      },
+      "title": "Left",
+      "type": "array"
+     },
+     "misfit": {
+      "anyOf": [
+       {
+        "maxItems": 2,
+        "minItems": 2,
+        "prefixItems": [
+         {
+          "type": "number"
+         },
+         {
+          "type": "number"
+         }
+        ],
+        "type": "array"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "Misfit"
+     },
+     "n_failed": {
+      "title": "N Failed",
+      "type": "integer"
+     },
+     "notes": {
+      "default": [],
+      "items": {
+       "type": "string"
+      },
+      "title": "Notes",
+      "type": "array"
+     },
+     "run_id": {
+      "title": "Run Id",
+      "type": "string"
+     },
+     "state": {
+      "$ref": "#/$defs/JobState"
+     },
+     "summary": {
+      "anyOf": [
+       {
+        "type": "string"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "default": null,
+      "title": "Summary"
+     },
+     "total": {
+      "title": "Total",
+      "type": "integer"
+     },
+     "used": {
+      "default": [],
+      "items": {
+       "type": "string"
+      },
+      "title": "Used",
+      "type": "array"
+     },
+     "vs_m_s": {
+      "items": {
+       "maxItems": 2,
+       "minItems": 2,
+       "prefixItems": [
+        {
+         "type": "number"
+        },
+        {
+         "type": "number"
+        }
+       ],
+       "type": "array"
+      },
+      "title": "Vs M S",
+      "type": "array"
+     }
+    },
+    "required": [
+     "job_id",
+     "run_id",
+     "state",
+     "done",
+     "total",
+     "n_failed",
+     "elapsed_s",
+     "depths_m",
+     "vs_m_s",
+     "depth_informed_m",
+     "misfit",
+     "errors",
+     "error"
+    ],
+    "title": "InversionStatus",
+    "type": "object"
+   }
+  },
+  "judge": {
+   "annotations": {
+    "destructive_hint": false,
+    "open_world_hint": false,
+    "read_only_hint": false
+   },
+   "description": "Judge curves as they are, picking nothing: G3 on automatic M0s no gate judged (PAC's\nAuto-pick) or at positions, then G4 over the line. Hand-picked curves are never judged.",
+   "input_schema": {
+    "properties": {
+     "positions": {
+      "anyOf": [
+       {
+        "items": {
+         "type": "number"
+        },
+        "type": "array"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "default": null,
+      "description": "Only the windows nearest these positions (m). Left out, the whole line.",
+      "title": "Positions"
+     },
+     "run_id": {
+      "description": "A run_id returned by run_processing.",
+      "title": "Run Id",
+      "type": "string"
+     }
+    },
+    "required": [
+     "run_id"
+    ],
+    "title": "judgeArguments",
+    "type": "object"
+   },
+   "output_schema": {
+    "$defs": {
+     "Option": {
+      "description": "An option a tool offers the user: its words, and the call that makes it.",
+      "properties": {
+       "call": {
+        "title": "Call",
+        "type": "string"
+       },
+       "label": {
+        "title": "Label",
+        "type": "string"
+       }
+      },
+      "required": [
+       "label",
+       "call"
+      ],
+      "title": "Option",
+      "type": "object"
+     },
+     "Status": {
+      "enum": [
+       "ok",
+       "partial",
+       "refused",
+       "stuck"
+      ],
+      "type": "string"
+     }
+    },
+    "description": "What a stage tool returns to the agent: the run, what the gates found (their summary:\ncounts, what they fixed or changed, flags with their suggested change), and what to do\nnext.",
+    "properties": {
+     "changed": {
+      "default": [],
+      "items": {
+       "type": "string"
+      },
+      "title": "Changed",
+      "type": "array"
+     },
+     "did": {
+      "default": "",
+      "title": "Did",
+      "type": "string"
+     },
+     "job_id": {
+      "anyOf": [
+       {
+        "type": "string"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "default": null,
+      "title": "Job Id"
+     },
+     "kept": {
+      "default": [],
+      "items": {
+       "type": "string"
+      },
+      "title": "Kept",
+      "type": "array"
+     },
+     "left": {
+      "default": [],
+      "items": {
+       "type": "string"
+      },
+      "title": "Left",
+      "type": "array"
+     },
+     "lengths": {
+      "default": [],
+      "items": {
+       "type": "string"
+      },
+      "title": "Lengths",
+      "type": "array"
+     },
+     "mutes": {
+      "default": [],
+      "items": {
+       "type": "string"
+      },
+      "title": "Mutes",
+      "type": "array"
+     },
+     "next": {
+      "title": "Next",
+      "type": "string"
+     },
+     "options": {
+      "default": [],
+      "items": {
+       "$ref": "#/$defs/Option"
+      },
+      "title": "Options",
+      "type": "array"
+     },
+     "run_id": {
+      "title": "Run Id",
+      "type": "string"
+     },
+     "status": {
+      "$ref": "#/$defs/Status",
+      "default": "ok"
+     },
+     "summary": {
+      "title": "Summary",
+      "type": "string"
+     },
+     "truncated": {
+      "default": false,
+      "title": "Truncated",
+      "type": "boolean"
+     },
+     "used": {
+      "default": [],
+      "items": {
+       "type": "string"
+      },
+      "title": "Used",
+      "type": "array"
+     }
+    },
+    "required": [
+     "run_id",
+     "summary",
+     "next"
+    ],
+    "title": "StageResult",
+    "type": "object"
+   }
+  },
+  "petro_models": {
+   "annotations": {
+    "open_world_hint": false,
+    "read_only_hint": true
+   },
+   "description": "Only if the user asks for soils or the water table: the Silex models of the\npetrophysical inversion, what each was trained on, and how many of the run's curves G4\npassed it covers (why not the others). Choose the one covering the most.",
+   "input_schema": {
+    "properties": {
+     "run_id": {
+      "description": "A run_id returned by run_processing.",
+      "title": "Run Id",
+      "type": "string"
+     }
+    },
+    "required": [
+     "run_id"
+    ],
+    "title": "petro_modelsArguments",
+    "type": "object"
+   },
+   "output_schema": {
+    "$defs": {
+     "PetroModelCard": {
+      "description": "A Silex model, what it was trained on, and how many of a run's curves it covers: what the\nagent chooses a model by. In words, so that the agent takes neither the training's soils and\nwater tables for results nor the curves covered for all of them.",
+      "properties": {
+       "covers": {
+        "title": "Covers",
+        "type": "string"
+       },
+       "n_covered": {
+        "title": "N Covered",
+        "type": "integer"
+       },
+       "name": {
+        "title": "Name",
+        "type": "string"
+       },
+       "trained_on": {
+        "title": "Trained On",
+        "type": "string"
+       }
+      },
+      "required": [
+       "name",
+       "trained_on",
+       "covers",
+       "n_covered"
+      ],
+      "title": "PetroModelCard",
+      "type": "object"
+     }
+    },
+    "description": "What petro_models returns: the models, and what to do next.",
+    "properties": {
+     "models": {
+      "items": {
+       "$ref": "#/$defs/PetroModelCard"
+      },
+      "title": "Models",
+      "type": "array"
+     },
+     "next": {
+      "title": "Next",
+      "type": "string"
+     }
+    },
+    "required": [
+     "models",
+     "next"
+    ],
+    "title": "PetroChoice",
+    "type": "object"
+   }
+  },
+  "pick": {
+   "annotations": {
+    "destructive_hint": true,
+    "open_world_hint": false,
+    "read_only_hint": false
+   },
+   "description": "Pick each window's M0, checked by G3 (picked again when a change can fix it) and by G4\nover the line (outliers picked again along their neighbours), saved in PAC's layout. G4's\nverdict on the line decides whether invert can run. Curves already there, or picked by\nhand, give options first.",
+   "input_schema": {
+    "properties": {
+     "changes": {
+      "anyOf": [
+       {
+        "additionalProperties": true,
+        "type": "object"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "default": null,
+      "description": "Only picking settings the user typed; left out otherwise.",
+      "title": "Changes"
+     },
+     "hand": {
+      "anyOf": [
+       {
+        "enum": [
+         "keep",
+         "replace"
+        ],
+        "type": "string"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "default": null,
+      "description": "Only the user's reply to the keep-or-replace question.",
+      "title": "Hand"
+     },
+     "positions": {
+      "anyOf": [
+       {
+        "items": {
+         "type": "number"
+        },
+        "type": "array"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "default": null,
+      "description": "Only the windows nearest these positions (m). Left out, the whole line.",
+      "title": "Positions"
+     },
+     "run_id": {
+      "description": "A run_id returned by run_processing.",
+      "title": "Run Id",
+      "type": "string"
+     },
+     "windows": {
+      "anyOf": [
+       {
+        "enum": [
+         "all",
+         "missing"
+        ],
+        "type": "string"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "default": null,
+      "description": "Only if the user said which: every window, or those without one.",
+      "title": "Windows"
+     }
+    },
+    "required": [
+     "run_id"
+    ],
+    "title": "pickArguments",
+    "type": "object"
+   },
+   "output_schema": {
+    "$defs": {
+     "Option": {
+      "description": "An option a tool offers the user: its words, and the call that makes it.",
+      "properties": {
+       "call": {
+        "title": "Call",
+        "type": "string"
+       },
+       "label": {
+        "title": "Label",
+        "type": "string"
+       }
+      },
+      "required": [
+       "label",
+       "call"
+      ],
+      "title": "Option",
+      "type": "object"
+     },
+     "Status": {
+      "enum": [
+       "ok",
+       "partial",
+       "refused",
+       "stuck"
+      ],
+      "type": "string"
+     }
+    },
+    "description": "What a stage tool returns to the agent: the run, what the gates found (their summary:\ncounts, what they fixed or changed, flags with their suggested change), and what to do\nnext.",
+    "properties": {
+     "changed": {
+      "default": [],
+      "items": {
+       "type": "string"
+      },
+      "title": "Changed",
+      "type": "array"
+     },
+     "did": {
+      "default": "",
+      "title": "Did",
+      "type": "string"
+     },
+     "job_id": {
+      "anyOf": [
+       {
+        "type": "string"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "default": null,
+      "title": "Job Id"
+     },
+     "kept": {
+      "default": [],
+      "items": {
+       "type": "string"
+      },
+      "title": "Kept",
+      "type": "array"
+     },
+     "left": {
+      "default": [],
+      "items": {
+       "type": "string"
+      },
+      "title": "Left",
+      "type": "array"
+     },
+     "lengths": {
+      "default": [],
+      "items": {
+       "type": "string"
+      },
+      "title": "Lengths",
+      "type": "array"
+     },
+     "mutes": {
+      "default": [],
+      "items": {
+       "type": "string"
+      },
+      "title": "Mutes",
+      "type": "array"
+     },
+     "next": {
+      "title": "Next",
+      "type": "string"
+     },
+     "options": {
+      "default": [],
+      "items": {
+       "$ref": "#/$defs/Option"
+      },
+      "title": "Options",
+      "type": "array"
+     },
+     "run_id": {
+      "title": "Run Id",
+      "type": "string"
+     },
+     "status": {
+      "$ref": "#/$defs/Status",
+      "default": "ok"
+     },
+     "summary": {
+      "title": "Summary",
+      "type": "string"
+     },
+     "truncated": {
+      "default": false,
+      "title": "Truncated",
+      "type": "boolean"
+     },
+     "used": {
+      "default": [],
+      "items": {
+       "type": "string"
+      },
+      "title": "Used",
+      "type": "array"
+     }
+    },
+    "required": [
+     "run_id",
+     "summary",
+     "next"
+    ],
+    "title": "StageResult",
+    "type": "object"
+   }
+  },
+  "preset_settings": {
+   "annotations": {
+    "open_world_hint": false,
+    "read_only_hint": true
+   },
+   "description": "The settings run_processing and redo can change for this profile, as a JSON Schema:\nmeaning, unit, allowed values and default of each; a null default is derived from the\nprofile. Call it only before changing settings.",
+   "input_schema": {
+    "properties": {
+     "mode": {
+      "anyOf": [
+       {
+        "enum": [
+         "active",
+         "passive",
+         "passive-active"
+        ],
+        "type": "string"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "default": null,
+      "description": "One of the profile's modes (inspect); left out, its own.",
+      "title": "Mode"
+     },
+     "profile": {
+      "description": "A profile name from inspect(what=profiles).",
+      "title": "Profile",
+      "type": "string"
+     }
+    },
+    "required": [
+     "profile"
+    ],
+    "title": "preset_settingsArguments",
+    "type": "object"
+   },
+   "output_schema": {
+    "properties": {
+     "result": {
+      "title": "Result",
+      "type": "string"
+     }
+    },
+    "required": [
+     "result"
+    ],
+    "title": "preset_settingsOutput",
+    "type": "object"
+   }
+  },
+  "redo": {
+   "annotations": {
+    "destructive_hint": true,
+    "open_world_hint": false,
+    "read_only_hint": false
+   },
+   "description": "Go back to a stage for some windows (all, without xmids or flag) with changes, and redo\nwhat follows up to G4: preprocessing (their records), phase_shift or picking; inversion runs\nas a job to follow with job_status. For a change a gate asked of an earlier stage. Work made\nby hand there gives options first.",
+   "input_schema": {
+    "properties": {
+     "changes": {
+      "anyOf": [
+       {
+        "additionalProperties": true,
+        "type": "object"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "default": null,
+      "description": "The settings to change, as the flag suggests them.",
+      "title": "Changes"
+     },
+     "flag": {
+      "anyOf": [
+       {
+        "type": "string"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "default": null,
+      "description": "Or the windows carrying this flag of the summary.",
+      "title": "Flag"
+     },
+     "hand": {
+      "anyOf": [
+       {
+        "enum": [
+         "keep",
+         "replace"
+        ],
+        "type": "string"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "default": null,
+      "description": "Only the user's reply to the keep-or-replace question.",
+      "title": "Hand"
+     },
+     "run_id": {
+      "description": "A run_id returned by run_processing.",
+      "title": "Run Id",
+      "type": "string"
+     },
+     "stage": {
+      "description": "The stage to go back to.",
+      "enum": [
+       "preprocessing",
+       "phase_shift",
+       "picking",
+       "inversion"
+      ],
+      "title": "Stage",
+      "type": "string"
+     },
+     "xmids": {
+      "anyOf": [
+       {
+        "items": {
+         "type": "number"
+        },
+        "type": "array"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "default": null,
+      "description": "The windows to redo, by xmid.",
+      "title": "Xmids"
+     }
+    },
+    "required": [
+     "run_id",
+     "stage"
+    ],
+    "title": "redoArguments",
+    "type": "object"
+   },
+   "output_schema": {
+    "$defs": {
+     "Option": {
+      "description": "An option a tool offers the user: its words, and the call that makes it.",
+      "properties": {
+       "call": {
+        "title": "Call",
+        "type": "string"
+       },
+       "label": {
+        "title": "Label",
+        "type": "string"
+       }
+      },
+      "required": [
+       "label",
+       "call"
+      ],
+      "title": "Option",
+      "type": "object"
+     },
+     "Status": {
+      "enum": [
+       "ok",
+       "partial",
+       "refused",
+       "stuck"
+      ],
+      "type": "string"
+     }
+    },
+    "description": "What a stage tool returns to the agent: the run, what the gates found (their summary:\ncounts, what they fixed or changed, flags with their suggested change), and what to do\nnext.",
+    "properties": {
+     "changed": {
+      "default": [],
+      "items": {
+       "type": "string"
+      },
+      "title": "Changed",
+      "type": "array"
+     },
+     "did": {
+      "default": "",
+      "title": "Did",
+      "type": "string"
+     },
+     "job_id": {
+      "anyOf": [
+       {
+        "type": "string"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "default": null,
+      "title": "Job Id"
+     },
+     "kept": {
+      "default": [],
+      "items": {
+       "type": "string"
+      },
+      "title": "Kept",
+      "type": "array"
+     },
+     "left": {
+      "default": [],
+      "items": {
+       "type": "string"
+      },
+      "title": "Left",
+      "type": "array"
+     },
+     "lengths": {
+      "default": [],
+      "items": {
+       "type": "string"
+      },
+      "title": "Lengths",
+      "type": "array"
+     },
+     "mutes": {
+      "default": [],
+      "items": {
+       "type": "string"
+      },
+      "title": "Mutes",
+      "type": "array"
+     },
+     "next": {
+      "title": "Next",
+      "type": "string"
+     },
+     "options": {
+      "default": [],
+      "items": {
+       "$ref": "#/$defs/Option"
+      },
+      "title": "Options",
+      "type": "array"
+     },
+     "run_id": {
+      "title": "Run Id",
+      "type": "string"
+     },
+     "status": {
+      "$ref": "#/$defs/Status",
+      "default": "ok"
+     },
+     "summary": {
+      "title": "Summary",
+      "type": "string"
+     },
+     "truncated": {
+      "default": false,
+      "title": "Truncated",
+      "type": "boolean"
+     },
+     "used": {
+      "default": [],
+      "items": {
+       "type": "string"
+      },
+      "title": "Used",
+      "type": "array"
+     }
+    },
+    "required": [
+     "run_id",
+     "summary",
+     "next"
+    ],
+    "title": "StageResult",
+    "type": "object"
+   }
+  },
+  "run_processing": {
+   "annotations": {
+    "destructive_hint": false,
+    "open_world_hint": false,
+    "read_only_hint": false
+   },
+   "description": "Process a profile into one dispersion image per window, checked stage by stage: records\n(G1, its fixes applied: trigger delays corrected, bad traces left out), window length and\nband from the data unless given, images (G2, retried when a change can fix them). Takes\nseconds to minutes. Returns the run_id and the gates' summary; a profile with a run already\ngives options first.",
+   "input_schema": {
+    "properties": {
+     "again": {
+      "default": false,
+      "description": "Only if the user asked to process again: a new run.",
+      "title": "Again",
+      "type": "boolean"
+     },
+     "mode": {
+      "anyOf": [
+       {
+        "enum": [
+         "active",
+         "passive",
+         "passive-active"
+        ],
+        "type": "string"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "default": null,
+      "description": "One of the profile's modes (inspect); left out, its own.",
+      "title": "Mode"
+     },
+     "overrides": {
+      "anyOf": [
+       {
+        "additionalProperties": true,
+        "type": "object"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "default": null,
+      "description": "Only the settings the user gave, by stage, e.g. {\"masw\": {\"length\": <receivers>, \"step\": <receivers>}, \"dispersion\": {\"vmax\": <m/s>}, \"muting\": {\"method\": \"mute\", \"vmin\": <m/s>, \"vmax\": <m/s>}}; see preset_settings. Left out, they come from the data.",
+      "title": "Overrides"
+     },
+     "profile": {
+      "description": "A profile name from inspect(what=profiles).",
+      "title": "Profile",
+      "type": "string"
+     }
+    },
+    "required": [
+     "profile"
+    ],
+    "title": "run_processingArguments",
+    "type": "object"
+   },
+   "output_schema": {
+    "$defs": {
+     "Option": {
+      "description": "An option a tool offers the user: its words, and the call that makes it.",
+      "properties": {
+       "call": {
+        "title": "Call",
+        "type": "string"
+       },
+       "label": {
+        "title": "Label",
+        "type": "string"
+       }
+      },
+      "required": [
+       "label",
+       "call"
+      ],
+      "title": "Option",
+      "type": "object"
+     },
+     "Status": {
+      "enum": [
+       "ok",
+       "partial",
+       "refused",
+       "stuck"
+      ],
+      "type": "string"
+     }
+    },
+    "description": "What a stage tool returns to the agent: the run, what the gates found (their summary:\ncounts, what they fixed or changed, flags with their suggested change), and what to do\nnext.",
+    "properties": {
+     "changed": {
+      "default": [],
+      "items": {
+       "type": "string"
+      },
+      "title": "Changed",
+      "type": "array"
+     },
+     "did": {
+      "default": "",
+      "title": "Did",
+      "type": "string"
+     },
+     "job_id": {
+      "anyOf": [
+       {
+        "type": "string"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "default": null,
+      "title": "Job Id"
+     },
+     "kept": {
+      "default": [],
+      "items": {
+       "type": "string"
+      },
+      "title": "Kept",
+      "type": "array"
+     },
+     "left": {
+      "default": [],
+      "items": {
+       "type": "string"
+      },
+      "title": "Left",
+      "type": "array"
+     },
+     "lengths": {
+      "default": [],
+      "items": {
+       "type": "string"
+      },
+      "title": "Lengths",
+      "type": "array"
+     },
+     "mutes": {
+      "default": [],
+      "items": {
+       "type": "string"
+      },
+      "title": "Mutes",
+      "type": "array"
+     },
+     "next": {
+      "title": "Next",
+      "type": "string"
+     },
+     "options": {
+      "default": [],
+      "items": {
+       "$ref": "#/$defs/Option"
+      },
+      "title": "Options",
+      "type": "array"
+     },
+     "run_id": {
+      "title": "Run Id",
+      "type": "string"
+     },
+     "status": {
+      "$ref": "#/$defs/Status",
+      "default": "ok"
+     },
+     "summary": {
+      "title": "Summary",
+      "type": "string"
+     },
+     "truncated": {
+      "default": false,
+      "title": "Truncated",
+      "type": "boolean"
+     },
+     "used": {
+      "default": [],
+      "items": {
+       "type": "string"
+      },
+      "title": "Used",
+      "type": "array"
+     }
+    },
+    "required": [
+     "run_id",
+     "summary",
+     "next"
+    ],
+    "title": "StageResult",
+    "type": "object"
+   }
+  }
+ },
+ "version": "tools-dd26908d"
+}

@@ -17,6 +17,7 @@ from .coherence import (
     length_hint,
     read_length_choice,
 )
+from .compare import CompareMetric, Comparison, compare_settings
 from .config import CONFIG_FILE, QCConfig, load_qc_config, read_qc_config, snapshot_qc_config
 from .curves import imaged_windows, judge_curves, pick_line, settle_curves
 from .g3_curve import CurveThresholds
@@ -25,6 +26,7 @@ from .g5_model import ModelThresholds, judge_model
 from .g6_models import ModelProfileThresholds, judge_model_profile
 from .g7_petro import PetroThresholds, judge_petro
 from .g8_petro_line import PetroLineThresholds, judge_petro_line
+from .given import FAMILY, give, given_of, leaves
 from .inverting import (
     MEASURES_FILE,
     invertible,
@@ -65,6 +67,7 @@ from .models import (
     GateResult,
     Keep,
     Kept,
+    MadeBy,
     Metric,
     Override,
     Reject,
@@ -72,32 +75,39 @@ from .models import (
     Verdict,
     stage_index,
 )
+from .muting import MuteChoice, MuteRules, describe_mutes, read_mute_choice
 from .origin import WindowWork, run_work
 from .petro import PetroChoice, PetroModelCard, invert_petro_line, petro_models
-from .positions import at_positions
+from .positions import at_positions, in_receivers
 from .redo import check_budget, redo_stage, select_windows
 from .report import (
     REPORT_FILE,
     Option,
     QCReport,
     StageResult,
+    Status,
     UnitReport,
     build_report,
+    capped,
     changed_settings,
     describe,
-    read_report,
+    left_out,
     stretches,
     summarize_report,
+    what_was_done,
     write_report,
     xmid_of,
 )
 from .rerun import rerun_phase_shift, rerun_picking
+from .state import read_report, rebuild_state
+from .stuck import Stuck
 from .used import inversion_used, picking_used, processing_used
 
 __all__ = [
     "ASKED",
     "ATTEMPTS_FOLDER",
     "CONFIG_FILE",
+    "FAMILY",
     "LINE",
     "LOG_FILE",
     "MEASURES_FILE",
@@ -108,6 +118,8 @@ __all__ = [
     "Attempt",
     "Budgets",
     "CoherenceRules",
+    "CompareMetric",
+    "Comparison",
     "CurveThresholds",
     "ExcludeRecord",
     "ExcludeTraces",
@@ -117,9 +129,12 @@ __all__ = [
     "Kept",
     "LengthChoice",
     "LengthTrial",
+    "MadeBy",
     "Metric",
     "ModelProfileThresholds",
     "ModelThresholds",
+    "MuteChoice",
+    "MuteRules",
     "Option",
     "Override",
     "PetroChoice",
@@ -132,6 +147,8 @@ __all__ = [
     "Reject",
     "Stage",
     "StageResult",
+    "Status",
+    "Stuck",
     "UnitReport",
     "Verdict",
     "WindowWork",
@@ -144,16 +161,22 @@ __all__ = [
     "build_report",
     "can_retry",
     "cap_band",
+    "capped",
     "changed_settings",
     "check_budget",
     "choose_length",
+    "compare_settings",
     "describe",
     "describe_lengths",
+    "describe_mutes",
     "downstream",
     "ensure_initial_attempts",
     "forget_history",
+    "give",
     "given_length",
+    "given_of",
     "imaged_windows",
+    "in_receivers",
     "invalidate",
     "inversion_used",
     "invert_petro_line",
@@ -172,6 +195,8 @@ __all__ = [
     "judge_run",
     "judge_windows",
     "latest",
+    "leaves",
+    "left_out",
     "length_hint",
     "load_qc_config",
     "petro_models",
@@ -181,8 +206,10 @@ __all__ = [
     "processing_used",
     "read_attempts",
     "read_length_choice",
+    "read_mute_choice",
     "read_qc_config",
     "read_report",
+    "rebuild_state",
     "record_result",
     "redo_stage",
     "rerun_inversion",
@@ -206,6 +233,7 @@ __all__ = [
     "stretches",
     "submit_inversion",
     "summarize_report",
+    "what_was_done",
     "write_report",
     "xmid_of",
 ]

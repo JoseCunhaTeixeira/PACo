@@ -68,6 +68,7 @@ class OpenAIChat:
     ) -> None:
         self._client = client
         self._model = model
+        self.name = model
         self._sampling: dict[str, Any] = {
             key: value
             for key, value in (("temperature", temperature), ("seed", seed))

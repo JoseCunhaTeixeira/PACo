@@ -25,8 +25,13 @@ per window over the run (the earlier stages done again at the end of `pick` amon
 counted as each is granted (a batch of windows cannot overshoot); G1's retries draw on each
 record's own budget, a window's inversion on its own 6. A unit asking for a retry it cannot
 have is rejected with its last flags: its budget spent (`budget_spent`), the retry would run
-with the parameters of the attempt before (`nothing_to_try`), or the earlier stage it blames was
-done again once already (`redone_once`). `redo` is refused once the run's budget is spent.
+with the parameters of the attempt before (`nothing_to_try`), the earlier stage it blames was
+done again once already (`redone_once`), or it asks only to change settings the user gave
+(`locked`, its reason naming the change asked: `locked, asks dispersion vmax 900 (given:
+250)`). A flag whose change touches a setting the user gave is held back whole, its parts going
+together (G5's longer sampling doubles the iterations and the burn-in); the unit's other flags
+retry.
+`redo` is refused once the run's budget is spent.
 
 ## What the agent reads
 

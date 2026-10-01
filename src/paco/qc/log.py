@@ -2,30 +2,82 @@
 folder, safe against a crash and readable while the run goes on. The state of a unit (its
 attempts at each stage, the retries it spent) is read back from the log, never kept elsewhere."""
 
+import functools
 from collections import Counter
 from collections.abc import Iterable
 from pathlib import Path
-from typing import Any, NamedTuple
+from typing import Any, Literal, NamedTuple
 
-from sigpipe.masw.runs.history import LOG_FILE, downstream, forget, log_lock
+from sigpipe.masw.runs.history import (
+    LOG_FILE,
+    LOG_VERSION,
+    downstream,
+    forget,
+    log_entries,
+    log_lock,
+)
 from sigpipe.masw.runs.models import RunManifest
 from sigpipe.masw.runs.origin import JUDGED
+from sigpipe.masw.runs.processing import package_versions
 
-from paco.qc.models import Attempt, GateResult, Stage
+from paco import logs
+from paco.qc.models import Actor, Attempt, GateResult, MadeBy, Stage
 
 # The gates whose retries of a window's inversion the window's own budget bounds: G5, G6, and
 # S4's own when an inversion failed.
 INVERSION_GATES = ("G5", "G6", "S4")
 
 
-def append_attempt(run_folder: Path, attempt: Attempt) -> None:
+def append_attempt(
+    run_folder: Path, attempt: Attempt, event: Literal["stage", "verdict", "notes"] = "stage"
+) -> None:
+    """`attempt` appended to the run's log as one of its states (`event`), in the log's current
+    version: who logged it, and what made the attempt (S2, S4)."""
+    made_by = attempt.made_by or made_by_now(_maker(attempt.triggered_by))
+    line = attempt.model_copy(
+        update={
+            "version": LOG_VERSION,
+            "event": event,
+            "actor": "gate" if event == "verdict" else made_by.actor,
+            "made_by": made_by,
+        }
+    )
     with log_lock(run_folder), (run_folder / LOG_FILE).open("a") as file:
-        file.write(attempt.model_dump_json() + "\n")
+        file.write(line.model_dump_json() + "\n")
+
+
+def made_by_now(actor: Actor) -> MadeBy:
+    """What makes something now, by `actor`: the code's versions, and the call's model, prompts'
+    version, conversation and turn when an agent's call runs (paco.logs)."""
+    return MadeBy(
+        actor=actor,
+        code=_code(),
+        model=logs.MODEL.get(),
+        prompts=logs.PROMPTS.get(),
+        conversation=logs.CONVERSATION.get(),
+        turn=logs.TURN.get(),
+    )
+
+
+@functools.cache
+def _code() -> dict[str, str]:
+    return package_versions(("paco",))
+
+
+def _maker(triggered_by: str) -> Actor:
+    """Who made an attempt triggered so: a gate's retry, a person's work judged, or the agent's
+    call (the first attempt, one asked for, a step back)."""
+    if triggered_by == JUDGED:
+        return "user"
+    return "agent" if starts_afresh(triggered_by) or triggered_by == MUTE_TRIAL else "gate"
 
 
 # The trigger of a stage the user asked for, for some windows: done afresh, outside the run's
 # retry budget (the gates' retries within it still on it).
 ASKED = "asked"
+# The trigger of the records preprocessed again with the mute the mute trial kept: a rule of the
+# processing (qc.muting), outside the retry budgets.
+MUTE_TRIAL = "mute trial"
 
 
 def starts_afresh(triggered_by: str) -> bool:
@@ -53,7 +105,7 @@ def forget_history(
     gone = [a for a in read_attempts(run_folder) if a.unit == unit and a.stage in stages]
     spent = sum(_on_run_budget(a) + a.forgotten for a in gone)
     last = latest(gone, unit, stage)
-    forget(run_folder, unit, stage, results=False, folder=folder)
+    forget(run_folder, unit, stage, results=False, folder=folder, actor="agent")
     return Forgotten(spent, dict(last.parameters) if last is not None else {})
 
 
@@ -69,14 +121,12 @@ def afresh(run_folder: Path, attempt: Attempt, folder: Path | None = None) -> At
 def read_attempts(run_folder: Path) -> tuple[Attempt, ...]:
     """Every attempt of the run, in the order they were first logged; none before the first. A
     gate that judges an attempt after its stage ran appends the attempt again with its result:
-    the last line of an attempt is its current one."""
-    path = run_folder / LOG_FILE
-    if not path.exists():
-        return ()
+    the last line of an attempt is its current one. Those a reset left behind are not read
+    (sigpipe's `log_entries`), nor the log's other events."""
     current: dict[tuple[str, str, int], Attempt] = {}
-    for line in path.read_text().splitlines():
-        if line:
-            attempt = Attempt.model_validate_json(line)
+    for entry in log_entries(run_folder):
+        if "attempt" in entry:
+            attempt = Attempt.model_validate(entry)
             current[attempt.unit, attempt.stage, attempt.attempt] = attempt
     return tuple(current.values())
 
@@ -94,7 +144,7 @@ def record_result(
     if not match:
         raise ValueError(f"No attempt {attempt} of {stage} for {unit} in the log of {run_folder}")
     judged = match[0].model_copy(update={"results": {**match[0].results, result.gate: result}})
-    append_attempt(run_folder, judged)
+    append_attempt(run_folder, judged, "verdict")
     return judged
 
 
@@ -111,7 +161,7 @@ def record_notes(
     if not match:
         raise ValueError(f"No attempt {attempt} of {stage} for {unit} in the log of {run_folder}")
     noted = match[0].model_copy(update={"notes": (*match[0].notes, *notes)})
-    append_attempt(run_folder, noted)
+    append_attempt(run_folder, noted, "notes")
     return noted
 
 
@@ -141,7 +191,7 @@ def _on_run_budget(attempt: Attempt) -> int:
     """1 when `attempt` is a retry the run's budget pays for, else 0: not the first, nor one the
     user asked for, nor a judgement of a curve as it is (JUDGED)."""
     return int(
-        attempt.triggered_by not in ("initial", ASKED, JUDGED)
+        attempt.triggered_by not in ("initial", ASKED, JUDGED, MUTE_TRIAL)
         and not attempt.triggered_by.startswith("G1:")
         and not _by_inversion_gate(attempt)
     )
@@ -158,7 +208,7 @@ def _by_inversion_gate(attempt: Attempt) -> bool:
 
 
 def retries_by_unit(attempts: Iterable[Attempt]) -> Counter[str]:
-    return Counter(a.unit for a in attempts if a.triggered_by != "initial")
+    return Counter(a.unit for a in attempts if a.triggered_by not in ("initial", MUTE_TRIAL))
 
 
 def ensure_initial_attempts(run_folder: Path, manifest: RunManifest) -> tuple[Attempt, ...]:

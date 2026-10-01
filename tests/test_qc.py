@@ -1,3 +1,4 @@
+import json
 import os
 from datetime import UTC, datetime
 from pathlib import Path
@@ -9,7 +10,9 @@ from sigpipe.algorithms.picking.dispersion.tracking import PickingParameters
 from sigpipe.masw.picks import CURVES_FILE
 from sigpipe.masw.presets import PresetError, apply_overrides, make_preset
 from sigpipe.masw.runs import RunError, find_run, load_image, run_processing
+from sigpipe.masw.runs.history import LOG_VERSION
 
+from paco import logs
 from paco.qc import (
     ATTEMPTS_FOLDER,
     CONFIG_FILE,
@@ -26,6 +29,7 @@ from paco.qc import (
     GateResult,
     Keep,
     Kept,
+    MadeBy,
     Metric,
     Override,
     QCConfig,
@@ -157,10 +161,54 @@ def test_the_log_is_appended_and_read_back_in_order(tmp_path: Path) -> None:
     append_attempt(tmp_path, first)
     append_attempt(tmp_path, second)
 
-    assert read_attempts(tmp_path) == (first, second)
+    read = read_attempts(tmp_path)
+    assert [(one.attempt, one.triggered_by) for one in read] == [
+        (1, "initial"),
+        (2, "G2:ridge_at_vmax"),
+    ]
     assert len((tmp_path / LOG_FILE).read_text().splitlines()) == 2
-    assert latest(read_attempts(tmp_path), "xmid_12.50", "phase_shift") == second
-    assert latest(read_attempts(tmp_path), "xmid_12.50", "picking") is None
+    assert latest(read, "xmid_12.50", "phase_shift") == read[1]
+    assert latest(read, "xmid_12.50", "picking") is None
+    # Each line in the log's version, with its kind, who logged it and what made it (S2, S4).
+    assert (read[0].version, read[0].event, read[0].actor) == (LOG_VERSION, "stage", "agent")
+    assert read[1].actor == "gate"
+    made = read[0].made_by
+    assert made is not None and set(made.code) == {"sigpipe", "paco"} and made.model is None
+
+
+def test_a_line_says_the_call_that_made_it_and_a_verdict_is_the_gates(tmp_path: Path) -> None:
+    conversation, turn = logs.CONVERSATION.set("c1"), logs.TURN.set(3)
+    model, version = logs.MODEL.set("Qwen/Qwen3-14B-FP8"), logs.PROMPTS.set("prompts-ab12")
+    try:
+        append_attempt(tmp_path, _attempt("xmid_12.50", "phase_shift", 1, "asked"))
+    finally:
+        logs.CONVERSATION.reset(conversation)
+        logs.TURN.reset(turn)
+        logs.MODEL.reset(model)
+        logs.PROMPTS.reset(version)
+    passed = GateResult(gate="G2", unit="xmid_12.50", verdict="pass")
+
+    record_result(tmp_path, "xmid_12.50", "phase_shift", 1, passed)
+
+    (judged,) = read_attempts(tmp_path)
+    assert (judged.event, judged.actor) == ("verdict", "gate")
+    assert judged.made_by == MadeBy(
+        actor="agent",
+        code=judged.made_by.code if judged.made_by else {},
+        model="Qwen/Qwen3-14B-FP8",
+        prompts="prompts-ab12",
+        conversation="c1",
+        turn=3,
+    )
+    # A line written before the log had versions reads as one.
+    (tmp_path / LOG_FILE).write_text(
+        _attempt("xmid_13.00", "phase_shift", 1).model_dump_json(
+            exclude={"version", "event", "actor", "made_by"}
+        )
+        + "\n"
+    )
+    (old,) = read_attempts(tmp_path)
+    assert (old.version, old.event, old.actor, old.made_by) == (1, "stage", None, None)
 
 
 def test_retries_are_counted_from_what_triggered_each_attempt() -> None:
@@ -207,6 +255,13 @@ def test_a_stage_started_afresh_forgets_its_attempts_not_their_cost(tmp_path: Pa
         ("xmid_13.00", "phase_shift", 1),
         ("xmid_12.50", "phase_shift", 1),
     ]
+    # The log only grows: the forgotten lines are there, behind the agent's reset (S2, S9).
+    lines = [json.loads(line) for line in (tmp_path / LOG_FILE).read_text().splitlines()]
+    assert [line.get("event") for line in lines] == ["stage"] * 4 + ["reset", "stage"]
+    assert (lines[4]["actor"], lines[4]["stages"]) == (
+        "agent",
+        ["phase_shift", "picking", "inversion", "petro_inversion"],
+    )
     # The G2 retry's cost kept, the backtrack's added: the run's budget never refunded.
     assert retries_in_run(attempts) == 2
     # The report, older than the log now: built again from it, the change read against the

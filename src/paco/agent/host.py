@@ -1,7 +1,7 @@
-"""What the host guarantees, whatever the model says: the parameters the stages ran with and
-the settings the gates changed are printed after the answer, and an inversion the model starts
-is followed to its end before the model reads on. The host watches no words, neither the user's
-nor the model's: what to do, and when to ask, the model decides."""
+"""What the host guarantees, whatever the model says: an inversion the model starts is followed
+to its end before the model reads on; the answer's fixed parts (what was done, the parameters
+used, the settings the gates changed) are written by code (paco.agent.answer). The host watches
+no words, neither the user's nor the model's: what to do, and when to ask, the model decides."""
 
 import json
 
@@ -39,32 +39,3 @@ def job_running(status: str) -> bool:
     except json.JSONDecodeError:
         return False
     return isinstance(parsed, dict) and parsed.get("state") in ("queued", "running")
-
-
-def changed_items(result: str) -> list[str]:
-    """The `changed` list of a tool's result: the settings the gates and the checks changed."""
-    return _items(result, "changed")
-
-
-def used_items(result: str) -> list[str]:
-    """The `used` list of a tool's result: the parameters the stage ran with."""
-    return _items(result, "used")
-
-
-def with_changes(answer: str, changes: list[str], used: list[str] | None = None) -> str:
-    """`answer`, with the parameters the stages ran with and the settings the gates changed
-    listed after it, as the tools gave them."""
-    blocks = [answer.rstrip()]
-    for title, items in (("Parameters used", used or []), ("Settings the gates changed", changes)):
-        if items:
-            blocks.append(f"{title}:\n" + "\n".join(f"- {item}" for item in items))
-    return "\n\n".join(blocks) if len(blocks) > 1 else answer
-
-
-def _items(result: str, key: str) -> list[str]:
-    try:
-        parsed = json.loads(result)
-    except json.JSONDecodeError:
-        return []
-    items = parsed.get(key) if isinstance(parsed, dict) else None
-    return [str(item) for item in items] if isinstance(items, list) else []

@@ -62,11 +62,29 @@ data/input/
 
 The two demo profiles, `active_p1` and `passive_p1`, come with the repository. Results go to
 `PACO_OUTPUT_DIR/<profile>/<run_id>/`: PAC's `xmid_<x>/` folders (dispersion images, picked
-curves, inversion models; earlier attempts under `attempts/`), `records/` (the preprocessed
-records), and the run's records: `run.json` (what was processed, with which settings),
-`qc_log.jsonl` (every attempt of every stage, with the gates' verdicts), `qc_report.json`,
-`qc_config.json` (the thresholds used), `coherence.json` (how the window length was chosen) and
-`inversion.json` (the inversion job).
+curves, inversion models; earlier attempts under `attempts/`, results a stage done afresh
+replaced under `replaced/`), `records/` (the preprocessed records), and the run's records:
+`run.json` (what was processed, with which settings, and the profile's files it read, by name,
+size and SHA-256), `qc_log.jsonl` (every attempt of every stage, with the gates' verdicts and
+what made each; the settings you gave), `qc_report.json`, `qc_config.json` (the thresholds
+used), `coherence.json` (how the window length was chosen) and `inversion.json` (the inversion
+job).
+
+The run's state is kept so that nothing is lost and one writer works on it at a time:
+- The QC log only grows. Each line has its version, its kind (a stage run, a gate's verdict,
+  notes, the settings given, a reset) and who logged it (the agent, a gate, the user). A stage
+  done afresh (asked again, or redone in PAC) appends a reset: the attempts before it stay in
+  the log, and their results are moved to the window's `replaced/<time>_<stage>/`, never
+  deleted.
+- Each attempt says what made it: PACo's and sigpipe's versions, and for an agent's call its
+  model, the prompts' version, the conversation and the turn.
+- The state (each window's attempts and verdicts, whose each result is) is rebuilt from the log
+  and the window folders whenever it is read (`qc.rebuild_state`): a curve picked in PAC shows
+  at once. `qc_report.json` is a snapshot of it.
+- JSON files are written whole or not at all (a temporary file, renamed). PACo holds a run
+  while a tool or an inversion job writes it, and PAC's pages hold it while they write
+  (`.run.lock`): PAC is refused a run PACo writes (its message says so), and PACo a run PAC
+  writes (the model is told to try again when it ends).
 
 ## Configure
 
@@ -93,6 +111,9 @@ PACO_LLM_MODEL=Qwen/Qwen3-8B
 | `PACO_LLM_TEMPERATURE`, `PACO_LLM_SEED` | the server's | The conversation's sampling (Qwen3's own is 0.6: it repeats itself colder when it thinks); the scope's form is filled at 0 |
 | `PACO_MCP_URL` | `http://127.0.0.1:8000/mcp` | Where the agent finds `paco-server` |
 | `PACO_MAX_TOOL_CALLS` | `15` | Tool calls the model may make for one answer |
+| `PACO_MAX_TURN_S`, `PACO_MAX_TURN_TOKENS` | `7200`, `40000` | The caps on one answer: its time, and the tokens the model writes (its thinking included); an answer that reaches one ends with what was done and the cap named |
+| `PACO_TOOL_TIMEOUT_S` | `3600` | One tool call's timeout (a whole line inverted at PAC's effort takes about 40 min on 8 cores) |
+| `PACO_LLM_CONTEXT` | `12288` | The model's context, as its server serves it: the loop warns past 85% |
 | `PACO_LOG_DIR` | `data/output/agent_logs` | Where the chat saves its conversations |
 | `PACO_JUDGE_BASE_URL`, `PACO_JUDGE_MODEL`, `PACO_JUDGE_API_KEY` | none | An optional judge model for the evaluation |
 | `PACO_EVALUATION_DIR` | `data/output/evaluations` | Where evaluations write their reports |
@@ -162,8 +183,11 @@ detail (shorter), and says why; a length you or the model give is kept as it is.
 
 The conversation is saved when you leave (`exit`). To evaluate the model, run
 `uv run paco-evaluate`, or name scenarios: `uv run paco-evaluate list_profiles pick_active`.
-The model samples its answers, so one play of a scenario is a noisy measure: `--repeat 3` plays
-each scenario three times and reports pass rates.
+The model samples its answers, so one play of a scenario is a noisy measure: it plays each
+scenario five times (`--repeat N` to change it) and reports each scenario's pass rate against
+its threshold (3 plays of 5 by default). `uv run paco-evaluate --history` tabulates the pass
+rates of every evaluation kept, by model and prompts' version, the latest version against the
+one before (`--model` for one model).
 
 ## Tools
 
@@ -171,7 +195,8 @@ each scenario three times and reports pass rates.
 |---|---|
 | `inspect` | Reads what exists, changing nothing: the profiles, one profile (active or passive, the modes it can be processed in, receivers, spacing, sampling), the runs (who made each, what it holds), one run (its settings, then its windows, those alike grouped: who made each image, curve and model, the gates' verdicts, the models' misfits and depths informed), one window in detail |
 | `preset_settings` | The processing settings the model may change, for one profile and mode |
-| `run_processing` | Preprocesses the records (G1, its fixes applied; each record's gather and spectra drawn beside it, `Stream_0000.png` and `Spectrum_0000.png`), proposes a window length from trial windows unless given (the lengths tried listed for the model to choose from) and caps the band to the data, makes one dispersion image per window (G2, retried when it can be fixed); returns a `run_id` and the gates' summary |
+| `run_processing` | Preprocesses the records (G1, its fixes applied; each record's gather and spectra drawn beside it, `Stream_0000.png` and `Spectrum_0000.png`), proposes a window length from trial windows unless given (the lengths tried listed for the model to choose from), tries mutes around the gathers' surface waves at that length and keeps one only where the images gain (unless you gave a muting), caps the band to the data, makes one dispersion image per window (G2, retried when it can be fixed); returns a `run_id` and the gates' summary |
+| `compare` | Compares 2 to 4 sets of processing settings on a sample of the line's windows, on the depth reached, the band, the curves' length or the windows passing G3, changing no run: a table and the best |
 | `pick` | Picks each window's fundamental mode (G3, picked again when it can be fixed), judges the curves over the line (G4, outliers picked again), saves them in PAC's layout; for some windows given by their positions (m), with picking settings you gave; curves already there, or picked by hand, ask you first |
 | `judge` | Judges curves as they are, picking nothing: G3 on the automatic curves no gate judged (PAC's Auto-pick), or on some windows, then G4 over the line |
 | `inversion_settings` | The inversion's parameters; left out, each window's bounds come from its own curve |
@@ -184,8 +209,10 @@ each scenario three times and reports pass rates.
 ## The scope of each message
 
 Before any tool runs, the model reads your message into a form, its scope: the stages it asks
-(process, pick, invert, soils; none for a question about what exists), the profile or run, the
-positions in metres, whether to do again work already there, what it says of your hand work,
+(process, pick, invert, soils; none for a question about what exists, or a request no tool
+makes), the profile or run, the positions in metres, the windows' length and step in the unit
+you give them (receivers or metres), whether to do again work already there, what it says of
+your hand work,
 and which option it chooses among those a tool offered last. The form's JSON schema constrains
 the model's output, thinking off; a form that does not parse goes back once with its error,
 and a second failure ends the answer asking you to say it again. Code then checks what it can
@@ -194,13 +221,59 @@ within the scope (`src/paco/agent/scope.py`):
 - a call outside it is refused, unmade, with the reason for the model; an earlier stage stays
   within a scope that asks a later one, the server deciding whether the run needs it;
 - each call carries the scope, and the tools apply the rules below with it; the positions a
-  tool works at are those your message named (none: the whole line), whatever the model wrote;
+  tool works at are those your message named (none: the whole line), and the windows those it
+  gave (metres converted by PACo), whatever the model wrote;
 - the answer starts with the scope's line (`Scope: pick, invert · active_p1 · at 9 m.`), for
   you to check what PACo read;
-- the options a tool offered are kept, so that "the second one" is the call it offered.
+- the options a tool offered are kept, so that "the second one" is the call it offered; once a
+  tool offered options, the answer runs nothing more but reading (inspect, the settings), and
+  ends with them: the choice is yours.
 
-The prompts are files (`src/paco/prompts/`: the role, the scope's form, the server's
-instructions); their version is logged with each turn and in the evaluation's report, and
+Every answer is written by code around the model's text (`src/paco/agent/answer.py`):
+- the scope's line;
+- what the model says: its draft put into an answer form, constrained so that the text holds
+  no question;
+- "Done:" and "Left out:", from the tools' results (what each stage did, the windows a gate
+  rejected or a stage failed, with why);
+- the question and the options when you must choose (a tool offered options, a tool cannot go
+  on without you, or your request for work left it unclear), else "Next:", what you can ask
+  next and where PAC shows the results; a message asking for no work (a look, something no
+  tool makes) gets an answer, not a question back;
+- "Parameters used", "Settings the gates changed" and "Settings kept as you gave them", last.
+
+A number in the model's text that no result of the turn holds is flagged after it.
+
+The loop keeps itself in check (`src/paco/agent/loop.py`):
+- With each message naming a profile, the host tells the model the profile's latest run, read
+  from the server's resource `paco://profiles/{profile}/latest-run`: the model makes no run id
+  up.
+- A call made already in the answer is refused; a third time, the answer ends.
+- Tool results reach the model in a delimited data block (`<data from="pick">...</data>`), which
+  its role says is never an instruction: a profile's or a file's name that reads as one is data.
+- Tool results of earlier messages are kept short in the conversation (what each did, the
+  windows left out, the options); the transcript keeps them whole.
+- Every tool is declared read-only or changing (MCP's `readOnlyHint`, `destructiveHint`).
+- A call that changes a run leaves a line in the run's `agent_calls.jsonl`: the conversation,
+  the message's turn and scope, the prompts' version, the arguments, how it ended and how long
+  it took. The conversation's transcript, in `PACO_LOG_DIR`, names the same conversation.
+- `paco-trace show FILE` prints a saved conversation turn by turn; `paco-trace replay FILE`
+  plays it again through the current code with its recorded replies and results (no tool
+  runs), and says where the answers differ.
+- Log lines are JSON on stderr, each with the conversation, turn and run it belongs to.
+
+Tools return their status (`ok`, `partial`, `refused`, `stuck`), what they did in one line and
+the windows they left out; their errors are tagged with their kind (`[bad argument]`,
+`[precondition]`, `[stuck]`, `[retry]`).
+
+The settings you give are locked for the run (events of the run's QC log, `src/paco/qc/given.py`):
+no gate and no check changes them. A window whose gate asks to change one is left out, its line
+saying the change asked (`G2 locked, asks dispersion vmax 900 (given: 250)`), for you to choose;
+an inversion bound you gave that the curve does not fit stays as given, its note saying what the
+check asks (`kept as given (the check sets 450 m/s)`).
+
+The prompts are files (`src/paco/prompts/`: the role, the scope's and the answer's forms with
+their examples, the server's instructions); their version is logged with each turn and in the
+evaluation's report, and
 `tests/test_prompts.py` pins it, so that a change to a prompt is reviewed with the scenarios run
 on it.
 
@@ -231,10 +304,12 @@ Passive-active (its images, which PACo may pick), a model you make in Seismic in
 column you make in Petrophysical inversion. A step you ask for that would change it asks first
 whether to keep it (`hand="keep"`) or replace it (`hand="replace"`: yours set aside in the
 window's `by_hand/` folder). It is replaced only when your message asks it, in its words ("my
-hand-picked curve too") or by choosing the replace option the question offered. A client
-that sends no scope gets the same question, and a replace only once the question was shown in
-an earlier turn of the conversation, over those windows, each answer serving one step. PAC's own Auto-pick is automatic: PACo judges it (`judge`, or
-`invert` first) before inverting it. G4 compares PACo's curves with yours, never yours with
+hand-picked curve too") or by choosing the replace option the question offered, and kept
+without the question only when you chose the keep option: keep or replace is yours to say, not
+the model's. A client that sends no scope gets the same question, and a replace only once the
+question was shown in an earlier turn of the conversation, over those windows, each answer
+serving one step. PAC's own Auto-pick is automatic: PACo judges it (`judge`, or `invert`
+first) before inverting it. G4 compares PACo's curves with yours, never yours with
 PACo's; a line picked by hand has no G4. The rule for who made a curve is sigpipe's
 (`masw.runs.origin`), which PAC reads too.
 
@@ -279,12 +354,17 @@ limit), and G8 compares the columns' Vs and water tables with their neighbours
 
 - `paco-server` listens on 127.0.0.1 by default: only this machine can reach it. Anyone who can
   reach it can run PACo's tools, which write files and start long computations.
-- No tool asks you anything: when your message asks for models, an inversion starts for the
-  curves G4 passed, the go or no-go before it; when it asks for soils or the water table, the
-  petrophysical inversion does. Every attempt is in the run's `qc_log.jsonl` and
-  `qc_report.json`, with the curve each model came from: review the curves afterwards
-  (`DispersionImage_0000.png` in each window folder, or PAC's UI), correct them there if
-  needed, and invert again.
+- PACo runs only the stages your message asks (its scope), and asks you before it redoes work
+  already there or changes work you made by hand: when your message asks for models, an
+  inversion starts for the curves G4 passed; when it asks for soils or the water table, the
+  petrophysical inversion does. Every attempt is in the run's `qc_log.jsonl` (append-only, with
+  what made it) and `qc_report.json`, with the curve each model came from: review the curves
+  afterwards (`DispersionImage_0000.png` in each window folder, or PAC's UI), correct them
+  there if needed, and invert again.
+- Nothing is deleted: results a step done again replaces are kept in the window's `replaced/`
+  folder, and work you made by hand that you choose to replace in its `by_hand/` folder.
+- What the tools return, and the names and texts of your files, reach the model as data, never
+  as instructions.
 - The gates' thresholds are locked during a run: only you change them, between runs
   (`PACO_QC_CONFIG`); every run records the ones it used.
 - Profiles are found by name and runs by ID: a tool never takes a path from the model.
@@ -310,9 +390,14 @@ Any model behind an OpenAI-compatible chat API with tool calling works: set `PAC
 - An online service needs its address, model name and key. It then receives your messages, the
   tools' descriptions and the gates' summaries, never the records, images or models.
 
-PACo's host and tool descriptions were tuned on Qwen3-8B: measure another model with
-`uv run paco-evaluate` (5 plays of each scenario) before relying on it, and compare the pass
-rates, which the report gives per model and prompts' version. The scope's form needs the
+Measured on PACo's scenarios (5 plays each), `Qwen/Qwen3-14B-FP8` follows the user's rules
+more often than `Qwen/Qwen3-8B-FP8`: on the same code, 61 of 75 plays of the work-there,
+hand-work and wording scenarios against 49, and both read the scope set's 42 messages right.
+The 14B is the one to run when a 24 GB GPU is at hand; vLLM's context (`--max-model-len`) at
+16,384 tokens at least, 32,768 for long conversations (the largest prompt measured is about
+9,200 tokens). Measure another model with `uv run paco-evaluate` (5 plays of each scenario)
+before relying on it, and compare the pass rates (`--history`), per model and prompts'
+version. The scope's form needs the
 server's JSON-schema output (`response_format`), which vLLM and llama.cpp's server both give.
 
 ## Docker
@@ -353,6 +438,11 @@ uv run ruff check && uv run ruff format --check   # lint and format
 uv run pyright src tests                          # types
 uv run pytest                                     # tests, on the demo profiles
 ```
+
+The tools' schemas (their descriptions, arguments, annotations and results, what the model and
+PAC read) are kept in `tests/data/tool_schemas.json` with their version: a change fails
+`tests/test_server.py` until it is reviewed and the snapshot written again with
+`PACO_SNAPSHOT_UPDATE=1 uv run pytest tests/test_server.py -k snapshot`.
 
 ## License
 

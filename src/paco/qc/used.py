@@ -78,6 +78,17 @@ def processing_used(
             + ": "
             + (GIVEN if asked("dispersion", "vmin") or asked("dispersion", "vmax") else DEFAULT)
         )
+    muting = preset.pop("muting", None)
+    if isinstance(muting, Mapping):
+        values = cast(Mapping[str, Any], muting)
+        if values.get("method") not in (None, "none"):
+            bounds = " to ".join(
+                f"{values[key]:g}" for key in ("vmin", "vmax") if values.get(key) is not None
+            )
+            used.append(
+                f"muting {bounds} m/s: "
+                + (GIVEN if "muting" in given else rule("muting mute") or DEFAULT)
+            )
     for stage, values in preset.items():
         if isinstance(values, Mapping):
             method = cast(Mapping[str, Any], values).get("method")

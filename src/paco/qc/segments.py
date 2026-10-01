@@ -31,6 +31,7 @@ from sigpipe.masw.presets import PassivePreset, apply_overrides, resolve_preset
 from sigpipe.masw.profiles import Profile
 from sigpipe.masw.quality.signal import signal_windows
 from sigpipe.masw.runs.processing import GEOMETRIES, RECORDS_FOLDER
+from sigpipe.masw.runs.writing import write_atomic
 from sigpipe.masw.windows import Exclusions, MASWWindow, apply_exclusions, build_windows
 from sigpipe.transformers import Apodize, Correlate, Dispersion, Normalize, Slice, Stack, Whiten
 
@@ -203,7 +204,8 @@ def choose_segments(
         )
     )
     chosen = best if better else None
-    (run_folder / SEGMENTS_FILE).write_text(
+    write_atomic(
+        run_folder / SEGMENTS_FILE,
         json.dumps(
             {
                 "windows": [window.xmid for window in windows],
@@ -212,7 +214,7 @@ def choose_segments(
                 "chosen": asdict(chosen) if chosen is not None else None,
             },
             indent=2,
-        )
+        ),
     )
     span = median(_span(window) for window in windows)
     if chosen is None:

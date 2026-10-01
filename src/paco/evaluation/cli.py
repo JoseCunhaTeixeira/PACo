@@ -3,14 +3,16 @@ model in .env, and print the report; paco-evaluate --scopes: score the model's r
 labelled messages (paco.evaluation.scope_set)."""
 
 import argparse
+import contextlib
 import logging
 
 import anyio
 from openai import AsyncOpenAI
 from pydantic import ValidationError
 
+from paco import logs
 from paco.agent import AgentSettings, ChatModel, OpenAIChat
-from paco.evaluation.report import format_report
+from paco.evaluation.report import format_history, format_report, read_reports
 from paco.evaluation.running import run_evaluation
 from paco.evaluation.scenarios import SCENARIOS
 from paco.evaluation.scope_set import format_scope_report, read_scopes
@@ -37,12 +39,24 @@ def main() -> None:
         action="store_true",
         help="score the model's scope forms on the labelled messages instead of the scenarios",
     )
+    parser.add_argument(
+        "--history",
+        action="store_true",
+        help="print each scenario's pass rate by model and prompt version, from the reports kept",
+    )
+    parser.add_argument("--model", help="with --history: only this model's evaluations")
     arguments = parser.parse_args()
     if arguments.repeat < 1:
         parser.error("--repeat must be at least 1")
+    if arguments.history:
+        root = AgentSettings.model_fields["evaluation_dir"].default
+        with contextlib.suppress(ValidationError):  # the model's settings missing: the default
+            root = AgentSettings().evaluation_dir  # pyright: ignore[reportCallIssue]
+        print(format_history(read_reports(root), arguments.model))
+        return
     # PACo's server runs in this process, and its SDK logs every request at INFO level: the
     # scenarios' own lines (calls, failures, progress) say what matters.
-    logging.getLogger().setLevel(logging.WARNING)
+    logs.setup(logging.WARNING)
     anyio.run(evaluate, arguments.scenarios, arguments.repeat, arguments.scopes)
 
 
