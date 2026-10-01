@@ -37,6 +37,7 @@ from paco.evaluation.checks import (
     called,
     checks_ask,
     compare_best,
+    compared_lengths,
     curves,
     excluded,
     in_order,
@@ -107,6 +108,8 @@ EVERYTHING = {
     "length_m": None,
     "step_receivers": None,
     "step_m": None,
+    "compare_lengths_receivers": [],
+    "compare_lengths_m": [],
     "redo": False,
     "replace_hand_work": False,
     "option": None,
@@ -561,6 +564,10 @@ def test_the_lines_muting_and_the_best_comparison_are_read(tmp_path: Path) -> No
     assert line_muted(100.0, 900.0)(trial).passed
     assert not line_muted(80.0, 1500.0)(trial).passed
     assert compare_best(trial) == "6.25"
+    compared = {"variants": [{"length": 13}, {"length": 25}]}
+    tried = _step("compare", {}).model_copy(update={"result": json.dumps(compared)})
+    assert compared_lengths(13, 25)(_trial([tried], "", tmp_path)).passed
+    assert not compared_lengths(3, 6)(_trial([tried], "", tmp_path)).passed
     assert compare_best(_trial([], "", tmp_path)) == "(no comparison)"
 
 
@@ -1172,7 +1179,7 @@ def test_the_scope_set_scores_each_field_of_each_form(tmp_path: Path) -> None:
 
     report = anyio.run(read_scopes, LabelModel(), "labels", tmp_path, CASES, events.append)
 
-    assert len(report.results) == len(CASES) == 42
+    assert len(report.results) == len(CASES) == 44
     (wrong,) = [result for result in report.results if not result.passed]
     assert (wrong.message, wrong.wrong) == ("invret active_p1", {"soils": (False, True)})
     assert events[CASES.index(next(c for c in CASES if c.message == "invret active_p1"))] == (
@@ -1181,7 +1188,7 @@ def test_the_scope_set_scores_each_field_of_each_form(tmp_path: Path) -> None:
     saved = ScopeReport.model_validate_json((tmp_path / report.eval_id / "scopes.json").read_text())
     assert saved == report
     assert format_scope_report(report).splitlines() == [
-        f"Scopes {report.eval_id} of labels on {report.prompt_version}: 41 of 42 read right.",
+        f"Scopes {report.eval_id} of labels on {report.prompt_version}: 43 of 44 read right.",
         "  invret active_p1",
         "    soils False -> True",
     ]

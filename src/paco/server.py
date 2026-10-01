@@ -50,6 +50,8 @@ JOB_PROGRESS_S = 3.0
 JOBS = JobManager()
 # What a tool says the model when the user stopped its work (see paco.stopping).
 STOPPED = "Stopped on the user's request: what had finished is kept, the rest as it was."
+# The most variants compare takes (its argument's limit).
+COMPARED_MOST = 4
 # The masw keys of a window's length and step, which the message's words decide (scope).
 WINDOW_KEYS = frozenset({"length", "length_m", "step", "step_m"})
 # How long a tool waits for a run another writer holds (a curve PAC saves): then it is refused.
@@ -269,9 +271,11 @@ def compare(
             "(wavelength span) or windows_passing (G3)."
         ),
     ],
+    ctx: Context,
 ) -> qc.Comparison:
     """Compare processing settings on a sample of the line's windows, changing no run: a
     table and the best. To optimise, take the metric closest to the request and say it."""
+    variants = _compared_variants(_conversation(ctx), variants)
     return qc.compare_settings(
         profile, variants, metric, get_settings(), _qc_config(get_settings())
     )
@@ -721,6 +725,7 @@ def _asked(scope: object) -> choices.Asked | None:
         parsed.chosen,
         tuple(parsed.positions_m),
         {str(key): value for key, value in parsed.window.items()},
+        {str(key): tuple(values) for key, values in parsed.compared.items()},
     )
 
 
@@ -734,6 +739,7 @@ class _Scope(BaseModel):
     hand_work: Literal["replace", "unsaid"]
     positions_m: list[float] = []
     window: dict[Literal["length", "length_m", "step", "step_m"], float] = {}
+    compared: dict[Literal["length", "length_m"], list[float]] = {}
     chosen: str | None = None
 
 
@@ -758,6 +764,47 @@ def _asked_window(
         for key, value in asked.window.items()
     }
     return {**(overrides or {}), "masw": {**own, **window}}
+
+
+def _compared_variants(
+    conversation: choices.Conversation, variants: list[dict[str, Any]]
+) -> list[dict[str, Any]]:
+    """`variants` with the window lengths the message compares (its scope), whatever the model
+    wrote of them: a variant per length, each with its own other settings when the model wrote
+    as many variants, else with those all of them share; the model's variants when the
+    message compares no lengths."""
+    asked = conversation.asked
+    compared = asked.compared if asked is not None else {}
+    if not compared:
+        return variants
+    ((key, lengths),) = compared.items()
+    if len(lengths) > COMPARED_MOST:
+        raise ValueError(
+            f"compare takes {COMPARED_MOST} variants at most: the message compares "
+            f"{len(lengths)} lengths. Compare {COMPARED_MOST} at most at once."
+        )
+
+    def other(variant: dict[str, Any]) -> dict[str, Any]:
+        masw = variant.get("masw")
+        rest = {
+            name: value
+            for name, value in (
+                cast(dict[str, Any], masw) if isinstance(masw, dict) else {}
+            ).items()
+            if name not in ("length", "length_m")
+        }
+        return {**{name: value for name, value in variant.items() if name != "masw"}, "masw": rest}
+
+    own = [other(variant) for variant in variants]
+    shared = {
+        name: value for name, value in own[0].items() if all(one.get(name) == value for one in own)
+    }
+    bases = own if len(own) == len(lengths) else [shared] * len(lengths)
+    # Receivers are counts: whole numbers, as a length given is read.
+    return [
+        {**base, "masw": {**base.get("masw", {}), key: int(one) if key == "length" else one}}
+        for base, one in zip(bases, lengths, strict=True)
+    ]
 
 
 def _asked_positions(

@@ -575,3 +575,30 @@ def test_the_windows_the_message_gives_are_the_runs_whatever_the_model_wrote() -
     assert (manifest.preset.masw.length, manifest.preset.masw.step) == (24, 24)
     # The model's other settings kept.
     assert manifest.preset.dispersion.vmax == 900  # pyright: ignore[reportAttributeAccessIssue]
+
+
+def test_the_lengths_the_message_compares_are_the_variants_whatever_the_model_wrote() -> None:
+    def asked(compared: dict[str, tuple[float, ...]]) -> choices.Conversation:
+        scope = choices.Asked(frozenset({"process"}), compared=compared)
+        return choices.Conversation(id="c", turn=1, asked=scope)
+
+    # "Windows of 3 m and of 6 m": the model wrote receivers; each variant keeps its own
+    # other settings.
+    wrong = [
+        {"masw": {"length": 3, "step": 1}, "dispersion": {"vmax": 900}},
+        {"masw": {"length": 6, "step": 1}},
+    ]
+    assert server._compared_variants(asked({"length_m": (3.0, 6.0)}), wrong) == [  # pyright: ignore[reportPrivateUsage]
+        {"masw": {"step": 1, "length_m": 3.0}, "dispersion": {"vmax": 900}},
+        {"masw": {"step": 1, "length_m": 6.0}},
+    ]
+    # Four lengths over the model's two variants: each with what both share, receivers whole.
+    four = server._compared_variants(  # pyright: ignore[reportPrivateUsage]
+        asked({"length": (12.0, 24.0, 36.0, 48.0)}), wrong
+    )
+    assert four == [{"masw": {"step": 1, "length": n}} for n in (12, 24, 36, 48)]
+    # More than compare takes: said, nothing compared.
+    with pytest.raises(ValueError, match="4 variants at most"):
+        server._compared_variants(asked({"length": (5.0, 7.0, 9.0, 11.0, 13.0)}), wrong)  # pyright: ignore[reportPrivateUsage]
+    # No length in the message: the model's variants as they are.
+    assert server._compared_variants(asked({}), wrong) == wrong  # pyright: ignore[reportPrivateUsage]

@@ -66,6 +66,8 @@ class Asked:
     positions: tuple[float, ...] = ()  # the positions the message named (m)
     # The windows the message gave, as masw overrides (length, step; in metres: length_m, step_m).
     window: Mapping[str, float] = field(default_factory=dict)
+    # The window lengths the message compares, in receivers ("length") or metres ("length_m").
+    compared: Mapping[str, tuple[float, ...]] = field(default_factory=dict)
 
     def chose(self, tool: str, argument: str) -> bool:
         """Whether the message asked `tool` for `argument`, as the options write it

@@ -18,6 +18,8 @@ soils (soils). Fill the form with what the message asks, nothing more.
 - length_receivers or length_m: the windows' length the message gives, in the unit it gives it
   (windows of 24 receivers: length_receivers 24; 6 m windows: length_m 6), else null. The
   same for the step between windows: step_receivers or step_m (every 12 receivers: 12).
+- compare_lengths_receivers or compare_lengths_m: the window lengths the message compares, each
+  in the unit it gives them (windows of 3 m and of 6 m: compare_lengths_m [3, 6]), else [].
 - redo: true only if the message asks to do again work already done (again, from scratch,
   redo, re-pick).
 - replace_hand_work: true only if the message itself asks to redo or replace the work the user

@@ -34,6 +34,8 @@ NOTHING: dict[str, Any] = {
     "length_m": None,
     "step_receivers": None,
     "step_m": None,
+    "compare_lengths_receivers": [],
+    "compare_lengths_m": [],
     "redo": False,
     "replace_hand_work": False,
     "option": None,
@@ -163,6 +165,7 @@ def test_the_user_and_the_model_read_the_scope() -> None:
         "hand_work": "unsaid",
         "positions_m": [9.0],
         "window": {},
+        "compared": {},
     }
 
 
@@ -185,3 +188,13 @@ def test_the_windows_the_message_gives_are_read_in_their_unit() -> None:
     )
     assert "windows of 6 m" in metres.for_model(None)
     assert _scope().for_server()["window"] == {}
+
+
+def test_the_lengths_a_comparison_names_are_read_in_their_unit() -> None:
+    metres = _scope(process=True, profile="active_p1", compare_lengths_m=[3.0, 6.0])
+    receivers = _scope(process=True, compare_lengths_receivers=[12, 24, 48])
+
+    assert metres.for_server()["compared"] == {"length_m": [3.0, 6.0]}
+    assert receivers.for_server()["compared"] == {"length": [12.0, 24.0, 48.0]}
+    assert metres.line() == "Scope: process · active_p1 · comparing windows of 3, 6 m."
+    assert "comparing windows of 12, 24, 48 receivers" in receivers.for_model(None)
