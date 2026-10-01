@@ -1,5 +1,6 @@
 """Running long work in the background of this process, one job at a time."""
 
+import contextvars
 import logging
 import threading
 from collections.abc import Callable
@@ -23,10 +24,13 @@ class JobManager:
         self._lock = threading.Lock()
 
     def submit(self, job_id: str, work: Callable[[], object]) -> None:
-        """Queue `work` as job `job_id`: it runs after the jobs submitted before it."""
+        """Queue `work` as job `job_id`: it runs after the jobs submitted before it, in the
+        context of the call that submitted it (its conversation, turn and model, for the job's
+        log lines and what it makes)."""
+        context = contextvars.copy_context()
         with self._lock:
             self._live.add(job_id)
-            future = self._executor.submit(work)
+            future = self._executor.submit(context.run, work)
             self._futures[job_id] = future
         future.add_done_callback(lambda done: self._finished(job_id, done))
 

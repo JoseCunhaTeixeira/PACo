@@ -23,6 +23,7 @@ from paco.qc.attempts import invalidate_record, restore_record
 from paco.qc.budgets import Refusal, budget_spent, run_budget
 from paco.qc.config import QCConfig, read_qc_config
 from paco.qc.curves import imaged_windows, pick_line
+from paco.qc.given import locked
 from paco.qc.line import line_reach, settle_images, settle_records
 from paco.qc.log import (
     afresh,
@@ -32,12 +33,14 @@ from paco.qc.log import (
     record_result,
     retries_in_run,
 )
-from paco.qc.loops import deep_merge, stage_changes
+from paco.qc.loops import deep_merge, refusal, stage_changes
 from paco.qc.models import Attempt, Stage
 from paco.qc.origin import left_alone, run_work
-from paco.qc.report import QCReport, build_report, read_report, write_report
+from paco.qc.report import QCReport, build_report, write_report
 from paco.qc.rerun import rerun_phase_shift
 from paco.qc.shots import pulse_widths, with_pulse
+from paco.qc.state import read_report
+from paco.qc.stuck import Stuck
 from paco.runs import PACKAGES
 from paco.settings import Settings
 
@@ -176,11 +179,28 @@ def settle_earlier(run_id: str, settings: Settings) -> bool:
                     (
                         (stage, wanted)
                         for stage in earlier
-                        if (wanted := stage_changes(result, stage)) is not None
+                        if (wanted := stage_changes(result, stage, locked(run_folder, stage)))
+                        is not None
                     ),
                     None,
                 )
                 if asked is None:
+                    # Only changes of settings the user gave: kept, the window rejected.
+                    held = [
+                        refused[1]
+                        for stage in earlier
+                        if (refused := refusal(result, stage, {}, locked(run_folder, stage)))[0]
+                        == "locked"
+                    ]
+                    if held:
+                        record_result(
+                            run_folder,
+                            window.folder,
+                            judged_at,
+                            attempt.attempt,
+                            budget_spent(result, "locked", "; ".join(held)),
+                        )
+                        changed = True
                     continue
                 stage, (changes, flag) = asked
                 trigger = f"{gate}:{flag}"
@@ -224,7 +244,7 @@ def settle_earlier(run_id: str, settings: Settings) -> bool:
         changed = True
 
 
-class BudgetSpent(RunError):
+class BudgetSpent(Stuck):
     """The run's retry budget is spent: no stage may be done again."""
 
 
@@ -363,6 +383,7 @@ def _redo_records(
         manifest.windows,
         exclusions,
         packages=PACKAGES,
+        inputs=manifest.inputs,
     )
     return [
         window.folder

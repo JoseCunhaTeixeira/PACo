@@ -48,7 +48,19 @@ class ScopeStep(BaseModel):
     completion_tokens: int | None
 
 
-type Step = Annotated[ModelStep | ToolStep | ScopeStep, Field(discriminator="kind")]
+class AnswerStep(BaseModel):
+    """The answer form the model filled from its draft (paco.agent.answer)."""
+
+    kind: Literal["answer"] = "answer"
+    form: dict[str, Any] | None  # None when no form parsed: the draft is the answer
+    error: str | None = None
+    tries: int
+    duration_s: float
+    prompt_tokens: int | None
+    completion_tokens: int | None
+
+
+type Step = Annotated[ModelStep | ToolStep | ScopeStep | AnswerStep, Field(discriminator="kind")]
 
 
 class Transcript(BaseModel):
@@ -58,6 +70,10 @@ class Transcript(BaseModel):
     model: str
     messages: list[dict[str, Any]]
     steps: list[Step]
+    # The conversation's id, as each call carried it (the runs' agent_calls.jsonl name it),
+    # and the prompts' version.
+    conversation: str | None = None
+    prompt_version: str | None = None
 
     @property
     def tool_steps(self) -> list[ToolStep]:

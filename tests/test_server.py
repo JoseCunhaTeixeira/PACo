@@ -1,4 +1,7 @@
+import hashlib
 import json
+import os
+import threading
 import time
 from pathlib import Path
 from typing import Any
@@ -8,6 +11,7 @@ import pytest
 from mcp import Client
 from mcp.types import CallToolResult, RequestParamsMeta, Tool
 from sigpipe.masw.presets import override_schema
+from sigpipe.masw.runs.writing import run_lock
 
 from paco import inspection, server
 from paco.settings import Settings
@@ -17,6 +21,7 @@ TOOLS = [
     "inspect",
     "preset_settings",
     "run_processing",
+    "compare",
     "pick",
     "judge",
     "inversion_settings",
@@ -28,10 +33,13 @@ TOOLS = [
 ]
 # Every card (name, description, argument schema) travels with every request to the model: keep
 # them small.
-# The served model reads 12,288 tokens at most; the cards take about a fifth of it.
-CARDS_BUDGET = 10_400  # characters, all tools together
+# The served model reads 12,288 tokens at most; the cards take about a quarter of it (the
+# largest prompt measured, 8,107 tokens).
+CARDS_BUDGET = 11_600  # characters, all tools together
+# The tools' schemas as last reviewed (T12).
+SCHEMAS_SNAPSHOT = Path(__file__).parent / "data" / "tool_schemas.json"
 # The server's instructions go into the model's system prompt too.
-INSTRUCTIONS_BUDGET = 650  # characters
+INSTRUCTIONS_BUDGET = 700  # characters
 # Four 24-receiver windows along the active demo line, as in test_runs.py.
 SMALL_WINDOWS = {"masw": {"length": 24, "step": 24}}
 # A short sampler: every step of an inversion, in about a second per window.
@@ -82,6 +90,45 @@ def _card(tool: Tool) -> str:
 
 def test_tools_are_listed_in_the_workflows_order() -> None:
     assert [tool.name for tool in _tools()] == TOOLS
+
+
+def _schemas() -> dict[str, Any]:
+    """Every tool as the server declares it: its card, its annotations, its result's schema."""
+    return {
+        tool.name: {
+            "description": tool.description,
+            "input_schema": tool.input_schema,
+            "output_schema": tool.output_schema,
+            "annotations": tool.annotations.model_dump(exclude_none=True)
+            if tool.annotations
+            else None,
+        }
+        for tool in _tools()
+    }
+
+
+def test_the_tools_schemas_match_their_reviewed_snapshot() -> None:
+    # T12: a change of a tool's schema is a change of what the model and PAC read: reviewed,
+    # then the snapshot written again (PACO_SNAPSHOT_UPDATE=1), its version with it.
+    schemas = _schemas()
+    text = json.dumps(schemas, indent=1, sort_keys=True)
+    version = "tools-" + hashlib.sha256(text.encode()).hexdigest()[:8]
+    if os.environ.get("PACO_SNAPSHOT_UPDATE"):
+        SCHEMAS_SNAPSHOT.write_text(
+            json.dumps({"version": version, "tools": schemas}, indent=1, sort_keys=True) + "\n"
+        )
+    snapshot = json.loads(SCHEMAS_SNAPSHOT.read_text())
+
+    changed = sorted(
+        name
+        for name in {*schemas, *snapshot["tools"]}
+        if schemas.get(name) != snapshot["tools"].get(name)
+    )
+    assert not changed, (
+        f"Tool schemas changed ({', '.join(changed)}): review the change, then "
+        "PACO_SNAPSHOT_UPDATE=1 uv run pytest tests/test_server.py -k snapshot"
+    )
+    assert snapshot["version"] == version
 
 
 def test_cards_stay_within_budget() -> None:
@@ -140,7 +187,9 @@ def test_profiles_are_listed_and_inspected(paco_env: Settings) -> None:
     inspected = _call("inspect", {"what": "profile", "profile": "passive_p1"})
     unsaid = _call("inspect", {"what": "run"})
 
-    assert _text(listed) == "active_p1: 0 run(s)\npassive_p1: 0 run(s)"
+    assert _text(listed) == (
+        "active_p1: a profile to process, no run yet\npassive_p1: a profile to process, no run yet"
+    )
     assert _text(inspected) == inspection.profile_text("passive_p1", paco_env)
     assert unsaid.is_error and "inspect(what=run) needs run_id." in _text(unsaid)
 
@@ -335,6 +384,35 @@ def _wait_for(job_id: str, timeout_s: float = 120) -> dict[str, Any]:
 
 
 # ---------------------------------------------------------------- errors
+
+
+def test_a_run_another_application_writes_is_refused_saying_who(
+    paco_env: Settings, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    processed = _call("run_processing", {"profile": "active_p1", "overrides": SMALL_WINDOWS})
+    run_id = processed.structured_content["run_id"] if processed.structured_content else ""
+    run_folder = paco_env.output_dir / "active_p1" / run_id
+    monkeypatch.setattr(server, "WRITER_WAIT_S", 0.0)
+    held, release = threading.Event(), threading.Event()
+
+    def page_of_pac() -> None:
+        with run_lock(run_folder, "PAC", shared=True):
+            held.set()
+            release.wait(timeout=60)
+
+    thread = threading.Thread(target=page_of_pac)
+    thread.start()
+    assert held.wait(timeout=10)
+    try:
+        result = _call("pick", {"run_id": run_id})
+    finally:
+        release.set()
+        thread.join(timeout=10)
+
+    # Nothing picked, the model told why (S5).
+    assert result.is_error
+    assert f"[precondition] Run {run_id} is being written by one of PAC's pages" in _text(result)
+    assert not list(run_folder.glob("xmid_*/DispersionCurves_0000.csv"))
 
 
 @pytest.mark.usefixtures("paco_env")

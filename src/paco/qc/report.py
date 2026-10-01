@@ -10,13 +10,24 @@ from collections import Counter, defaultdict
 from collections.abc import Iterable, Sequence
 from itertools import pairwise
 from pathlib import Path
-from typing import Any, cast
+from typing import Any, Literal, cast
 
 from pydantic import BaseModel, ConfigDict
 from sigpipe.masw.runs import RunManifest
+from sigpipe.masw.runs.writing import write_atomic
 
-from paco.qc.log import LOG_FILE, read_attempts, retries_in_run, retries_of_inversion
-from paco.qc.models import Action, Attempt, Budgets, Flag, GateResult, Kept, Stage, Verdict
+from paco.qc.log import MUTE_TRIAL, read_attempts, retries_in_run, retries_of_inversion
+from paco.qc.models import (
+    Action,
+    Attempt,
+    Budgets,
+    Flag,
+    GateResult,
+    Kept,
+    Reject,
+    Stage,
+    Verdict,
+)
 from paco.qc.origin import WindowWork, run_work
 
 REPORT_FILE = "qc_report.json"
@@ -63,6 +74,14 @@ class Option(BaseModel):
     call: str
 
 
+# What a stage tool's result says it did: all it was asked (ok), part of it (partial: windows
+# left out), nothing, the user to choose or the way on given (refused), or nothing it can do
+# without the user (stuck).
+type Status = Literal["ok", "partial", "refused", "stuck"]
+# The longest summary a result carries; the run's report holds the rest.
+SUMMARY_CAP = 4000
+
+
 class StageResult(BaseModel):
     """What a stage tool returns to the agent: the run, what the gates found (their summary:
     counts, what they fixed or changed, flags with their suggested change), and what to do
@@ -71,6 +90,10 @@ class StageResult(BaseModel):
     model_config = ConfigDict(frozen=True)
 
     run_id: str
+    status: Status = "ok"
+    # What it did, in one line for the answer, and the windows it left out, with why.
+    did: str = ""
+    left: tuple[str, ...] = ()
     # The settings the gates and the checks changed, in words: to report, every one.
     changed: tuple[str, ...] = ()
     # The settings the stage ran with, in words (the window length, the band, ...).
@@ -80,9 +103,75 @@ class StageResult(BaseModel):
     job_id: str | None = None  # an inversion done again runs as a job
     # run_processing: the window lengths the ladder tried, for the agent to choose from.
     lengths: tuple[str, ...] = ()
+    # run_processing: the mutes the mute trial compared, the one kept marked.
+    mutes: tuple[str, ...] = ()
     # When the tool did nothing: the user's options, each with its call (none when the way on
     # needs no question).
     options: tuple[Option, ...] = ()
+    truncated: bool = False  # the summary cut at SUMMARY_CAP
+    # The settings the user gave, kept as given (qc.given): no gate changed them.
+    kept: tuple[str, ...] = ()
+
+
+def capped(summary: str) -> tuple[str, bool]:
+    """`summary` within SUMMARY_CAP, cut at a line, with how many lines the report keeps; and
+    whether it was cut."""
+    if len(summary) <= SUMMARY_CAP:
+        return summary, False
+    lines = summary.splitlines()
+    kept: list[str] = []
+    size = 0
+    for line in lines:
+        if size + len(line) + 1 > SUMMARY_CAP - 60:
+            break
+        kept.append(line)
+        size += len(line) + 1
+    return "\n".join(kept) + f"\n({len(lines) - len(kept)} more lines in the run's report.)", True
+
+
+def what_was_done(report: QCReport, gates: Sequence[str], verb: str) -> str:
+    """The stage's work in one line, for the answer: `verb` (Processed, Picked...), the run and
+    its windows, and each of `gates`' counts."""
+    windows = sum(
+        unit.xmid is not None and any(gate in unit.verdicts for gate in gates)
+        for unit in report.units
+    )
+    counts = [
+        f"{gate} "
+        + ", ".join(f"{n} {verdict}" for verdict, n in sorted(report.counts[gate].items()))
+        for gate in gates
+        if report.counts.get(gate)
+    ]
+    head = f"{verb} run {report.run_id}, {windows} windows"
+    return head + (": " + "; ".join(counts) if counts else "") + "."
+
+
+def left_out(report: QCReport, gates: Sequence[str]) -> tuple[str, ...]:
+    """The windows `gates` rejected, or whose stage failed, grouped by why: "xmid 2.88 (1): G3
+    narrow_span"."""
+    step = line_step(unit.xmid for unit in report.units if unit.xmid is not None)
+    why: dict[str, list[str]] = defaultdict(list)
+    for unit in report.units:
+        if unit.xmid is None:
+            continue
+        reasons = [
+            f"{gate} " + ", ".join(_named(flag) for flag in unit.flags.get(gate, ()))
+            if unit.flags.get(gate)
+            else f"{gate} rejected"
+            for gate in gates
+            if unit.verdicts.get(gate) == "reject"
+        ]
+        reasons += [f"{stage} failed" for stage in unit.failed]
+        if reasons:
+            why["; ".join(reasons)].append(unit.unit)
+    return tuple(f"{_where(units, step)}: {reason}" for reason, units in why.items())
+
+
+def _named(flag: Flag) -> str:
+    """A flag as a window's line names it: a refusal over a setting the user gave, with the
+    change it asks ("locked, asks dispersion vmax 900 (given: 250)")."""
+    action = flag.action
+    return action.reason if flag.name == "locked" and isinstance(action, Reject) else flag.name
 
 
 class QCReport(BaseModel):
@@ -131,7 +220,8 @@ def build_report(run_id: str, run_folder: Path, budgets: Budgets, n_xmids: int) 
     before: dict[tuple[str, Stage], dict[str, Any]] = {}
     for attempt in attempts:
         key = (attempt.unit, attempt.stage)
-        if attempt.triggered_by != "initial":
+        # A rule's choice, the mute trial's records, is no retry.
+        if attempt.triggered_by not in ("initial", MUTE_TRIAL):
             if attempt.unit not in retried[attempt.triggered_by]:
                 retried[attempt.triggered_by].append(attempt.unit)
             # Against the attempt before, or the one it replaced when it started afresh. A
@@ -163,20 +253,8 @@ def build_report(run_id: str, run_folder: Path, budgets: Budgets, n_xmids: int) 
 
 def write_report(report: QCReport, run_folder: Path) -> Path:
     path = run_folder / REPORT_FILE
-    path.write_text(report.model_dump_json(indent=2))
+    write_atomic(path, report.model_dump_json(indent=2))
     return path
-
-
-def read_report(run_folder: Path) -> QCReport:
-    """The run's report; built again from the log when the log changed after it (PAC redid a
-    window by hand, which forgets the window's earlier attempts)."""
-    path = run_folder / REPORT_FILE
-    report = QCReport.model_validate_json(path.read_text())
-    log = run_folder / LOG_FILE
-    if log.exists() and log.stat().st_mtime > path.stat().st_mtime:
-        report = build_report(report.run_id, run_folder, report.budgets, report.n_xmids)
-        write_report(report, run_folder)
-    return report
 
 
 def summarize_report(report: QCReport, gates: Sequence[str] | None = None) -> str:

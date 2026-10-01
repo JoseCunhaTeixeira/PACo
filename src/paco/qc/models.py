@@ -132,10 +132,37 @@ class GateResult(BaseModel):
     shrank: bool = False  # kept much less than the attempt before, or than the line (rule 6)
 
 
-class Attempt(BaseModel):
-    """One line of the QC log (rule 8): a stage run once on one unit, and what its gate said."""
+# Who made an attempt, or logged an event: the agent (its call), a gate (its retry, its
+# verdict), or the user (a person's work in PAC, judged).
+type Actor = Literal["agent", "gate", "user"]
+
+
+class MadeBy(BaseModel):
+    """What made an attempt (S4): who, the code's versions, and for a call of the agent its
+    model, the prompts' version, its conversation and the turn."""
 
     model_config = ConfigDict(frozen=True)
+
+    actor: Actor
+    code: dict[str, str] = {}
+    model: str | None = None
+    prompts: str | None = None
+    conversation: str | None = None
+    turn: int | None = None
+
+
+class Attempt(BaseModel):
+    """One line of the QC log (rule 8): a stage run once on one unit, and what its gate said.
+    Each state of the attempt is a line of its own (S2): its stage run (`event` "stage"), a
+    gate's verdict on it ("verdict"), notes added after it ran ("notes")."""
+
+    model_config = ConfigDict(frozen=True)
+
+    # The line's format (sigpipe's masw.runs.history.LOG_VERSION; a line without one, 1), its
+    # kind, and who logged it.
+    version: int = 1
+    event: Literal["stage", "verdict", "notes"] = "stage"
+    actor: Actor | None = None  # None: a version 1 line
 
     unit: str
     stage: Stage
@@ -157,6 +184,7 @@ class Attempt(BaseModel):
     # The parameters of the attempt this one replaced, forgotten: what it changed is read
     # against them.
     replaced: dict[str, Any] = {}
+    made_by: MadeBy | None = None  # None: a version 1 line
 
 
 class Budgets(BaseModel):

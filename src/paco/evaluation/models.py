@@ -67,3 +67,19 @@ class EvaluationReport(BaseModel):
     # Plays of each scenario: the model samples, so a single play is a noisy measure.
     repeat: int = 1
     results: tuple[ScenarioResult, ...]  # every play, scenario by scenario
+    # Each scenario's pass-rate threshold when it was played (E4).
+    thresholds: dict[str, float] = {}
+
+    def pass_rates(self) -> dict[str, tuple[int, int]]:
+        """Each scenario's plays passed and played, in the order played."""
+        rates: dict[str, tuple[int, int]] = {}
+        for result in self.results:
+            passed, played = rates.get(result.name, (0, 0))
+            rates[result.name] = (passed + result.passed, played + 1)
+        return rates
+
+    def meets(self, scenario: str) -> bool | None:
+        """Whether `scenario`'s pass rate meets its threshold; None without one recorded."""
+        threshold = self.thresholds.get(scenario)
+        passed, played = self.pass_rates().get(scenario, (0, 0))
+        return None if threshold is None or not played else passed / played >= threshold

@@ -50,16 +50,19 @@ from paco.qc.coherence import (
     near_field,
     near_field_windows,
     near_note,
+    receiver_spacing,
 )
 from paco.qc.config import QCConfig, snapshot_qc_config
 from paco.qc.g1_signal import (
     SPECTRA_MODES,
+    judge_fast_arrivals,
     judge_receivers,
     judge_signal,
     judge_spectra,
 )
 from paco.qc.g2_image import judge_image
 from paco.qc.g4_profile import LINE
+from paco.qc.given import give, locked
 from paco.qc.judging import (
     RecordsBeforeMuting,
     before_muting,
@@ -69,9 +72,24 @@ from paco.qc.judging import (
     shared_band,
     stream_of,
 )
-from paco.qc.log import append_attempt, latest, read_attempts, record_notes, record_result
-from paco.qc.loops import RetryBudget, deep_merge, next_try, spent, unchanged
+from paco.qc.log import (
+    MUTE_TRIAL,
+    append_attempt,
+    latest,
+    read_attempts,
+    record_notes,
+    record_result,
+)
+from paco.qc.loops import RetryBudget, deep_merge, next_try, refusal, spent
 from paco.qc.models import Attempt, ExcludeRecord, ExcludeTraces, GateResult, Stage
+from paco.qc.muting import (
+    changed_muting,
+    choose_mute,
+    estimate_cone,
+    given_muting,
+    mutable,
+    mute_candidates,
+)
 from paco.qc.origin import run_work
 from paco.qc.report import QCReport, build_report, write_report
 from paco.qc.rerun import rerun_phase_shift
@@ -85,6 +103,7 @@ from paco.qc.shots import (
     window_muted,
     with_pulse,
 )
+from paco.qc.stuck import Stuck
 from paco.runs import PACKAGES
 from paco.settings import Settings
 
@@ -107,7 +126,7 @@ def process_line(
     if given is not None and given > n:
         # A request the data do not allow: the agent must ask (the host then leaves its
         # question as it is).
-        raise RunError(
+        raise Stuck(
             f"length ({given}) exceeds the {n} receivers of profile '{profile}': no window that "
             f"long fits the line, you are stuck. Ask the user which length to use, with options: "
             f"the whole line ({n}), half of it ({n // 2}), or the ladder's proposal (no length)."
@@ -141,7 +160,17 @@ def _process(
     """process_line's work, in the new run `run_folder`."""
     mode = (overrides or {}).get("mode", loaded.kind)
     snapshot_qc_config(config, run_folder)
+    # The user's settings, locked before any gate judges (qc.given).
+    give(run_folder, "processing", overrides)
     started_at = datetime.now(UTC)
+    # The surface waves' cone from the gathers (qc.muting), for the mute trial and G1's fast
+    # arrivals; none over a muting the user gave, nor on a passive line.
+    cone = (
+        estimate_cone(loaded, preset, config.mute)
+        if mutable(preset) and not given_muting(overrides)
+        else None
+    )
+    fast = mute_candidates(cone, config.mute, loaded)["cone"] if cone is not None else None
     records = preprocess_records(
         preset, loaded, run_folder, settings.workers, stop=stopping.current()
     )
@@ -149,11 +178,14 @@ def _process(
         _log(run_folder, record.name, "preprocessing", 1, {}, "initial", started_at, record)
     reach = line_reach(run_folder, loaded, records, config, preset)
     records, exclusions, usable = settle_records(
-        run_folder, loaded, preset, records, config, settings.workers, reach
+        run_folder, loaded, preset, records, config, settings.workers, reach, fast
     )
     # The band the records G1 kept share: a rejected record constrains nothing.
     kept = [band for name, band in usable.items() if name not in exclusions.records]
-    band, band_notes = cap_band(preset, kept, loaded.nyquist_hz)
+    dispersion = (overrides or {}).get("dispersion")
+    band, band_notes = cap_band(
+        preset, kept, loaded.nyquist_hz, dispersion if isinstance(dispersion, Mapping) else None
+    )
     far, far_notes = far_limit(overrides, reach, config.signal.reach_snr_db)
     band = deep_merge(band, far)
     choice = choose_length(
@@ -168,6 +200,38 @@ def _process(
     )
     changes: dict[str, Any] = deep_merge(band, {"masw": {"length": choice.length}})
     preset = resolve_preset(apply_overrides(preset, changes), loaded)
+    # The mute trial at the line's length: a mute kept changes the images, never the windows;
+    # the records then preprocessed again with it, and judged again by G1.
+    mute_notes: tuple[str, ...] = ()
+    if cone is not None:
+        attempts = read_attempts(run_folder)
+        own = {
+            record.name: attempt.parameters
+            for record in records
+            if (attempt := latest(attempts, record.name, "preprocessing")) is not None
+        }
+        trial = choose_mute(
+            loaded,
+            preset,
+            run_folder,
+            TrialJudge(config.coherence, config.curve, config.picking, config.image),
+            config.mute,
+            settings.workers,
+            cone,
+            own,
+            exclusions,
+        )
+        muted = changed_muting(trial)
+        if muted is not None:
+            # A change of the line's: the note says it (no mute keeps the line as it is, and
+            # run_processing says the trial's candidates apart).
+            mute_notes = trial.notes if trial is not None else ()
+            changes = deep_merge(changes, muted)
+            preset = resolve_preset(apply_overrides(preset, muted), loaded)
+            records = _remute(run_folder, loaded, preset, records, exclusions, settings.workers)
+            records, exclusions, usable = settle_records(
+                run_folder, loaded, preset, records, config, settings.workers, reach
+            )
     # A passive line's segments, their length and FK selection tried on a few windows, those the
     # user set left as they are: PACo optimizes the parameters the passive workflow has.
     segment_notes: tuple[str, ...] = ()
@@ -241,13 +305,56 @@ def _process(
             started_at=started_at,
             finished_at=manifest.finished_at,
             status="succeeded",
-            notes=band_notes + far_notes + choice.notes + segment_notes + near_notes,
+            notes=band_notes + far_notes + choice.notes + mute_notes + segment_notes + near_notes,
         ),
     )
     settle_images(run_id, run_folder, manifest, config, settings, usable)
     report = build_report(run_id, run_folder, config.budgets, len(manifest.windows))
     write_report(report, run_folder)
     return report
+
+
+def _remute(
+    run_folder: Path,
+    profile: Profile,
+    preset: ActivePreset | PassivePreset,
+    records: tuple[RecordOutcome, ...],
+    exclusions: Exclusions,
+    workers: int,
+) -> tuple[RecordOutcome, ...]:
+    """The line's records preprocessed again with the mute the trial kept (`preset`'s), each with
+    its own changes (G1's: a mute of its own wins), their previous results archived; logged as
+    the mute trial's attempts, outside the retry budgets. Those G1 left out stay as they were."""
+    attempts = read_attempts(run_folder)
+    by_name = {record.path.name: record for record in profile.records}
+    outcomes = {record.name: record for record in records}
+    again: dict[str, tuple[int, dict[str, Any]]] = {}
+    for name, outcome in outcomes.items():
+        if outcome.status != "succeeded" or name in exclusions.records:
+            continue
+        attempt = latest(attempts, name, "preprocessing")
+        number = attempt.attempt if attempt is not None else 0
+        invalidate_record(record_folder(run_folder / RECORDS_FOLDER, by_name[name]), number)
+        again[name] = (number + 1, dict(attempt.parameters) if attempt is not None else {})
+    started_at = datetime.now(UTC)
+    redone = preprocess_records(
+        preset,
+        profile,
+        run_folder,
+        workers,
+        presets={
+            name: resolve_preset(apply_overrides(preset, own), profile)
+            for name, (_, own) in again.items()
+        },
+        stop=stopping.current(),
+    )
+    for outcome in redone:
+        outcomes[outcome.name] = outcome
+        number, own = again[outcome.name]
+        _log(
+            run_folder, outcome.name, "preprocessing", number, own, MUTE_TRIAL, started_at, outcome
+        )
+    return tuple(outcomes.values())
 
 
 def line_reach(
@@ -308,11 +415,14 @@ def settle_records(
     config: QCConfig,
     workers: int,
     reach_m: float | None = None,
+    cone: Mapping[str, Any] | None = None,
 ) -> tuple[tuple[RecordOutcome, ...], Exclusions, Bands]:
     """G1 on every preprocessed record, with its fixes, until nothing is left to fix or the
     budgets are spent: the traces and records it excludes are recorded (for S2 to leave out, and
     for G1 to judge the record without them), a record G1 asks to preprocess differently is
-    preprocessed again. Returns the records, the exclusions and each record's usable band."""
+    preprocessed again. With `cone` (the mute trial's, on a line it left unmuted), a record not
+    muted yet is checked for arrivals faster than it, muted around it when they are strong.
+    Returns the records, the exclusions and each record's usable band."""
     outcomes = {record.name: record for record in records}
     exclusions = Exclusions()
     results: dict[str, GateResult] = {}
@@ -321,6 +431,8 @@ def settle_records(
     # The traces' spectra against their neighbours': on every line (SPECTRA_MODES).
     spectra = preset.mode in SPECTRA_MODES
     triggers = file_triggers(profile)
+    # The traces the cone leaves out, near the shot: the fast arrivals' too.
+    nearest_m = config.mute.min_offset_spacings * receiver_spacing(profile)
     # Each record's spectra as drawn: its attempt, and the band G1 found.
     drawn: dict[str, tuple[object, ...]] = {}
     while True:
@@ -350,6 +462,9 @@ def settle_records(
                 before_muting=unmuted,
                 image_band=image_band(values),
             )
+            if cone is not None and values.get("muting", {}).get("method") in (None, "none"):
+                gather, shot = unmuted or (stream, shot_s)
+                result = judge_fast_arrivals(result, gather, shot, cone, config.signal, nearest_m)
             results[name] = result
             if latest_attempt is not None:
                 record_result(run_folder, name, "preprocessing", latest_attempt.attempt, result)
@@ -370,13 +485,14 @@ def settle_records(
                     exclusions = exclusions.with_record(name)
         attempts = read_attempts(run_folder)
         budget = RetryBudget(attempts, config.budgets, n_units)
+        given = locked(run_folder, "preprocessing")
         # A mute keeps each record's own pulse after the slowest arrival (shots.py).
         widths = pulse_widths(attempts, results, config.signal.mute_width_s)
         again: dict[str, tuple[dict[str, Any], str]] = {}
         for name, result in results.items():
             attempt = latest(attempts, name, "preprocessing")
             previous = attempt.parameters if attempt is not None else {}
-            wanted = next_try(result, "preprocessing", budget, previous)
+            wanted = next_try(result, "preprocessing", budget, previous, given)
             if wanted is not None:
                 # G1 gives the whole trigger: the shift already applied and its own measure.
                 parameters, trigger = wanted
@@ -388,12 +504,7 @@ def settle_records(
                         name,
                         "preprocessing",
                         attempt.attempt,
-                        budget_spent(
-                            result,
-                            "unchanged"
-                            if unchanged(result, "preprocessing", previous)
-                            else "budget",
-                        ),
+                        budget_spent(result, *refusal(result, "preprocessing", previous, given)),
                     )
                 # Rejected, the record goes into no window.
                 exclusions = exclusions.with_record(name)
@@ -594,6 +705,7 @@ def settle_images(
         attempts = read_attempts(run_folder)
         records = RecordsBeforeMuting(manifest, profile, attempts)
         budget = RetryBudget(attempts, config.budgets, n_units)
+        given = locked(run_folder, "phase_shift")
         work = run_work(run_folder, manifest, attempts)
         groups: dict[str, tuple[dict[str, Any], str, list[str]]] = {}
         for window in manifest.windows:
@@ -616,7 +728,7 @@ def settle_images(
                 attempt = record_result(
                     run_folder, window.folder, "phase_shift", attempt.attempt, result
                 )
-            wanted = next_try(result, "phase_shift", budget, attempt.parameters)
+            wanted = next_try(result, "phase_shift", budget, attempt.parameters, given)
             if wanted is not None:
                 parameters, trigger = wanted
                 key = json.dumps(parameters, sort_keys=True) + trigger
@@ -628,10 +740,7 @@ def settle_images(
                     "phase_shift",
                     attempt.attempt,
                     budget_spent(
-                        result,
-                        "unchanged"
-                        if unchanged(result, "phase_shift", attempt.parameters)
-                        else "budget",
+                        result, *refusal(result, "phase_shift", attempt.parameters, given)
                     ),
                 )
         if not groups:

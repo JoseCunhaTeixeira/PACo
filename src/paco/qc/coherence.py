@@ -18,6 +18,7 @@ from sigpipe.masw.presets import ActivePreset, PassivePreset, apply_overrides, r
 from sigpipe.masw.profiles import Profile
 from sigpipe.masw.runs import RecordOutcome, RunError, WindowOutcome, load_image
 from sigpipe.masw.runs.processing import RECORDS_FOLDER, process_windows
+from sigpipe.masw.runs.writing import write_atomic
 from sigpipe.masw.windows import Exclusions, MASWWindow, build_windows
 from sigpipe.masw.windows import nearest_offset as window_nearest_offset
 
@@ -121,11 +122,14 @@ def cap_band(
     preset: ActivePreset | PassivePreset,
     usable: Sequence[tuple[float, float] | None],
     nyquist: float,
+    given: Mapping[str, Any] | None = None,
 ) -> tuple[dict[str, Any], tuple[str, ...]]:
     """The dispersion band within the records' median usable band (G1) and below Nyquist:
     overrides for the dispersion stage (empty when the band already fits), and notes. The
-    median, not the worst record: one record's narrow band would narrow the whole line's."""
+    median, not the worst record: one record's narrow band would narrow the whole line's. An
+    edge the user gave (`given`, the dispersion's) stays as given, said in a note."""
     dispersion = preset.model_dump()["dispersion"]
+    mine = dict(given or {})
     known = [band for band in usable if band is not None]
     low = float(np.median([band[0] for band in known])) if known else 0.0
     high = min(float(np.median([band[1] for band in known])) if known else nyquist, nyquist)
@@ -137,19 +141,27 @@ def cap_band(
         )
     overrides: dict[str, Any] = {}
     notes: list[str] = []
-    if dispersion["fmax"] > high:
+    for edge, outside in (("fmax", dispersion["fmax"] > high), ("fmin", dispersion["fmin"] < low)):
+        if edge in mine and outside:
+            notes.append(
+                f"dispersion {edge} {mine[edge]:g} Hz, as given, lies outside the records' median "
+                f"usable band ({low:.1f}-{high:.1f} Hz): kept as given."
+            )
+    if dispersion["fmax"] > high and "fmax" not in mine:
         overrides["fmax"] = round(high, 1)
         notes.append(
             f"dispersion fmax {dispersion['fmax']:g} Hz is above the records' median usable band "
             f"(up to {high:.1f} Hz): set to {high:.1f}."
         )
-    if dispersion["fmin"] < low:
+    if dispersion["fmin"] < low and "fmin" not in mine:
         overrides["fmin"] = round(low, 1)
         notes.append(
             f"dispersion fmin {dispersion['fmin']:g} Hz is below the records' median usable band "
             f"(from {low:.1f} Hz): set to {low:.1f}."
         )
-    if overrides.get("fmax", dispersion["fmax"]) <= overrides.get("fmin", dispersion["fmin"]):
+    if "fmax" not in mine and overrides.get("fmax", dispersion["fmax"]) <= overrides.get(
+        "fmin", dispersion["fmin"]
+    ):
         # The preset's band lies wholly below what the records keep usable: capped, it would be
         # empty. The one case the band is widened: up to the usable band's top.
         overrides["fmax"] = round(high, 1)
@@ -249,10 +261,10 @@ def choose_length(
         trials=tuple(trials),
         notes=(note,),
         receivers=len(receivers),
-        spacing_m=_spacing(profile),
+        spacing_m=receiver_spacing(profile),
         longest=longest,
     )
-    (run_folder / COHERENCE_FILE).write_text(choice.model_dump_json(indent=2))
+    write_atomic(run_folder / COHERENCE_FILE, choice.model_dump_json(indent=2))
     return choice
 
 
@@ -341,7 +353,7 @@ def length_hint(choice: LengthChoice, then: str) -> str:
     return f"{proposal} {' '.join(options)} Say why. Otherwise, {then}"
 
 
-def _spacing(profile: Profile) -> float:
+def receiver_spacing(profile: Profile) -> float:
     """The receivers' spacing along the line, m."""
     positions = sorted(receiver.x for receiver in profile.receivers)
     return round(float(np.median(np.diff(positions))), 3) if len(positions) > 1 else 0.0
@@ -366,26 +378,82 @@ def _try_length(
     if not windows:
         return None
     chosen = [windows[index] for index in trial_indices(len(windows), judge.rules.trials)]
-    folder = run_folder / TRIALS_FOLDER / f"{length}"
+    tried = try_windows(
+        trial_preset,
+        profile,
+        chosen,
+        records,
+        run_folder / RECORDS_FOLDER,
+        run_folder / TRIALS_FOLDER / f"{length}",
+        judge,
+        workers,
+        exclusions,
+    )
+    on_line = resolve_preset(apply_overrides(preset, {"masw": {"length": length}}), profile)
+    return LengthTrial(
+        length=length,
+        xmids=tried.xmids,
+        verdicts=tried.verdicts,
+        flags=tried.flags,
+        passed=tried.passed,
+        metres=round((length - 1) * receiver_spacing(profile), 2),
+        windows=len(build_windows(profile, on_line.masw)),
+        wavelengths_m=tried.wavelengths_m,
+        uncertainty=tried.uncertainty,
+    )
+
+
+@dataclass(frozen=True)
+class TriedWindows:
+    """What trial windows gave: G3's verdict on each ("failed": no image), the flags it raised
+    (most frequent first), and over the curves it passed, the median shortest and longest
+    wavelengths, m, the median band, Hz, and the median uncertainty."""
+
+    xmids: tuple[float, ...]
+    verdicts: tuple[str, ...]
+    flags: tuple[str, ...]
+    wavelengths_m: tuple[float, float] | None
+    uncertainty: float | None
+    band_hz: tuple[float, float] | None = None
+
+    @property
+    def passed(self) -> int:
+        return self.verdicts.count("pass")
+
+
+def try_windows(
+    trial_preset: ActivePreset | PassivePreset,
+    profile: Profile,
+    windows: list[MASWWindow],
+    records: tuple[RecordOutcome, ...],
+    records_folder: Path,
+    folder: Path,
+    judge: TrialJudge,
+    workers: int,
+    exclusions: Exclusions | None = None,
+) -> TriedWindows:
+    """S2 on `windows` from the preprocessed records in `records_folder`, into `folder` (made
+    afresh), their grids fixed as G2 asks (_fix_grids), then the picking and G3 on each: the
+    trials of the window length and of the muting alike."""
     shutil.rmtree(folder, ignore_errors=True)
     folder.mkdir(parents=True)
     outcomes = process_windows(
         trial_preset,
-        chosen,
+        windows,
         records,
         folder,
         workers,
-        records_folder=run_folder / RECORDS_FOLDER,
+        records_folder=records_folder,
         exclusions=exclusions,
         stop=stopping.current(),
     )
     outcomes = _fix_grids(
         trial_preset,
         profile,
-        chosen,
+        windows,
         outcomes,
         records,
-        run_folder,
+        records_folder,
         folder,
         judge,
         workers,
@@ -396,6 +464,7 @@ def _try_length(
     mutable = "muting" in type(trial_preset).model_fields
     flags: dict[str, int] = {}
     ranges: list[tuple[float, float]] = []
+    bands: list[tuple[float, float]] = []
     uncertainties: list[float] = []
     for outcome in outcomes:
         if outcome.status != "succeeded":
@@ -413,30 +482,31 @@ def _try_length(
             flags[flag.name] = flags.get(flag.name, 0) + 1
         if g3.verdict == "pass" and g3.kept.wavelength_m is not None:
             ranges.append(g3.kept.wavelength_m)
+        if g3.verdict == "pass" and g3.kept.band_hz is not None:
+            bands.append(g3.kept.band_hz)
         if g3.verdict == "pass":
             uncertainties += [
                 metric.value
                 for metric in g3.metrics
                 if metric.name == "uncertainty" and metric.value is not None
             ]
-    on_line = resolve_preset(apply_overrides(preset, {"masw": {"length": length}}), profile)
-    return LengthTrial(
-        length=length,
+    return TriedWindows(
         xmids=tuple(outcome.xmid for outcome in outcomes),
         verdicts=tuple(verdicts),
         flags=tuple(sorted(flags, key=lambda name: -flags[name])),
-        passed=verdicts.count("pass"),
-        metres=round((length - 1) * _spacing(profile), 2),
-        windows=len(build_windows(profile, on_line.masw)),
-        wavelengths_m=(
-            (
-                round(float(np.median([low for low, _ in ranges])), 1),
-                round(float(np.median([high for _, high in ranges])), 1),
-            )
-            if ranges
-            else None
-        ),
+        wavelengths_m=_medians(ranges),
         uncertainty=round(float(np.median(uncertainties)), 3) if uncertainties else None,
+        band_hz=_medians(bands),
+    )
+
+
+def _medians(ranges: Sequence[tuple[float, float]]) -> tuple[float, float] | None:
+    """The median low and high ends of `ranges`, rounded to 0.1; None without any."""
+    if not ranges:
+        return None
+    return (
+        round(float(np.median([low for low, _ in ranges])), 1),
+        round(float(np.median([high for _, high in ranges])), 1),
     )
 
 
@@ -461,7 +531,7 @@ def _fix_grids(
     windows: list[MASWWindow],
     outcomes: tuple[WindowOutcome, ...],
     records: tuple[RecordOutcome, ...],
-    run_folder: Path,
+    records_folder: Path,
     folder: Path,
     judge: TrialJudge,
     workers: int,
@@ -499,7 +569,7 @@ def _fix_grids(
                 records,
                 folder,
                 workers,
-                records_folder=run_folder / RECORDS_FOLDER,
+                records_folder=records_folder,
                 exclusions=exclusions,
                 stop=stopping.current(),
             ):

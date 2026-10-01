@@ -98,3 +98,6 @@ class InversionStatus(BaseModel):
     changed: tuple[str, ...] = ()  # the settings the gates and the checks changed: report them
     used: tuple[str, ...] = ()  # the parameters the windows were inverted with, once ended
     notes: tuple[str, ...] = ()  # done before the job, and how the request was read
+    # Once ended, for the answer: what the job did in one line, and the windows it left out.
+    did: str = ""
+    left: tuple[str, ...] = ()

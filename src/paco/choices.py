@@ -20,8 +20,8 @@ only when the message asked for them, in its words or by the option it chose."""
 
 import json
 from collections import defaultdict
-from collections.abc import Iterator, Sequence
-from dataclasses import dataclass
+from collections.abc import Iterator, Mapping, Sequence
+from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any, Literal
 
@@ -64,6 +64,8 @@ class Asked:
     hand_work: Literal["replace", "unsaid"] = "unsaid"
     chosen: str | None = None
     positions: tuple[float, ...] = ()  # the positions the message named (m)
+    # The windows the message gave, as masw overrides (length, step; in metres: length_m, step_m).
+    window: Mapping[str, float] = field(default_factory=dict)
 
     def chose(self, tool: str, argument: str) -> bool:
         """Whether the message asked `tool` for `argument`, as the options write it
@@ -77,6 +79,10 @@ class Asked:
         that replaces it."""
         said = self.hand_work == "replace" and stage in self.stages
         return said or self._offered(tool, 'hand="replace"')
+
+    def keeps(self, tool: str) -> bool:
+        """Whether the message chose `tool`'s offered call that keeps the work made by hand."""
+        return self._offered(tool, 'hand="keep"')
 
     def _offered(self, tool: str, argument: str) -> bool:
         chosen = self.chosen
@@ -99,14 +105,17 @@ class Conversation:
 
     def hand(self, hand: Hand, tool: str, stage: str) -> Hand:
         """`tool`'s `hand` at `stage` as the message allows it: replace only when the message
-        asked it (its words, or the option it chose), else the question comes; replace when it
-        asked it, whatever the call said (the user first)."""
+        asked it (its words, or the option it chose), keep only when it chose the option that
+        keeps it, else the question comes (keep or replace is the user's to say, not the
+        model's); replace when it asked it, whatever the call said (the user first)."""
         asked = self.asked
         if asked is None:
             return hand
         if asked.replaces(tool, stage):
             return "replace"
-        return None if hand == "replace" else hand
+        if hand == "keep" and asked.keeps(tool):
+            return "keep"
+        return None
 
 
 # The runs the assistant worked on in each conversation, by the id its host sends.

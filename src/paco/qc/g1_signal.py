@@ -14,10 +14,12 @@ trigger being the muting's."""
 
 import math
 from collections.abc import Collection, Mapping, Sequence
+from typing import Any
 
 import numpy as np
 from pydantic import ConfigDict, Field
 from sigpipe.base import Stream
+from sigpipe.masw.quality.cone import fast_share
 from sigpipe.masw.quality.measures import (
     SignalLimits,
     measure_signal,
@@ -69,6 +71,15 @@ class SignalThresholds(SignalLimits):
     )
     rms_outlier_min_records: int = Field(
         default=3, ge=1, description="...over at least this many records."
+    )
+    max_fast_share: float = Field(
+        default=0.15,
+        gt=0,
+        le=1,
+        description="Share of a record's surface-wave energy that may arrive faster than the "
+        "gathers' cone (the mute trial's): more, body waves or refractions the image would take "
+        "for surface waves, and the record is muted around the cone. Measured on active_p1 and "
+        "active_p2: at most 0.08",
     )
 
 
@@ -344,6 +355,61 @@ def judge_receivers(
     # The receivers left out, the line's records stand.
     return GateResult(
         gate=GATE, unit=LINE, verdict="pass", metrics=tuple(metrics), flags=tuple(flags)
+    )
+
+
+def judge_fast_arrivals(
+    result: GateResult,
+    stream: Stream,
+    shot_s: float,
+    muting: Mapping[str, Any],
+    thresholds: SignalThresholds,
+    nearest_m: float,
+) -> GateResult:
+    """G1's check of the energy arriving faster than the surface waves' cone (sigpipe's
+    fast_share, before the record's muting): over `max_fast_share`, body waves or refractions
+    the dispersion image would take for surface waves, and the record is muted around the cone
+    (`muting`, the mute trial's). Traces nearer the shot than `nearest_m` are left out, as the
+    cone's are. `result`, G1's on the record, with the measure and the flag added."""
+    share = fast_share(
+        stream,
+        shot_s,
+        vmax=float(muting["vmax"]),
+        slowest=thresholds.vg_min,
+        pad_s=thresholds.pad_s,
+        min_offset_m=nearest_m,
+    )
+    if share is None:
+        return result
+    limit = thresholds.max_fast_share
+    metric = Metric(
+        name="fast_arrivals",
+        value=share,
+        threshold=limit,
+        bound="max",
+        passed=share <= limit,
+        of="signal",
+        over=f"before {muting['vmax']:g} m/s, the gathers' cone",
+    )
+    flags = result.flags
+    verdict = result.verdict
+    if not metric.passed:
+        flags = (
+            *flags,
+            Flag(
+                name="fast_arrivals",
+                message=(
+                    f"{share:.0%} of the record's surface-wave energy arrives faster than the "
+                    f"gathers' cone ({muting['vmax']:g} m/s): body waves or refractions; muted "
+                    f"around the cone, {muting['vmin']:g} to {muting['vmax']:g} m/s."
+                ),
+                stage="preprocessing",
+                action=Override(stage="preprocessing", overrides={"muting": dict(muting)}),
+            ),
+        )
+        verdict = "retry" if verdict == "pass" else verdict
+    return result.model_copy(
+        update={"metrics": (*result.metrics, metric), "flags": flags, "verdict": verdict}
     )
 
 

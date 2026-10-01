@@ -1,14 +1,22 @@
 import json
+import re
 from collections.abc import Callable
 from pathlib import Path
-from typing import Any
+from typing import Any, cast
 
 import anyio
 import httpx2
 import pytest
 from mcp import Client
 from mcp.shared.dispatcher import ProgressFnT
-from mcp.types import CallToolResult, TextContent
+from mcp.shared.exceptions import MCPError
+from mcp.types import (
+    REQUEST_TIMEOUT,
+    CallToolResult,
+    ReadResourceResult,
+    TextContent,
+    TextResourceContents,
+)
 from openai import AsyncOpenAI
 from openai.types.chat import ChatCompletionFunctionToolParam, ChatCompletionMessageParam
 
@@ -16,6 +24,7 @@ from paco import inspection, server
 from paco.agent import (
     Agent,
     Filled,
+    Limits,
     OpenAIChat,
     Reply,
     ScopeStep,
@@ -25,7 +34,8 @@ from paco.agent import (
     result_for_model,
     without_thinking,
 )
-from paco.agent.loop import ROLE, UNREAD
+from paco.agent.answer import SCHEMA as ANSWER_SCHEMA
+from paco.agent.loop import ROLE, UNREAD, as_data, from_data
 from paco.agent.record import ToolStep
 from paco.agent.scope import SCHEMA, Scope
 from paco.settings import Settings
@@ -45,6 +55,10 @@ EVERYTHING = Scope(
     profile=None,
     run_id=None,
     positions_m=[],
+    length_receivers=None,
+    length_m=None,
+    step_receivers=None,
+    step_m=None,
     redo=False,
     replace_hand_work=False,
     option=None,
@@ -56,6 +70,16 @@ def _scoped(answer: str, scope: Scope = EVERYTHING) -> str:
     return f"{scope.line()}\n\n{answer}"
 
 
+def _answer_form(messages: list[ChatCompletionMessageParam]) -> str:
+    """The answer form a stand-in fills from the draft it was sent: its statements, and its
+    last question apart."""
+    draft = str(messages[-1].get("content")).split("\nAnswer: ", 1)[1]
+    sentences = re.split(r"(?<=[.?!])\s+", draft)
+    asked = [sentence for sentence in sentences if sentence.endswith("?")]
+    said = " ".join(sentence for sentence in sentences if not sentence.endswith("?"))
+    return json.dumps({"said": said, "question": asked[-1] if asked else None})
+
+
 class ScriptedModel:
     """Stands in for Qwen: gives its replies in order, fills every form with its scopes (the
     last one again once they run out), and keeps what it was sent."""
@@ -63,6 +87,7 @@ class ScriptedModel:
     def __init__(self, *replies: Reply, scopes: tuple[Scope | str, ...] = (EVERYTHING,)) -> None:
         self._replies = list(replies)
         self._scopes = list(scopes)
+        self.name: str | None = None  # a model behind a server names itself
         self.seen: list[list[ChatCompletionMessageParam]] = []
         self.forms: list[list[ChatCompletionMessageParam]] = []
         self.tools: list[ChatCompletionFunctionToolParam] = []
@@ -72,6 +97,8 @@ class ScriptedModel:
         messages: list[ChatCompletionMessageParam],
         schema: dict[str, Any],
     ) -> Filled:
+        if schema == ANSWER_SCHEMA:
+            return Filled(content=_answer_form(messages))
         assert schema == SCHEMA
         self.forms.append(list(messages))
         scope = self._scopes.pop(0) if len(self._scopes) > 1 else self._scopes[0]
@@ -107,7 +134,8 @@ def _says(text: str) -> Reply:
 
 
 def _tool_results(messages: list[ChatCompletionMessageParam]) -> list[str]:
-    return [str(message["content"]) for message in messages if message["role"] == "tool"]
+    """The tool messages' results, out of their data blocks."""
+    return [from_data(str(message["content"])) for message in messages if message["role"] == "tool"]
 
 
 def _converse(
@@ -139,6 +167,7 @@ def test_the_model_gets_every_tool_card_and_the_workflow() -> None:
         "inspect",
         "preset_settings",
         "run_processing",
+        "compare",
         "pick",
         "judge",
         "inversion_settings",
@@ -208,22 +237,32 @@ def test_mistakes_go_back_to_the_model() -> None:
         "-> invent_curve({})",
         "   failed: Unknown tool: invent_curve",
         '-> inspect({"what": "profile", "profile": "active_p2"})',
-        "   failed: Unknown profile 'active_p2'. Available profiles: active_p1, passive_p1.",
+        "   failed: [bad argument] Unknown profile 'active_p2'. Available profiles: active_p1, "
+        "passive_p1.",
     ]
     results = _tool_results(messages)
     assert results[0].startswith("Not called: the arguments of inspect are not valid JSON")
     assert results[1] == "Not called: the arguments of inspect must be a JSON object."
     assert results[2] == "Unknown tool: invent_curve"
     assert results[3] == (
-        "Error executing tool inspect: Unknown profile 'active_p2'. Available profiles: "
-        "active_p1, passive_p1."
+        "Error executing tool inspect: [bad argument] Unknown profile 'active_p2'. Available "
+        "profiles: active_p1, passive_p1."
     )
+    # What the server said comes as data (T10, X3); what the host says, as it is.
+    raw = [str(message["content"]) for message in messages if message["role"] == "tool"]
+    assert raw[1] == results[1]
+    assert raw[3] == as_data("inspect", results[3])
+    assert raw[3].startswith('<data from="inspect">\n') and raw[3].endswith("\n</data>")
 
 
 @pytest.mark.usefixtures("paco_env")
 def test_an_answer_has_a_tool_call_budget() -> None:
     model = ScriptedModel(
-        _calls(*(("inspect", {"what": "profiles"}),) * 3),
+        _calls(
+            ("inspect", {"what": "profiles"}),
+            ("inspect", {"what": "runs"}),
+            ("inspect", {"what": "profile", "profile": "active_p1"}),
+        ),
         _says("Two profiles."),
     )
 
@@ -254,7 +293,7 @@ def test_a_call_that_just_failed_is_not_made_again() -> None:
     results = _tool_results(messages)
     assert results[1].startswith(
         "Not called: this exact call just failed, and would fail again: Error executing tool "
-        "inspect: Unknown profile 'active_p2'."
+        "inspect: [bad argument] Unknown profile 'active_p2'."
     )
     assert results[1].endswith(
         "Change the arguments, call another tool, or answer the user with what you have."
@@ -278,10 +317,9 @@ def test_the_agent_asks_what_the_request_leaves_open_or_when_stuck() -> None:
     assert "for a stage whose work is there already, the tool gives the user's options" in ROLE
     assert "the work they made by hand in PAC's pages, verified by them" in ROLE
     assert "2 to 4 concrete options, your choice first" in ROLE
-    # Rejected windows are gaps to report; the answer ends without an offer.
+    # Rejected windows are gaps to report; PACo writes what was done and what next.
     assert "rejected windows (gaps to report), are never a reason to ask" in ROLE
-    assert "no offer, no question" in ROLE
-    assert "report every item of the results' changed lists" in ROLE
+    assert "do not repeat them, and offer nothing" in ROLE
     assert "Answer in the user's language" in ROLE
     assert "Ask when stuck, or for a tool's choice the request leaves open" in server.INSTRUCTIONS
 
@@ -306,19 +344,19 @@ def test_the_host_reads_the_tools_results() -> None:
     assert host.starts_inversion("invert", "{}")
     assert host.starts_inversion("redo", '{"run_id": "r", "stage": "inversion"}')
     assert not host.starts_inversion("redo", '{"run_id": "r", "stage": "picking"}')
-    assert host.changed_items('{"run_id": "r", "changed": ["a", "b"]}') == ["a", "b"]
-    assert host.changed_items("Error executing tool pick: Unknown run.") == []
-    assert host.with_changes("4 curves passed.", ["a"]) == (
-        "4 curves passed.\n\nSettings the gates changed:\n- a"
-    )
-    assert host.with_changes("4 curves passed.", []) == "4 curves passed."
+    assert host.job_running('{"state": "running"}')
+    assert not host.job_running('{"state": "succeeded"}')
 
 
 class PolicyModel(ScriptedModel):
     """Stands in for Qwen with a policy: its reply read from the conversation so far."""
 
-    def __init__(self, policy: Callable[[list[ChatCompletionMessageParam]], Reply]) -> None:
-        super().__init__()
+    def __init__(
+        self,
+        policy: Callable[[list[ChatCompletionMessageParam]], Reply],
+        scopes: tuple[Scope | str, ...] = (EVERYTHING,),
+    ) -> None:
+        super().__init__(scopes=scopes)
         self._policy = policy
 
     async def __call__(
@@ -345,7 +383,9 @@ def test_the_host_lists_the_parameters_used_and_the_settings_the_gates_changed()
 
     head, listed = answer.split("\n\nSettings the gates changed:\n")
     said, used = head.split("\n\nParameters used:\n")
-    assert said == _scoped("3 curves passed G3 and G4.")
+    # The model's text, then what the tools did, as their results say it.
+    assert said.startswith(_scoped("3 curves passed G3 and G4.\n\nDone:\n- Processed run "))
+    assert "\n- Picked run " in said
     # The window length and the band first, then the picker's settings.
     # Each with why: the window length as given, with what its trial windows gave.
     assert used.splitlines()[1].startswith(
@@ -367,20 +407,40 @@ def test_the_host_lists_the_parameters_used_and_the_settings_the_gates_changed()
 
 
 @pytest.mark.usefixtures("paco_env")
-def test_the_models_answer_reaches_the_user_as_it_is() -> None:
-    # The host watches no words: a question or an offer, before the work or after it, is the
-    # model's to make.
+def test_after_the_work_an_offer_gives_way_to_what_the_user_can_do_next() -> None:
+    # No word is read: the turn did the work it was asked, no tool left the user a choice, so
+    # the model's question is not shown; code says what the user can ask next.
     def offers(messages: list[ChatCompletionMessageParam]) -> Reply:
         if not _tool_results(messages):
             return _calls(("run_processing", {"profile": "active_p1", "overrides": SMALL_WINDOWS}))
         return _says("The images are ready. Shall I pick the curves?")
 
-    answer, events, messages = _converse(PolicyModel(offers), "Process active_p1.")
+    process = EVERYTHING.model_copy(update={"pick": False, "invert": False, "soils": False})
+    answer, events, messages = _converse(PolicyModel(offers, (process,)), "Process active_p1.")
 
-    assert answer.startswith(_scoped("The images are ready. Shall I pick the curves?"))
+    said, rest = answer.split("\n\nDone:\n", 1)
+    assert said == _scoped("The images are ready.", process)
+    assert "Shall I" not in answer
+    assert (
+        "\n\nNext: the curves (ask to pick them); the results in PAC's Visualization page." in rest
+    )
     assert [message["role"] for message in messages].count("user") == 1
     assert events[0].startswith("-> run_processing(")
-    assert len(events) == len([event for event in events if not event.startswith("   (")])
+
+
+@pytest.mark.usefixtures("paco_env")
+def test_a_question_before_any_work_reaches_the_user() -> None:
+    # The request's clarification: no stage tool ran, so the question is the model's to ask.
+    model = ScriptedModel(
+        _calls(("inspect", {"what": "profiles"})),
+        _says("Two profiles hold an active line. Which one, active_p1 or passive_p1?"),
+    )
+
+    answer, _, _ = _converse(model, "Process my active line.")
+
+    assert answer == _scoped(
+        "Two profiles hold an active line.\n\nWhich one, active_p1 or passive_p1?"
+    )
 
 
 class MetaServer:
@@ -394,7 +454,8 @@ class MetaServer:
         self,
         name: str,
         arguments: dict[str, Any],
-        progress_callback: ProgressFnT,  # noqa: ARG002
+        read_timeout_seconds: float | None = None,  # noqa: ARG002
+        progress_callback: ProgressFnT | None = None,  # noqa: ARG002
         meta: dict[str, Any] | None = None,
     ) -> CallToolResult:
         assert meta is not None
@@ -427,6 +488,11 @@ def test_every_call_carries_the_conversation_and_its_turn() -> None:
     assert (first["turn"], second["turn"], third["turn"]) == (1, 1, 2)
     # With the scope of the turn's message, for the server's rules.
     assert first["scope"] == {**EVERYTHING.for_server(), "chosen": None}
+    # A model that names itself is named, for what its calls make (S4).
+    model.name = "Qwen/Qwen3-14B-FP8"
+    named = MetaServer()
+    agent = Agent(named, model, [], None, on_event=lambda _: None)  # pyright: ignore[reportArgumentType]
+    assert agent.meta["model"] == "Qwen/Qwen3-14B-FP8"
 
 
 class OfferServer(MetaServer):
@@ -437,10 +503,11 @@ class OfferServer(MetaServer):
         self,
         name: str,
         arguments: dict[str, Any],
-        progress_callback: ProgressFnT,
+        read_timeout_seconds: float | None = None,  # noqa: ARG002
+        progress_callback: ProgressFnT | None = None,
         meta: dict[str, Any] | None = None,
     ) -> CallToolResult:
-        await super().call_tool(name, arguments, progress_callback, meta)
+        await super().call_tool(name, arguments, None, progress_callback, meta)
         if name != "pick" or "windows" in arguments:
             return _structured({})
         options = [
@@ -451,6 +518,29 @@ class OfferServer(MetaServer):
             {"label": "pick every window again", "call": 'pick(run_id="r", windows="all")'},
         ]
         return _structured({"run_id": "r", "summary": "Run r holds 3 curves.", "options": options})
+
+
+def test_once_a_tool_offered_options_only_reading_runs_until_the_user_chooses() -> None:
+    # The model goes round the options: it inverts the curves as they are, one of them, and
+    # lists the runs; the choice is the user's.
+    model = ScriptedModel(
+        _calls(("pick", {"run_id": "r"})),
+        _calls(("invert", {"run_id": "r"}), ("inspect", {"what": "runs"})),
+        _says("Run r holds 3 curves."),
+    )
+    server_ = OfferServer()
+
+    answer, agent, events = _played(model, server_, "Pick and invert run r.")
+
+    assert [name for name, _ in server_.calls] == ["pick", "inspect"]
+    assert '-> invert({"run_id": "r"}) refused: the user chooses first' in events
+    (refused,) = [step for step in agent.steps if isinstance(step, ToolStep) and not step.called]
+    assert refused.result.startswith("Not called: a tool offered the user options above")
+    # The options stand in the answer, the listing after them notwithstanding.
+    assert answer.endswith(
+        "Which do you choose?\n(1) complete the 1 windows without a curve\n"
+        "(2) pick every window again"
+    )
 
 
 def test_calls_outside_the_messages_scope_are_refused_unmade() -> None:
@@ -486,6 +576,24 @@ def test_calls_outside_the_messages_scope_are_refused_unmade() -> None:
     (scope_step,) = [step for step in agent.steps if isinstance(step, ScopeStep)]
     assert scope_step.scope == look.model_dump() and scope_step.tries == 1
     assert scope_step.prompt_version.startswith("prompts-")
+
+
+def test_compare_serves_a_message_asking_to_process_and_nothing_else() -> None:
+    # Comparing settings is processing a sample of the line: refused to a message that only
+    # looks, made for one that asks to process (the scope guard knows its stage).
+    look = EVERYTHING.model_copy(
+        update={"process": False, "pick": False, "invert": False, "soils": False}
+    )
+    process = look.model_copy(update={"process": True})
+    variants = {"profile": "active_p1", "variants": [{}, {}], "metric": "depth"}
+    for scope, ran in ((look, []), (process, ["compare"])):
+        model = ScriptedModel(_calls(("compare", variants)), _says("Compared."), scopes=(scope,))
+        server_ = MetaServer()
+
+        _, _, events = _played(model, server_, "Compare two lengths on active_p1.")
+
+        assert [name for name, _ in server_.calls] == ran
+        assert bool(ran) != events[0].endswith("refused: outside the scope")
 
 
 def test_an_option_chosen_is_the_one_the_tool_offered() -> None:
@@ -557,7 +665,8 @@ class JobServer:
         self,
         name: str,
         arguments: dict[str, Any],
-        progress_callback: ProgressFnT,
+        read_timeout_seconds: float | None = None,  # noqa: ARG002
+        progress_callback: ProgressFnT | None = None,
         meta: dict[str, Any] | None = None,
     ) -> CallToolResult:
         # Every call carries the conversation, the job's follow-up too.
@@ -568,6 +677,7 @@ class JobServer:
         assert arguments == {"job_id": "job-1"}
         if self._running:
             self._running -= 1
+            assert progress_callback is not None
             await progress_callback(
                 2 - self._running, 4, f"inverted: {2 - self._running} of 4 windows"
             )
@@ -616,7 +726,7 @@ def test_an_inversion_is_followed_to_its_end_before_the_model_reads_on() -> None
     ]
     # The settings the job changed are listed after the answer.
     assert answer == _scoped("Four models.\n\nSettings the gates changed:\n- n_layers 4 -> 5")
-    followed = agent.steps[-2]
+    (followed,) = [step for step in agent.steps if isinstance(step, ToolStep) and step.by_host]
     assert isinstance(followed, ToolStep)
     assert (followed.name, followed.by_host) == ("job_status", True)
 
@@ -744,3 +854,128 @@ def test_chat_says_which_settings_are_missing(
     assert capsys.readouterr().out == (
         "Set PACO_LLM_BASE_URL, PACO_LLM_MODEL in .env (vLLM's address and model name).\n"
     )
+
+
+# ---------------------------------------------------------------- the loop's caps and state
+
+
+def _with_tokens(reply: Reply, prompt: int, written: int) -> Reply:
+    return Reply(reply.content, reply.tool_calls, prompt_tokens=prompt, completion_tokens=written)
+
+
+def _played(
+    model: ScriptedModel,
+    server_: object,
+    question: str = "Which runs?",
+    limits: Limits | None = None,
+) -> tuple[str, Agent, list[str]]:
+    """The answer of an agent on the stand-in server `server_`, the agent, and its events."""
+    events: list[str] = []
+
+    async def conversation() -> tuple[str, Agent]:
+        client = cast(Client, server_)
+        agent = Agent(client, model, [], None, on_event=events.append, limits=limits)
+        return await agent.answer(question), agent
+
+    answer, agent = anyio.run(conversation)
+    return answer, agent, events
+
+
+def test_a_call_made_already_is_refused_and_a_third_ends_the_answer() -> None:
+    runs = _calls(("inspect", {"what": "runs"}))
+    server_ = MetaServer()
+
+    answer, agent, events = _played(ScriptedModel(runs, runs, runs, runs), server_)
+
+    assert [name for name, _ in server_.calls] == ["inspect"]  # made once
+    refused = _tool_results(agent.messages)[1:]
+    assert len(refused) == 2 and all(
+        text.startswith("Not called: this exact call") for text in refused
+    )
+    assert events[-1] == "   (stopped: inspect called again, the same way)"
+    assert answer == _scoped(
+        "PACo stopped this answer: inspect was called again with the same arguments, without "
+        "progress."
+    )
+
+
+def test_an_answer_stops_at_its_caps() -> None:
+    model = ScriptedModel(
+        _with_tokens(_calls(("inspect", {"what": "runs"})), 100, 30),
+        _with_tokens(_says("Never read."), 100, 30),
+    )
+
+    answer, _, events = _played(model, MetaServer(), limits=Limits(tokens=20))
+
+    assert answer == _scoped(
+        "PACo stopped this answer: it reached its cap of 20 tokens written by the model."
+    )
+    assert events[-1] == "   (stopped: cap of 20 tokens written by the model)"
+
+
+class SlowServer(MetaServer):
+    """Stands in for PACo's server: every call outlives its timeout."""
+
+    async def call_tool(
+        self,
+        name: str,  # noqa: ARG002
+        arguments: dict[str, Any],  # noqa: ARG002
+        read_timeout_seconds: float | None = None,
+        progress_callback: ProgressFnT | None = None,  # noqa: ARG002
+        meta: dict[str, Any] | None = None,  # noqa: ARG002
+    ) -> CallToolResult:
+        raise MCPError(REQUEST_TIMEOUT, f"no answer in {read_timeout_seconds} s")
+
+
+def test_a_tool_call_has_a_timeout() -> None:
+    model = ScriptedModel(_calls(("inspect", {"what": "runs"})), _says("The tool took too long."))
+
+    _, agent, events = _played(model, SlowServer(), limits=Limits(tool_seconds=2))
+
+    (result,) = _tool_results(agent.messages)
+    assert result.startswith('{"error"') or "No result in 2 s" in result
+    assert "   failed: no result in 2 s" in events
+
+
+class RunsServer(MetaServer):
+    """Stands in for PACo's server: its resource names the profile's latest run."""
+
+    async def read_resource(self, uri: str) -> ReadResourceResult:
+        assert uri == "paco://profiles/active_p1/latest-run"
+        text = "Run 20260930-161253-89f5: active_p1 (active). Holds 4 images, 4 M0 curves."
+        return ReadResourceResult(contents=[TextResourceContents(uri=uri, text=text)])
+
+
+def test_the_model_is_told_the_profiles_latest_run() -> None:
+    # The host supplies the run's id (M4): the model makes none up.
+    on_active = EVERYTHING.model_copy(update={"profile": "active_p1"})
+    model = ScriptedModel(_says("Run 20260930-161253-89f5 holds 4 curves."), scopes=(on_active,))
+
+    _, agent, _ = _played(model, RunsServer(), "What does active_p1 hold?")
+
+    told = str(agent.messages[1].get("content"))
+    assert told.endswith(
+        "active_p1's latest run: Run 20260930-161253-89f5: active_p1 (active). Holds 4 images, "
+        "4 M0 curves."
+    )
+
+
+def test_earlier_results_are_kept_short_and_the_trace_whole() -> None:
+    model = ScriptedModel(
+        _with_tokens(_calls(("pick", {"run_id": "r"})), 95, 10),
+        _says("Run r holds 3 curves."),
+    )
+
+    _, agent, events = _played(model, OfferServer(), "Pick run r.", Limits(context=100))
+
+    (kept,) = _tool_results(agent.messages)
+    assert json.loads(kept) == {
+        "run_id": "r",
+        "options": ["complete the 1 windows without a curve", "pick every window again"],
+    }
+    (step,) = [step for step in agent.steps if isinstance(step, ToolStep)]
+    assert (
+        '"summary":"Run r holds 3 curves."' in step.result.replace(" ", "")
+        or "summary" in step.result
+    )
+    assert "   (the conversation fills 95% of the model's context)" in events

@@ -33,7 +33,13 @@ def profiles_text(settings: Settings) -> str:
     if not names:
         return "No profile in the input folder."
     runs = [run.split("/")[0] for run in list_runs(settings)]
-    return "\n".join(f"{name}: {runs.count(name)} run(s)" for name in names)
+    return "\n".join(
+        f"{name}: a profile to process, {_runs_said(runs.count(name))}" for name in names
+    )
+
+
+def _runs_said(count: int) -> str:
+    return "no run yet" if not count else f"{count} run{'s' if count > 1 else ''}"
 
 
 def profile_text(name: str, settings: Settings) -> str:
@@ -63,6 +69,22 @@ def runs_text(settings: Settings) -> str:
     if len(found) > MAX_RUNS:
         lines.append(f"... and {len(found) - MAX_RUNS} older run(s).")
     return "\n".join(lines)
+
+
+def latest_run(profile: str, settings: Settings) -> str | None:
+    """The profile's latest run whose manifest reads, in one line (who made it, its windows,
+    what it holds): the host tells the model, which then makes no run id up; None when the
+    profile has none."""
+    for run in list_runs(settings):
+        name, run_id = run.split("/", 1)
+        if name != profile:
+            continue
+        try:
+            load_manifest(run_id, settings)
+        except RunError, ValidationError:
+            continue
+        return _run_line(run_id, settings)
+    return None
 
 
 def run_text(run_id: str, settings: Settings) -> str:

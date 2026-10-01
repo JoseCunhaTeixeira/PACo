@@ -1,20 +1,24 @@
 """The user's side of the agent, in a terminal: the chat. No tool asks the user anything: the go
 or no-go before an inversion is G4's verdict (docs/qc_workflow.md)."""
 
+import logging
+
 import anyio
 import anyio.to_thread
 from mcp import Client
 from openai import AsyncOpenAI
 from pydantic import ValidationError
 
-from paco.agent.loop import Agent
+from paco import logs
+from paco.agent.loop import Agent, Limits
 from paco.agent.model import OpenAIChat
 from paco.agent.record import save_transcript
 from paco.agent.settings import AgentSettings
 
 
 def main() -> None:
-    """paco-agent: the chat, in this terminal."""
+    """paco-agent: the chat, in this terminal; its log lines as JSON on stderr, only warnings."""
+    logs.setup(logging.WARNING)
     anyio.run(chat)
 
 
@@ -31,7 +35,7 @@ async def chat() -> None:
     )
     model = OpenAIChat(client, settings.llm_model, settings.llm_temperature, settings.llm_seed)
     async with Client(settings.mcp_url) as server:
-        agent = await Agent.start(server, model, settings.max_tool_calls)
+        agent = await Agent.start(server, model, limits=Limits.of(settings))
         print(f"PACo's agent, with {settings.llm_model}. Type exit to leave.")
         try:
             while True:

@@ -45,6 +45,7 @@ from sigpipe.masw.runs import (
     window_length,
 )
 from sigpipe.masw.runs.stopping import Stopped, commit, finished, staging, undo
+from sigpipe.masw.runs.writing import RunBusy, run_lock, write_atomic
 from sigpipe.workers import one_thread_each
 
 from paco import stopping
@@ -62,6 +63,7 @@ from paco.qc.budgets import budget_spent
 from paco.qc.config import QCConfig, read_qc_config, run_qc_config
 from paco.qc.g5_model import ModelThresholds, judge_model, significant
 from paco.qc.g6_models import LINE, judge_model_profile
+from paco.qc.given import locked
 from paco.qc.judging import saved_m0
 from paco.qc.log import (
     afresh,
@@ -72,20 +74,22 @@ from paco.qc.log import (
     record_result,
     starts_afresh,
 )
-from paco.qc.loops import RetryBudget, deep_merge, stage_changes
+from paco.qc.loops import RetryBudget, deep_merge, refusal, stage_changes
 from paco.qc.models import Attempt, GateResult
 from paco.qc.origin import run_work
 from paco.qc.report import (
     build_report,
     changed_settings,
-    read_report,
     summarize_report,
     write_report,
     xmid_of,
 )
+from paco.qc.state import read_report
 from paco.settings import Settings
 
 MEASURES_FILE = "SeismicInversion_Measures_0000.json"  # what G5 judged, and G6 compares
+# How long a job waits for its run, held by another writer, before it fails.
+JOB_WAIT_S = 60.0
 ERROR_FILE = "inversion_error.log"
 
 # Called with (windows done, windows in the batch, what the batch does: "inverted", or the
@@ -148,7 +152,32 @@ def run_inversion_job(
     """Run queued job `record` to its end: the first inversions (or, with `units`, those
     windows again with `overrides`, `triggered_by` the agent's backtrack or the user's ask), the
     gates' retries, each window recorded as it ends, then the gates' summary. The job fails when
-    every window failed, or on any other failure."""
+    every window failed, or on any other failure. It holds the run while it writes it (S5),
+    waiting a while for another writer (the tool that submitted it, a page of PAC); one that
+    keeps it fails the job, saying who."""
+    run_folder = find_run(record.run_id, settings)
+    try:
+        with run_lock(run_folder, f"PACo (inversion job {record.job_id})", wait_s=JOB_WAIT_S):
+            return _run_job(
+                record, settings, on_progress, units, overrides, triggered_by, replace_hand
+            )
+    except RunBusy as busy:
+        failed = record.model_copy(
+            update={"state": "failed", "error": str(busy), "finished_at": datetime.now(UTC)}
+        )
+        write_record(run_folder, failed)
+        return failed
+
+
+def _run_job(
+    record: InversionRecord,
+    settings: Settings,
+    on_progress: ProgressCallback | None,
+    units: Sequence[str] | None,
+    overrides: Mapping[str, Any] | None,
+    triggered_by: str,
+    replace_hand: bool,
+) -> InversionRecord:
     run_folder = find_run(record.run_id, settings)
     record = record.model_copy(update={"state": "running", "started_at": datetime.now(UTC)})
     write_record(run_folder, record)
@@ -265,9 +294,10 @@ def judge_inversions(
     }
     jobs: dict[str, Derived] = {}
     refused: dict[str, InversionError] = {}
+    mine = locked(run_folder, "inversion")
     for unit, curve in pending.items():
         try:
-            jobs[unit] = derive_inversion(curve, config.priors, given)
+            jobs[unit] = derive_inversion(curve, config.priors, given, mine)
         except InversionError as error:
             refused[unit] = error
     if refused and not jobs:
@@ -327,10 +357,12 @@ def rerun_inversion(
         )
     attempts = read_attempts(run_folder)
     jobs: dict[str, Derived] = {}
+    mine = locked(run_folder, "inversion")
     for unit in units:
         previous = latest(attempts, unit, "inversion")
         base = dict(previous.parameters) if previous is not None else {}
-        jobs[unit] = derive_inversion(ready[unit], config.priors, given_again(base, overrides))
+        again = given_again(base, overrides)
+        jobs[unit] = derive_inversion(ready[unit], config.priors, again, mine)
     depths = line_depths(ready)
     results = _invert(
         run_folder, jobs, depths, config, triggered_by, settings.workers, on_progress, on_window
@@ -561,11 +593,18 @@ def _retry_models(results: Sequence[GateResult], batch: RetryBatch) -> bool:
     run_folder, config, ready = batch.run_folder, batch.config, batch.ready
     attempts = read_attempts(run_folder)
     budget = RetryBudget(attempts, config.budgets, batch.n_units)
+    mine = locked(run_folder, "inversion")
     by_trigger: dict[str, dict[str, Derived]] = {}
     for result in results:
         attempt = latest(attempts, result.unit, "inversion")
-        wanted = stage_changes(result, "inversion")
-        if attempt is None or result.verdict != "retry" or wanted is None:
+        if attempt is None or result.verdict != "retry":
+            continue
+        wanted = stage_changes(result, "inversion", mine)
+        if wanted is None:
+            why, held = refusal(result, "inversion", attempt.parameters, mine)
+            if why == "locked":
+                spent = budget_spent(result, why, held)
+                record_result(run_folder, result.unit, "inversion", attempt.attempt, spent)
             continue
         changes, flag = wanted
         given = given_again(attempt.parameters, changes)
@@ -576,7 +615,7 @@ def _retry_models(results: Sequence[GateResult], batch: RetryBatch) -> bool:
             record_result(run_folder, result.unit, "inversion", attempt.attempt, spent)
             continue
         try:
-            derived = derive_inversion(ready[result.unit], config.priors, given)
+            derived = derive_inversion(ready[result.unit], config.priors, given, mine)
         except InversionError:
             spent = budget_spent(result)
             record_result(run_folder, result.unit, "inversion", attempt.attempt, spent)
@@ -891,7 +930,7 @@ def _invert_and_measure(
         thresholds.useful_uncertainty,
         output_folder=output,
     )
-    ((output or folder) / MEASURES_FILE).write_text(measures.model_dump_json(indent=2))
+    write_atomic((output or folder) / MEASURES_FILE, measures.model_dump_json(indent=2))
     return measures
 
 

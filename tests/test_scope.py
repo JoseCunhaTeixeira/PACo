@@ -30,6 +30,10 @@ NOTHING: dict[str, Any] = {
     "profile": None,
     "run_id": None,
     "positions_m": [],
+    "length_receivers": None,
+    "length_m": None,
+    "step_receivers": None,
+    "step_m": None,
     "redo": False,
     "replace_hand_work": False,
     "option": None,
@@ -158,6 +162,7 @@ def test_the_user_and_the_model_read_the_scope() -> None:
         "redo": True,
         "hand_work": "unsaid",
         "positions_m": [9.0],
+        "window": {},
     }
 
 
@@ -166,3 +171,17 @@ def test_the_options_a_result_offers_are_kept() -> None:
 
     assert offers_in(result) == (Offer("keep it", "pick()"),)
     assert offers_in('{"run_id": "r"}') == () == offers_in("Error executing tool pick")
+
+
+def test_the_windows_the_message_gives_are_read_in_their_unit() -> None:
+    receivers = _scope(process=True, profile="active_p1", length_receivers=24, step_receivers=24)
+    metres = _scope(process=True, profile="active_p1", length_m=6.0)
+
+    # The server sets them, converting metres itself; the user checks them on the scope line.
+    assert receivers.for_server()["window"] == {"length": 24, "step": 24}
+    assert metres.for_server()["window"] == {"length_m": 6.0}
+    assert receivers.line() == (
+        "Scope: process · active_p1 · windows of 24 receivers, every 24 receivers."
+    )
+    assert "windows of 6 m" in metres.for_model(None)
+    assert _scope().for_server()["window"] == {}

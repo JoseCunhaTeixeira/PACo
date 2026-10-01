@@ -7,6 +7,7 @@ import json
 import shutil
 import uuid
 from collections.abc import Iterator
+from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
 
@@ -22,9 +23,11 @@ from sigpipe.masw.runs.origin import mark_edited
 
 from paco import choices, inspection, server
 from paco.agent.conversion import result_for_model
+from paco.agent.scope import READ_ONLY as READ_ONLY_FOR_THE_HOST
 from paco.qc import run_work
+from paco.qc.log import read_attempts
 from paco.qc.origin import MODEL_FILES, SOIL_FILES
-from paco.settings import Settings
+from paco.settings import Settings, get_settings
 
 SMALL_WINDOWS = {"masw": {"length": 24, "step": 24}}
 # A short sampler: every step of an inversion, in about a second per window.
@@ -405,6 +408,14 @@ def test_what_a_message_asks_holds_for_its_own_stages_only(
     chose = conversation(stages=frozenset({"pick"}), chosen='pick(run_id="r", hand="replace")')
     assert chose.hand("replace", "pick", "pick") == "replace"
     assert chose.hand("replace", "invert_petro", "soils") is None
+    # Keep or replace is the user's to say, not the model's: a call's keep waits for their
+    # answer, unless they chose the offered call that keeps it.
+    unsaid = conversation(stages=frozenset({"pick"}))
+    assert unsaid.hand("keep", "pick", "pick") is None
+    kept = conversation(
+        stages=frozenset({"pick"}), chosen='pick(run_id="r", windows="all", hand="keep")'
+    )
+    assert kept.hand("keep", "pick", "pick") == "keep"
 
 
 def test_processing_unasked_goes_on_to_the_first_stage_asked(
@@ -483,3 +494,84 @@ def test_a_run_whose_manifest_does_not_read_is_not_gone_on_from(
     assert (
         "Run 20260930-235959-ffff: its manifest does not read (being written, or broken)." in runs
     )
+
+
+# ---------------------------------------------------------------- what each tool does to a run
+
+
+def test_the_tools_say_whether_they_only_read() -> None:
+    async def listed() -> list[Any]:
+        async with Client(server.server) as client:
+            return list((await client.list_tools()).tools)
+
+    tools = anyio.run(listed)
+
+    read_only = {
+        tool.name for tool in tools if tool.annotations and tool.annotations.read_only_hint
+    }
+    assert read_only == server.READ_ONLY == READ_ONLY_FOR_THE_HOST
+    assert all(tool.annotations is not None for tool in tools)
+
+
+def test_read_only_tools_change_nothing_and_a_run_keeps_its_calls(
+    run: tuple[Settings, str, str],
+) -> None:
+    settings, run_id, new = run
+    stamps = {path: path.stat().st_mtime_ns for path in settings.output_dir.rglob("*")}
+
+    _call("inspect", {"what": "run", "run_id": run_id}, new, 1)
+    _call("inspect", {"what": "window", "run_id": run_id, "position": 9}, new, 1)
+    _call("petro_models", {"run_id": run_id}, new, 1)
+    _call("preset_settings", {"profile": "active_p1"}, new, 1)
+
+    assert {path: path.stat().st_mtime_ns for path in settings.output_dir.rglob("*")} == stamps
+    # A call that changes the run leaves its trace there, with its conversation and turn.
+    _call("judge", {"run_id": run_id}, new, 2, _scope("pick"))
+    lines = (find_run(run_id, settings) / server.CALLS_FILE).read_text().splitlines()
+    calls = [json.loads(line) for line in lines]
+    # The fixture's own conversation processed and picked the run: its calls are there too.
+    assert [call["tool"] for call in calls if call["conversation"] == "earlier"] == [
+        "run_processing",
+        "pick",
+    ]
+    (traced,) = [call for call in calls if call["conversation"] == new]
+    assert (traced["conversation"], traced["turn"], traced["tool"]) == (new, 2, "judge")
+    assert traced["arguments"] == {"run_id": run_id, "positions": None}
+    assert traced["scope"]["asked"] == ["pick"] and traced["outcome"] in ("ok", "partial")
+
+
+def test_a_pick_keeps_the_picking_values_the_user_gave(run: tuple[Settings, str, str]) -> None:
+    settings, run_id, new = run
+    before = datetime.now(UTC)
+    every = {"run_id": run_id, "windows": "all", "changes": {"min_relative_coherence": 0.5}}
+
+    picked = _call("pick", every, new, 1, _scope("pick", redo=True))
+
+    assert picked["kept"] == ["min_relative_coherence 0.5"]
+    attempts = [  # the windows' (the line's G4 attempt has no picking parameters)
+        attempt
+        for attempt in read_attempts(find_run(run_id, settings))
+        if attempt.stage == "picking"
+        and attempt.started_at >= before
+        and attempt.unit.startswith("xmid_")
+    ]
+    assert attempts and all(
+        attempt.parameters["min_relative_coherence"] == 0.5 for attempt in attempts
+    )
+
+
+@pytest.mark.usefixtures("paco_env")
+def test_the_windows_the_message_gives_are_the_runs_whatever_the_model_wrote() -> None:
+    # "Windows of 24 receivers, every 24": the model wrote them in metres, which on active_p1's
+    # 0.25 m spacing would be 97 receivers; the message's words decide (its scope).
+    scope = {**_scope("process"), "window": {"length": 24, "step": 24}}
+    wrong = {"masw": {"length_m": 24, "step_m": 24}, "dispersion": {"vmax": 900}}
+
+    result = _call(
+        "run_processing", {"profile": "active_p1", "overrides": wrong}, "windows", 1, scope
+    )
+
+    manifest = load_manifest(result["run_id"], get_settings())
+    assert (manifest.preset.masw.length, manifest.preset.masw.step) == (24, 24)
+    # The model's other settings kept.
+    assert manifest.preset.dispersion.vmax == 900  # pyright: ignore[reportAttributeAccessIssue]

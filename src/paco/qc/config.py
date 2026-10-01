@@ -7,6 +7,7 @@ from typing import Any
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 from sigpipe.algorithms.picking.dispersion.tracking import PickingParameters
 from sigpipe.masw.inversion.priors import PriorRules
+from sigpipe.masw.runs.writing import write_atomic
 
 from paco.qc.coherence import CoherenceRules
 from paco.qc.g1_signal import SignalThresholds
@@ -18,6 +19,7 @@ from paco.qc.g6_models import ModelProfileThresholds
 from paco.qc.g7_petro import PetroThresholds
 from paco.qc.g8_petro_line import PetroLineThresholds
 from paco.qc.models import Budgets
+from paco.qc.muting import MuteRules
 from paco.qc.segments import SegmentRules
 
 CONFIG_FILE = "qc_config.json"  # the snapshot in a run folder
@@ -54,6 +56,7 @@ class QCConfig(BaseModel):
     budgets: Budgets = Budgets()
     coherence: CoherenceRules = Field(default_factory=CoherenceRules)  # the rules for S2
     segments: SegmentRules = Field(default_factory=SegmentRules)  # S2's, a passive line
+    mute: MuteRules = Field(default_factory=MuteRules)  # the mute trial, before S1
     signal: SignalThresholds = Field(default_factory=SignalThresholds)  # G1
     image: ImageThresholds = Field(default_factory=ImageThresholds)  # G2
     curve: CurveThresholds = Field(default_factory=CurveThresholds)  # G3
@@ -101,7 +104,7 @@ def load_qc_config(path: Path | None) -> QCConfig:
 def snapshot_qc_config(config: QCConfig, run_folder: Path) -> Path:
     """Record the configuration a run used, next to its results."""
     path = run_folder / CONFIG_FILE
-    path.write_text(config.model_dump_json(indent=2))
+    write_atomic(path, config.model_dump_json(indent=2))
     return path
 
 

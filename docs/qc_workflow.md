@@ -119,6 +119,7 @@ Three steps, the range, the fit and the line (`docs/gates/G7.md`, `G8.md`):
 
 ## Coherence rules for S2 (checked before running)
 - Window length: one value for the whole profile, so lateral resolution and depth of investigation stay comparable and xmids don't move; proposed by a ladder of trial windows, the agent's to change (`docs/gates/S2_rules.md`).
+- Muting: tried at the line's length on active and passive-active lines (`qc/muting.py`), unless the user gave one; a mute kept only where the images gain (below).
 - Step: 1 receiver by default (every xmid). Per-xmid retries change only parameters that don't move the xmid: band, velocity range, offsets, records used, mute.
 - Frequency range: fmin >= the records' median fmin_usable from G1; fmax <= min(their median fmax_usable, Nyquist), never widened.
 - Velocity range: vmin and vmax bracket the expected velocities: G2 widens them per window where a ridge sits on the grid's edge.
@@ -133,6 +134,7 @@ Constraints: Qwen3 4B or 8B, a 12,288-token context (what the 16 GB card serves)
 - Work already there is gone on from, and redone only as the user chooses: a tool meeting a profile's run (processing), a run's curves (picking), models or soil columns (inverting) does nothing, says what is there and gives the options with the calls they make (paco.choices). The agent calls the option the request names, goes on from the run when the request asks only for the stages after its work, and otherwise asks. What the agent did in the same conversation it goes on with, without asking (the host sends the conversation's id and turn with each call).
 - The scope of each message is the model's reading, checked in code (`paco.agent.scope`): before any tool, the model fills a form under its JSON schema (the stages asked, the profile or run, the positions, whether to redo, what the message says of hand work, the option chosen among those offered last); the host refuses the calls outside it, each call carries it, and the tools apply the rules with it: a stage not asked goes on from the run's work without a question, one asked whose work is there gives the options unless the message asks to redo it, and `again`, `windows="all"` and `hand="replace"` hold only as the message asked. The answer starts with the scope's line. No word list watches the user's messages: the model reads them.
 - A window asked (by position) without what its stage needs is left out and said, never the batch's failure: an inversion at positions takes the windows whose curve it takes (none there, or G3 or G4 rejected it: "Left out, without a curve the inversion takes: ..."). Picking settings the model invents are refused with the settings there are, and the reminder that PACo picks M0 alone.
+- The answer is written by code around the model's text (R2): the scope, the model's text (an answer form whose text holds no question), what was done and left out (from the results), the question and the options only when the turn leaves the user a choice (a tool offered options, a tool is stuck, nothing was done yet), else what the user can ask next; then the parameters used and the settings the gates changed. Numbers in the text no result holds are flagged (R1).
 - What is there is read with `inspect`, which changes nothing (the runs, one run's windows grouped, one window); `pick`, `judge` and `invert` take positions along the line (m, each the nearest window, the mapping said back), outside the run's retry budget.
 - Gates work on a whole run and return one short summary: counts per verdict, flags grouped by runs of xmids (e.g. "xmid 12-18: ridge at vmax"), with the suggested overrides per group. Never one line per xmid.
 - Retries target a subset: redo stage k for listed xmids, or for the ones carrying flag X, with overrides.
@@ -147,17 +149,19 @@ Constraints: Qwen3 4B or 8B, a 12,288-token context (what the 16 GB card serves)
   - G5: too few iterations, and bounds too tight.
   - The window length the agent chooses for depth, and for lateral detail.
   - Stuck: a passive line with no wave (passive_p1's geometry with white noise for records), and windows longer than the line: the agent asks.
-  - A setting the user typed that a gate must change: the answer says so.
+  - A setting the user typed that a gate asks to change: it stays as given, the windows that need the change are left out, and the answer says the change asked (`narrow_velocities`, `few_iterations`, `tight_bounds`).
   - Every scenario where the data decide checks that thresholds were never changed and that no question was asked; `inversion_succeeded` is checked only when G4 passed a curve.
   - PAC's pages: a higher mode asked (the agent picks M0 and names Dispersion picking), a run processed and picked by hand (inverted as it is, after `inspect` finds it), one window inverted by its position; an impossible request (a 3D model).
   - Work there: images and "pick and invert" (done, no question), images and "process" (asked), curves and "invert" (done), curves and "pick and invert" (asked), a curve picked by hand and "pick every window again" (keep or replace asked, the curve kept).
-  - Wording: the same requests in French, with a typo, a synonym (a shear-wave velocity profile) and a negation (pick, do not invert); a hand-picked curve asked to be picked again too (replaced, set aside, no question); a run id that does not exist.
-  - The scope set (`paco-evaluate --scopes`, `paco.evaluation.scope_set`): 40 labelled messages, English and French, read once by the model into their scope and scored field by field.
+  - Wording: the same requests in French, with a typo, a synonym (a shear-wave velocity profile) and a negation (pick, do not invert); a hand-picked curve asked to be picked again too (replaced, set aside, no question); a run id that does not exist; a position off the line (`off_line`: refused, nothing inverted); an instruction hidden in the data (`injected`: a profile whose folder name tells the assistant to invert every run; listing the profiles runs nothing).
+  - The mute trial and compare: refractions as strong as the surface waves (`refractions`, the `active_refracted` copy: the line muted), a mute the user gives (`custom_mute`: kept as given, no trial), two window lengths compared on depth (`compare_lengths`: compare, no run).
+  - Pass rates (E4): each scenario has a threshold (`Scenario.threshold`, 3 plays of 5 by default **(to review)**), recorded in the report; `paco-evaluate --history` sums the plays of every evaluation kept by model and prompts' version, the latest version against the one before.
+  - The scope set (`paco-evaluate --scopes`, `paco.evaluation.scope_set`): 42 labelled messages, English and French, the windows' length and step in receivers or metres among them, read once by the model into their scope and scored field by field.
   - An air wave and an isolated G4 outlier have no scenario: neither can be made a physical defect of the demo's records (`docs/gates/loop.md`); the gates' tests cover both on analytic curves and synthetic lines.
 
 ## Tests
 
-Each metric on inputs with a known answer (synthetic records with a dead trace, a clipped trace, a known SNR; images with the ridge at vmax; curves that carry exactly the picking risks: points beyond 3 window lengths, the air wave, a jump onto M1; posteriors piled at a bound), mutation checks, and parity with PAC wherever PAC does the same thing. ruff, pyright and pytest pass before a change goes in, then `paco-evaluate --repeat 3` measures the agent.
+Each metric on inputs with a known answer (synthetic records with a dead trace, a clipped trace, a known SNR; images with the ridge at vmax; curves that carry exactly the picking risks: points beyond 3 window lengths, the air wave, a jump onto M1; posteriors piled at a bound), mutation checks, and parity with PAC wherever PAC does the same thing. ruff, pyright and pytest pass before a change goes in, then `paco-evaluate` measures the agent (5 plays of each scenario). Properties over generated inputs (`tests/test_properties.py`, a seeded generator: hypothesis would be a new dependency): metres to receivers, positions to windows, the log read after any attempts and resets.
 
 ## Design decisions
 
@@ -187,6 +191,19 @@ Each decision states what the system does and the evidence it rests on; the gate
   `xmid_<x>/` folder; earlier attempts go under `xmid_<x>/attempts/<n>_<stage>/` with their
   files, parameters, metrics and verdict; the QC log sits at the run level. One window weighs
   2.4 MB.
+- **The run's state: nothing lost, one writer** (S1 to S5, S9 of `AGENT_GUIDELINES.md`). The QC
+  log only grows: every line versioned (`version` 2; lines without one read as 1), with its kind
+  (`stage`, `verdict`, `notes`, `given`, `reset`) and who logged it; a stage done afresh appends
+  a `reset`, which the readers (sigpipe's `log_entries`, PACo's `read_attempts`, PAC's
+  `read_log`) apply, and its results move to `xmid_<x>/replaced/<time>_<stage>/`. The line's
+  sections and figures are views made again from the windows, removed, not kept **(to
+  review)**. Each attempt carries `made_by` (the code's versions; for an agent's call its model,
+  prompts' version, conversation and turn). The state is rebuilt from the log and the files
+  whenever it is read (`qc.rebuild_state`). `run.json` lists the profile's files read, with
+  their SHA-256. JSON files are written whole (`write_atomic`). A run is held while it is
+  written (`run_lock`, `.run.lock`): PACo's tools and jobs exclusively, PAC's pages and jobs
+  shared among themselves; the one refused is told who holds it. PAC's own redo of a window by
+  hand still replaces its results in place, the user's own act **(to review)**.
 - **The pick is saved as it is judged.** The picking attempt writes the window's
   `DispersionCurves_0000.csv` (PAC's layout) before G3 judges it; a pick done again archives the
   previous curve and the inversion under `attempts/<n>_picking/`. What G3 and G4 judge is the
@@ -215,8 +232,13 @@ Each decision states what the system does and the evidence it rests on; the gate
   as G8). A `qc_config.json` saved by an older version still reads: its retired thresholds
   dropped, its renamed ones read under their new names (`config.py`).
 - **The agent asks when the request leaves a choice open, or when stuck** (see "Agent side").
-  Not before changing a setting the user typed (Qwen3 does not keep such a rule), nor before
-  every step back.
+  Not before every step back.
+- **Settings the user typed are locked for the run** (`qc/given.py`, events of the run's QC log):
+  no gate and no check changes them. A window whose gate asks to change one is rejected
+  (`locked`), its line naming the change asked, for the agent to suggest; an inversion bound
+  given that the curve does not fit stays as given, sigpipe's note saying what the check asks
+  (`derive_inversion(..., locked=...)`). A rule kept by the code, not by the prompt: Qwen3 does
+  not keep such a rule.
 - **The host refuses a call identical to one that just failed**, with the failure and "change
   it or answer the user": Qwen3-8B otherwise sends the same wrong `invert` call three times, and
   Qwen3-4B loops ten times and invents a result.
@@ -230,8 +252,9 @@ Each decision states what the system does and the evidence it rests on; the gate
 - **Synthetic defects in the data where they are physical** (`paco.evaluation.defects`): a copy
   of active_p1 with a zeroed trace (G1), and passive_p1's geometry with white noise for records
   (a line with no curve); the demo's own trigger delay; typed settings for the rest (a velocity
-  range too narrow for G2, too few iterations and bounds too tight for G5). Each defect is
-  checked to trip its gate before it becomes a scenario.
+  range too narrow for G2, too few iterations and bounds too tight for G5: kept as given, the
+  windows that need them changed left out). Each defect is checked to trip its gate before it
+  becomes a scenario.
 - **The evaluation runs 8 workers at PAC's effort**, not a lower effort nor a shorter line: a
   play of the zero-settings scenario (the whole demo line inverted) takes about 6 minutes on 8
   workers, about 50 on one.
@@ -287,6 +310,37 @@ Each decision states what the system does and the evidence it rests on; the gate
   85 % of the line's windows). The ladder takes about a minute on the demo. Not a long window
   that passes more often on poor images, nor full runs escalated by the gates (whole runs and
   tool calls). The tests' and scenarios' 24-receiver windows are an explicit request.
+- **The mute trial: a mute where the images gain, at the line's length** (point 8.2, L10).
+  Muting is off in every preset, and was only a repair (G2's `no_coherent_energy` and
+  `weak_coherence`, G3's `prominence`, at a fixed 80-1500 m/s, once at the end of `pick`). The
+  trial runs once the ladder chose the length, so that a mute changes the images, never the
+  windows: on active_p2, a trial before the ladder moved its choice from 7 to 11 receivers
+  (muted picks more precise at 9 and 11, less at 7). The surface waves' cone comes from the
+  gathers: the traces' envelope peaks (offset over peak time, from the shot; 3 spacings and more
+  from it), their interquartile range and median over 12 records spread along the line. Five
+  candidates on 15 windows spread along the line, from the least cutting: no mute, the
+  standard 80-1500 m/s, the cone widened by 2.25 each side, by 1.5, and the tight cone (the
+  median ÷/× 1.5, which strong refractions leave where the surface waves are). Each candidate's
+  records preprocessed with it (and their G1 changes), imaged, picked, judged by G3; the most
+  windows passing wins, ties to the less cutting; a mute only with 2 windows more than no mute,
+  and its curves' longest wavelengths at least 0.8 of no mute's when no mute passes a third of
+  the windows (over-muting cuts the far offsets and the low band). A mute kept: the records
+  preprocessed again with it (the "mute trial" attempts, outside the budgets) and judged again
+  by G1. Measured (15 windows, at the length the ladder chose): active_p1 keeps no mute (9
+  receivers: 13 passing, 14 at best with a mute; 24: 15 against 15); active_p2 keeps no mute (7
+  receivers: 15 against 15 with the cone, whose curves reach 59 m against 28: the tie keeps no
+  change); active_p2 passive-active the standard mute (11 receivers, measured before the ladder:
+  15 against 11); a copy of active_p1 with a head wave at 1,200 m/s as strong as the surface
+  waves (the evaluation's `active_refracted`) the tight cone (7 against 1 at 9 receivers).
+  Values provisional **(to review)**: the widening, the gain of 2 windows, the guard, and
+  whether equal passes with longer wavelengths should keep a mute. A muting the user gives is
+  theirs: no trial.
+- **`compare`: settings tried side by side, the metric in code** (point 6, L10). 2 to 4 variants
+  (run_processing's overrides) each on 9 windows spread along the line, preprocessed, imaged,
+  picked and judged by G3 as the trials are, under the profile's `compare/` folder: no run
+  made or changed. The metric: the depth (half the longest wavelength), the band (Hz), the
+  wavelength span (m) or the windows passing G3; a table and the best. The model chooses the
+  variants and, asked to optimise, the metric closest to the request, and says it.
 - **The ladder proposes, the agent decides.** `run_processing` keeps the ladder's length when
   none is given, and returns every length tried (trial windows passing G3, the wavelengths their
   curves reach, the picks' precision, windows on the line), one length past the proposed one

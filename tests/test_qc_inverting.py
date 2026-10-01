@@ -34,7 +34,9 @@ from paco.qc import (
     read_attempts,
     read_report,
 )
+from paco.qc.given import give
 from paco.qc.inverting import MEASURES_FILE, judge_inversions, rerun_inversion
+from paco.qc.models import Flag, GateResult, Override
 from paco.settings import Settings
 
 SMALL_WINDOWS = {"masw": {"length": 24, "step": 24}}
@@ -321,3 +323,63 @@ def test_idle_cores_run_a_windows_chains(workers: int, windows: int, expected: i
     # Never more processes than workers, nor than a window's 5 chains.
     assert inverting.chain_jobs(workers, windows, chains=5) == expected
     assert min(workers, windows) * expected <= workers
+
+
+def test_a_retry_keeps_the_bounds_the_user_gave_for_every_window(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    # The user's Vs ranges, locked: the half-space's 180 m/s, below what the curve asks, stays
+    # as given in every window's retry, the note saying the check's value.
+    mine = {"vs_layers": [{"vs_min": 100.0, "vs_max": 180.0}] * 3}
+    give(tmp_path, "inversion", mine)
+    started = datetime(2026, 9, 24, 12, 0, tzinfo=UTC)
+    units = ("xmid_1.00", "xmid_2.00")
+    for unit in units:
+        append_attempt(
+            tmp_path,
+            Attempt(
+                unit=unit,
+                stage="inversion",
+                attempt=1,
+                parameters={**mine, **SHORT},
+                triggered_by="initial",
+                started_at=started,
+                status="succeeded",
+            ),
+        )
+    longer = Override(stage="inversion", overrides={"n_iterations": 3_000})
+    asking = [
+        GateResult(
+            gate="G5",
+            unit=unit,
+            verdict="retry",
+            flags=(Flag(name="not_converged", message="", stage="inversion", action=longer),),
+        )
+        for unit in units
+    ]
+    inverted: dict[str, Derived] = {}
+
+    def invert(_: Path, jobs: Mapping[str, Derived], *__: object) -> tuple[()]:
+        inverted.update(jobs)
+        return ()
+
+    monkeypatch.setattr(inverting, "_invert", invert)
+    curve = DispersionCurve(
+        fs=np.array([5.0, 12.0, 24.0, 43.0, 100.0]),
+        vs=np.array([150.0, 180.0, 220.0, 260.0, 300.0]),
+        mode=Mode("M", 0),
+        type=VelocityType.PHASE,
+        acquisition=UNKNOWN_ACQUISITION,
+    )
+    settings = Settings(input_dir=tmp_path, output_dir=tmp_path, workers=1)
+    batch = inverting.RetryBatch(
+        tmp_path, QCConfig(), settings, dict.fromkeys(units, curve), (1.0,), 2, None, None
+    )
+
+    assert inverting._retry_models(asking, batch)  # pyright: ignore[reportPrivateUsage]
+
+    assert sorted(inverted) == list(units)
+    for derived in inverted.values():
+        assert derived.parameters.n_iterations == 3_000
+        assert derived.parameters.vs_layers[-1].vs_max == 180.0
+        assert derived.notes[0].endswith("kept as given (the check sets 450 m/s).")

@@ -1,5 +1,5 @@
-"""The prompts the model reads, in files: the agent's role, the scope form's instructions and
-worked examples, and the server's instructions. Their version, logged with every turn, is a
+"""The prompts the model reads, in files: the agent's role, the scope form's and the answer
+form's instructions and worked examples, and the server's instructions. Their version, logged with every turn, is a
 hash of their text; `tests/test_prompts.py` pins it, so that every change to a prompt is a
 reviewed one."""
 
@@ -10,7 +10,7 @@ from importlib.resources import files
 from typing import Any
 
 # Every prompt, by file name (without .md).
-NAMES = ("role", "scope", "instructions")
+NAMES = ("role", "scope", "answer", "instructions")
 # The pages of PAC the role sends the user to: PAC's tests check each is one of its pages.
 PAC_PAGES = (
     "Active",
@@ -52,10 +52,20 @@ def scope_examples() -> tuple[tuple[str, dict[str, Any]], ...]:
 
 
 @cache
+def answer_examples() -> tuple[tuple[str, str, dict[str, Any]], ...]:
+    """The answer form's worked examples: each message, the assistant's draft, and its form."""
+    text = (files(__package__) / "answer_examples.json").read_text(encoding="utf-8")
+    return tuple(
+        (example["message"], example["draft"], example["form"]) for example in json.loads(text)
+    )
+
+
+@cache
 def version() -> str:
     """The prompts' version: the first hex digits of a hash of every prompt as the model reads
     it, and of the scope form's examples."""
     texts = [prompt(name) for name in NAMES]
     texts.append(json.dumps(scope_examples(), sort_keys=True))
+    texts.append(json.dumps(answer_examples(), sort_keys=True))
     digest = sha256("\0".join(texts).encode()).hexdigest()
     return f"prompts-{digest[:8]}"

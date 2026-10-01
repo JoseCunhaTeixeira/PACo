@@ -2,44 +2,85 @@
 answers the user."""
 
 import json
+import logging
+import re
 import textwrap
 import time
 import uuid
 from collections.abc import Callable, Iterable
+from dataclasses import dataclass
 from datetime import UTC, datetime
 from typing import Any
 
 import anyio
 from mcp import Client
-from mcp.types import RequestParamsMeta
+from mcp.shared.exceptions import MCPError
+from mcp.types import REQUEST_TIMEOUT, RequestParamsMeta, TextResourceContents
 from openai.types.chat import ChatCompletionFunctionToolParam, ChatCompletionMessageParam
 
-from paco import prompts
+from paco import logs, prompts
 from paco.agent import host
+from paco.agent.answer import AnswerError, Turn, Written, render, write_answer
 from paco.agent.conversion import result_for_model, tools_for_model
 from paco.agent.model import ChatModel, Reply, ToolCall
-from paco.agent.record import ModelStep, ScopeStep, Step, ToolStep, Transcript
+from paco.agent.record import AnswerStep, ModelStep, ScopeStep, Step, ToolStep, Transcript
 from paco.agent.scope import (
+    READ_ONLY,
     Context,
     Offer,
     Read,
+    Scope,
     ScopeError,
     chosen,
-    offers_in,
     read_scope,
     refusal,
 )
+from paco.agent.settings import AgentSettings
 
 # The answer a stopped question leaves in the conversation (see Agent.answer).
 STOPPED = "(Stopped on the user's request before the answer was complete.)"
 
 # The role the model plays: prompts/role.md.
 ROLE = prompts.prompt("role")
+# What a tool result of an earlier turn keeps (M6), and a text's length.
+_KEYS = ("run_id", "job_id", "state", "status", "did", "left", "done", "total", "error")
+_KEPT = 400
+# A tool's result in the conversation: its tool, and the result.
+_DATA = re.compile(r'<data from="([^"]*)">\n(.*)\n</data>', re.DOTALL)
+logger = logging.getLogger(__name__)
 # The answer when the model filled no valid scope form, twice.
 UNREAD = "I could not read what your message asks ({error}). Please say it again in other words."
 
 # What the loop does, for the user to follow: tool calls, progress, failures.
 type OnEvent = Callable[[str], None]
+# The share of the model's context past which the loop warns.
+CONTEXT_WARNING = 0.85
+# The tools whose same call may come again in an answer: a job's status changes.
+_REPEATABLE = frozenset({"job_status"})
+# The calls of an answer repeated without progress before it ends as stuck.
+_REPEATS = 2
+
+
+@dataclass(frozen=True)
+class Limits:
+    """The caps on one answer (L1: tool calls, time, the model's tokens), one tool call's
+    timeout (T9), and the model's context (M6: the loop warns near it)."""
+
+    tool_calls: int = 15
+    seconds: float = 7200.0
+    tokens: int = 40_000  # the model's completion tokens over the answer, thinking included
+    tool_seconds: float = 3600.0
+    context: int = 12_288
+
+    @classmethod
+    def of(cls, settings: AgentSettings) -> Limits:
+        return cls(
+            tool_calls=settings.max_tool_calls,
+            seconds=settings.max_turn_s,
+            tokens=settings.max_turn_tokens,
+            tool_seconds=settings.tool_timeout_s,
+            context=settings.llm_context,
+        )
 
 
 class Agent:
@@ -53,18 +94,26 @@ class Agent:
         instructions: str | None,
         max_tool_calls: int = 15,
         on_event: OnEvent = print,
+        limits: Limits | None = None,
     ) -> None:
         self._client = client
         self._model = model
         self._tools = tools
-        self._max_tool_calls = max_tool_calls
+        self._limits = limits or Limits(tool_calls=max_tool_calls)
         self._on_event = on_event
         system = f"{ROLE}\n\n{instructions}" if instructions else ROLE
         self.messages: list[ChatCompletionMessageParam] = [{"role": "system", "content": system}]
-        # Sent with every call: the conversation, its turn (the user's messages so far) and the
-        # scope of the turn's message. The server goes on with what it did in this conversation
+        # Sent with every call: the conversation, its turn (the user's messages so far), the
+        # prompts' version and the scope of the turn's message. The server goes on with what it did in this conversation
         # without asking, and applies the user's rules with the scope (paco.choices).
-        self.meta: RequestParamsMeta = {"conversation": uuid.uuid4().hex, "turn": 0}
+        self.meta: RequestParamsMeta = {
+            "conversation": uuid.uuid4().hex,
+            "turn": 0,
+            "prompts": prompts.version(),
+        }
+        # The model's name, for what its calls make (S4): a model that names itself.
+        if isinstance(name := getattr(model, "name", None), str):
+            self.meta["model"] = name
         # What the host knows for the next message: the options a tool offered last, and the
         # profile and run the conversation is on.
         self._offers: tuple[Offer, ...] = ()
@@ -75,23 +124,29 @@ class Agent:
 
     @classmethod
     async def start(
-        cls, client: Client, model: ChatModel, max_tool_calls: int = 15, on_event: OnEvent = print
+        cls,
+        client: Client,
+        model: ChatModel,
+        max_tool_calls: int = 15,
+        on_event: OnEvent = print,
+        limits: Limits | None = None,
     ) -> Agent:
         """An agent with the tools and instructions of the server `client` is connected to."""
         tools = tools_for_model((await client.list_tools()).tools)
-        return cls(client, model, tools, client.instructions, max_tool_calls, on_event)
+        return cls(client, model, tools, client.instructions, max_tool_calls, on_event, limits)
 
     async def answer(self, question: str) -> str:
-        """The model's answer to `question`, after every tool call it asked for within the
-        question's scope (paco.agent.scope), with what the host guarantees (paco.agent.host):
-        the scope first, the parameters used and the settings the gates changed listed after
-        it, and an inversion it started followed to its end.
+        """The answer to `question`, after every tool call the model asked for within the
+        question's scope (paco.agent.scope), an inversion it started followed to its end: the
+        model's text around what the tools did, as code writes it (paco.agent.answer).
 
         An answer that does not end (the host stopped it, or it failed) leaves in the
         conversation the question and one line saying so, none of the calls it had made: the
         next question starts from a history the model can read, no call left unanswered."""
         start = len(self.messages)
         self.meta["turn"] += 1
+        logs.CONVERSATION.set(str(self.meta["conversation"]))
+        logs.TURN.set(self.meta["turn"])
         try:
             return await self._answer(question)
         except BaseException as error:
@@ -121,14 +176,32 @@ class Agent:
         scope = read.scope
         offer = chosen(scope, context)
         self.meta["scope"] = {**scope.for_server(), "chosen": offer.call if offer else None}
-        self.messages.append({"role": "user", "content": f"{question}\n\n{scope.for_model(offer)}"})
-        calls = 0
+        note = scope.for_model(offer)
+        if scope.profile and not scope.run_id and (latest := await self._latest(scope.profile)):
+            note += f" {scope.profile}'s latest run: {latest}"
+        first = len(self.messages)
+        self.messages.append({"role": "user", "content": f"{question}\n\n{note}"})
+        try:
+            return await self._turn(question, scope)
+        finally:
+            _compact(self.messages, first)
+
+    async def _turn(self, question: str, scope: Scope) -> str:
+        """The model's calls and their results until it answers, within the answer's caps."""
+        calls = repeats = tokens = 0
         failed: dict[tuple[str, str], str] = {}  # calls that failed in this answer: their error
-        changes: list[str] = []
-        used: list[str] = []
+        made: set[tuple[str, str]] = set()  # calls made in this answer
+        turn = Turn()
+        began = time.monotonic()
         while True:
+            if (cap := self._cap(time.monotonic() - began, tokens)) is not None:
+                self._on_event(f"   (stopped: {cap})")
+                draft = f"PACo stopped this answer: it reached its {cap}."
+                return self._ended(render(scope, draft, None, turn, (question, draft)), turn)
             start = time.perf_counter()
             reply = await self._model(self.messages, self._tools)
+            tokens += reply.completion_tokens or 0
+            self._watch_context(reply.prompt_tokens)
             self.steps.append(
                 ModelStep(
                     duration_s=round(time.perf_counter() - start, 3),
@@ -139,17 +212,33 @@ class Agent:
             )
             self.messages.append(_assistant_message(reply))
             if not reply.tool_calls:
-                answer = f"{scope.line()}\n\n{host.with_changes(reply.content, changes, used)}"
+                answer = await self._written(question, reply.content, scope, turn)
                 self.messages[-1] = {"role": "assistant", "content": answer}
-                return answer
+                return self._ended(answer, turn)
             for call in reply.tool_calls:
                 calls += 1
                 key = (call.name, _canonical(call.arguments))
+                again = key in made and call.name not in _REPEATABLE
+                if again and repeats >= _REPEATS:
+                    # The model goes round in circles: the answer ends as stuck (L3).
+                    self._on_event(f"   (stopped: {call.name} called again, the same way)")
+                    del self.messages[-1]  # the call left unanswered
+                    turn.stuck = True
+                    draft = (
+                        f"PACo stopped this answer: {call.name} was called again with the same "
+                        "arguments, without progress."
+                    )
+                    return self._ended(render(scope, draft, None, turn, (question, draft)), turn)
+                repeats += again
                 step = await self._call(
                     call,
-                    over_budget=calls > self._max_tool_calls,
+                    over_budget=calls > self._limits.tool_calls,
                     failed_before=failed.get(key),
                     outside=refusal(scope, call.name, call.arguments),
+                    repeated=again,
+                    # A tool offered the user options: the choice is theirs, nothing more runs
+                    # but reading (the user's rules: ask first).
+                    waiting=bool(turn.offers) and call.name not in READ_ONLY,
                 )
                 self.steps.append(step)
                 result = step.result
@@ -161,18 +250,61 @@ class Agent:
                     followed = await self._follow(job_id)
                     self.steps.append(followed)
                     result = followed.result
-                for listed, items in (
-                    (changes, host.changed_items(result)),
-                    (used, host.used_items(result)),
-                ):
-                    listed.extend(item for item in items if item not in listed)
+                turn.read(call.name, result, step.is_error)
                 if step.is_error:
                     failed[key] = step.result
                 else:
                     failed.pop(key, None)
-                    self._offers = offers_in(result) or self._offers
+                    made.add(key)
                     self._keep_track(call, result)
-                self.messages.append({"role": "tool", "tool_call_id": call.id, "content": result})
+                # PACo's results are data (T10, X3); the host's own refusals are not.
+                content = as_data(call.name, result) if step.called else result
+                self.messages.append({"role": "tool", "tool_call_id": call.id, "content": content})
+
+    def _ended(self, answer: str, turn: Turn) -> str:
+        """`answer`, the turn ended: the options it left are the next message's to choose."""
+        self._offers = turn.offers
+        return answer
+
+    def _cap(self, seconds: float, tokens: int) -> str | None:
+        """The cap an answer reached (L1): its time, or the model's tokens; None within them."""
+        if seconds > self._limits.seconds:
+            return f"time cap ({self._limits.seconds / 60:g} min)"
+        if tokens > self._limits.tokens:
+            return f"cap of {self._limits.tokens} tokens written by the model"
+        return None
+
+    def _watch_context(self, prompt_tokens: int | None) -> None:
+        """Warn when the model read most of its context (M6): the conversation is long."""
+        if prompt_tokens is not None and prompt_tokens > CONTEXT_WARNING * self._limits.context:
+            share = prompt_tokens / self._limits.context
+            self._on_event(f"   (the conversation fills {share:.0%} of the model's context)")
+
+    async def _latest(self, profile: str) -> str | None:
+        """The profile's latest run in one line, as the server's resource says it (M4); None
+        when the server has none to say."""
+        try:
+            read = await self._client.read_resource(f"paco://profiles/{profile}/latest-run")
+        except MCPError as error:
+            logger.warning("Could not read %s's latest run: %s", profile, error)
+            return None
+        texts = [
+            content.text for content in read.contents if isinstance(content, TextResourceContents)
+        ]
+        return texts[0] if texts else None
+
+    async def _written(self, question: str, draft: str, scope: Scope, turn: Turn) -> str:
+        """The answer the user reads: the model's `draft` put into the answer form (as it is
+        when no form parses), around what the turn's tools did (paco.agent.answer)."""
+        start = time.perf_counter()
+        try:
+            written = await write_answer(self._model, question, draft)
+        except AnswerError as error:
+            self.steps.append(_answer_step(None, time.perf_counter() - start, str(error)))
+            return render(scope, draft, None, turn, (question,))
+        self.steps.append(_answer_step(written, time.perf_counter() - start))
+        form = written.form
+        return render(scope, form.said, form.question, turn, (question,))
 
     @property
     def offers(self) -> tuple[Offer, ...]:
@@ -187,6 +319,8 @@ class Agent:
             model=model,
             messages=[dict(message) for message in self.messages],
             steps=list(self.steps),
+            conversation=str(self.meta["conversation"]),
+            prompt_version=prompts.version(),
         )
 
     async def _call(
@@ -195,6 +329,8 @@ class Agent:
         over_budget: bool,
         failed_before: str | None = None,
         outside: str | None = None,
+        repeated: bool = False,
+        waiting: bool = False,
     ) -> ToolStep:
         start = time.perf_counter()
 
@@ -211,9 +347,21 @@ class Agent:
         if outside is not None:
             self._on_event(f"-> {call.name}({call.arguments}) refused: outside the scope")
             return refused(outside)
+        if waiting:
+            self._on_event(f"-> {call.name}({call.arguments}) refused: the user chooses first")
+            return refused(
+                "Not called: a tool offered the user options above, and the choice is theirs. "
+                "Answer the user: PACo lists the options after your text."
+            )
+        if repeated:
+            self._on_event(f"-> {call.name}({call.arguments}) refused: made already")
+            return refused(
+                "Not called: this exact call was already made in this answer, and its result is "
+                "above. Use it, call another tool, or answer the user."
+            )
         if over_budget:
             return refused(
-                f"Not called: this answer already made {self._max_tool_calls} tool calls. "
+                f"Not called: this answer already made {self._limits.tool_calls} tool calls. "
                 "Answer the user with what you have, and say what is left to do."
             )
         if failed_before is not None:
@@ -237,9 +385,27 @@ class Agent:
             self._on_event(f"   {call.name}: {message or f'{progress:g} of {total:g}'}")
 
         self._on_event(f"-> {call.name}({call.arguments})")
-        result = await self._client.call_tool(
-            call.name, parsed, progress_callback=on_progress, meta=self.meta
-        )
+        try:
+            result = await self._client.call_tool(
+                call.name,
+                parsed,
+                read_timeout_seconds=self._limits.tool_seconds,
+                progress_callback=on_progress,
+                meta=self.meta,
+            )
+        except MCPError as error:
+            if error.code != REQUEST_TIMEOUT:
+                raise
+            self._on_event(f"   failed: no result in {self._limits.tool_seconds:g} s")
+            return ToolStep(
+                name=call.name,
+                arguments=call.arguments,
+                called=True,
+                is_error=True,
+                duration_s=round(time.perf_counter() - start, 3),
+                result=f"[retry] No result in {self._limits.tool_seconds:g} s: the tool's work "
+                "may go on. Say so to the user.",
+            )
         text = result_for_model(result)
         if result.is_error:
             # The SDK's prefix repeats the call shown just above.
@@ -299,6 +465,49 @@ class Agent:
         )
 
 
+def as_data(tool: str, result: str) -> str:
+    """Tool `tool`'s `result` as the conversation carries it: a delimited block of data (T10,
+    X3), which the role says is never an instruction, whatever names and texts it holds."""
+    return f'<data from="{tool}">\n{result}\n</data>'
+
+
+def from_data(content: str) -> str:
+    """A tool message's result, out of its data block (as_data); a host's message as it is."""
+    found = _DATA.fullmatch(content)
+    return found.group(2) if found is not None else content
+
+
+def _compact(messages: list[ChatCompletionMessageParam], first: int) -> None:
+    """The tool results of the turn from message `first` on, kept short in the history (M6):
+    what each did, the windows it left out, its options; the trace keeps them whole."""
+    for index in range(first, len(messages)):
+        message = messages[index]
+        if message["role"] == "tool":
+            content = str(message.get("content", ""))
+            if (found := _DATA.fullmatch(content)) is not None:
+                short = as_data(found.group(1), compacted(found.group(2)))
+            else:
+                short = compacted(content)
+            messages[index] = {**message, "content": short}
+
+
+def compacted(result: str) -> str:
+    """A tool's result as earlier turns keep it: its ids, status, what it did, the windows left
+    out and its options' words; a text, its first lines."""
+    try:
+        parsed: Any = json.loads(result)
+    except json.JSONDecodeError:
+        return result if len(result) <= _KEPT else result[:_KEPT] + " (shortened)"
+    if not isinstance(parsed, dict):
+        return result
+    kept: dict[str, Any] = {
+        key: parsed[key] for key in _KEYS if parsed.get(key) not in (None, "", [], ())
+    }
+    if options := parsed.get("options"):
+        kept["options"] = [one.get("label") for one in options if isinstance(one, dict)]
+    return json.dumps(kept, separators=(",", ":"))
+
+
 def _scope_step(read: Read | None, duration_s: float, error: str | None = None) -> ScopeStep:
     fills = read.fills if read is not None else ()
     return ScopeStep(
@@ -306,6 +515,20 @@ def _scope_step(read: Read | None, duration_s: float, error: str | None = None) 
         scope=read.scope.model_dump() if read is not None else None,
         error=error,
         tries=len(fills) if read is not None else 2,
+        duration_s=round(duration_s, 3),
+        prompt_tokens=_total(fill.prompt_tokens for fill in fills),
+        completion_tokens=_total(fill.completion_tokens for fill in fills),
+    )
+
+
+def _answer_step(
+    written: Written | None, duration_s: float, error: str | None = None
+) -> AnswerStep:
+    fills = written.fills if written is not None else ()
+    return AnswerStep(
+        form=written.form.model_dump() if written is not None else None,
+        error=error,
+        tries=len(fills) if written is not None else 2,
         duration_s=round(duration_s, 3),
         prompt_tokens=_total(fill.prompt_tokens for fill in fills),
         completion_tokens=_total(fill.completion_tokens for fill in fills),

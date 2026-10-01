@@ -18,5 +18,20 @@
     "form": {"pick": true, "profile": "line_b", "redo": true, "replace_hand_work": true}
   },
   {"message": "Is there anything left to invert on line_b?", "form": {"profile": "line_b"}},
-  {"message": "Pick the fundamental mode and M2 on line_b.", "form": {"pick": true, "profile": "line_b"}}
+  {"message": "Make me a 3D Vs model of line_b.", "form": {"profile": "line_b"}},
+  {
+    "message": "Process line_b with windows of 12 receivers, every 6 receivers, and pick it.",
+    "form": {
+      "process": true,
+      "pick": true,
+      "profile": "line_b",
+      "length_receivers": 12,
+      "step_receivers": 6
+    }
+  },
+  {"message": "Pick the fundamental mode and M2 on line_b.", "form": {"pick": true, "profile": "line_b"}},
+  {
+    "message": "Compare windows of 3 m and 6 m on line_b for depth.",
+    "form": {"process": true, "profile": "line_b"}
+  }
 ]

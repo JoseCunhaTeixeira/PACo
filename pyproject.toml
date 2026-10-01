@@ -24,6 +24,7 @@ petro = ["sigpipe[silex,santiludo] @ git+https://github.com/JoseCunhaTeixeira/si
 paco-server = "paco.server:main"
 paco-agent = "paco.agent.terminal:main"
 paco-evaluate = "paco.evaluation.cli:main"
+paco-trace = "paco.agent.trace:main"
 
 [dependency-groups]
 dev = ["pytest>=8", "ruff>=0.14", "pyright>=1.1", "pre-commit>=4"]

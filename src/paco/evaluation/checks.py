@@ -2,7 +2,7 @@
 
 import json
 import re
-from collections.abc import Callable
+from collections.abc import Callable, Sequence
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Literal
@@ -23,6 +23,7 @@ from paco.qc import (
 )
 from paco.qc.attempts import HAND_FOLDER
 from paco.qc.log import JUDGED
+from paco.qc.models import Reject
 from paco.settings import get_settings
 
 
@@ -231,6 +232,135 @@ def loop_retried(trigger: str) -> Check:
         return CheckResult(name=name, passed=passed, detail=detail)
 
     return check
+
+
+def kept_as_given(stage: Stage, *path: str | int, value: float) -> Check:
+    """No attempt of `stage` ran with another value than `value` at `path` (e.g. "vs_layers",
+    -1, "vs_max"): the setting the user gave stayed as given (qc.given)."""
+    shown = " ".join(str(key) for key in path)
+    name = f"{shown} stayed {value:g}, as given"
+
+    def check(trial: Trial) -> CheckResult:
+        other = sorted(
+            {
+                f"{found:g}" if isinstance(found, float) else str(found)
+                for log in trial.output_dir.glob("*/*/qc_log.jsonl")
+                for attempt in read_attempts(log.parent)
+                if attempt.stage == stage
+                and (found := _at(attempt.parameters, path)) is not None
+                and found != value
+            }
+        )
+        detail = f"ran with {', '.join(other)}" if other else ""
+        return CheckResult(name=name, passed=not other, detail=detail)
+
+    return check
+
+
+def top_vs_kept(value: float) -> Check:
+    """No inversion ran with another upper Vs bound than `value`, as given: the half-space's
+    of the layers given (`vs_layers`), or the free layering's (`free.vs_max`), whichever ran."""
+    name = f"the upper Vs bound stayed {value:g}, as given"
+
+    def check(trial: Trial) -> CheckResult:
+        other = sorted(
+            {
+                f"{found:g}"
+                for log in trial.output_dir.glob("*/*/qc_log.jsonl")
+                for attempt in read_attempts(log.parent)
+                if attempt.stage == "inversion"
+                and (found := _top_vs(attempt.parameters)) is not None
+                and found != value
+            }
+        )
+        detail = f"ran with {', '.join(other)}" if other else ""
+        return CheckResult(name=name, passed=not other, detail=detail)
+
+    return check
+
+
+def _top_vs(parameters: dict[str, Any]) -> float | None:
+    """An inversion's upper Vs bound, of the layering it ran with."""
+    if parameters.get("layering", "fixed" if "vs_layers" in parameters else "free") == "free":
+        return _at(parameters, ("free", "vs_max"))
+    return _at(parameters, ("vs_layers", -1, "vs_max"))
+
+
+def refused_as_locked(gate: str) -> Check:
+    """`gate` asked a change of a setting the user gave, and its window was left out for it
+    ("locked"), in some run of the scenario."""
+    name = f"{gate} left a window out over a setting given"
+
+    def check(trial: Trial) -> CheckResult:
+        passed = _locked_flag(trial, gate) is not None
+        detail = "" if passed else f"no {gate} result refused as locked"
+        return CheckResult(name=name, passed=passed, detail=detail)
+
+    return check
+
+
+def locked_asks(gate: str) -> Callable[[Trial], str]:
+    """The value `gate` asked of a setting the user gave, in its first refusal as locked: "900"
+    of "locked, asks dispersion vmax 900 (given: 250)"."""
+
+    def fact(trial: Trial) -> str:
+        reason = _locked_flag(trial, gate)
+        found = _ASKED.search(reason) if reason is not None else None
+        return found.group(1) if found is not None else "(no locked refusal)"
+
+    return fact
+
+
+def checks_ask(trial: Trial) -> str:
+    """The value the checks before the inversion asked of a bound the user gave, kept as given:
+    "450" of "kept as given (the check sets 450 m/s)"."""
+    for log in sorted(trial.output_dir.glob("*/*/qc_log.jsonl")):
+        for attempt in read_attempts(log.parent):
+            for note in attempt.notes if attempt.stage == "inversion" else ():
+                if (found := _CHECK_SETS.search(note)) is not None:
+                    return found.group(1)
+    return "(no bound kept as given)"
+
+
+def line_muted(vmin: float | None = None, vmax: float | None = None) -> Check:
+    """The latest run's line is muted: with `vmin` and `vmax`, exactly those (a muting given)."""
+    bounds = f" {vmin:g} to {vmax:g} m/s" if vmin is not None and vmax is not None else ""
+    name = f"the line muted{bounds}"
+
+    def check(trial: Trial) -> CheckResult:
+        manifest = _latest_manifest(trial)
+        if manifest is None:
+            return CheckResult(name=name, passed=False, detail="no run on disk")
+        muting = manifest.preset.model_dump(mode="json").get("muting") or {}
+        muted = muting.get("method") == "mute"
+        exact = vmin is None or (muting.get("vmin"), muting.get("vmax")) == (vmin, vmax)
+        detail = "" if muted and exact else f"muting: {muting or 'none'}"
+        return CheckResult(name=name, passed=muted and exact, detail=detail)
+
+    return check
+
+
+def compare_best(trial: Trial) -> str:
+    """The metric's value of the best variant of the latest comparison the agent made."""
+    for step in reversed(_called(trial)):
+        if step.name != "compare" or step.is_error:
+            continue
+        try:
+            compared = json.loads(step.result)
+        except json.JSONDecodeError:
+            break
+        best = next(
+            (
+                one
+                for one in compared.get("variants", ())
+                if one.get("label") == compared.get("best")
+            ),
+            None,
+        )
+        if best is not None and best.get("value") is not None:
+            return f"{best['value']:g}"
+        break
+    return "(no comparison)"
 
 
 def excluded(record: str, trace: int) -> Check:
@@ -557,6 +687,34 @@ _CHOICE = re.compile(
     r"|\byour (choice|choices|preference)\b|\bselect (one|your)\b|\byou prefer\b",
     re.IGNORECASE,
 )
+
+
+# The value a refusal as locked asks, and the value a check asks of a bound kept as given.
+_ASKED = re.compile(r"asks .*?(-?\d+(?:\.\d+)?) \(given: ")
+_CHECK_SETS = re.compile(r"kept as given \(the check sets (-?\d+(?:\.\d+)?)")
+
+
+def _locked_flag(trial: Trial, gate: str) -> str | None:
+    """The reason of `gate`'s first refusal as locked, if any."""
+    for log in sorted(trial.output_dir.glob("*/*/qc_log.jsonl")):
+        for attempt in read_attempts(log.parent):
+            result = attempt.results.get(gate)
+            for flag in result.flags if result is not None else ():
+                if flag.name == "locked" and isinstance(flag.action, Reject):
+                    return flag.action.reason
+    return None
+
+
+def _at(values: Any, path: Sequence[str | int]) -> Any:  # noqa: ANN401
+    """The value at `path` in nested mappings and lists; None where it is missing."""
+    for key in path:
+        if isinstance(key, int) and isinstance(values, list) and -len(values) <= key < len(values):
+            values = values[key]
+        elif isinstance(key, str) and isinstance(values, dict):
+            values = values.get(key)
+        else:
+            return None
+    return values
 
 
 def _asks(answer: str) -> bool:
