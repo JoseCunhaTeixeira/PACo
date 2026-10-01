@@ -22,6 +22,11 @@ class AgentSettings(BaseSettings):
     llm_model: str = Field(description="The name vLLM serves the model under.")
     # vLLM started without --api-key accepts any key.
     llm_api_key: SecretStr = SecretStr("EMPTY")
+    # The conversation's sampling; None keeps the model server's own (Qwen3's: 0.6, as its
+    # makers advise when it thinks: a low temperature makes it repeat itself). A form is filled
+    # at temperature 0.
+    llm_temperature: float | None = None
+    llm_seed: int | None = None
 
     mcp_url: str = "http://127.0.0.1:8000/mcp"  # PACo's server (python -m paco.server)
     # Tool calls the model may make to answer one message, before the loop stops it.

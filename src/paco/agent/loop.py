@@ -4,45 +4,39 @@ answers the user."""
 import json
 import textwrap
 import time
-from collections.abc import Callable
+import uuid
+from collections.abc import Callable, Iterable
 from datetime import UTC, datetime
 from typing import Any
 
 import anyio
 from mcp import Client
+from mcp.types import RequestParamsMeta
 from openai.types.chat import ChatCompletionFunctionToolParam, ChatCompletionMessageParam
 
+from paco import prompts
 from paco.agent import host
 from paco.agent.conversion import result_for_model, tools_for_model
 from paco.agent.model import ChatModel, Reply, ToolCall
-from paco.agent.record import ModelStep, Step, ToolStep, Transcript
+from paco.agent.record import ModelStep, ScopeStep, Step, ToolStep, Transcript
+from paco.agent.scope import (
+    Context,
+    Offer,
+    Read,
+    ScopeError,
+    chosen,
+    offers_in,
+    read_scope,
+    refusal,
+)
 
 # The answer a stopped question leaves in the conversation (see Agent.answer).
 STOPPED = "(Stopped on the user's request before the answer was complete.)"
 
-ROLE = (
-    "You are PACo's assistant. You help a geophysicist turn MASW seismic profiles into "
-    "dispersion curves and velocity models, with the tools you have. Work in a loop: plan the "
-    "stages the request needs, act by calling a tool, observe its summary, adapt (go on, or go "
-    "back with redo when a gate asks a change of an earlier stage), until the request is done. "
-    "Do what the user asks, all of it and nothing more; the user cannot call the tools. Decide "
-    "from the summaries, as an inversion geophysicist: the records bound what the data resolve "
-    "(their usable band, the shots' reach), a longer window buys depth and precise picks at the "
-    "cost of lateral detail, and a model is trusted only down to the depth its curve informs. "
-    "The window length is yours to choose when the user gave none: "
-    "run_processing proposes one and lists the lengths it tried, for the line's length and the "
-    "depth or detail the request needs. In your answer, say why you chose each setting the "
-    "user did not give (the window length above all) and down to which depth the models go and "
-    "why (the curves' longest wavelengths), report every item of the results' "
-    "changed lists (the settings the gates changed, the user's among them) and the windows left "
-    "without a result. "
-    "Ask the user only when the request cannot be finished: no image or no curve left, the "
-    "run's retry budget spent before the request is done, or a request the data do not allow; "
-    "then ask one short question with 2 or 3 concrete options, your choice first, and wait. "
-    "Rejected windows are gaps to report, not a reason to ask. You pick M0 alone: a person "
-    "picks higher modes in PAC, and invert uses them. Otherwise end with the answer: "
-    "no offer, no question. Report only what the tools return: never invent a result."
-)
+# The role the model plays: prompts/role.md.
+ROLE = prompts.prompt("role")
+# The answer when the model filled no valid scope form, twice.
+UNREAD = "I could not read what your message asks ({error}). Please say it again in other words."
 
 # What the loop does, for the user to follow: tool calls, progress, failures.
 type OnEvent = Callable[[str], None]
@@ -67,6 +61,15 @@ class Agent:
         self._on_event = on_event
         system = f"{ROLE}\n\n{instructions}" if instructions else ROLE
         self.messages: list[ChatCompletionMessageParam] = [{"role": "system", "content": system}]
+        # Sent with every call: the conversation, its turn (the user's messages so far) and the
+        # scope of the turn's message. The server goes on with what it did in this conversation
+        # without asking, and applies the user's rules with the scope (paco.choices).
+        self.meta: RequestParamsMeta = {"conversation": uuid.uuid4().hex, "turn": 0}
+        # What the host knows for the next message: the options a tool offered last, and the
+        # profile and run the conversation is on.
+        self._offers: tuple[Offer, ...] = ()
+        self._profile: str | None = None
+        self._run_id: str | None = None
         self.steps: list[Step] = []
         self.started_at = datetime.now(UTC)
 
@@ -79,16 +82,16 @@ class Agent:
         return cls(client, model, tools, client.instructions, max_tool_calls, on_event)
 
     async def answer(self, question: str) -> str:
-        """The model's answer to `question`, after every tool call it asked for, with what the
-        host guarantees (paco.agent.host): the parameters used and the settings the gates
-        changed listed after it, an
-        answer that asks or offers asked again once, no inversion the user did not ask for,
-        seismic or petrophysical, and an inversion it started followed to its end.
+        """The model's answer to `question`, after every tool call it asked for within the
+        question's scope (paco.agent.scope), with what the host guarantees (paco.agent.host):
+        the scope first, the parameters used and the settings the gates changed listed after
+        it, and an inversion it started followed to its end.
 
         An answer that does not end (the host stopped it, or it failed) leaves in the
         conversation the question and one line saying so, none of the calls it had made: the
         next question starts from a history the model can read, no call left unanswered."""
         start = len(self.messages)
+        self.meta["turn"] += 1
         try:
             return await self._answer(question)
         except BaseException as error:
@@ -103,12 +106,26 @@ class Agent:
             raise
 
     async def _answer(self, question: str) -> str:
-        self.messages.append({"role": "user", "content": question})
+        context = Context(self._offers, self._profile, self._run_id)
+        self._offers = ()  # answered by this message, or left
+        start = time.perf_counter()
+        try:
+            read = await read_scope(self._model, question, context)
+        except ScopeError as error:
+            self.steps.append(_scope_step(None, time.perf_counter() - start, str(error)))
+            answer = UNREAD.format(error=error)
+            self.messages.append({"role": "user", "content": question})
+            self.messages.append({"role": "assistant", "content": answer})
+            return answer
+        self.steps.append(_scope_step(read, time.perf_counter() - start))
+        scope = read.scope
+        offer = chosen(scope, context)
+        self.meta["scope"] = {**scope.for_server(), "chosen": offer.call if offer else None}
+        self.messages.append({"role": "user", "content": f"{question}\n\n{scope.for_model(offer)}"})
         calls = 0
         failed: dict[tuple[str, str], str] = {}  # calls that failed in this answer: their error
         changes: list[str] = []
         used: list[str] = []
-        stuck = asked_again = worked = False
         while True:
             start = time.perf_counter()
             reply = await self._model(self.messages, self._tools)
@@ -122,12 +139,7 @@ class Agent:
             )
             self.messages.append(_assistant_message(reply))
             if not reply.tool_calls:
-                if worked and not (stuck or asked_again) and host.asks_or_offers(reply.content):
-                    asked_again = True
-                    self._on_event("   (asked to answer again, without a question or an offer)")
-                    self.messages.append({"role": "user", "content": host.ANSWER_AGAIN})
-                    continue
-                answer = host.with_changes(reply.content, changes, used)
+                answer = f"{scope.line()}\n\n{host.with_changes(reply.content, changes, used)}"
                 self.messages[-1] = {"role": "assistant", "content": answer}
                 return answer
             for call in reply.tool_calls:
@@ -137,7 +149,7 @@ class Agent:
                     call,
                     over_budget=calls > self._max_tool_calls,
                     failed_before=failed.get(key),
-                    unasked=host.unasked(call.name, call.arguments, question),
+                    outside=refusal(scope, call.name, call.arguments),
                 )
                 self.steps.append(step)
                 result = step.result
@@ -154,13 +166,19 @@ class Agent:
                     (used, host.used_items(result)),
                 ):
                     listed.extend(item for item in items if item not in listed)
-                stuck = stuck or host.STUCK in result
-                worked = worked or (call.name in host.STAGE_TOOLS and not step.is_error)
                 if step.is_error:
                     failed[key] = step.result
                 else:
                     failed.pop(key, None)
+                    self._offers = offers_in(result) or self._offers
+                    self._keep_track(call, result)
                 self.messages.append({"role": "tool", "tool_call_id": call.id, "content": result})
+
+    @property
+    def offers(self) -> tuple[Offer, ...]:
+        """The options a tool offered in the last answer, among which the user's next message
+        may choose: that answer asks the user to choose."""
+        return self._offers
 
     def transcript(self, model: str) -> Transcript:
         """The conversation so far, and every step with its cost."""
@@ -176,7 +194,7 @@ class Agent:
         call: ToolCall,
         over_budget: bool,
         failed_before: str | None = None,
-        unasked: str | None = None,
+        outside: str | None = None,
     ) -> ToolStep:
         start = time.perf_counter()
 
@@ -190,10 +208,9 @@ class Agent:
                 result=result,
             )
 
-        if unasked is not None:
-            # The model may start an inversion the request did not ask for.
-            self._on_event(f"-> {call.name}({call.arguments}) refused: not asked for")
-            return refused(unasked)
+        if outside is not None:
+            self._on_event(f"-> {call.name}({call.arguments}) refused: outside the scope")
+            return refused(outside)
         if over_budget:
             return refused(
                 f"Not called: this answer already made {self._max_tool_calls} tool calls. "
@@ -220,7 +237,9 @@ class Agent:
             self._on_event(f"   {call.name}: {message or f'{progress:g} of {total:g}'}")
 
         self._on_event(f"-> {call.name}({call.arguments})")
-        result = await self._client.call_tool(call.name, parsed, progress_callback=on_progress)
+        result = await self._client.call_tool(
+            call.name, parsed, progress_callback=on_progress, meta=self.meta
+        )
         text = result_for_model(result)
         if result.is_error:
             # The SDK's prefix repeats the call shown just above.
@@ -235,6 +254,20 @@ class Agent:
             result=text,
         )
 
+    def _keep_track(self, call: ToolCall, result: str) -> None:
+        """The profile and run the conversation is on, from a call and its result."""
+        for text in (call.arguments, result):
+            try:
+                parsed: Any = json.loads(text or "{}")
+            except json.JSONDecodeError:
+                continue
+            if not isinstance(parsed, dict):
+                continue
+            if isinstance(profile := parsed.get("profile"), str):
+                self._profile = profile
+            if isinstance(run_id := parsed.get("run_id"), str) and run_id:
+                self._run_id = run_id
+
     async def _follow(self, job_id: str) -> ToolStep:
         """Job `job_id` followed with job_status until it ends, its progress sent as events:
         the step holds its final status."""
@@ -247,7 +280,7 @@ class Agent:
         start = time.perf_counter()
         while True:
             result = await self._client.call_tool(
-                "job_status", {"job_id": job_id}, progress_callback=on_progress
+                "job_status", {"job_id": job_id}, progress_callback=on_progress, meta=self.meta
             )
             text = result_for_model(result)
             if result.is_error or not host.job_running(text):
@@ -264,6 +297,24 @@ class Agent:
             result=text,
             by_host=True,
         )
+
+
+def _scope_step(read: Read | None, duration_s: float, error: str | None = None) -> ScopeStep:
+    fills = read.fills if read is not None else ()
+    return ScopeStep(
+        prompt_version=prompts.version(),
+        scope=read.scope.model_dump() if read is not None else None,
+        error=error,
+        tries=len(fills) if read is not None else 2,
+        duration_s=round(duration_s, 3),
+        prompt_tokens=_total(fill.prompt_tokens for fill in fills),
+        completion_tokens=_total(fill.completion_tokens for fill in fills),
+    )
+
+
+def _total(counts: Iterable[int | None]) -> int | None:
+    known = [count for count in counts if count is not None]
+    return sum(known) if known else None
 
 
 def _assistant_message(reply: Reply) -> ChatCompletionMessageParam:

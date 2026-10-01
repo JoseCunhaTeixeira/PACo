@@ -1,0 +1,22 @@
+[
+  {"message": "Invert active_p1.", "form": {"invert": true, "profile": "active_p1"}},
+  {
+    "message": "Pick and invert passive_p1 again.",
+    "form": {"pick": true, "invert": true, "profile": "passive_p1", "redo": true}
+  },
+  {
+    "message": "Give me the shear-wave velocity profile of shots_a at 12 m, but keep my hand-picked curves.",
+    "form": {"invert": true, "profile": "shots_a", "positions_m": [12]}
+  },
+  {"message": "Which runs are there?", "form": {}},
+  {
+    "message": "Recompute the dispersion curves of line_b from the start.",
+    "form": {"pick": true, "profile": "line_b", "redo": true}
+  },
+  {
+    "message": "Re-pick all the windows of line_b, my own hand-picked curve included.",
+    "form": {"pick": true, "profile": "line_b", "redo": true, "replace_hand_work": true}
+  },
+  {"message": "Is there anything left to invert on line_b?", "form": {"profile": "line_b"}},
+  {"message": "Pick the fundamental mode and M2 on line_b.", "form": {"pick": true, "profile": "line_b"}}
+]

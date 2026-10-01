@@ -19,7 +19,10 @@ from paco.qc import (
     load_qc_config,
     read_attempts,
     read_length_choice,
+    run_work,
 )
+from paco.qc.attempts import HAND_FOLDER
+from paco.qc.log import JUDGED
 from paco.settings import get_settings
 
 
@@ -282,6 +285,81 @@ def no_settings_invented(tool: str) -> Check:
     return check
 
 
+def nothing_given(tool: str, argument: str) -> Check:
+    """Every successful call of `tool` left `argument` empty: the user gave no value for it."""
+    name = f"{tool} with no {argument}"
+
+    def check(trial: Trial) -> CheckResult:
+        given = [
+            step.arguments
+            for step in _called(trial)
+            if step.name == tool
+            and not step.is_error
+            and json.loads(step.arguments or "{}").get(argument)
+        ]
+        detail = f"called with {'; '.join(given)}" if given else ""
+        return CheckResult(name=name, passed=not given, detail=detail)
+
+    return check
+
+
+def kept_by_hand(unit: str) -> Check:
+    """Window `unit`'s M0, picked by hand before the conversation, is the person's still."""
+    name = f"{unit}'s curve picked by hand kept"
+
+    def check(trial: Trial) -> CheckResult:
+        manifest = _latest_manifest(trial)
+        if manifest is None:
+            return CheckResult(name=name, passed=False, detail="no run on disk")
+        run_folder = next(trial.output_dir.glob(f"*/{manifest.run_id}"))
+        state = run_work(run_folder, manifest)[unit].m0
+        return CheckResult(name=name, passed=state == "user", detail=f"its M0: {state}")
+
+    return check
+
+
+def nothing_redone(*stages: Stage) -> Check:
+    """No attempt at `stages` started during the conversation (a judgement aside): the work
+    already there was gone on from, whatever the agent called."""
+    name = "nothing redone: " + ", ".join(stages)
+
+    def check(trial: Trial) -> CheckResult:
+        started = trial.transcript.started_at
+        redone = [
+            f"{attempt.unit} {attempt.stage}"
+            for folder in trial.output_dir.glob("*/*")
+            if folder.is_dir()
+            for attempt in read_attempts(folder)
+            if attempt.stage in stages
+            and attempt.started_at >= started
+            and attempt.triggered_by != JUDGED
+        ]
+        detail = f"{len(redone)} attempt(s), as {redone[0]}" if redone else ""
+        return CheckResult(name=name, passed=not redone, detail=detail)
+
+    return check
+
+
+def replaced_by_hand(unit: str) -> Check:
+    """Window `unit`'s M0, picked by hand before the conversation, was picked again as the
+    message asked, the person's set aside in the window's by_hand folder."""
+    name = f"{unit}'s curve picked by hand replaced, set aside"
+
+    def check(trial: Trial) -> CheckResult:
+        manifest = _latest_manifest(trial)
+        if manifest is None:
+            return CheckResult(name=name, passed=False, detail="no run on disk")
+        run_folder = next(trial.output_dir.glob(f"*/{manifest.run_id}"))
+        state = run_work(run_folder, manifest)[unit].m0
+        aside = list((run_folder / unit / HAND_FOLDER).glob("picking_*"))
+        passed = state != "user" and len(aside) == 1
+        return CheckResult(
+            name=name, passed=passed, detail=f"its M0: {state}, {len(aside)} set aside"
+        )
+
+    return check
+
+
 def _beyond_length(overrides: Any) -> bool:  # noqa: ANN401
     """Whether `overrides` set anything but masw's window length."""
     if isinstance(overrides, str):
@@ -346,6 +424,48 @@ def inversion_succeeded() -> Check:
                     f"{record.job_id} {record.state}, {failed} of {record.total} windows failed"
                 )
         return CheckResult(name=name, passed=not problems, detail="; ".join(problems))
+
+    return check
+
+
+def inverted_windows(count: int) -> Check:
+    """The latest inversion took `count` windows, and gave each a model."""
+    name = f"the inversion took {count} window(s)"
+
+    def check(trial: Trial) -> CheckResult:
+        paths = sorted(
+            trial.output_dir.glob("*/*/inversion.json"), key=lambda one: one.stat().st_mtime
+        )
+        if not paths:
+            return CheckResult(name=name, passed=False, detail="no inversion on disk")
+        record = InversionRecord.model_validate_json(paths[-1].read_text())
+        done = sum(window.status != "failed" for window in record.windows)
+        return CheckResult(
+            name=name,
+            passed=record.total == count and done == count,
+            detail=f"{record.total} taken, {done} with a model",
+        )
+
+    return check
+
+
+def inverted_every_curve() -> Check:
+    """Every window of the latest run holding an M0 curve got a model: the curves picked by hand
+    taken as they are, none left out for want of a gate's verdict."""
+    name = "every curve was inverted"
+
+    def check(trial: Trial) -> CheckResult:
+        manifest = _latest_manifest(trial)
+        if manifest is None:
+            return CheckResult(name=name, passed=False, detail="no run on disk")
+        run_folder = next(trial.output_dir.glob(f"*/{manifest.run_id}"))
+        work = run_work(run_folder, manifest)
+        missing = [unit for unit, one in work.items() if one.m0 is not None and one.model is None]
+        return CheckResult(
+            name=name,
+            passed=not missing,
+            detail=f"no model at {', '.join(missing)}" if missing else "",
+        )
 
     return check
 
@@ -431,7 +551,12 @@ def job_id(trial: Trial) -> str:
 
 # A question without a question mark: options offered for the user to pick (e.g. "Choose one to
 # proceed.", an <options> block).
-_CHOICE = re.compile(r"\bchoose\b|\bwhich (one|option)\b|<options>|\breply with\b", re.IGNORECASE)
+# An answer that asks without a question mark: options to choose from, or a preference asked.
+_CHOICE = re.compile(
+    r"\bchoose\b|\bwhich (one|option|you prefer)\b|<options>|\breply with\b"
+    r"|\byour (choice|choices|preference)\b|\bselect (one|your)\b|\byou prefer\b",
+    re.IGNORECASE,
+)
 
 
 def _asks(answer: str) -> bool:

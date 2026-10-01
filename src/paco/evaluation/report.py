@@ -7,6 +7,8 @@ def format_report(report: EvaluationReport) -> str:
     judge = report.judge_model or "none"
     repeated = report.repeat > 1
     title = f"Evaluation {report.eval_id} of {report.model} (judge: {judge})"
+    if report.prompt_version:
+        title += f" on {report.prompt_version}"
     if repeated:
         title += f", {report.repeat} plays of each scenario"
     labels = [_label(result, repeated) for result in report.results]

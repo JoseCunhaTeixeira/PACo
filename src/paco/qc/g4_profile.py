@@ -55,11 +55,13 @@ def judge_profile(
     curves: Sequence[Series],
     thresholds: ProfileThresholds,
     without: Sequence[float] = (),
+    trusted: frozenset[str] = frozenset(),
 ) -> tuple[GateResult, ...]:
     """G4's verdicts: one per curve (pass; retry with the neighbours' median as the picking's
     guide when the curve is off agreeing neighbours and fits no side; a change shared with one
     side is kept), then one for the line (coverage), unit "line". `without` lists the xmids
-    without a curve, for the coverage."""
+    without a curve, for the coverage; `trusted`, the units of the curves a person picked:
+    neighbours of the others and covered, never judged themselves."""
     ordered = sorted(curves, key=lambda curve: curve.xmid)
     per_side = max(1, thresholds.neighbours // 2)
     step = line_step([*(one.xmid for one in ordered), *without])
@@ -161,8 +163,8 @@ def judge_profile(
                 ),
             )
         )
-    results.append(_line_result(ordered, without, thresholds))
-    return tuple(results)
+    judged = [result for result in results if result.unit not in trusted]
+    return (*judged, _line_result(ordered, without, thresholds))
 
 
 def _line_result(

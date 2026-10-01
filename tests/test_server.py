@@ -6,20 +6,19 @@ from typing import Any
 import anyio
 import pytest
 from mcp import Client
-from mcp.types import CallToolResult, Tool
-from sigpipe.masw import profiles
+from mcp.types import CallToolResult, RequestParamsMeta, Tool
 from sigpipe.masw.presets import override_schema
 
-from paco import server
+from paco import inspection, server
 from paco.settings import Settings
 
 # The workflow's order: tools/list should list them the same way, every time.
 TOOLS = [
-    "list_profiles",
-    "inspect_profile",
+    "inspect",
     "preset_settings",
     "run_processing",
     "pick",
+    "judge",
     "inversion_settings",
     "invert",
     "job_status",
@@ -29,7 +28,8 @@ TOOLS = [
 ]
 # Every card (name, description, argument schema) travels with every request to the model: keep
 # them small.
-CARDS_BUDGET = 7_000  # characters, all tools together
+# The served model reads 12,288 tokens at most; the cards take about a fifth of it.
+CARDS_BUDGET = 10_400  # characters, all tools together
 # The server's instructions go into the model's system prompt too.
 INSTRUCTIONS_BUDGET = 650  # characters
 # Four 24-receiver windows along the active demo line, as in test_runs.py.
@@ -57,7 +57,9 @@ def _call(
 
     async def call() -> CallToolResult:
         async with Client(server.server) as client:
-            return await client.call_tool(name, arguments, progress_callback=on_progress)
+            # One conversation, as the host sends it: what a test did, it goes on with.
+            meta: RequestParamsMeta = {"conversation": "test"}
+            return await client.call_tool(name, arguments, progress_callback=on_progress, meta=meta)
 
     return anyio.run(call)
 
@@ -122,20 +124,25 @@ def test_host_checks_follow_the_allowed_hosts(demo_input_dir: Path) -> None:
 def test_the_context_is_not_an_argument() -> None:
     (run_processing,) = [tool for tool in _tools() if tool.name == "run_processing"]
 
-    assert list(run_processing.input_schema["properties"]) == ["profile", "overrides", "mode"]
+    assert list(run_processing.input_schema["properties"]) == [
+        "profile",
+        "overrides",
+        "mode",
+        "again",
+    ]
 
 
 # ---------------------------------------------------------------- results
 
 
 def test_profiles_are_listed_and_inspected(paco_env: Settings) -> None:
-    listed = _call("list_profiles", {})
-    inspected = _call("inspect_profile", {"profile": "passive_p1"})
+    listed = _call("inspect", {"what": "profiles"})
+    inspected = _call("inspect", {"what": "profile", "profile": "passive_p1"})
+    unsaid = _call("inspect", {"what": "run"})
 
-    assert listed.structured_content == {"result": ["active_p1", "passive_p1"]}
-    assert inspected.structured_content == (
-        profiles.inspect_profile("passive_p1", paco_env).model_dump(mode="json")
-    )
+    assert _text(listed) == "active_p1: 0 run(s)\npassive_p1: 0 run(s)"
+    assert _text(inspected) == inspection.profile_text("passive_p1", paco_env)
+    assert unsaid.is_error and "inspect(what=run) needs run_id." in _text(unsaid)
 
 
 @pytest.mark.parametrize(
@@ -150,9 +157,9 @@ def test_preset_settings_are_the_profiles_override_schema(profile: str, preset: 
 
 @pytest.mark.usefixtures("paco_env")
 def test_an_active_profile_has_a_passive_active_mode() -> None:
-    summary = _call("inspect_profile", {"profile": "active_p1"}).structured_content
+    summary = _text(_call("inspect", {"what": "profile", "profile": "active_p1"}))
 
-    assert summary is not None and summary["modes"] == ["active", "passive-active"]
+    assert summary.endswith("modes: active, passive-active.")
     settings = json.loads(
         _text(_call("preset_settings", {"profile": "active_p1", "mode": "passive-active"}))
     )
@@ -233,7 +240,8 @@ def test_the_workflow_process_pick_redo_invert() -> None:
     assert changed[2].endswith("at xmid 20.88 (1), by G4:outlier")
     assert picked.structured_content["next"] == (
         f"3 curves passed G3 and G4. invert can run on run_id {run_id}, if the user asked for "
-        "models; otherwise answer."
+        "models; otherwise answer. Higher modes (M1, M2) are picked by hand in PAC's Dispersion "
+        "picking page, then invert takes them with M0."
     )
 
     # Going back to the picking for a window, with a change: the verdict of the gate that
@@ -251,11 +259,13 @@ def test_the_workflow_process_pick_redo_invert() -> None:
     # No question: the job starts in the background, and job_status follows it to the gates'
     # summary.
     started = _call("invert", {"run_id": run_id, "parameters": SHORT})
+    # invert returns a job or the user's choice: one of two models, wrapped.
     assert started.structured_content is not None
+    job = started.structured_content["result"]
     # xmid 2.88's curve, picked again in a narrower corridor, passed: 4 windows to invert.
-    assert started.structured_content["state"] in ("queued", "running")
-    assert started.structured_content["total"] == 4
-    status = _wait_for(started.structured_content["job_id"])
+    assert job["state"] in ("queued", "running")
+    assert job["total"] == 4
+    status = _wait_for(job["job_id"])
     assert (status["state"], status["done"]) == ("succeeded", 4)
     # A window may fail twice (the sampler is not seeded): left out, the job still succeeds.
     assert status["n_failed"] <= 1
@@ -279,7 +289,9 @@ def test_run_processing_takes_the_mode_as_an_argument(paco_env: Settings) -> Non
     assert manifest["preset"]["mode"] == "passive-active"
     refused = _call("run_processing", {"profile": "active_p1", "mode": "passive"})
     assert refused.is_error
-    assert "does not fit active profile 'active_p1'" in _text(refused)
+    assert "Profile 'active_p1' is active: its modes are active, passive-active." in (
+        _text(refused)
+    )
 
 
 @pytest.mark.usefixtures("paco_env")
@@ -294,21 +306,19 @@ def test_one_vs_range_stands_for_every_layer_at_invert() -> None:
         {"run_id": run_id, "parameters": {"vs_layers": [{"vs_min": 100, "vs_max": 180}]}},
     )
 
-    # Past the parameters' check: refused only because G4 has not judged the run.
+    # Past the parameters' check: refused only because the run has no curve yet.
     assert result.is_error
-    assert "has not been judged up to G4" in _text(result)
+    assert "has no curve: pick it first" in _text(result)
 
 
-def test_invert_refuses_a_run_g4_has_not_judged(paco_env: Settings) -> None:
+def test_invert_refuses_a_run_without_a_curve(paco_env: Settings) -> None:
     processed = _call("run_processing", {"profile": "active_p1", "overrides": SMALL_WINDOWS})
     run_id = processed.structured_content["run_id"] if processed.structured_content else ""
 
     result = _call("invert", {"run_id": run_id})
 
     assert result.is_error
-    assert f"Run '{run_id}' has not been judged up to G4: judge it before inverting." in (
-        _text(result)
-    )
+    assert f"Run '{run_id}' has no curve: pick it first." in _text(result)
     assert not (paco_env.output_dir / "active_p1" / run_id / "inversion.json").exists()
 
 
@@ -346,8 +356,8 @@ def test_redo_needs_windows_that_exist() -> None:
     ("name", "arguments", "message"),
     [
         (
-            "inspect_profile",
-            {"profile": "active_p2"},
+            "inspect",
+            {"what": "profile", "profile": "active_p2"},
             "Unknown profile 'active_p2'. Available profiles: active_p1, passive_p1.",
         ),
         (
@@ -436,9 +446,9 @@ def test_a_bug_stays_hidden_from_the_model(monkeypatch: pytest.MonkeyPatch) -> N
     def broken(_settings: Settings) -> list[str]:
         raise KeyError("internal detail")
 
-    monkeypatch.setattr(profiles, "list_profiles", broken)
+    monkeypatch.setattr(inspection, "list_profiles", broken)
 
-    result = _call("list_profiles", {})
+    result = _call("inspect", {"what": "profiles"})
 
     assert result.is_error
     assert "internal detail" not in _text(result)

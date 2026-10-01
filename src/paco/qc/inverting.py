@@ -57,9 +57,9 @@ from paco.inversion import (
     window_result,
     write_record,
 )
-from paco.qc.attempts import invalidate, restore
+from paco.qc.attempts import invalidate, restore, set_aside
 from paco.qc.budgets import budget_spent
-from paco.qc.config import QCConfig, read_qc_config
+from paco.qc.config import QCConfig, read_qc_config, run_qc_config
 from paco.qc.g5_model import ModelThresholds, judge_model, significant
 from paco.qc.g6_models import LINE, judge_model_profile
 from paco.qc.judging import saved_m0
@@ -74,6 +74,7 @@ from paco.qc.log import (
 )
 from paco.qc.loops import RetryBudget, deep_merge, stage_changes
 from paco.qc.models import Attempt, GateResult
+from paco.qc.origin import run_work
 from paco.qc.report import (
     build_report,
     changed_settings,
@@ -97,14 +98,19 @@ logger = logging.getLogger(__name__)
 
 
 def submit_inversion(
-    run_id: str, given: Mapping[str, Any] | None, settings: Settings
+    run_id: str,
+    given: Mapping[str, Any] | None,
+    settings: Settings,
+    units: Sequence[str] | None = None,
+    notes: Sequence[str] = (),
 ) -> InversionRecord:
-    """Record a new inversion job of run `run_id`, queued, and return it: the windows G4 passed,
-    with `given` (the inversion's parameters the user typed). Refuses a run G4 has not judged
-    or rejected, values that cannot hold, and a run already being inverted."""
+    """Record a new inversion job of run `run_id`, queued, and return it: the windows whose
+    curves the inversion takes (invertible), or `units` of them, with `given` (the inversion's
+    parameters the user typed) and `notes` (what was done before it). Refuses a run without a
+    curve to invert, values that cannot hold, and a run already being inverted."""
     run_folder = find_run(run_id, settings)
     ready = invertible(run_folder, load_manifest(run_id, settings))
-    layers = read_qc_config(run_folder).priors.n_layers
+    layers = run_qc_config(run_folder, settings.qc_config).priors.n_layers
     given = broadcast_layers(given or {}, layers)
     try:
         InversionParameters.model_validate(checkable(given, layers))
@@ -123,7 +129,8 @@ def submit_inversion(
         given=given,
         state="queued",
         submitted_at=datetime.now(UTC),
-        total=len(ready),
+        total=len(units) if units is not None else len(ready),
+        notes=tuple(notes),
     )
     write_record(run_folder, record)
     return record
@@ -135,11 +142,13 @@ def run_inversion_job(
     on_progress: ProgressCallback | None = None,
     units: Sequence[str] | None = None,
     overrides: Mapping[str, Any] | None = None,
+    triggered_by: str = "backtrack",
+    replace_hand: bool = False,
 ) -> InversionRecord:
     """Run queued job `record` to its end: the first inversions (or, with `units`, those
-    windows again with `overrides`: a backtrack), the gates' retries, each window recorded as it
-    ends, then the gates' summary. The job fails when every window failed, or on any other
-    failure."""
+    windows again with `overrides`, `triggered_by` the agent's backtrack or the user's ask), the
+    gates' retries, each window recorded as it ends, then the gates' summary. The job fails when
+    every window failed, or on any other failure."""
     run_folder = find_run(record.run_id, settings)
     record = record.model_copy(update={"state": "running", "started_at": datetime.now(UTC)})
     write_record(run_folder, record)
@@ -171,7 +180,14 @@ def run_inversion_job(
             judge_inversions(record.run_id, settings, record.given, progressed, on_window)
         else:
             rerun_inversion(
-                record.run_id, units, overrides or {}, settings, "backtrack", progressed, on_window
+                record.run_id,
+                units,
+                overrides or {},
+                settings,
+                triggered_by,
+                progressed,
+                on_window,
+                replace_hand,
             )
         report = read_report(run_folder)
         summary = summarize_report(report, gates=("G5", "G6"))
@@ -181,6 +197,11 @@ def run_inversion_job(
         # PAC's section of the line, over the models G5 passed, as its Visualization shows it
         # (smoothed too, over the run's window length): best effort, never the job's failure.
         passed = [unit for unit, verdict in final.items() if verdict == "pass"]
+        # A person's models too, made in PAC's Seismic inversion page: verified by them.
+        manifest = load_manifest(record.run_id, settings)
+        passed += [
+            unit for unit, one in run_work(run_folder, manifest).items() if one.model == "user"
+        ]
         try:
             window_m = window_length(run_folder)
             if (section := save_section(run_folder, passed, window_m=window_m)) is not None:
@@ -228,18 +249,19 @@ def judge_inversions(
     on_progress: ProgressCallback | None = None,
     on_window: OnWindow | None = None,
 ) -> tuple[GateResult, ...]:
-    """S4 on every window of run `run_id` that G4 passed and that has no inversion yet: bounds
-    derived from each curve, with `given` (the inversion's parameters the user typed) kept where
-    they pass the checks; then G5 and G6 with their retries. Returns G5's first results, by
-    xmid."""
+    """S4 on every window of run `run_id` whose curve the inversion takes (invertible) and that
+    has no model yet: bounds derived from each curve, with `given` (the inversion's parameters
+    the user typed) kept where they pass the checks; then G5 and G6 with their retries. Returns
+    G5's first results, by xmid."""
     run_folder = find_run(run_id, settings)
     manifest = load_manifest(run_id, settings)
     ready = invertible(run_folder, manifest)
-    config = read_qc_config(run_folder)
+    config = run_qc_config(run_folder, settings.qc_config)
+    work = run_work(run_folder, manifest)
     pending = {
         unit: curve
         for unit, curve in ready.items()
-        if not (run_folder / unit / MEASURES_FILE).exists()
+        if work[unit].model is None and not (run_folder / unit / MEASURES_FILE).exists()
     }
     jobs: dict[str, Derived] = {}
     refused: dict[str, InversionError] = {}
@@ -274,19 +296,30 @@ def rerun_inversion(
     triggered_by: str = "backtrack",
     on_progress: ProgressCallback | None = None,
     on_window: OnWindow | None = None,
+    replace_hand: bool = False,
 ) -> tuple[GateResult, ...]:
     """The inversion again for the windows `units` of run `run_id`, from each one's latest
     parameters with `overrides` on them, through the checks before S4 again; then G5 and G6
-    with their retries."""
+    with their retries. A model a person made in PAC is inverted again only when they chose it
+    (`replace_hand`), theirs set aside first."""
     run_folder = find_run(run_id, settings)
     manifest = load_manifest(run_id, settings)
     ready = invertible(run_folder, manifest)
-    config = read_qc_config(run_folder)
+    config = run_qc_config(run_folder, settings.qc_config)
     if unknown := [unit for unit in units if unit not in ready]:
         raise RunError(
-            f"Run '{run_id}' has no window {', '.join(unknown)} that G4 passed. Those it passed: "
-            f"{', '.join(ready)}."
+            f"Run '{run_id}' has no curve to invert at {', '.join(unknown)}. Those it has: "
+            f"{', '.join(ready) or 'none'}."
         )
+    work = run_work(run_folder, manifest)
+    by_hand = [unit for unit in units if work[unit].model == "user"]
+    if by_hand and not replace_hand:
+        raise RunError(
+            f"The models at {', '.join(by_hand)} were made in PAC's Seismic inversion page: "
+            "verified by the user, left as they are."
+        )
+    for unit in by_hand:
+        set_aside(run_folder / unit, "inversion")
     if unexpected := sorted(set(overrides) - set(InversionParameters.model_fields)):
         raise RunError(
             f"Unknown inversion parameter(s) {', '.join(unexpected)}. The inversion's are "
@@ -555,30 +588,45 @@ def _retry_models(results: Sequence[GateResult], batch: RetryBatch) -> bool:
 
 
 def invertible(run_folder: Path, manifest: RunManifest) -> dict[str, DispersionCurve]:
-    """The windows G4 passed, with the curve each inverts: the gate decision before S4. Refuses
-    a run G4 has not judged, and a line it rejected."""
+    """The windows whose M0 the inversion takes, with that curve: a person's, as it is
+    (verified by them), or an automatic one G3 and G4 passed as it is now, on a line G4 did not
+    reject (the gate decision before S4). Refuses a run with none, saying why."""
     attempts = read_attempts(run_folder)
+    work = run_work(run_folder, manifest, attempts)
     line = latest(attempts, LINE, "picking")
     g4 = line.results.get("G4") if line is not None else None
-    if g4 is None:
-        raise RunError(
-            f"Run '{manifest.run_id}' has not been judged up to G4: judge it before inverting."
-        )
-    if g4.verdict == "reject":
-        raise RunError(
-            f"G4 rejected the line of run '{manifest.run_id}': no curve passed, nothing to invert."
-        )
     ready: dict[str, DispersionCurve] = {}
     for window in manifest.windows:
+        state = work[window.folder].m0
+        if state == "judged" and (g4 is None or g4.verdict == "reject"):
+            continue
         picked = latest(attempts, window.folder, "picking")
-        if picked is None or any(
-            gate not in picked.results or picked.results[gate].verdict != "pass"
-            for gate in ("G3", "G4")
+        if state == "judged" and (
+            picked is None
+            or any(
+                gate not in picked.results or picked.results[gate].verdict != "pass"
+                for gate in ("G3", "G4")
+            )
         ):
             continue
-        if (curve := saved_m0(run_folder / window.folder / CURVES_FILE)) is not None:
+        if state in ("user", "judged") and (
+            curve := saved_m0(run_folder / window.folder / CURVES_FILE)
+        ):
             ready[window.folder] = curve
-    return ready
+    if ready:
+        return ready
+    run_id = manifest.run_id
+    if not any(one.m0 is not None for one in work.values()):
+        raise RunError(f"Run '{run_id}' has no curve: pick it first.")
+    if any(one.m0 == "unjudged" for one in work.values()):
+        raise RunError(f"Run '{run_id}' holds automatic curves no check judged: judge them first.")
+    if g4 is None:
+        raise RunError(f"Run '{run_id}' has not been judged up to G4: judge it before inverting.")
+    if g4.verdict == "reject":
+        raise RunError(
+            f"G4 rejected the line of run '{run_id}': no curve passed, nothing to invert."
+        )
+    raise RunError(f"Run '{run_id}' has no curve G3 and G4 passed, nor one picked by hand.")
 
 
 def judge_model_line(

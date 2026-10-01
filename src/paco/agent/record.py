@@ -25,8 +25,8 @@ class ToolStep(BaseModel):
     kind: Literal["tool"] = "tool"
     name: str
     arguments: str  # as the model wrote them
-    # False when the host refused it: invalid arguments, over the budget, an inversion the
-    # request did not ask for, or the repeat of a call that just failed.
+    # False when the host refused it: invalid arguments, over the budget, outside the message's
+    # scope, or the repeat of a call that just failed.
     called: bool
     is_error: bool  # the call failed, or was refused
     duration_s: float
@@ -34,7 +34,21 @@ class ToolStep(BaseModel):
     by_host: bool = False  # the host followed a job with it; the model read its last result
 
 
-type Step = Annotated[ModelStep | ToolStep, Field(discriminator="kind")]
+class ScopeStep(BaseModel):
+    """The scope the model read from one of the user's messages (paco.agent.scope), with the
+    version of the prompts the turn used."""
+
+    kind: Literal["scope"] = "scope"
+    prompt_version: str
+    scope: dict[str, Any] | None  # None when no form parsed
+    error: str | None = None  # why, then
+    tries: int  # 2 when the first form did not parse
+    duration_s: float
+    prompt_tokens: int | None
+    completion_tokens: int | None
+
+
+type Step = Annotated[ModelStep | ToolStep | ScopeStep, Field(discriminator="kind")]
 
 
 class Transcript(BaseModel):

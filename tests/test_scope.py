@@ -1,0 +1,168 @@
+"""The scope of a message: the form the model fills, checked in code, the calls within it, and
+what the user and the model read of it."""
+
+import json
+from typing import Any
+
+import anyio
+import pytest
+from openai.types.chat import ChatCompletionFunctionToolParam, ChatCompletionMessageParam
+
+from paco import prompts
+from paco.agent.model import Filled, Reply
+from paco.agent.scope import (
+    SCHEMA,
+    Context,
+    Offer,
+    Scope,
+    ScopeError,
+    checked,
+    offers_in,
+    read_scope,
+    refusal,
+)
+
+NOTHING: dict[str, Any] = {
+    "process": False,
+    "pick": False,
+    "invert": False,
+    "soils": False,
+    "profile": None,
+    "run_id": None,
+    "positions_m": [],
+    "redo": False,
+    "replace_hand_work": False,
+    "option": None,
+}
+
+
+def _scope(**fields: Any) -> Scope:  # noqa: ANN401
+    return Scope.model_validate({**NOTHING, **fields})
+
+
+class FormModel:
+    """Stands in for the model filling forms: its fills in order, and what it was sent."""
+
+    def __init__(self, *fills: str) -> None:
+        self._fills = list(fills)
+        self.sent: list[list[ChatCompletionMessageParam]] = []
+
+    async def __call__(
+        self,
+        messages: list[ChatCompletionMessageParam],  # noqa: ARG002
+        tools: list[ChatCompletionFunctionToolParam],  # noqa: ARG002
+    ) -> Reply:
+        raise AssertionError("the scope is a form, not a conversation")
+
+    async def fill(
+        self,
+        messages: list[ChatCompletionMessageParam],
+        schema: dict[str, Any],
+    ) -> Filled:
+        assert schema == SCHEMA
+        self.sent.append(list(messages))
+        return Filled(content=self._fills.pop(0))
+
+
+def test_the_form_makes_the_model_write_every_field_and_nothing_else() -> None:
+    assert set(SCHEMA["required"]) == set(Scope.model_fields)
+    assert SCHEMA["additionalProperties"] is False
+    assert SCHEMA["properties"]["positions_m"]["maxItems"] == 10
+
+
+def test_the_model_fills_the_form_with_the_message_and_what_the_host_knows() -> None:
+    model = FormModel(json.dumps({**NOTHING, "pick": True, "invert": True, "option": 2}))
+    offers = (
+        Offer("complete the windows without a curve", 'pick(run_id="r", windows="missing")'),
+        Offer("pick every window again", 'pick(run_id="r", windows="all")'),
+    )
+    context = Context(offers=offers, profile="active_p1", run_id="20260930-161253-89f5")
+
+    read = anyio.run(read_scope, model, "The second one, then invert.", context)
+
+    assert read.scope.asked == {"pick", "invert"} and read.scope.option == 2
+    ((system, *examples, user),) = model.sent
+    assert system == {"role": "system", "content": prompts.prompt("scope")}
+    # The worked examples, as earlier messages and their forms.
+    assert len(examples) == 2 * len(prompts.scope_examples())
+    first = json.loads(str(examples[1].get("content")))
+    assert first == {**NOTHING, **prompts.scope_examples()[0][1]}
+    assert user.get("content") == (
+        'Offered last: (1) complete the windows without a curve: pick(run_id="r", '
+        'windows="missing"); (2) pick every window again: pick(run_id="r", windows="all").\n'
+        "Current profile: active_p1; current run: 20260930-161253-89f5.\n"
+        "Message: The second one, then invert."
+    )
+
+
+def test_a_form_that_does_not_parse_goes_back_once_with_its_error() -> None:
+    fixed = FormModel('{"pick": true}', json.dumps({**NOTHING, "pick": True}))
+
+    read = anyio.run(read_scope, fixed, "Pick active_p1.", Context())
+
+    assert read.scope.pick and len(read.fills) == 2
+    said_back = fixed.sent[1][-1].get("content")
+    assert isinstance(said_back, str) and said_back.startswith("Not valid: process: Field required")
+    # The second form's error, when neither parses.
+    with pytest.raises(ScopeError, match="Invalid JSON"):
+        anyio.run(read_scope, FormModel("{}", "not json"), "Pick active_p1.", Context())
+
+
+def test_code_takes_out_what_it_can_tell_is_not_so() -> None:
+    scope = _scope(run_id="active_p1", option=3, positions_m=[9.0, -2.0])
+
+    kept = checked(scope, Context(offers=(Offer("a", "a()"),)))
+
+    assert (kept.run_id, kept.option, kept.positions_m) == (None, None, [9.0])
+    run = "20260930-161253-89f5"
+    assert checked(_scope(run_id=run), Context()).run_id == run
+
+
+def test_calls_outside_the_scope_are_refused_to_the_model() -> None:
+    pick = _scope(pick=True)
+    invert = _scope(invert=True)
+    look = _scope()
+
+    # Reading is always within; an earlier stage serves a later one, as the run needs it.
+    assert refusal(look, "inspect", '{"what": "runs"}') is None
+    assert refusal(invert, "run_processing", '{"profile": "active_p1"}') is None
+    assert refusal(invert, "pick", '{"run_id": "r"}') is None
+    assert refusal(pick, "redo", '{"run_id": "r", "stage": "phase_shift"}') is None
+    assert refusal(pick, "invert", '{"run_id": "r"}') == (
+        "Not called: this message asks pick, and invert is outside it. Do what it asks, or ask "
+        "the user whether they want more."
+    )
+    assert refusal(pick, "redo", '{"run_id": "r", "stage": "inversion"}') is not None
+    assert refusal(invert, "invert_petro", '{"run_id": "r", "model": "m"}') is not None
+    assert refusal(look, "pick", '{"run_id": "r"}') == (
+        "Not called: this message asks to look at what exists, running nothing, and pick is "
+        "outside it. Do what it asks, or ask the user whether they want more."
+    )
+
+
+def test_the_user_and_the_model_read_the_scope() -> None:
+    scope = _scope(
+        pick=True, invert=True, profile="active_p1", positions_m=[9.0], redo=True, option=1
+    )
+    offer = Offer("pick every window again", 'pick(run_id="r", windows="all")')
+
+    assert scope.line() == ("Scope: pick, invert · active_p1 · at 9 m · again · option 1.")
+    assert scope.for_model(offer) == (
+        "[PACo] This message asks pick, invert; profile active_p1; positions 9 m; to do again; "
+        "not to replace the work made by hand. The user chose (1) pick every window again: "
+        'pick(run_id="r", windows="all").'
+    )
+    assert _scope().line() == "Scope: look only."
+    assert scope.for_server() == {
+        "asked": ["pick", "invert"],
+        "redo": True,
+        "hand_work": "unsaid",
+        "positions_m": [9.0],
+    }
+
+
+def test_the_options_a_result_offers_are_kept() -> None:
+    result = json.dumps({"run_id": "r", "options": [{"label": "keep it", "call": "pick()"}]})
+
+    assert offers_in(result) == (Offer("keep it", "pick()"),)
+    assert offers_in('{"run_id": "r"}') == () == offers_in("Error executing tool pick")

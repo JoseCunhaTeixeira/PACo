@@ -31,8 +31,8 @@ from sigpipe.masw.runs import RunError, RunManifest, find_run, load_manifest, wi
 from sigpipe.masw.runs.stopping import Stopped
 
 from paco import stopping
-from paco.qc.attempts import invalidate, restore
-from paco.qc.config import QCConfig, read_qc_config
+from paco.qc.attempts import invalidate, restore, set_aside
+from paco.qc.config import QCConfig, run_qc_config
 from paco.qc.g7_petro import judge_petro
 from paco.qc.g8_petro_line import LINE, judge_petro_line
 from paco.qc.inverting import invertible, investigation_depth, line_depths
@@ -47,6 +47,7 @@ from paco.qc.log import (
     record_result,
 )
 from paco.qc.models import Attempt, GateResult
+from paco.qc.origin import run_work
 from paco.qc.report import QCReport, build_report, write_report
 from paco.settings import Settings
 
@@ -131,23 +132,44 @@ def invert_petro_line(
     model_name: str,
     settings: Settings,
     on_progress: ProgressCallback | None = None,
+    units: Sequence[str] | None = None,
+    replace_hand: bool = False,
 ) -> tuple[QCReport, str]:
-    """Invert run `run_id`'s curves G4 passed that Silex model `model_name` covers, judge them
-    (G7, G8), and write PAC's sections over the windows both passed. Returns the report and what
-    the run's petrophysical models say, in words. A new inversion replaces the run's last one:
-    its window files are archived, its sections removed."""
+    """Invert run `run_id`'s curves the inversion takes (invertible) that Silex model
+    `model_name` covers, or those of `units` (the others keep their soil columns), judge them
+    (G7, and G8 over the line), and write PAC's sections over the windows both passed. Returns
+    the report and what the run's petrophysical models say, in words. A whole new inversion (no
+    `units`) replaces the run's last one: its window files are archived, its sections removed.
+    A soil column a person made in PAC is kept, unless they chose to have it made again
+    (`replace_hand`), theirs set aside first."""
     # The request first, the installation after: an unknown run or model says so either way.
     run_folder = find_run(run_id, settings)
     manifest = load_manifest(run_id, settings)
-    config = read_qc_config(run_folder)
+    config = run_qc_config(run_folder, settings.qc_config)
     ready = invertible(run_folder, manifest)
+    work = run_work(run_folder, manifest)
     card = load_silex_card(bundled_silex_model_dir(model_name))
     gaps = {unit: range_gaps(card, curve) for unit, curve in ready.items()}
-    covered = [unit for unit, found in gaps.items() if not found]
+    wanted = set(units) if units is not None else set(ready)
+    covered = [
+        unit
+        for unit, found in gaps.items()
+        if not found and unit in wanted and (work[unit].soils != "user" or replace_hand)
+    ]
     if not covered:
+        if kept := [
+            unit
+            for unit, found in gaps.items()
+            if not found and unit in wanted and work[unit].soils == "user"
+        ]:
+            raise RunError(
+                f"The windows Silex model {model_name} covers ({', '.join(kept)}) hold soil "
+                "columns made by hand, kept as they are: nothing else to invert."
+            )
         raise RunError(
-            f"Silex model {model_name} covers none of the {len(ready)} curves G4 passed: "
-            f"{_left_out(card, gaps)}. Choose another model with petro_models, or tell the user."
+            f"Silex model {model_name} covers none of the {len(wanted & set(ready))} curves to "
+            f"invert: {_left_out(card, gaps)}. Choose another model with petro_models, or tell "
+            "the user."
         )
     if not all(importlib.util.find_spec(name) for name in ("santiludo", "keras", "keras_nlp")):
         raise RunError(
@@ -158,7 +180,10 @@ def invert_petro_line(
     from sigpipe.masw.petro import invert_line_petro, save_line_sections
     from sigpipe.masw.petro.measuring import measure_petro
 
-    archived = _archive(run_folder, manifest)
+    for unit in covered:
+        if work[unit].soils == "user":
+            set_aside(run_folder / unit, "petro_inversion")
+    archived = _archive(run_folder, manifest, covered if units is not None else None)
 
     started_at = datetime.now(UTC)
     stopped: Stopped | None = None
@@ -205,11 +230,14 @@ def invert_petro_line(
             result = judge_petro(outcome.unit, measures, config.petro, others[outcome.unit])
             attempt = attempt.model_copy(update={"results": {result.gate: result}})
         append_attempt(run_folder, afresh(run_folder, attempt))
-    if stopped is None:
+    if stopped is None and units is None:
         # The windows the last inversion had and this one did not invert (their curve out of the
         # model's range now): nothing of it left either.
         for unit in set(archived) - {outcome.unit for outcome in outcomes}:
             forget_history(run_folder, unit, "petro_inversion")
+    if units is not None:
+        # Some windows only: the line judged with the others' soil columns as they stand.
+        measured = {**_measures_in_place(run_folder, manifest), **measured}
 
     passed = _judge_line(run_folder, manifest, config, measured)
     saved = save_line_sections(run_folder, passed, window_length(run_folder))
@@ -285,19 +313,35 @@ def _judge_line(
     return passed
 
 
-def _archive(run_folder: Path, manifest: RunManifest) -> dict[str, int]:
-    """The run's last petrophysical inversion out of the way: each window's files into its
-    attempts/ folder, the line's sections removed (they are written again). The attempt each
-    window's files were archived as, by window."""
+def _archive(
+    run_folder: Path, manifest: RunManifest, units: Sequence[str] | None = None
+) -> dict[str, int]:
+    """The run's last petrophysical inversion out of the way (of `units` alone when given): each
+    window's files into its attempts/ folder, the line's sections removed (they are written
+    again). The attempt each window's files were archived as, by window."""
     attempts = read_attempts(run_folder)
     archived: dict[str, int] = {}
     for window in manifest.windows:
+        if units is not None and window.folder not in units:
+            continue
         if done := attempts_of(attempts, window.folder, "petro_inversion"):
             invalidate(run_folder / window.folder, "petro_inversion", len(done))
             archived[window.folder] = len(done)
     for path in run_folder.glob("PetroInversion_*"):
         path.unlink()
     return archived
+
+
+def _measures_in_place(run_folder: Path, manifest: RunManifest) -> dict[str, PetroMeasures]:
+    """The measures of the soil columns the run's windows hold now, by window."""
+    from sigpipe.masw.petro.measuring import PetroMeasures
+
+    found: dict[str, PetroMeasures] = {}
+    for window in manifest.windows:
+        path = run_folder / window.folder / MEASURES_FILE
+        if path.exists():
+            found[window.folder] = PetroMeasures.model_validate_json(path.read_text())
+    return found
 
 
 def _covering(ready: Mapping[str, DispersionCurve], chosen: str) -> dict[str, list[str]]:

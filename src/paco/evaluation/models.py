@@ -5,13 +5,23 @@ from typing import Literal
 
 from pydantic import BaseModel, ConfigDict, Field
 
-type Kind = Literal["look around", "process and judge", "recover", "the loop", "stuck"]
+type Kind = Literal[
+    "look around",
+    "process and judge",
+    "recover",
+    "the loop",
+    "stuck",
+    "hand work",
+    "positions",
+    "work there",
+    "wording",
+]
 
 
 class CheckResult(BaseModel):
     model_config = ConfigDict(frozen=True)
 
-    name: str  # what was checked, e.g. "called inspect_profile(profile=active_p1)"
+    name: str  # what was checked, e.g. "called inspect(what=profile, profile=active_p1)"
     passed: bool
     detail: str = ""  # why it failed
 
@@ -51,6 +61,8 @@ class EvaluationReport(BaseModel):
     eval_id: str
     model: str
     judge_model: str | None
+    # The prompts' version the plays read (paco.prompts): pass rates are per model and prompts.
+    prompt_version: str | None = None
     started_at: datetime
     # Plays of each scenario: the model samples, so a single play is a noisy measure.
     repeat: int = 1

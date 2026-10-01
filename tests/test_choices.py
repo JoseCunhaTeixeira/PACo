@@ -1,0 +1,485 @@
+"""Before a stage redoes work already there, or changes work made by hand, the user chooses: the
+tools say what is there and give the options, doing nothing, and the agent calls the option the
+request says or asks; work made by hand is replaced only once the user could reply. The same
+conversation goes on with its own work without asking."""
+
+import json
+import shutil
+import uuid
+from collections.abc import Iterator
+from pathlib import Path
+from typing import Any
+
+import anyio
+import numpy as np
+import pytest
+from mcp import Client
+from mcp.types import CallToolResult, RequestParamsMeta
+from sigpipe.base.dispersion_curve import DispersionCurve, Mode
+from sigpipe.masw.picks import CURVES_FILE, load_curves, save_pick
+from sigpipe.masw.runs import RunError, find_run, load_image, load_manifest
+from sigpipe.masw.runs.origin import mark_edited
+
+from paco import choices, inspection, server
+from paco.agent.conversion import result_for_model
+from paco.qc import run_work
+from paco.qc.origin import MODEL_FILES, SOIL_FILES
+from paco.settings import Settings
+
+SMALL_WINDOWS = {"masw": {"length": 24, "step": 24}}
+# A short sampler: every step of an inversion, in about a second per window.
+SHORT = {"n_iterations": 500, "n_burnin_iterations": 50, "n_chains": 2}
+M0 = Mode("M", 0)
+
+
+def _call(
+    name: str,
+    arguments: dict[str, Any],
+    conversation: str,
+    turn: int | None = None,
+    scope: dict[str, Any] | None = None,
+) -> dict[str, Any]:
+    """A tool's result, called in `conversation` (at `turn`, for a message of `scope`) as the
+    host does: its structured content."""
+
+    async def call() -> CallToolResult:
+        async with Client(server.server) as client:
+            meta: RequestParamsMeta = {"conversation": conversation}
+            if turn is not None:
+                meta["turn"] = turn
+            if scope is not None:
+                meta["scope"] = scope
+            return await client.call_tool(name, arguments, meta=meta)
+
+    result = anyio.run(call)
+    assert not result.is_error, result.content
+    content = result.structured_content
+    assert content is not None
+    return content.get("result", content)
+
+
+def _scope(
+    *asked: str, redo: bool = False, hand: str = "unsaid", chosen: str | None = None
+) -> dict[str, Any]:
+    """A message's scope as PACo's host sends it."""
+    return {"asked": list(asked), "redo": redo, "hand_work": hand, "chosen": chosen}
+
+
+def _hand_curve(window: Path) -> DispersionCurve:
+    """An M0 picked by hand in PAC, in place of the window's."""
+    image = load_image(window)
+    fs = np.linspace(10.0, 40.0, 16)
+    curve = DispersionCurve(fs=fs, vs=350.0 - 4.0 * fs, mode=M0, acquisition=image.acquisition)
+    save_pick(window, image, curve)
+    mark_edited(window, M0)
+    return curve
+
+
+@pytest.fixture(scope="module")
+def picked(demo_input_dir: Path, tmp_path_factory: pytest.TempPathFactory) -> tuple[Path, str]:
+    """active_p1 processed and picked by the assistant in an earlier conversation."""
+    root = tmp_path_factory.mktemp("choices")
+    with pytest.MonkeyPatch.context() as patch:
+        patch.setenv("PACO_INPUT_DIR", str(demo_input_dir))
+        patch.setenv("PACO_OUTPUT_DIR", str(root / "outputs"))
+        patch.setenv("PACO_WORKERS", "2")
+        patch.chdir(root)
+        server.get_settings.cache_clear()
+        run_id = _call(
+            "run_processing", {"profile": "active_p1", "overrides": SMALL_WINDOWS}, "earlier"
+        )["run_id"]
+        _call("pick", {"run_id": run_id}, "earlier")
+    server.get_settings.cache_clear()
+    return root / "outputs", run_id
+
+
+@pytest.fixture
+def run(
+    picked: tuple[Path, str], demo_input_dir: Path, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> Iterator[tuple[Settings, str, str]]:
+    """A copy of the picked run, the server writing there, and a new conversation's id."""
+    source, run_id = picked
+    shutil.copytree(source, tmp_path / "outputs")
+    monkeypatch.setenv("PACO_INPUT_DIR", str(demo_input_dir))
+    monkeypatch.setenv("PACO_OUTPUT_DIR", str(tmp_path / "outputs"))
+    monkeypatch.setenv("PACO_WORKERS", "2")
+    monkeypatch.chdir(tmp_path)
+    server.get_settings.cache_clear()
+    yield server.get_settings(), run_id, uuid.uuid4().hex
+    server.get_settings.cache_clear()
+
+
+def test_a_profile_with_a_run_is_processed_again_only_as_the_user_chooses(
+    run: tuple[Settings, str, str],
+) -> None:
+    settings, run_id, new = run
+
+    asked = _call("run_processing", {"profile": "active_p1", "overrides": SMALL_WINDOWS}, new)
+
+    assert asked["run_id"] == run_id
+    assert asked["summary"].startswith(f"Run {run_id} (the assistant's, ")
+    assert "4 images, " in asked["summary"]
+    assert asked["next"].startswith(
+        "Nothing was done. Asked to process, the user chooses how, unless their request says "
+        "which option: ask them with these options"
+    )
+    assert f'invert(run_id="{run_id}")' in asked["next"]
+    # Asked only for the stages the run lacks, the agent goes on from it.
+    assert asked["next"].endswith(
+        f'Asked only to invert: go on without asking, invert(run_id="{run_id}").'
+    )
+    assert (
+        'run_processing(profile="active_p1", overrides={"masw": {"length": 24, "step": 24}}, '
+        "again=true)" in asked["next"]
+    )
+    assert len(list((settings.output_dir / "active_p1").iterdir())) == 1  # nothing done
+    again = _call(
+        "run_processing",
+        {"profile": "active_p1", "overrides": SMALL_WINDOWS, "again": True},
+        new,
+    )
+    assert again["run_id"] != run_id
+    # The same conversation goes on with its own run: processed again, no question.
+    goes_on = _call("run_processing", {"profile": "active_p1", "overrides": SMALL_WINDOWS}, new)
+    assert goes_on["run_id"] not in (run_id, again["run_id"])
+
+
+def test_a_run_with_curves_is_picked_as_the_user_chooses(run: tuple[Settings, str, str]) -> None:
+    settings, run_id, new = run
+    run_folder = find_run(run_id, settings)
+    manifest = load_manifest(run_id, settings)
+    before = run_work(run_folder, manifest)
+
+    asked = _call("pick", {"run_id": run_id}, new)
+
+    assert asked["next"].startswith("Nothing was done. Asked to pick, the user chooses how")
+    assert f'pick(run_id="{run_id}", windows="all")' in asked["next"]
+    assert f'pick(run_id="{run_id}", positions=["<m>"])' in asked["next"]
+    assert run_work(run_folder, manifest) == before
+    missing = [unit for unit, one in before.items() if one.image and one.m0 is None]
+    if missing:
+        assert f'pick(run_id="{run_id}", windows="missing")' in asked["next"]
+
+
+def test_a_curve_picked_by_hand_is_replaced_only_once_the_user_could_reply(
+    run: tuple[Settings, str, str],
+) -> None:
+    settings, run_id, new = run
+    run_folder = find_run(run_id, settings)
+    window = run_folder / "xmid_8.88"
+    hand = _hand_curve(window)
+    every = {"run_id": run_id, "windows": "all"}
+
+    asked = _call("pick", every, new, turn=1)
+    # Replaced in the turn the question was shown: the user has not replied, asked again.
+    unanswered = _call("pick", {**every, "hand": "replace"}, new, turn=1)
+    kept = _call("pick", {**every, "hand": "keep"}, new, turn=2)
+
+    assert asked["summary"] == "Curves picked by hand at xmid 8.88 (1), which pick would change."
+    assert "it is replaced only once they have replied" in asked["next"]
+    assert 'windows="all", hand="replace")' in asked["next"]
+    assert unanswered == asked
+    assert "Retries" in kept["summary"]
+    saved = load_curves(window)
+    assert saved is not None
+    np.testing.assert_allclose(saved.dispersion_curves[0].vs, hand.vs, rtol=1e-3)
+    # The user kept it: replacing it later asks again.
+    assert _call("pick", {**every, "hand": "replace"}, new, turn=3) == asked
+
+    _call("pick", {**every, "hand": "replace"}, new, turn=4)
+
+    saved = load_curves(window)
+    assert saved is not None and not np.allclose(saved.dispersion_curves[0].vs[:3], hand.vs[:3])
+    (aside,) = (window / "by_hand").iterdir()
+    assert aside.name.startswith("picking_") and (aside / "DispersionCurves_0000.csv").exists()
+
+
+def test_models_and_soil_columns_already_there_are_the_users_choice(
+    run: tuple[Settings, str, str],
+) -> None:
+    settings, run_id, new = run
+    run_folder = find_run(run_id, settings)
+    manifest = load_manifest(run_id, settings)
+    # A model and a soil column made in PAC's inversion pages, at xmid 8.88.
+    window = run_folder / "xmid_8.88"
+    (window / MODEL_FILES.replace("*", "Model_0000_best.csv")).write_text("depth,vs\n")
+    (window / SOIL_FILES.replace("*", "Model_0000.csv")).write_text("depth,soil\n")
+
+    conversation = choices.Conversation(new)
+    inverting = choices.inverting(run_folder, manifest, conversation, None, None, None)
+    everything = choices.inverting(run_folder, manifest, conversation, None, "all", None)
+    kept = choices.inverting(run_folder, manifest, conversation, None, "all", "keep")
+    soils = choices.soils(run_folder, manifest, conversation, "a model", None, None)
+
+    assert isinstance(inverting, choices.Choice)
+    assert "1 model (1 by hand)" in inverting.summary
+    assert isinstance(everything, choices.Choice)
+    assert everything.summary.startswith("Models made by hand at xmid 8.88")
+    assert isinstance(kept, choices.Plan) and kept.units is not None
+    assert "xmid_8.88" not in kept.units and not kept.replace_hand
+    assert isinstance(soils, choices.Choice)
+    assert "1 soil column (1 by hand)" in soils.summary
+    # Worked on in the conversation: its own work, gone on with.
+    choices.worked(conversation, run_id)
+    assert isinstance(
+        choices.inverting(run_folder, manifest, conversation, None, None, None), choices.Plan
+    )
+
+
+def test_positions_narrow_every_window_or_those_without_one(
+    run: tuple[Settings, str, str],
+) -> None:
+    settings, run_id, new = run
+    run_folder = find_run(run_id, settings)
+    manifest = load_manifest(run_id, settings)
+    conversation = choices.Conversation(new)
+    at_9 = ["xmid_8.88"]
+
+    missing = choices.inverting(run_folder, manifest, conversation, at_9, "missing", None)
+    every = choices.inverting(run_folder, manifest, conversation, at_9, "all", None)
+
+    assert missing == choices.Plan(units=at_9) and every == choices.Plan(units=at_9)
+    with pytest.raises(RunError, match="has a curve in every window asked"):
+        choices.picking(run_folder, manifest, conversation, at_9, "missing", None)
+
+
+def test_every_window_of_a_run_without_curves_is_its_first_pick(
+    run: tuple[Settings, str, str],
+) -> None:
+    # Picked as a first pick (not an asked one): the earlier stages G2 and G3 blame are done
+    # again once, and no starting value reads as a change.
+    settings, run_id, new = run
+    run_folder = find_run(run_id, settings)
+    manifest = load_manifest(run_id, settings)
+    for window in manifest.windows:
+        (run_folder / window.folder / CURVES_FILE).unlink(missing_ok=True)
+
+    planned = choices.picking(run_folder, manifest, choices.Conversation(new), None, "all", None)
+
+    assert planned == choices.Plan(units=None)
+
+
+def test_a_redo_over_work_made_by_hand_asks_first(run: tuple[Settings, str, str]) -> None:
+    settings, run_id, _ = run
+    run_folder = find_run(run_id, settings)
+    _hand_curve(run_folder / "xmid_8.88")
+    work = run_work(run_folder, load_manifest(run_id, settings))
+
+    unknown = choices.Conversation()
+
+    asked = choices.redoing(
+        unknown,
+        run_id,
+        "phase_shift",
+        ["xmid_2.88", "xmid_8.88"],
+        work,
+        None,
+        {"dispersion": {"vmax": 900}},
+    )
+
+    assert asked is not None and asked.summary.startswith("Work made by hand at xmid 8.88")
+    assert '"changes": ' not in asked.next and 'changes={"dispersion": {"vmax": 900}}' in asked.next
+    assert choices.redoing(unknown, run_id, "phase_shift", ["xmid_2.88"], work, None, None) is None
+    assert (
+        choices.redoing(unknown, run_id, "phase_shift", ["xmid_8.88"], work, "keep", None) is None
+    )
+
+
+def test_a_result_of_one_of_two_models_reaches_the_model_unwrapped() -> None:
+    wrapped = CallToolResult(
+        content=[], structured_content={"result": {"job_id": "j", "state": "queued"}}
+    )
+
+    assert json.loads(result_for_model(wrapped)) == {"job_id": "j", "state": "queued"}
+
+
+# ---------------------------------------------------------------- with the message's scope
+
+
+def test_a_stage_the_message_does_not_ask_goes_on_from_the_run(
+    run: tuple[Settings, str, str],
+) -> None:
+    settings, run_id, new = run
+    invert = _scope("invert")
+
+    processed = _call("run_processing", {"profile": "active_p1"}, new, 1, invert)
+    picked = _call("pick", {"run_id": run_id}, new, 1, invert)
+
+    # No question: the way on, from the run's curves.
+    for result in (processed, picked):
+        assert result["next"].endswith(
+            f'Go on from this run without asking: invert(run_id="{run_id}").'
+        )
+        assert result["options"] == []
+    assert processed["next"].startswith(
+        f"Nothing was done: this message does not ask to process active_p1, whose run {run_id} "
+        "is there."
+    )
+    assert len(list((settings.output_dir / "active_p1").iterdir())) == 1
+
+
+def test_work_there_is_asked_about_unless_the_message_asks_to_redo_it(
+    run: tuple[Settings, str, str],
+) -> None:
+    settings, run_id, new = run
+    run_folder = find_run(run_id, settings)
+    manifest = load_manifest(run_id, settings)
+    before = run_work(run_folder, manifest)
+
+    # Every window again, and a new run, unasked by the message: the question, nothing done.
+    asked = _call("pick", {"run_id": run_id, "windows": "all"}, new, 1, _scope("pick"))
+    again = _call(
+        "run_processing", {"profile": "active_p1", "again": True}, new, 1, _scope("process")
+    )
+
+    assert asked["next"].startswith("Nothing was done. Asked to pick, the user chooses how")
+    labels = [option["label"] for option in asked["options"]]
+    assert "pick every window again" in labels
+    assert again["next"].startswith("Nothing was done. Asked to process")
+    assert run_work(run_folder, manifest) == before
+    # Asked to redo: done, without a question.
+    redone = _call("pick", {"run_id": run_id}, new, 1, _scope("pick", redo=True))
+    assert "Retries" in redone["summary"] and redone["options"] == []
+
+
+def test_hand_work_is_replaced_when_the_message_asks_it_or_chose_it(
+    run: tuple[Settings, str, str],
+) -> None:
+    settings, run_id, new = run
+    window = find_run(run_id, settings) / "xmid_8.88"
+    hand = _hand_curve(window)
+    every = {"run_id": run_id, "windows": "all"}
+
+    # The model's own replace, the message silent on it: the question, in any turn.
+    unasked = _call("pick", {**every, "hand": "replace"}, new, 5, _scope("pick", redo=True))
+    assert unasked["summary"] == "Curves picked by hand at xmid 8.88 (1), which pick would change."
+    assert [option["label"] for option in unasked["options"]] == [
+        "keep it as it is",
+        "replace it, theirs set aside in the window's by_hand folder",
+    ]
+    saved = load_curves(window)
+    assert saved is not None
+    np.testing.assert_allclose(saved.dispersion_curves[0].vs, hand.vs, rtol=1e-3)
+
+    # The option chosen in the next message: replaced.
+    chosen = unasked["options"][1]["call"]
+    _call("pick", {**every, "hand": "replace"}, new, 6, _scope("pick", chosen=chosen))
+
+    saved = load_curves(window)
+    assert saved is not None and not np.allclose(saved.dispersion_curves[0].vs[:3], hand.vs[:3])
+    # The message's own words, in its first turn: replaced too.
+    _hand_curve(window)
+    _call("pick", every, new, 7, _scope("pick", redo=True, hand="replace"))
+    assert len(list((window / "by_hand").iterdir())) == 2
+
+
+def test_what_a_message_asks_holds_for_its_own_stages_only(
+    run: tuple[Settings, str, str],
+) -> None:
+    settings, run_id, new = run
+    run_folder = find_run(run_id, settings)
+    manifest = load_manifest(run_id, settings)
+
+    def conversation(**asked: Any) -> choices.Conversation:  # noqa: ANN401
+        return choices.Conversation(new, 1, choices.Asked(**asked))
+
+    invert_again = conversation(stages=frozenset({"invert"}), redo=True)
+    # Picking unasked, at a position whose curve is there: no pick, the way on.
+    at_9 = choices.picking(run_folder, manifest, invert_again, ["xmid_8.88"], None, None)
+    # "Redo the inversion" asks no picking again: every window's curve stays.
+    every = choices.picking(run_folder, manifest, invert_again, None, "all", None)
+
+    for planned in (at_9, every):
+        assert isinstance(planned, choices.Choice)
+        assert planned.next.endswith(
+            f'Go on from this run without asking: invert(run_id="{run_id}").'
+        )
+    assert invert_again.allows("invert", 'windows="all"')
+    assert not invert_again.allows("pick", 'windows="all"')
+    # Hand work replaced where the message asked it, and there only.
+    curves_too = conversation(stages=frozenset({"pick"}), hand_work="replace")
+    assert curves_too.hand(None, "pick", "pick") == "replace"
+    assert curves_too.hand("keep", "pick", "pick") == "replace"  # the user's words first
+    assert curves_too.hand(None, "redo", "process") is None
+    assert curves_too.hand("replace", "invert", "invert") is None
+    chose = conversation(stages=frozenset({"pick"}), chosen='pick(run_id="r", hand="replace")')
+    assert chose.hand("replace", "pick", "pick") == "replace"
+    assert chose.hand("replace", "invert_petro", "soils") is None
+
+
+def test_processing_unasked_goes_on_to_the_first_stage_asked(
+    run: tuple[Settings, str, str],
+) -> None:
+    # Asked to pick and invert a profile whose curves are there: picking comes first, and asks.
+    settings, run_id, new = run
+    asked = choices.Conversation(new, 1, choices.Asked(frozenset({"pick", "invert"})))
+
+    planned = choices.processing("active_p1", asked, settings, {})
+
+    assert planned is not None
+    assert planned.next.endswith(f'Go on from this run without asking: pick(run_id="{run_id}").')
+
+
+def _inverted(
+    arguments: dict[str, Any], conversation: str, turn: int, scope: dict[str, Any] | None = None
+) -> dict[str, Any]:
+    """invert's job, with a short sampler, followed to its end: its last status."""
+    status = _call("invert", {**arguments, "parameters": SHORT}, conversation, turn, scope)
+    while status["state"] in ("queued", "running"):
+        status = _call("job_status", {"job_id": status["job_id"]}, conversation, turn, scope)
+    return status
+
+
+def test_a_window_without_a_curve_among_those_asked_is_left_out_not_the_batch(
+    run: tuple[Settings, str, str],
+) -> None:
+    # xmid 2.88's curve removed: an inversion asked there and at 9 m inverts xmid 8.88, and
+    # says which window it left out.
+    settings, run_id, new = run
+    (find_run(run_id, settings) / "xmid_2.88" / CURVES_FILE).unlink()
+
+    status = _inverted({"run_id": run_id, "positions": [3, 9]}, new, 1)
+
+    assert (status["state"], status["total"]) == ("succeeded", 1)
+    assert "Left out, without a curve the inversion takes: xmid 2.88 (1)." in status["notes"]
+
+
+def test_with_a_scope_the_positions_are_the_messages(run: tuple[Settings, str, str]) -> None:
+    _, run_id, new = run
+    at_9 = {**_scope("invert"), "positions_m": [9.0]}
+
+    # The model's own positions: the message's instead.
+    status = _inverted({"run_id": run_id, "positions": [15, 21]}, new, 1, at_9)
+
+    assert status["total"] == 1
+    assert any(note.startswith("Positions: 9 m: xmid 8.88") for note in status["notes"])
+
+
+def test_picking_changes_are_picking_settings() -> None:
+    with pytest.raises(
+        ValueError, match=r"Not picking settings: mode\. The picking settings: "
+    ) as error:
+        server.checked_picking({"mode": "M1", "threshold": 0.4})
+    # What to do next: pick M0 without them, and where the higher modes are picked.
+    assert "Call pick again without them: it picks M0." in str(error.value)
+    assert server.checked_picking({"threshold": 0.4}) == {"threshold": 0.4}
+
+
+def test_a_run_whose_manifest_does_not_read_is_not_gone_on_from(
+    run: tuple[Settings, str, str],
+) -> None:
+    # A run being written, or broken, beside the profile's run: skipped, never the tool's
+    # failure.
+    settings, run_id, new = run
+    broken = settings.output_dir / "active_p1" / "20260930-235959-ffff"
+    broken.mkdir()
+    (broken / "run.json").write_text("{}")
+
+    asked = _call("run_processing", {"profile": "active_p1"}, new)
+    runs = inspection.runs_text(settings)
+
+    assert asked["run_id"] == run_id
+    assert f"Run {run_id}: active_p1 (active)" in runs
+    assert (
+        "Run 20260930-235959-ffff: its manifest does not read (being written, or broken)." in runs
+    )

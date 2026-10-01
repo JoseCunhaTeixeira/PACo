@@ -12,7 +12,7 @@ from pathlib import Path
 import anyio
 from mcp import Client
 
-from paco import server
+from paco import prompts, server
 from paco.agent import Agent, ChatModel
 from paco.evaluation.checks import Trial
 from paco.evaluation.defects import build_inputs
@@ -67,6 +67,7 @@ async def run_evaluation(
         eval_id=eval_id,
         model=model_name,
         judge_model=judge_name if judge_model is not None else None,
+        prompt_version=prompts.version(),
         started_at=started_at,
         repeat=repeat,
         results=tuple(results),
@@ -92,6 +93,8 @@ async def run_scenario(
     outputs = folder / "outputs"
     start = time.perf_counter()
     with _server_settings(outputs, inputs):
+        if scenario.setup is not None:
+            scenario.setup(get_settings())
         async with Client(server.server) as client:
             agent = await Agent.start(client, model, on_event=on_event)
             for question in scenario.questions:

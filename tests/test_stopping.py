@@ -3,10 +3,11 @@ runs in and a job takes it along, a new run stopped is removed whole, a redo sto
 window back what it had, and an answer stopped midway leaves a conversation the model can read."""
 
 import contextvars
+import json
 import threading
 from collections.abc import Iterator
 from pathlib import Path
-from typing import cast
+from typing import Any, cast
 
 import anyio
 import pytest
@@ -16,10 +17,24 @@ from sigpipe.masw.runs import Stopped, find_run, run_processing
 
 from paco import stopping
 from paco.agent.loop import STOPPED, Agent
-from paco.agent.model import Reply, ToolCall
+from paco.agent.model import Filled, Reply, ToolCall
 from paco.qc import QCConfig, invalidate, process_line, read_attempts, rerun_phase_shift
 from paco.qc.attempts import restore
 from paco.settings import Settings
+
+# The scope of a message that only looks at what exists.
+LOOK = {
+    "process": False,
+    "pick": False,
+    "invert": False,
+    "soils": False,
+    "profile": None,
+    "run_id": None,
+    "positions_m": [],
+    "redo": False,
+    "replace_hand_work": False,
+    "option": None,
+}
 
 SMALL_WINDOWS = {"masw": {"length": 24, "step": 24}}
 
@@ -149,17 +164,26 @@ def test_an_answer_stopped_midway_leaves_a_conversation_the_model_can_read() -> 
     replies = [
         Reply(
             content="",
-            tool_calls=(ToolCall(id="call_0", name="list_profiles", arguments="{}"),),
+            tool_calls=(ToolCall(id="call_0", name="inspect", arguments='{"what": "runs"}'),),
         )
     ]
 
-    async def model(
-        messages: list[ChatCompletionMessageParam], tools: list[ChatCompletionFunctionToolParam]
-    ) -> Reply:
-        del messages, tools  # the reply is scripted
-        return replies.pop(0)
+    class Model:
+        async def __call__(
+            self,
+            messages: list[ChatCompletionMessageParam],
+            tools: list[ChatCompletionFunctionToolParam],
+        ) -> Reply:
+            del messages, tools  # the reply is scripted
+            return replies.pop(0)
 
-    agent = Agent(cast(Client, _Endless()), model, [], None, on_event=lambda _: None)
+        async def fill(
+            self, messages: list[ChatCompletionMessageParam], schema: dict[str, Any]
+        ) -> Filled:
+            del messages, schema  # a message that only looks
+            return Filled(content=json.dumps({**LOOK}))
+
+    agent = Agent(cast(Client, _Endless()), Model(), [], None, on_event=lambda _: None)
 
     async def ask() -> None:
         with anyio.move_on_after(0.5):

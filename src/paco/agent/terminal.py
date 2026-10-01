@@ -29,7 +29,7 @@ async def chat() -> None:
     client = AsyncOpenAI(
         base_url=settings.llm_base_url, api_key=settings.llm_api_key.get_secret_value()
     )
-    model = OpenAIChat(client, settings.llm_model)
+    model = OpenAIChat(client, settings.llm_model, settings.llm_temperature, settings.llm_seed)
     async with Client(settings.mcp_url) as server:
         agent = await Agent.start(server, model, settings.max_tool_calls)
         print(f"PACo's agent, with {settings.llm_model}. Type exit to leave.")

@@ -10,6 +10,7 @@ logs/
 
 .claude/
 PROGRESS.md
+AGENT_GUIDELINES.md
 
 # Byte-compiled / optimized / DLL files
 __pycache__/

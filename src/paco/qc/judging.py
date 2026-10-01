@@ -57,6 +57,7 @@ from paco.qc.log import (
 )
 from paco.qc.loops import deep_merge
 from paco.qc.models import Attempt, GateResult, Stage
+from paco.qc.origin import run_work
 from paco.qc.report import QCReport, build_report, write_report
 from paco.qc.shots import (
     file_triggers,
@@ -238,7 +239,14 @@ def judge_picking(
     started_at = datetime.now(UTC)
     previous = len(attempts_of(read_attempts(run_folder), unit, "picking"))
     g3 = _pick(
-        run_folder, unit, picking, config.curve, band, previous, _mutable(run_folder, unit), image
+        run_folder,
+        unit,
+        picking,
+        config.curve,
+        band,
+        previous,
+        mutable_window(run_folder, unit),
+        image,
     )
     _log_pick(run_folder, unit, previous, picking, triggered_by, started_at, g3)
     return g3
@@ -257,7 +265,7 @@ def pick_windows(
     they end. G3's results by window."""
     attempts = read_attempts(run_folder)
     previous = {unit: len(attempts_of(attempts, unit, "picking")) for unit in jobs}
-    mutable = {unit: _mutable(run_folder, unit) for unit in jobs}
+    mutable = {unit: mutable_window(run_folder, unit) for unit in jobs}
     started_at = datetime.now(UTC)
     results: dict[str, GateResult] = {}
 
@@ -314,13 +322,17 @@ def _pick(
     return judge_curve(unit, image, m0, thresholds, band, picking, nearest_offset(folder), mutable)
 
 
-def _mutable(run_folder: Path, unit: str) -> bool:
+def mutable_window(run_folder: Path, unit: str) -> bool:
     """Whether window `unit`'s records can be muted: not a passive line's (its preset has no
-    muting), nor records muted already (no retry that could not change them)."""
+    muting), nor records muted already (no retry that could not change them), nor an image made
+    in PAC's pages (a person's, never made again)."""
     manifest = RunManifest.model_validate_json((run_folder / "run.json").read_text())
     if "muting" not in type(manifest.preset).model_fields:
         return False
-    muted = muted_records(manifest.preset, read_attempts(run_folder), latest)
+    attempts = read_attempts(run_folder)
+    if not attempts_of(attempts, unit, "phase_shift"):
+        return False
+    muted = muted_records(manifest.preset, attempts, latest)
     return not window_muted(run_folder / unit, muted)
 
 
@@ -354,25 +366,34 @@ def _log_pick(
 
 def judge_line(run_folder: Path, manifest: RunManifest, config: QCConfig) -> tuple[GateResult, ...]:
     """G4 over the line: the saved M0 curve of every window whose latest pick passed G3, each
-    against its neighbours. A window's verdict goes to its latest picking attempt, the line's
-    own (the coverage) to an attempt of the unit "line"."""
+    against its neighbours, a person's curves among them as trusted references (never judged).
+    A window's verdict goes to its latest picking attempt, the line's own (the coverage) to an
+    attempt of the unit "line". No automatic curve on the line (a run picked by hand): no G4."""
     attempts = read_attempts(run_folder)
+    work = run_work(run_folder, manifest, attempts)
     curves: list[Series] = []
+    trusted: set[str] = set()
     without: list[float] = []
     for window in manifest.windows:
+        state = work[window.folder].m0
+        path = run_folder / window.folder / CURVES_FILE
         picked = latest(attempts, window.folder, "picking")
         g3 = picked.results.get("G3") if picked else None
         curve = (
-            saved_m0(run_folder / window.folder / CURVES_FILE)
-            if g3 is not None and g3.verdict == "pass"
+            saved_m0(path)
+            if state == "user" or (state == "judged" and g3 is not None and g3.verdict == "pass")
             else None
         )
         if curve is None:
             without.append(window.xmid)
-        else:
-            curves.append(Series.from_curve(window.folder, window.xmid, curve))
+            continue
+        curves.append(Series.from_curve(window.folder, window.xmid, curve))
+        if state == "user":
+            trusted.add(window.folder)
+    if not any(one.m0 in ("judged", "unjudged") for one in work.values()):
+        return ()
     started_at = datetime.now(UTC)
-    results = judge_profile(curves, config.profile, without)
+    results = judge_profile(curves, config.profile, without, frozenset(trusted))
     for result in results:
         if result.unit != LINE:
             _judge_latest(run_folder, result.unit, "picking", result)

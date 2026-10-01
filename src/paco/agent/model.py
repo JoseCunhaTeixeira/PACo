@@ -3,13 +3,16 @@ tests use a scripted one."""
 
 import re
 from dataclasses import dataclass
-from typing import Protocol
+from typing import Any, Protocol
 
 from openai import AsyncOpenAI
 from openai.types.chat import ChatCompletionFunctionToolParam, ChatCompletionMessageParam
 
 # Qwen3 thinks aloud between these tags, unless vLLM's reasoning parser removes them.
 _THINKING = re.compile(r"<think>.*?</think>\s*", re.DOTALL)
+# The tokens a form may take: a filled scope takes about 100; the cap ends a model repeating
+# itself inside a list, which constrained decoding allows.
+FORM_TOKENS = 400
 
 
 @dataclass(frozen=True, slots=True)
@@ -28,6 +31,13 @@ class Reply:
     completion_tokens: int | None = None
 
 
+@dataclass(frozen=True, slots=True)
+class Filled:
+    content: str  # the form as the model filled it: JSON text, not necessarily valid
+    prompt_tokens: int | None = None
+    completion_tokens: int | None = None
+
+
 class ChatModel(Protocol):
     async def __call__(
         self,
@@ -35,13 +45,34 @@ class ChatModel(Protocol):
         tools: list[ChatCompletionFunctionToolParam],
     ) -> Reply: ...
 
+    async def fill(
+        self,
+        messages: list[ChatCompletionMessageParam],
+        schema: dict[str, Any],
+    ) -> Filled:
+        """A form filled under `schema`: the model's output is constrained to it."""
+        ...
+
 
 class OpenAIChat:
-    """A model behind an OpenAI-compatible chat API, such as vLLM's."""
+    """A model behind an OpenAI-compatible chat API, such as vLLM's. `temperature` and `seed`
+    are the conversation's sampling (None: the server's own); a form is filled at temperature
+    0, without thinking."""
 
-    def __init__(self, client: AsyncOpenAI, model: str) -> None:
+    def __init__(
+        self,
+        client: AsyncOpenAI,
+        model: str,
+        temperature: float | None = None,
+        seed: int | None = None,
+    ) -> None:
         self._client = client
         self._model = model
+        self._sampling: dict[str, Any] = {
+            key: value
+            for key, value in (("temperature", temperature), ("seed", seed))
+            if value is not None
+        }
 
     async def __call__(
         self,
@@ -55,6 +86,7 @@ class OpenAIChat:
             # One call per reply: in a batch, the model makes up what a call needs from the one
             # before it (a run_id). vLLM then keeps the first call only.
             parallel_tool_calls=False,
+            **self._sampling,
         )
         message = response.choices[0].message
         calls = tuple(
@@ -66,6 +98,31 @@ class OpenAIChat:
         return Reply(
             content=without_thinking(message.content or ""),
             tool_calls=calls,
+            prompt_tokens=usage.prompt_tokens if usage else None,
+            completion_tokens=usage.completion_tokens if usage else None,
+        )
+
+    async def fill(
+        self,
+        messages: list[ChatCompletionMessageParam],
+        schema: dict[str, Any],
+    ) -> Filled:
+        response = await self._client.chat.completions.create(
+            model=self._model,
+            messages=messages,
+            temperature=0,
+            max_tokens=FORM_TOKENS,
+            response_format={
+                "type": "json_schema",
+                "json_schema": {"name": "form", "strict": True, "schema": schema},
+            },
+            # Qwen3's thinking takes 5 to 20 s before a form and fills it no better; a chat
+            # template without this switch ignores it.
+            extra_body={"chat_template_kwargs": {"enable_thinking": False}},
+        )
+        usage = response.usage
+        return Filled(
+            content=without_thinking(response.choices[0].message.content or ""),
             prompt_tokens=usage.prompt_tokens if usage else None,
             completion_tokens=usage.completion_tokens if usage else None,
         )

@@ -6,8 +6,8 @@ asks for tool calls, and reads compact results.
 
 from .conversion import result_for_model, tools_for_model
 from .loop import Agent
-from .model import ChatModel, OpenAIChat, Reply, ToolCall, without_thinking
-from .record import ModelStep, Step, ToolStep, Transcript, save_transcript
+from .model import ChatModel, Filled, OpenAIChat, Reply, ToolCall, without_thinking
+from .record import ModelStep, ScopeStep, Step, ToolStep, Transcript, save_transcript
 from .settings import AgentSettings
 from .terminal import chat
 
@@ -15,9 +15,11 @@ __all__ = [
     "Agent",
     "AgentSettings",
     "ChatModel",
+    "Filled",
     "ModelStep",
     "OpenAIChat",
     "Reply",
+    "ScopeStep",
     "Step",
     "ToolCall",
     "ToolStep",
