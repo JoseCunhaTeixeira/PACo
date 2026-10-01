@@ -9,6 +9,7 @@ from typing import Any, NamedTuple
 
 from sigpipe.masw.runs.history import LOG_FILE, downstream, forget, log_lock
 from sigpipe.masw.runs.models import RunManifest
+from sigpipe.masw.runs.origin import JUDGED
 
 from paco.qc.models import Attempt, GateResult, Stage
 
@@ -22,11 +23,16 @@ def append_attempt(run_folder: Path, attempt: Attempt) -> None:
         file.write(attempt.model_dump_json() + "\n")
 
 
+# The trigger of a stage the user asked for, for some windows: done afresh, outside the run's
+# retry budget (the gates' retries within it still on it).
+ASKED = "asked"
+
+
 def starts_afresh(triggered_by: str) -> bool:
     """Whether an attempt triggered so starts its unit's stage afresh: the first one, or one the
-    agent was asked to do again (a backtrack); a retry a gate asked for goes on from the
-    attempts before it."""
-    return triggered_by in ("initial", "backtrack")
+    agent went back for (a backtrack) or the user asked for; a retry a gate asked for goes on
+    from the attempts before it."""
+    return triggered_by in ("initial", "backtrack", ASKED)
 
 
 class Forgotten(NamedTuple):
@@ -132,9 +138,10 @@ def retries_in_run(attempts: Iterable[Attempt]) -> int:
 
 
 def _on_run_budget(attempt: Attempt) -> int:
-    """1 when `attempt` is a retry the run's budget pays for, else 0."""
+    """1 when `attempt` is a retry the run's budget pays for, else 0: not the first, nor one the
+    user asked for, nor a judgement of a curve as it is (JUDGED)."""
     return int(
-        attempt.triggered_by != "initial"
+        attempt.triggered_by not in ("initial", ASKED, JUDGED)
         and not attempt.triggered_by.startswith("G1:")
         and not _by_inversion_gate(attempt)
     )

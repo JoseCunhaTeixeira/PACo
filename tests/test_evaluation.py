@@ -10,7 +10,7 @@ from openai.types.chat import ChatCompletionFunctionToolParam, ChatCompletionMes
 from sigpipe.masw.profiles import load_profile
 from sigpipe.masw.runs import RunManifest
 
-from paco.agent import Reply, Step, ToolCall, ToolStep, Transcript
+from paco.agent import Filled, Reply, Step, ToolCall, ToolStep, Transcript
 from paco.evaluation import (
     SCENARIOS,
     CheckResult,
@@ -42,6 +42,7 @@ from paco.evaluation.checks import (
     no_inversion_started,
     no_settings_invented,
     not_succeeded,
+    nothing_redone,
     only_called,
     processed_in_mode,
     retried_value,
@@ -51,6 +52,13 @@ from paco.evaluation.checks import (
     windows_than_proposed,
 )
 from paco.evaluation.defects import build_inputs
+from paco.evaluation.scope_set import (
+    CASES,
+    NOTHING,
+    ScopeReport,
+    format_scope_report,
+    read_scopes,
+)
 from paco.inversion import InversionRecord, JobState, WindowInversion
 from paco.qc import (
     Attempt,
@@ -64,12 +72,28 @@ from paco.qc import (
     snapshot_qc_config,
 )
 from paco.qc.coherence import COHERENCE_FILE
+from paco.qc.log import JUDGED
 from paco.settings import Settings
 
 SMALL_WINDOWS = {"masw": {"length": 24, "step": 24}}
 
 type Policy = Callable[[list[ChatCompletionMessageParam]], Reply]
 type WindowStatus = Literal["succeeded", "failed"]
+
+
+# A message's scope asking every stage: the tools behave as without a scope.
+EVERYTHING = {
+    "process": True,
+    "pick": True,
+    "invert": True,
+    "soils": True,
+    "profile": None,
+    "run_id": None,
+    "positions_m": [],
+    "redo": False,
+    "replace_hand_work": False,
+    "option": None,
+}
 
 
 class PolicyModel:
@@ -84,6 +108,14 @@ class PolicyModel:
         tools: list[ChatCompletionFunctionToolParam],  # noqa: ARG002
     ) -> Reply:
         return self._policy(messages)
+
+    async def fill(
+        self,
+        messages: list[ChatCompletionMessageParam],  # noqa: ARG002
+        schema: dict[str, Any],  # noqa: ARG002
+    ) -> Filled:
+        """Every form filled as a message asking every stage: the tools as without a scope."""
+        return Filled(content=json.dumps(EVERYTHING))
 
 
 def _calls(name: str, arguments: dict[str, Any]) -> Reply:
@@ -380,6 +412,19 @@ def test_the_loops_retries_are_read_from_the_qc_log(tmp_path: Path) -> None:
     assert retried_value("inversion", "n_iterations")(trial) == "(no retry)"
 
 
+def test_nothing_redone_reads_the_attempts_made_during_the_conversation(tmp_path: Path) -> None:
+    run = tmp_path / "active_p1" / "20260924-100000-abcd"
+    run.mkdir(parents=True)
+    append_attempt(run, _attempt("xmid_2.88", "picking", JUDGED, {}))
+    during = _trial([], "", tmp_path)  # started on 2026-09-23, before the attempts
+
+    assert nothing_redone("picking")(during).passed  # a judgement redoes nothing
+    append_attempt(run, _attempt("xmid_2.88", "picking", "asked", {}))
+    redone = nothing_redone("picking")(during)
+    assert (redone.passed, redone.detail) == (False, "1 attempt(s), as xmid_2.88 picking")
+    assert nothing_redone("preprocessing", "phase_shift")(during).passed
+
+
 def test_thresholds_must_stay_the_configurations(tmp_path: Path, paco_env: Settings) -> None:
     # The server's configuration as its environment gives it (paco_env's), not whatever the
     # machine running the tests sets.
@@ -478,8 +523,14 @@ def test_the_agent_asks_or_not() -> None:
     for options in (
         "1. Redo. 2. New run. 3. Stop. Choose one to proceed.",
         "<options>1, 2</options>",
+        "Here are your choices: 1. Pick all again. 2. Invert. Select your preference.",
+        "Tell me which you prefer: pick again, or invert as they are.",
     ):
         assert asked_the_user()(_trial([], options)).passed
+    # Words of a report are no question.
+    assert asked_nothing()(
+        _trial([], "G3 selected 3 windows; the choice of length was mine.")
+    ).passed
 
 
 def test_no_settings_invented() -> None:
@@ -682,8 +733,9 @@ def _play(name: str, policy: Policy, folder: Path, judge_says: str | None = None
 def lists_profiles(messages: list[ChatCompletionMessageParam]) -> Reply:
     results = _results(messages)
     if not results:
-        return _calls("list_profiles", {})
-    return _says("You can process " + " and ".join(json.loads(results[0])["result"]) + ".")
+        return _calls("inspect", {"what": "profiles"})
+    names = [line.split(":")[0] for line in results[0].splitlines()]
+    return _says("You can process " + " and ".join(names) + ".")
 
 
 def invents_an_answer(_messages: list[ChatCompletionMessageParam]) -> Reply:
@@ -705,12 +757,15 @@ def test_a_good_policy_passes_and_is_judged(tmp_path: Path) -> None:
     result = _play("list_profiles", lists_profiles, tmp_path, '{"score": 5, "reason": "Exact."}')
 
     assert result.passed
-    assert result.answer == "You can process active_p1 and passive_p1."
+    assert result.answer == (
+        "Scope: process, pick, invert, soils.\n\nYou can process active_p1 and passive_p1."
+    )
     assert (result.tool_calls, result.failed_calls) == (1, 0)
     assert result.judge == JudgeScore(score=5, reason="Exact.")
     saved = Transcript.model_validate_json((tmp_path / "transcript.json").read_text())
     assert saved.answer == result.answer
-    assert [step.kind for step in saved.steps] == ["model", "tool", "model"]
+    # The message's scope first, then the model and its call.
+    assert [step.kind for step in saved.steps] == ["scope", "model", "tool", "model"]
 
 
 @pytest.mark.usefixtures("paco_env")
@@ -893,3 +948,50 @@ def test_the_report_table_with_repeats() -> None:
         "Failed checks:\n"
         "  inversion_approved #2: invert succeeded (-)"
     )
+
+
+# ---------------------------------------------------------------- the scope set
+
+
+class LabelModel:
+    """Fills each form with the label of its message, but one field wrong in one of them."""
+
+    async def __call__(
+        self,
+        messages: list[ChatCompletionMessageParam],  # noqa: ARG002
+        tools: list[ChatCompletionFunctionToolParam],  # noqa: ARG002
+    ) -> Reply:
+        raise AssertionError("the scope set fills forms only")
+
+    async def fill(
+        self,
+        messages: list[ChatCompletionMessageParam],
+        schema: dict[str, Any],  # noqa: ARG002
+    ) -> Filled:
+        text = str(messages[-1].get("content"))
+        message = text.rsplit("Message: ", 1)[-1]
+        (case,) = [case for case in CASES if case.message == message]
+        form = {**NOTHING, **case.expected}
+        if message == "invret active_p1":
+            form["soils"] = True
+        return Filled(content=json.dumps(form))
+
+
+def test_the_scope_set_scores_each_field_of_each_form(tmp_path: Path) -> None:
+    events: list[str] = []
+
+    report = anyio.run(read_scopes, LabelModel(), "labels", tmp_path, CASES, events.append)
+
+    assert len(report.results) == len(CASES) == 40
+    (wrong,) = [result for result in report.results if not result.passed]
+    assert (wrong.message, wrong.wrong) == ("invret active_p1", {"soils": (False, True)})
+    assert events[CASES.index(next(c for c in CASES if c.message == "invret active_p1"))] == (
+        "NO  invret active_p1"
+    )
+    saved = ScopeReport.model_validate_json((tmp_path / report.eval_id / "scopes.json").read_text())
+    assert saved == report
+    assert format_scope_report(report).splitlines() == [
+        f"Scopes {report.eval_id} of labels on {report.prompt_version}: 39 of 40 read right.",
+        "  invret active_p1",
+        "    soils False -> True",
+    ]

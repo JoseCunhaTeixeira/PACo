@@ -1,9 +1,11 @@
 """Attempts kept inside one run: the final result stays at the top of a window's folder, in PAC's
 layout, and the results of earlier attempts move to xmid_<x>/attempts/<n>_<stage>/ when a stage
 is done again. Going back to a stage invalidates everything downstream (rule 3), for that
-window only."""
+window only. A person's results the assistant replaces at their request are set aside in
+xmid_<x>/by_hand/<stage>_<time>/, for them to take back."""
 
 import shutil
+from datetime import UTC, datetime
 from pathlib import Path
 
 # The stages' files in a window's folder, and the stages after each that use its results: sigpipe's,
@@ -22,7 +24,11 @@ __all__ = [
     "invalidate_record",
     "restore",
     "restore_record",
+    "set_aside",
 ]
+
+# Where a person's results replaced at their request are kept, in a window's folder.
+HAND_FOLDER = "by_hand"
 
 # What the preprocessing writes in a record's folder, and G1 beside it (its spectra).
 RECORD_FILES = ("Stream_*", "Spectrum_*", "error.log")
@@ -72,6 +78,23 @@ def _undo(folder: Path, archive: Path, patterns: list[str] | tuple[str, ...]) ->
     archive.rmdir()
     if not any(archive.parent.iterdir()):
         archive.parent.rmdir()  # attempts/, empty again
+
+
+def set_aside(window_folder: Path, stage: Stage) -> Path | None:
+    """A person's results of `stage` in the window, which the assistant is about to replace at
+    their request, kept in by_hand/<stage>_<time>/: moved, or for the curves copied (the file
+    holds every mode, and only M0 is picked again). None when the window holds none."""
+    files = [path for pattern in STAGE_FILES[stage] for path in sorted(window_folder.glob(pattern))]
+    if not files:
+        return None
+    folder = window_folder / HAND_FOLDER / f"{stage}_{datetime.now(UTC):%Y%m%d-%H%M%S-%f}"
+    folder.mkdir(parents=True)
+    for path in files:
+        if stage == "picking":
+            shutil.copy2(path, folder / path.name)
+        else:
+            shutil.move(path, folder / path.name)
+    return folder
 
 
 def archived_attempts(window_folder: Path) -> tuple[Path, ...]:

@@ -1,3 +1,4 @@
+import json
 import logging
 import re
 import shutil
@@ -252,9 +253,16 @@ def test_one_vs_range_is_submitted_for_every_layer(picked: Picked, tmp_path: Pat
 
 
 def test_an_inversion_needs_g4(picked: Picked, tmp_path: Path) -> None:
+    # The assistant's picks, G3's verdicts on them, and no G4 yet.
     settings, folder = _copy(picked, tmp_path)
-    lines = (folder / "qc_log.jsonl").read_text().splitlines()
-    kept = [line for line in lines if '"stage":"picking"' not in line]
+    kept: list[str] = []
+    for line in (folder / "qc_log.jsonl").read_text().splitlines():
+        entry = json.loads(line)
+        if entry["stage"] == "picking":
+            if entry["unit"] == "line":
+                continue
+            entry["results"].pop("G4", None)
+        kept.append(json.dumps(entry))
     (folder / "qc_log.jsonl").write_text("\n".join(kept) + "\n")
 
     with pytest.raises(RunError, match=r"has not been judged up to G4: judge it"):
@@ -483,6 +491,7 @@ def test_summary_gives_the_range_of_the_models() -> None:
         "summary": None,
         "changed": (),
         "used": (),
+        "notes": (),
     }
 
 

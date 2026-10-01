@@ -18,7 +18,7 @@ from .coherence import (
     read_length_choice,
 )
 from .config import CONFIG_FILE, QCConfig, load_qc_config, read_qc_config, snapshot_qc_config
-from .curves import pick_line, settle_curves
+from .curves import imaged_windows, judge_curves, pick_line, settle_curves
 from .g3_curve import CurveThresholds
 from .g4_profile import LINE, ProfileThresholds, judge_profile
 from .g5_model import ModelThresholds, judge_model
@@ -38,6 +38,7 @@ from .inverting import (
 from .judging import judge_line, judge_picking, judge_records, judge_run, judge_windows
 from .line import process_line, settle_images, settle_records
 from .log import (
+    ASKED,
     LOG_FILE,
     afresh,
     append_attempt,
@@ -71,10 +72,13 @@ from .models import (
     Verdict,
     stage_index,
 )
+from .origin import WindowWork, run_work
 from .petro import PetroChoice, PetroModelCard, invert_petro_line, petro_models
+from .positions import at_positions
 from .redo import check_budget, redo_stage, select_windows
 from .report import (
     REPORT_FILE,
+    Option,
     QCReport,
     StageResult,
     UnitReport,
@@ -91,6 +95,7 @@ from .rerun import rerun_phase_shift, rerun_picking
 from .used import inversion_used, picking_used, processing_used
 
 __all__ = [
+    "ASKED",
     "ATTEMPTS_FOLDER",
     "CONFIG_FILE",
     "LINE",
@@ -115,6 +120,7 @@ __all__ = [
     "Metric",
     "ModelProfileThresholds",
     "ModelThresholds",
+    "Option",
     "Override",
     "PetroChoice",
     "PetroLineThresholds",
@@ -128,9 +134,11 @@ __all__ = [
     "StageResult",
     "UnitReport",
     "Verdict",
+    "WindowWork",
     "afresh",
     "append_attempt",
     "archived_attempts",
+    "at_positions",
     "attempts_of",
     "budget_spent",
     "build_report",
@@ -145,10 +153,12 @@ __all__ = [
     "ensure_initial_attempts",
     "forget_history",
     "given_length",
+    "imaged_windows",
     "invalidate",
     "inversion_used",
     "invert_petro_line",
     "invertible",
+    "judge_curves",
     "judge_inversions",
     "judge_line",
     "judge_model",
@@ -184,6 +194,7 @@ __all__ = [
     "retries_of_inversion",
     "run_budget",
     "run_inversion_job",
+    "run_work",
     "select_windows",
     "settle_curves",
     "settle_images",

@@ -5,6 +5,7 @@ the whole line to Vs models with no setting at all, and the cases where the agen
 must ask. Every scenario where the data decide checks that the agent asked nothing, and that the
 thresholds stayed the configuration's."""
 
+from collections.abc import Callable
 from dataclasses import dataclass
 
 from paco.evaluation.checks import (
@@ -19,14 +20,20 @@ from paco.evaluation.checks import (
     excluded,
     in_order,
     inversion_succeeded,
+    inverted_every_curve,
+    inverted_windows,
+    kept_by_hand,
     loop_retried,
     models,
     never_called,
     no_inversion_started,
     no_settings_invented,
     not_succeeded,
+    nothing_given,
+    nothing_redone,
     only_called,
     processed_in_mode,
+    replaced_by_hand,
     retried_value,
     succeeded,
     thresholds_unchanged,
@@ -34,6 +41,14 @@ from paco.evaluation.checks import (
     windows_than_proposed,
 )
 from paco.evaluation.models import Kind
+from paco.evaluation.setups import (
+    HAND_WINDOW,
+    hand_curve_run,
+    hand_run,
+    imaged_run,
+    picked_run,
+)
+from paco.settings import Settings
 
 SMALL_WINDOWS = {"masw": {"length": 24, "step": 24}}
 
@@ -45,6 +60,8 @@ class Scenario:
     questions: tuple[str, ...]  # what the user types, one message after another
     checks: tuple[Check, ...]
     rubric: str  # what the judge model grades
+    # What is there before the conversation (a run made in PAC's pages, or in an earlier one).
+    setup: Callable[[Settings], object] | None = None
 
 
 SCENARIOS = (
@@ -53,7 +70,7 @@ SCENARIOS = (
         kind="look around",
         questions=("Which seismic profiles can I process?",),
         checks=(
-            called("list_profiles"),
+            called("inspect", what="profiles"),
             answer_mentions("active_p1", "passive_p1"),
             at_most_calls(3),
         ),
@@ -66,7 +83,7 @@ SCENARIOS = (
             "How many receivers does active_p1 have, and how far apart are they, in metres?",
         ),
         checks=(
-            called("inspect_profile", profile="active_p1"),
+            called("inspect", what="profile", profile="active_p1"),
             answer_mentions("96", "0.25"),
             at_most_calls(3),
         ),
@@ -77,7 +94,7 @@ SCENARIOS = (
         kind="recover",
         questions=("Describe the profile active_p2.",),
         checks=(
-            called("inspect_profile"),
+            called("inspect", what="profile"),
             answer_mentions("active_p1", "passive_p1"),
             at_most_calls(4),
         ),
@@ -331,5 +348,215 @@ SCENARIOS = (
         rubric="The line has only 96 receivers: the agent explains the limit and asks the user "
         "which length to use, with a few concrete options. It never reports a run with windows "
         "of 120 receivers.",
+    ),
+    Scenario(
+        name="higher_mode",
+        kind="hand work",
+        questions=(
+            "Process active_p1 with windows of 24 receivers, then pick its fundamental mode and "
+            "its first higher mode.",
+        ),
+        checks=(
+            in_order("run_processing", "pick"),
+            answer_mentions("Dispersion picking"),
+            no_inversion_started(),
+            asked_nothing(),
+            at_most_calls(6),
+        ),
+        rubric="PACo picks M0 alone: the agent processes the line, picks M0, then says that M1 is "
+        "picked by hand in PAC's Dispersion picking page and that it inverts both afterwards; it "
+        "asks nothing.",
+    ),
+    Scenario(
+        name="hand_run",
+        kind="hand work",
+        questions=("I processed active_p1 and picked its curves by hand in PAC. Invert them.",),
+        checks=(
+            called("inspect"),
+            called("invert"),
+            nothing_redone("picking"),
+            nothing_redone("preprocessing", "phase_shift"),
+            inversion_succeeded(),
+            inverted_every_curve(),
+            nothing_given("invert", "parameters"),
+            asked_nothing(),
+            at_most_calls(6),
+        ),
+        rubric="The run was made in PAC's pages, its curves picked by hand: the agent finds it "
+        "with inspect, inverts every curve as it is, picking and processing nothing, and reports "
+        "the models.",
+        setup=hand_run,
+    ),
+    Scenario(
+        name="one_position",
+        kind="positions",
+        questions=("Invert only the window at 9 m of my latest active_p1 run.",),
+        checks=(
+            called("invert"),
+            inverted_windows(1),
+            nothing_given("invert", "parameters"),
+            nothing_redone("picking"),
+            nothing_redone("preprocessing", "phase_shift"),
+            asked_nothing(),
+            at_most_calls(5),
+        ),
+        rubric="The agent finds the latest run, inverts the one window nearest 9 m (xmid 8.88), "
+        "says which window it took, and reports its model.",
+        setup=picked_run,
+    ),
+    Scenario(
+        name="impossible",
+        kind="recover",
+        questions=("Make me a 3D shear-wave velocity model of active_p1.",),
+        checks=(never_called("run_processing"), asked_nothing(), at_most_calls(2)),
+        rubric="One MASW line gives a 2D section, never a 3D model: the agent says it cannot be "
+        "done and why, in a sentence, and runs nothing.",
+    ),
+    Scenario(
+        name="images_pick_invert",
+        kind="work there",
+        questions=("Pick and invert active_p1.",),
+        checks=(
+            called("pick"),
+            called("invert"),
+            inversion_succeeded(),
+            nothing_redone("preprocessing", "phase_shift"),
+            asked_nothing(),
+            at_most_calls(6),
+        ),
+        rubric="active_p1 has a run with images and no curve: the agent finds it, picks and "
+        "inverts it without asking, and does not process the profile again.",
+        setup=imaged_run,
+    ),
+    Scenario(
+        name="images_process",
+        kind="work there",
+        questions=("Process active_p1.",),
+        checks=(
+            asked_the_user(),
+            nothing_redone("picking"),
+            no_inversion_started(),
+            at_most_calls(3),
+        ),
+        rubric="active_p1 already has a run with images: the agent says so and asks whether to "
+        "process again (a new run) or go on from those images, and does nothing before the "
+        "answer.",
+        setup=imaged_run,
+    ),
+    Scenario(
+        name="curves_invert",
+        kind="work there",
+        questions=("Invert active_p1.",),
+        checks=(
+            called("invert"),
+            inversion_succeeded(),
+            nothing_given("invert", "parameters"),
+            nothing_redone("picking"),
+            nothing_redone("preprocessing", "phase_shift"),
+            asked_nothing(),
+            at_most_calls(5),
+        ),
+        rubric="active_p1 has a run with curves and no model: the agent inverts them without "
+        "asking, processing and picking nothing.",
+        setup=picked_run,
+    ),
+    Scenario(
+        name="curves_pick_invert",
+        kind="work there",
+        questions=("Pick and invert active_p1.",),
+        checks=(asked_the_user(), no_inversion_started(), at_most_calls(4)),
+        rubric="active_p1's run already has curves: the agent says so and asks whether to pick "
+        "them again, complete the windows without a curve, invert those picked, or work on some "
+        "windows; it does nothing before the answer.",
+        setup=picked_run,
+    ),
+    Scenario(
+        name="hand_curve_repick",
+        kind="hand work",
+        questions=("Pick every window of active_p1 again.",),
+        checks=(asked_the_user(), kept_by_hand(HAND_WINDOW), at_most_calls(4)),
+        rubric="A window's curve was picked by hand in PAC: before picking it again the agent "
+        "says so and asks whether to keep it or replace it; the curve is still the user's.",
+        setup=hand_curve_run,
+    ),
+    # The same requests in other words: the scope is the model's reading, never a word list.
+    Scenario(
+        name="french_invert",
+        kind="wording",
+        questions=("Inverse active_p1.",),
+        checks=(
+            called("invert"),
+            inversion_succeeded(),
+            nothing_redone("picking"),
+            nothing_redone("preprocessing", "phase_shift"),
+            asked_nothing(),
+            at_most_calls(5),
+        ),
+        rubric="A request in French: active_p1 has a run with curves and no model, which the "
+        "agent inverts without asking, and it answers in French.",
+        setup=picked_run,
+    ),
+    Scenario(
+        name="typo_invert",
+        kind="wording",
+        questions=("invret active_p1",),
+        checks=(
+            called("invert"),
+            inversion_succeeded(),
+            nothing_redone("picking"),
+            nothing_redone("preprocessing", "phase_shift"),
+            asked_nothing(),
+            at_most_calls(5),
+        ),
+        rubric="A typo for invert: the agent inverts the run's curves without asking.",
+        setup=picked_run,
+    ),
+    Scenario(
+        name="synonym_invert",
+        kind="wording",
+        questions=("Give me the shear-wave velocity profile of active_p1.",),
+        checks=(
+            called("invert"),
+            inversion_succeeded(),
+            nothing_redone("picking"),
+            nothing_redone("preprocessing", "phase_shift"),
+            asked_nothing(),
+            at_most_calls(5),
+        ),
+        rubric="A Vs profile is an inversion: the agent inverts the run's curves without asking "
+        "and reports the models.",
+        setup=picked_run,
+    ),
+    Scenario(
+        name="negation_pick",
+        kind="wording",
+        questions=("Pick the curves of active_p1 but don't invert them.",),
+        checks=(
+            called("pick"),
+            nothing_redone("preprocessing", "phase_shift"),
+            no_inversion_started(),
+            asked_nothing(),
+            at_most_calls(4),
+        ),
+        rubric="active_p1 has a run with images: the agent picks them, and inverts nothing.",
+        setup=imaged_run,
+    ),
+    Scenario(
+        name="hand_explicit",
+        kind="hand work",
+        questions=("Pick every window of active_p1 again, including the curve I picked by hand.",),
+        checks=(called("pick"), replaced_by_hand(HAND_WINDOW), asked_nothing(), at_most_calls(4)),
+        rubric="The user asks to pick their hand-picked curve again too: the agent picks every "
+        "window, the hand curve replaced and set aside, without asking.",
+        setup=hand_curve_run,
+    ),
+    Scenario(
+        name="wrong_run",
+        kind="wording",
+        questions=("Invert run 20990101-000000-abcd.",),
+        checks=(no_inversion_started(), at_most_calls(3)),
+        rubric="No run has this id: the agent says so, with the runs there are, and inverts "
+        "nothing.",
+        setup=picked_run,
     ),
 )

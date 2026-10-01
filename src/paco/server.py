@@ -17,12 +17,13 @@ from mcp.server import MCPServer
 from mcp.server.mcpserver import Context
 from mcp.server.mcpserver.exceptions import ToolError
 from mcp.server.transport_security import TransportSecuritySettings
-from pydantic import BaseModel, Field, ValidationError
+from pydantic import BaseModel, ConfigDict, Field, ValidationError
+from sigpipe.algorithms.picking.dispersion.tracking import PickingParameters
 from sigpipe.masw import presets, profiles, runs
 from sigpipe.masw.inversion import InversionParameters, priors
 from sigpipe.workers import one_thread_each
 
-from paco import inversion, qc, stopping
+from paco import choices, inspection, inversion, prompts, qc, stopping
 from paco.jobs import JobManager
 from paco.qc import StageResult
 from paco.settings import Settings, get_settings
@@ -30,16 +31,8 @@ from paco.settings import Settings, get_settings
 # pick draws figures in this process, from the SDK's worker threads: never start a GUI backend.
 matplotlib.use("Agg")
 
-# For the host's system prompt: the workflow the tools make together.
-INSTRUCTIONS = (
-    "PACo turns MASW profiles into shear-wave velocity models, checking each stage with a "
-    "quality gate that retries what it can. Order: list_profiles, inspect_profile, "
-    "run_processing, pick, invert, then job_status until the job ends. Each returns a summary: "
-    "verdicts, what was fixed or changed, flags with a suggested change; a change asked of an "
-    "earlier stage is yours to make with redo. preset_settings and inversion_settings describe "
-    "the settings. Say which settings the gates changed. Ask the user only when stuck, with 2 "
-    "or 3 options. For soils or the water table, only if asked: petro_models, then invert_petro."
-)
+# For the host's system prompt: the workflow the tools make together (prompts/instructions.md).
+INSTRUCTIONS = prompts.prompt("instructions")
 
 server = MCPServer("paco", instructions=INSTRUCTIONS)
 # How long job_status waits for a job to end: fewer calls for the model, which polls at once.
@@ -51,12 +44,24 @@ JOBS = JobManager()
 # What a tool says the model when the user stopped its work (see paco.stopping).
 STOPPED = "Stopped on the user's request: what had finished is kept, the rest as it was."
 
-ProfileName = Annotated[str, Field(description="A profile name from list_profiles.")]
+ProfileName = Annotated[str, Field(description="A profile name from inspect(what=profiles).")]
 RunId = Annotated[str, Field(description="A run_id returned by run_processing.")]
 JobId = Annotated[str, Field(description="A job_id returned by invert or redo.")]
+Positions = Annotated[
+    list[float] | None,
+    Field(description="Only the windows nearest these positions (m). Left out, the whole line."),
+]
 Mode = Annotated[
     Literal["active", "passive", "passive-active"] | None,
-    Field(description="One of the profile's modes (inspect_profile); left out, its own."),
+    Field(description="One of the profile's modes (inspect); left out, its own."),
+]
+Windows = Annotated[
+    Literal["all", "missing"] | None,
+    Field(description="Only if the user said which: every window, or those without one."),
+]
+Hand = Annotated[
+    Literal["keep", "replace"] | None,
+    Field(description="Only the user's reply to the keep-or-replace question."),
 ]
 
 
@@ -84,18 +89,32 @@ def _agent_errors[**P, R](tool: Callable[P, R]) -> Callable[P, R]:
 
 @server.tool()
 @_agent_errors
-def list_profiles() -> list[str]:
-    """Names of the seismic profiles available for processing. Call this first: tools that work on
-    a profile take one of these names."""
-    return profiles.list_profiles(get_settings())
-
-
-@server.tool()
-@_agent_errors
-def inspect_profile(profile: ProfileName) -> profiles.ProfileSummary:
-    """Summary of one profile: active or passive, records, receivers and their spacing, sampling
-    rate and Nyquist frequency, record durations."""
-    return profiles.inspect_profile(profile, get_settings())
+def inspect(
+    what: Annotated[
+        Literal["profiles", "profile", "runs", "run", "window"],
+        Field(description="What to read."),
+    ],
+    profile: Annotated[str | None, Field(description="For what=profile.")] = None,
+    run_id: Annotated[str | None, Field(description="For what=run or window.")] = None,
+    position: Annotated[float | None, Field(description="For what=window, m.")] = None,
+) -> str:
+    """Read what exists, changing nothing: the profiles, a profile's acquisition, the runs, a
+    run (its settings, then its windows: who made each image, curve and model, the gates'
+    verdicts), or a window in detail. Work made in PAC's pages is said by hand."""
+    settings = get_settings()
+    match what:
+        case "profiles":
+            return inspection.profiles_text(settings)
+        case "profile":
+            return inspection.profile_text(_needed(profile, "profile", what), settings)
+        case "runs":
+            return inspection.runs_text(settings)
+        case "run":
+            return inspection.run_text(_needed(run_id, "run_id", what), settings)
+        case "window":
+            return inspection.window_text(
+                _needed(run_id, "run_id", what), _needed(position, "position", what), settings
+            )
 
 
 @server.tool()
@@ -122,22 +141,34 @@ def run_processing(
         ),
     ] = None,
     mode: Mode = None,
+    again: Annotated[
+        bool, Field(description="Only if the user asked to process again: a new run.")
+    ] = False,
 ) -> StageResult:
     """Process a profile into one dispersion image per window, checked stage by stage: records
     (G1, its fixes applied: trigger delays corrected, bad traces left out), window length and
     band from the data unless given, images (G2, retried when a change can fix them). Takes
-    seconds to minutes. Returns the run_id and the gates' summary."""
+    seconds to minutes. Returns the run_id and the gates' summary; a profile with a run already
+    gives options first."""
 
     def report(done: int, total: int) -> None:
         # The SDK runs this tool in a worker thread: progress goes out through the event loop.
         anyio.from_thread.run(ctx.report_progress, done, total, f"{done} of {total} windows")
 
     settings = get_settings()
+    _preset(profile, mode)  # a mode the profile cannot take refused first
+    conversation = _conversation(ctx)
+    given = {"overrides": overrides} if overrides else {}
+    given |= {"mode": mode} if mode else {}
+    again = again and conversation.allows("run_processing", "again=true")
+    if not again and (asked := choices.processing(profile, conversation, settings, given)):
+        return _chosen(asked)
     # The mode as an argument, as preset_settings takes it: a model that asked preset_settings
     # for a mode may leave it out of the overrides.
     if mode is not None:
         overrides = {**(overrides or {}), "mode": mode}
     result = qc.process_line(profile, overrides, settings, _qc_config(settings), report)
+    choices.worked(conversation, result.run_id)
     choice = qc.read_length_choice(runs.find_run(result.run_id, settings))
     given = qc.given_length(overrides) is not None
     processed = _stage_result(
@@ -154,14 +185,52 @@ def run_processing(
 
 @server.tool()
 @_agent_errors
-def pick(run_id: RunId) -> StageResult:
-    """Pick each window's fundamental mode (M0), checked by G3 (picked again when a change can
-    fix it) and over the whole line by G4 (outliers picked again along their neighbours), and
-    save the curves in PAC's layout. G4's verdict on the line decides whether invert can run."""
+def pick(
+    run_id: RunId,
+    ctx: Context,
+    positions: Positions = None,
+    changes: Annotated[
+        dict[str, Any] | None,
+        Field(description="Only picking settings the user typed; left out otherwise."),
+    ] = None,
+    windows: Windows = None,
+    hand: Hand = None,
+) -> StageResult:
+    """Pick each window's M0, checked by G3 (picked again when a change can fix it) and by G4
+    over the line (outliers picked again along their neighbours), saved in PAC's layout. G4's
+    verdict on the line decides whether invert can run. Curves already there, or picked by
+    hand, give options first."""
     settings = get_settings()
-    report = qc.pick_line(run_id, settings)
-    picked = _stage_result(report, ("G3", "G4"), ("picking",), _after_picking(report))
-    return picked.model_copy(update={"used": _picking_used(run_id, settings)})
+    conversation = _conversation(ctx)
+    run_folder = runs.find_run(run_id, settings)
+    manifest = runs.load_manifest(run_id, settings)
+    positions = _asked_positions(conversation, positions)
+    changes = checked_picking(changes)
+    units, read = _positions(run_id, positions, settings)
+    given = _given(positions=positions, changes=changes)
+    planned = choices.picking(run_folder, manifest, conversation, units, windows, hand, given)
+    if isinstance(planned, choices.Choice):
+        return _chosen(planned)
+    trigger = qc.ASKED if planned.units is not None else "initial"
+    report = qc.pick_line(
+        run_id, settings, planned.units, changes, trigger, replace_hand=planned.replace_hand
+    )
+    choices.worked(conversation, run_id)
+    picked = _stage_result(report, ("G3", "G4"), ("picking",), _after_picking(report), read)
+    return picked.model_copy(update={"used": _picking_used(run_id, settings, changes)})
+
+
+@server.tool()
+@_agent_errors
+def judge(run_id: RunId, ctx: Context, positions: Positions = None) -> StageResult:
+    """Judge curves as they are, picking nothing: G3 on automatic M0s no gate judged (PAC's
+    Auto-pick) or at positions, then G4 over the line. Hand-picked curves are never judged."""
+    settings = get_settings()
+    conversation = _conversation(ctx)
+    units, read = _positions(run_id, _asked_positions(conversation, positions), settings)
+    report = qc.judge_curves(run_id, settings, units)
+    choices.worked(conversation, run_id)
+    return _stage_result(report, ("G3", "G4"), ("picking",), _after_picking(report), read)
 
 
 @server.tool()
@@ -177,26 +246,58 @@ def inversion_settings() -> str:
 @_agent_errors
 def invert(
     run_id: RunId,
+    ctx: Context,
     parameters: Annotated[
         dict[str, Any] | None,
         Field(
-            description="Only the inversion parameters the user gave, e.g. "
-            '{"free": {"vs_max": <m/s>}} (layers chosen by the data), or {"n_layers": <n>, '
-            '"vs_layers": [{"vs_min": <m/s>, "vs_max": <m/s>}]} (layers given); see '
-            "inversion_settings."
+            description="Only the inversion parameters the user typed (see inversion_settings); "
+            "left out otherwise."
         ),
     ] = None,
-) -> inversion.InversionStatus:
-    """Invert the curves G4 passed into layered Vs models, as a background job: bounds from each
-    curve (values given are checked), G5 on each model and G6 on the line, retrying what they
-    can. Returns its status; follow it with job_status."""
+    positions: Positions = None,
+    windows: Windows = None,
+    hand: Hand = None,
+) -> inversion.InversionStatus | StageResult:
+    """Invert curves into layered Vs models as a background job, every mode of each window:
+    those G3 and G4 passed, and those picked by hand (taken as they are); unjudged automatic
+    curves are judged first. By default the windows without a model. Bounds from each curve
+    (values given are checked), G5 and G6 retrying what they can. Follow it with job_status.
+    Models already there, or made by hand, give options first."""
     settings = get_settings()
     checked = priors.checkable(parameters, priors.PriorRules().n_layers) if parameters else None
     _parse(InversionParameters, checked, "parameters", "inversion_settings")
-    record = qc.submit_inversion(run_id, parameters, settings)
-    JOBS.submit(
-        record.job_id, stopping.bound(functools.partial(qc.run_inversion_job, record, settings))
-    )
+    conversation = _conversation(ctx)
+    run_folder = runs.find_run(run_id, settings)
+    manifest = runs.load_manifest(run_id, settings)
+    positions = _asked_positions(conversation, positions)
+    units, read = _positions(run_id, positions, settings)
+    given = _given(parameters=parameters, positions=positions)
+    planned = choices.inverting(run_folder, manifest, conversation, units, windows, hand, given)
+    if isinstance(planned, choices.Choice):
+        return _chosen(planned)
+    notes = _judged_first(run_id, settings)
+    if planned.units is not None:
+        units, left_out = _taken(run_id, planned.units, settings)
+        said = (*notes, f"Positions: {read}.") if read else notes
+        if left_out:
+            where = qc.stretches([_xmid(unit) for unit in left_out])
+            said = (*said, f"Left out, without a curve the inversion takes: {where}.")
+        record = qc.submit_inversion(run_id, parameters, settings, units, said)
+        job = functools.partial(
+            qc.run_inversion_job,
+            record,
+            settings,
+            None,
+            units,
+            parameters or {},
+            qc.ASKED,
+            planned.replace_hand,
+        )
+    else:
+        record = qc.submit_inversion(run_id, parameters, settings, notes=notes)
+        job = functools.partial(qc.run_inversion_job, record, settings)
+    choices.worked(conversation, run_id)
+    JOBS.submit(record.job_id, stopping.bound(job))
     return _job_status(record.job_id, settings)
 
 
@@ -237,15 +338,28 @@ def invert_petro(
     run_id: RunId,
     model: Annotated[str, Field(description="A Silex model name from petro_models.")],
     ctx: Context,
+    windows: Windows = None,
+    hand: Hand = None,
 ) -> StageResult:
     """Only if the user asks: invert the run's curves G4 passed that `model` covers into soils,
     N values and the water table, checked by G7 per window and G8 along the line; writes PAC's
-    petrophysical sections. Returns the gates' summary and what the models say."""
+    petrophysical sections. Returns the gates' summary and what the models say. Soil columns
+    already there, or made by hand, give options first."""
 
     def report(done: int, total: int) -> None:
         anyio.from_thread.run(ctx.report_progress, done, total, f"{done} of {total} windows")
 
-    result, described = qc.invert_petro_line(run_id, model, get_settings(), report)
+    settings = get_settings()
+    conversation = _conversation(ctx)
+    run_folder = runs.find_run(run_id, settings)
+    manifest = runs.load_manifest(run_id, settings)
+    planned = choices.soils(run_folder, manifest, conversation, model, windows, hand)
+    if isinstance(planned, choices.Choice):
+        return _chosen(planned)
+    result, described = qc.invert_petro_line(
+        run_id, model, settings, report, planned.units, planned.replace_hand
+    )
+    choices.worked(conversation, run_id)
     judged = _stage_result(result, ("G7", "G8"), ("petro_inversion",), _after_petro(result))
     return judged.model_copy(
         update={"summary": f"{described}\n{judged.summary}", "used": (f"Silex model {model}",)}
@@ -256,6 +370,7 @@ def invert_petro(
 @_agent_errors
 def redo(
     run_id: RunId,
+    ctx: Context,
     stage: Annotated[
         Literal["preprocessing", "phase_shift", "picking", "inversion"],
         Field(description="The stage to go back to."),
@@ -268,13 +383,24 @@ def redo(
         dict[str, Any] | None,
         Field(description="The settings to change, as the flag suggests them."),
     ] = None,
+    hand: Hand = None,
 ) -> StageResult:
     """Go back to a stage for some windows (all, without xmids or flag) with changes, and redo
     what follows up to G4: preprocessing (their records), phase_shift or picking; inversion runs
-    as a job to follow with job_status. For a change a gate asked of an earlier stage."""
+    as a job to follow with job_status. For a change a gate asked of an earlier stage. Work made
+    by hand there gives options first."""
     settings = get_settings()
     units = qc.select_windows(run_id, settings, xmids, flag)
+    run_folder = runs.find_run(run_id, settings)
+    work = qc.run_work(run_folder, runs.load_manifest(run_id, settings))
+    conversation = _conversation(ctx)
+    if asked := choices.redoing(conversation, run_id, stage, units, work, hand, changes):
+        return _chosen(asked)
+    choices.worked(conversation, run_id)
+    replace_hand = hand == "replace"
     if stage == "inversion":
+        if hand == "keep":
+            units = [unit for unit in units if work[unit].model != "user"]
         run_folder = runs.find_run(run_id, settings)
         n_windows = len(runs.load_manifest(run_id, settings).windows)
         qc.check_budget(run_id, run_folder, qc.read_qc_config(run_folder), n_windows)
@@ -283,7 +409,14 @@ def redo(
             record.job_id,
             stopping.bound(
                 functools.partial(
-                    qc.run_inversion_job, record, settings, None, units, changes or {}
+                    qc.run_inversion_job,
+                    record,
+                    settings,
+                    None,
+                    units,
+                    changes or {},
+                    "backtrack",
+                    replace_hand,
                 )
             ),
         )
@@ -293,7 +426,7 @@ def redo(
             next=f"Follow it with job_status: job_id {record.job_id}.",
             job_id=record.job_id,
         )
-    report = qc.redo_stage(run_id, stage, units, changes, settings)
+    report = qc.redo_stage(run_id, stage, units, changes, settings, replace_hand=replace_hand)
     picking = _picking_used(run_id, settings)
     if stage == "picking":
         redone = _stage_result(report, ("G3", "G4"), ("picking",), _after_picking(report))
@@ -328,8 +461,10 @@ def _line_notes(report: qc.QCReport) -> tuple[str, ...]:
     return tuple(note for notes in line.notes.values() for note in notes) if line else ()
 
 
-def _picking_used(run_id: str, settings: Settings) -> tuple[str, ...]:
-    return qc.picking_used(qc.read_qc_config(runs.find_run(run_id, settings)).picking)
+def _picking_used(
+    run_id: str, settings: Settings, given: dict[str, Any] | None = None
+) -> tuple[str, ...]:
+    return qc.picking_used(qc.read_qc_config(runs.find_run(run_id, settings)).picking, given)
 
 
 def _qc_config(settings: Settings) -> qc.QCConfig:
@@ -337,14 +472,152 @@ def _qc_config(settings: Settings) -> qc.QCConfig:
 
 
 def _stage_result(
-    report: qc.QCReport, gates: tuple[str, ...], stages: tuple[qc.Stage, ...], next_step: str
+    report: qc.QCReport,
+    gates: tuple[str, ...],
+    stages: tuple[qc.Stage, ...],
+    next_step: str,
+    read: str = "",
 ) -> StageResult:
+    """A stage tool's result: what its gates found, after how the positions asked were read."""
+    summary = qc.summarize_report(report, gates)
     return StageResult(
         run_id=report.run_id,
         changed=qc.changed_settings(report, stages),
-        summary=qc.summarize_report(report, gates),
+        summary=f"Positions: {read}.\n{summary}" if read else summary,
         next=next_step,
     )
+
+
+def _positions(
+    run_id: str, positions: list[float] | None, settings: Settings
+) -> tuple[list[str] | None, str]:
+    """The windows at `positions` (None: the whole line) and how each position was read."""
+    if not positions:
+        return None, ""
+    return qc.at_positions(runs.load_manifest(run_id, settings), positions)
+
+
+def _conversation(ctx: Context) -> choices.Conversation:
+    """The conversation a call belongs to, its turn and its message's scope, as PACo's host
+    sends them (paco.agent); unknown from another client."""
+    meta = ctx.request_context.meta
+    if not isinstance(meta, dict):
+        return choices.Conversation()
+    conversation, turn = meta.get("conversation"), meta.get("turn")
+    return choices.Conversation(
+        conversation if isinstance(conversation, str) else None,
+        turn if isinstance(turn, int) and not isinstance(turn, bool) else None,
+        _asked(meta.get("scope")),
+    )
+
+
+def _asked(scope: object) -> choices.Asked | None:
+    """The scope a call carries (paco.agent.scope's `for_server`), or None; a malformed one is
+    refused, never guessed."""
+    if scope is None:
+        return None
+    try:
+        parsed = _Scope.model_validate(scope)
+    except ValidationError as error:
+        raise ValueError(f"The call's scope is not valid: {error}") from None
+    return choices.Asked(
+        frozenset(parsed.asked),
+        parsed.redo,
+        parsed.hand_work,
+        parsed.chosen,
+        tuple(parsed.positions_m),
+    )
+
+
+class _Scope(BaseModel):
+    """The scope as PACo's host sends it with each call."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    asked: list[Literal["process", "pick", "invert", "soils"]]
+    redo: bool
+    hand_work: Literal["replace", "unsaid"]
+    positions_m: list[float] = []
+    chosen: str | None = None
+
+
+def _asked_positions(
+    conversation: choices.Conversation, positions: list[float] | None
+) -> list[float] | None:
+    """The positions a call works at: with a scope, those the message named (none: the whole
+    line), whatever the model wrote; else the call's own."""
+    if conversation.asked is None:
+        return positions
+    return list(conversation.asked.positions) or None
+
+
+def _taken(run_id: str, units: list[str], settings: Settings) -> tuple[list[str], list[str]]:
+    """Of `units`, the windows whose curve the inversion takes, and those left out; refused
+    when none is left."""
+    run_folder = runs.find_run(run_id, settings)
+    ready = qc.invertible(run_folder, runs.load_manifest(run_id, settings))
+    taken = [unit for unit in units if unit in ready]
+    if not taken:
+        where = qc.stretches([_xmid(unit) for unit in units])
+        raise ValueError(
+            f"Run '{run_id}' has no curve the inversion takes at {where}: none there, or G3 or "
+            "G4 rejected it."
+        )
+    return taken, [unit for unit in units if unit not in ready]
+
+
+def checked_picking(changes: dict[str, Any] | None) -> dict[str, Any] | None:
+    """`changes` if every one is a picking setting; refused, with the settings there are,
+    otherwise."""
+    if not changes:
+        return changes
+    known = PickingParameters.model_fields
+    if unknown := [name for name in changes if name not in known]:
+        raise ValueError(
+            f"Not picking settings: {', '.join(unknown)}. The picking settings: "
+            f"{', '.join(known)}. Call pick again without them: it picks M0. PACo picks M0 "
+            "alone: a higher mode is picked by hand in PAC's Dispersion picking page, then "
+            "invert takes it with M0."
+        )
+    return changes
+
+
+def _xmid(unit: str) -> float:
+    return float(unit.removeprefix("xmid_"))
+
+
+def _given(**arguments: Any) -> dict[str, Any]:  # noqa: ANN401
+    """A call's arguments that were given, for the options a choice writes."""
+    return {name: value for name, value in arguments.items() if value}
+
+
+def _chosen(asked: choices.Choice) -> StageResult:
+    """A stage tool's result when the user must choose first, or when the run's work goes on:
+    what is there, and the options, each with its call."""
+    return StageResult(
+        run_id=asked.run_id,
+        summary=asked.summary,
+        next=asked.next,
+        options=tuple(qc.Option(label=label, call=made) for label, made in asked.options),
+    )
+
+
+def _judged_first(run_id: str, settings: Settings) -> tuple[str, ...]:
+    """The run's automatic curves no gate judged (PAC's own automatic picks), judged before
+    the inversion takes them: what G3 and G4 said, for the job's notes; none to judge, none."""
+    run_folder = runs.find_run(run_id, settings)
+    work = qc.run_work(run_folder, runs.load_manifest(run_id, settings))
+    if not any(one.m0 == "unjudged" for one in work.values()):
+        return ()
+    report = qc.judge_curves(run_id, settings)
+    return (f"Judged first, as they are: {qc.summarize_report(report, ('G3', 'G4'))}",)
+
+
+def _needed[T](value: T | None, name: str, what: str) -> T:
+    """`value`, which inspect needs for `what`; refused when missing."""
+    if value is None:
+        raise ValueError(f"inspect(what={what}) needs {name}.")
+    return value
 
 
 def _after_processing(
@@ -383,7 +656,8 @@ def _after_picking(report: qc.QCReport) -> str:
     ]
     return (
         f"{len(curves)} curves passed G3 and G4. invert can run on run_id {report.run_id}, if the "
-        "user asked for models; otherwise answer."
+        "user asked for models; otherwise answer. Higher modes (M1, M2) are picked by hand in "
+        "PAC's Dispersion picking page, then invert takes them with M0."
     )
 
 

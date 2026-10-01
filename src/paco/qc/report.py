@@ -1,7 +1,8 @@
 """The QC report of a run (rule 8), built from the QC log: per unit, the final parameters, the
 attempts, the verdict of each gate, the flags and reasons, and what the curve that went into
-the inversion kept. Written as qc_report.json; the agent reads a short summary, grouped by
-stretches of xmids, never one line per xmid."""
+the inversion kept; with what a person made of each window in PAC (paco.qc.origin), which no
+gate judges. Written as qc_report.json; the agent reads a short summary, grouped by stretches
+of xmids, never one line per xmid."""
 
 import json
 import re
@@ -12,9 +13,11 @@ from pathlib import Path
 from typing import Any, cast
 
 from pydantic import BaseModel, ConfigDict
+from sigpipe.masw.runs import RunManifest
 
 from paco.qc.log import LOG_FILE, read_attempts, retries_in_run, retries_of_inversion
 from paco.qc.models import Action, Attempt, Budgets, Flag, GateResult, Kept, Stage, Verdict
+from paco.qc.origin import WindowWork, run_work
 
 REPORT_FILE = "qc_report.json"
 _STRETCH_MARGIN = 1.5  # two xmids further apart than 1.5 steps are not consecutive
@@ -45,6 +48,19 @@ class UnitReport(BaseModel):
     curve: Kept | None  # what the latest curve kept: band, wavelength range, points
     notes: dict[Stage, tuple[str, ...]] = {}  # what the checks before each stage changed
     failed: dict[Stage, str] = {}  # the error of each stage whose latest attempt failed
+    # What a person made of the window in PAC, verified by them: "image", a mode, "model".
+    by_hand: tuple[str, ...] = ()
+    # An automatic M0 no gate judged as it is now (picked in PAC): to judge.
+    unjudged: bool = False
+
+
+class Option(BaseModel):
+    """An option a tool offers the user: its words, and the call that makes it."""
+
+    model_config = ConfigDict(frozen=True)
+
+    label: str
+    call: str
 
 
 class StageResult(BaseModel):
@@ -64,6 +80,9 @@ class StageResult(BaseModel):
     job_id: str | None = None  # an inversion done again runs as a job
     # run_processing: the window lengths the ladder tried, for the agent to choose from.
     lengths: tuple[str, ...] = ()
+    # When the tool did nothing: the user's options, each with its call (none when the way on
+    # needs no question).
+    options: tuple[Option, ...] = ()
 
 
 class QCReport(BaseModel):
@@ -91,7 +110,17 @@ class QCReport(BaseModel):
 
 def build_report(run_id: str, run_folder: Path, budgets: Budgets, n_xmids: int) -> QCReport:
     attempts = read_attempts(run_folder)
-    units = tuple(_unit_report(unit, own) for unit, own in _by_unit(attempts).items())
+    manifest = run_folder / "run.json"
+    work = (
+        run_work(run_folder, RunManifest.model_validate_json(manifest.read_text()), attempts)
+        if manifest.exists()
+        else {}
+    )
+    logged = _by_unit(attempts)
+    units = tuple(
+        _unit_report(unit, logged.get(unit, []), work.get(unit))
+        for unit in [*logged, *(unit for unit in work if unit not in logged)]
+    )
     counts: dict[str, Counter[Verdict]] = defaultdict(Counter)
     for unit in units:
         for gate, verdict in unit.verdicts.items():
@@ -105,11 +134,15 @@ def build_report(run_id: str, run_folder: Path, budgets: Budgets, n_xmids: int) 
         if attempt.triggered_by != "initial":
             if attempt.unit not in retried[attempt.triggered_by]:
                 retried[attempt.triggered_by].append(attempt.unit)
-            # Against the attempt before, or the one it replaced when it started afresh.
+            # Against the attempt before, or the one it replaced when it started afresh. A
+            # window's first attempt at a stage starts from the run's values, whatever asked
+            # it: it changes none of them.
             previous = before.get(key, attempt.replaced)
-            change = _changes(previous, attempt.parameters)
-            changes[attempt.triggered_by].append((attempt.stage, change))
-            replaced.setdefault(attempt.triggered_by, _at(previous, change))
+            first = key not in before and not attempt.forgotten
+            change = {} if first else _changes(previous, attempt.parameters)
+            if change:
+                changes[attempt.triggered_by].append((attempt.stage, change))
+                replaced.setdefault(attempt.triggered_by, _at(previous, change))
         before[key] = attempt.parameters
     return QCReport(
         run_id=run_id,
@@ -205,6 +238,25 @@ def summarize_report(report: QCReport, gates: Sequence[str] | None = None) -> st
             part for part in (stretches(xmids, step) if xmids else "", *names) if part
         )
         lines.append(f"Failed {stage}, {where}: {units[0].failed[stage][:_ERROR_LENGTH]}")
+    made: dict[str, list[float]] = defaultdict(list)
+    for unit in report.units:
+        for item in unit.by_hand:
+            if unit.xmid is not None:
+                made[item].append(unit.xmid)
+    if made:
+        lines.append(
+            "Made by hand in PAC, verified by the user and taken as they are (no gate judges "
+            "them): "
+            + "; ".join(
+                f"{_HAND_ITEMS.get(item, f'{item} curve')} at {stretches(xmids, step)}"
+                for item, xmids in sorted(made.items(), key=lambda one: _hand_order(one[0]))
+            )
+            + "."
+        )
+    if unjudged := [unit.xmid for unit in report.units if unit.unjudged and unit.xmid is not None]:
+        lines.append(
+            f"Automatic curves picked in PAC, no gate judged them: {stretches(unjudged, step)}."
+        )
     windows: dict[tuple[str, str], list[float]] = defaultdict(list)
     records: dict[tuple[str, str], list[str]] = defaultdict(list)
     examples: dict[tuple[str, str], Flag] = {}
@@ -228,6 +280,15 @@ def summarize_report(report: QCReport, gates: Sequence[str] | None = None) -> st
         )
         lines.append(f"{key[0]} {flag.name}, {where}: {flag.message} -> {describe(flag.action)}")
     return "\n".join(lines)
+
+
+# What a person made, as the summary says it (a curve by its mode otherwise).
+_HAND_ITEMS = {"image": "images", "model": "models", "soils": "soil columns"}
+
+
+def _hand_order(item: str) -> tuple[int, str]:
+    """Images, then curves by mode, then models, then soil columns."""
+    return ({"image": 0, "model": 2, "soils": 3}.get(item, 1), item)
 
 
 def describe(action: Action) -> str:
@@ -461,7 +522,7 @@ def _by_unit(attempts: Iterable[Attempt]) -> dict[str, list[Attempt]]:
     return by_unit
 
 
-def _unit_report(unit: str, attempts: list[Attempt]) -> UnitReport:
+def _unit_report(unit: str, attempts: list[Attempt], work: WindowWork | None = None) -> UnitReport:
     parameters: dict[Stage, dict[str, Any]] = {}
     notes: dict[Stage, tuple[str, ...]] = {}
     failed: dict[Stage, str] = {}
@@ -478,6 +539,10 @@ def _unit_report(unit: str, attempts: list[Attempt]) -> UnitReport:
             failed.pop(attempt.stage, None)
         for gate, result in attempt.results.items():
             latest_result[gate] = result
+    if work is not None and work.m0 in ("user", "unjudged"):
+        # The curve's checks were of another curve: its history, not its verdicts.
+        latest_result.pop("G3", None)
+        latest_result.pop("G4", None)
     rejected_for = tuple(
         flag.message
         for result in latest_result.values()
@@ -496,6 +561,8 @@ def _unit_report(unit: str, attempts: list[Attempt]) -> UnitReport:
         curve=curve,
         notes={stage: stage_notes for stage, stage_notes in notes.items() if stage_notes},
         failed=failed,
+        by_hand=work.by_hand if work is not None else (),
+        unjudged=work is not None and work.m0 == "unjudged",
     )
 
 

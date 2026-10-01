@@ -72,6 +72,7 @@ from paco.qc.judging import (
 from paco.qc.log import append_attempt, latest, read_attempts, record_notes, record_result
 from paco.qc.loops import RetryBudget, deep_merge, next_try, spent, unchanged
 from paco.qc.models import Attempt, ExcludeRecord, ExcludeTraces, GateResult, Stage
+from paco.qc.origin import run_work
 from paco.qc.report import QCReport, build_report, write_report
 from paco.qc.rerun import rerun_phase_shift
 from paco.qc.segments import SEGMENT_STAGES, choose_segments
@@ -581,7 +582,7 @@ def settle_images(
 ) -> None:
     """G2 on every window's latest image, and the phase shift done again, in groups sharing
     the same changes, for the windows G2 asks it of, until none is left or the budgets are
-    spent."""
+    spent; a window holding a person's work (paco.qc.origin) is never imaged again."""
     n_units = max(1, len(manifest.windows))
     # A muted passive-active line's correlations measured on its records before their muting,
     # from their inputs.
@@ -593,10 +594,11 @@ def settle_images(
         attempts = read_attempts(run_folder)
         records = RecordsBeforeMuting(manifest, profile, attempts)
         budget = RetryBudget(attempts, config.budgets, n_units)
+        work = run_work(run_folder, manifest, attempts)
         groups: dict[str, tuple[dict[str, Any], str, list[str]]] = {}
         for window in manifest.windows:
             attempt = latest(attempts, window.folder, "phase_shift")
-            if attempt is None or attempt.status != "succeeded":
+            if attempt is None or attempt.status != "succeeded" or work[window.folder].frozen:
                 continue
             result = attempt.results.get("G2")
             if result is None:

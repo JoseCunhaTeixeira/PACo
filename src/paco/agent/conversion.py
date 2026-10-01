@@ -31,9 +31,12 @@ def result_for_model(result: CallToolResult) -> str:
     structured = result.structured_content
     if result.is_error or structured is None:
         return text
-    # A tool that returns a string (the settings tools) has it wrapped: {"result": "..."}.
+    # A tool that returns a string (the settings tools), or one of several models (invert: a job
+    # or a choice for the user), has it wrapped: {"result": ...}.
     if isinstance(structured, dict) and structured.keys() == {"result"}:
         wrapped = structured["result"]
         if isinstance(wrapped, str):
             return wrapped
+        if isinstance(wrapped, dict):
+            structured = wrapped
     return json.dumps(structured, separators=(",", ":"), ensure_ascii=False)

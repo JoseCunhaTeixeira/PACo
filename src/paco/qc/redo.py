@@ -34,6 +34,7 @@ from paco.qc.log import (
 )
 from paco.qc.loops import deep_merge, stage_changes
 from paco.qc.models import Attempt, Stage
+from paco.qc.origin import left_alone, run_work
 from paco.qc.report import QCReport, build_report, read_report, write_report
 from paco.qc.rerun import rerun_phase_shift
 from paco.qc.shots import pulse_widths, with_pulse
@@ -82,11 +83,15 @@ def redo_stage(
     changes: Mapping[str, Any] | None,
     settings: Settings,
     trigger: str = "backtrack",
+    replace_hand: bool = False,
 ) -> QCReport:
     """`stage` again for the windows `units` of run `run_id`, with `changes` over their latest
     parameters, then the stages after it up to G4, each with its gate's retries. Going back to
     the preprocessing does again every record those windows use, and every window using them.
-    `trigger`: who asked (the agent's backtrack, or a gate's flag, "<gate>:<flag>")."""
+    `trigger`: who asked (the agent's backtrack, or a gate's flag, "<gate>:<flag>"). A window
+    holding a person's work (paco.qc.origin) keeps it (never imaged again, its M0 by hand never
+    picked again), unless they chose to have it done again (`replace_hand`); refused when no
+    window is left to redo."""
     run_folder = find_run(run_id, settings)
     manifest = load_manifest(run_id, settings)
     config = read_qc_config(run_folder)
@@ -97,21 +102,41 @@ def redo_stage(
             "masw cannot change within a run: the windows would move. Call run_processing again "
             "with the new window length."
         )
-    windows = list(units)
+    work = run_work(run_folder, manifest)
+    kept = (
+        []
+        if replace_hand
+        else [unit for unit in units if work[unit].m0 == "user"]
+        if stage == "picking"
+        else left_alone(work, units)
+    )
+    windows = [unit for unit in units if unit not in kept]
+    if not windows:
+        raise RunError(
+            f"{', '.join(kept)} hold work made by hand in PAC (verified by the user): left as "
+            "they are, nothing to redo."
+        )
     if stage == "preprocessing":
         windows = _redo_records(run_id, manifest, windows, changes, settings, trigger)
+        windows = [unit for unit in windows if replace_hand or not work[unit].frozen]
         manifest = load_manifest(run_id, settings)
         _redo_images(run_id, manifest, windows, {}, settings, trigger)
     elif stage == "phase_shift":
         _redo_images(run_id, manifest, windows, changes, settings, trigger)
     if stage == "picking":
-        pick_line(run_id, settings, windows, changes, trigger)
+        pick_line(run_id, settings, windows, changes, trigger, replace_hand=replace_hand)
     else:
         # The images changed: their windows are picked again from the run's first parameters,
         # those whose new image G2 rejected left out (nothing to pick).
         kept = imaged_windows(run_folder, load_manifest(run_id, settings))
         pick_line(
-            run_id, settings, [unit for unit in windows if unit in kept], None, trigger, fresh=True
+            run_id,
+            settings,
+            [unit for unit in windows if unit in kept],
+            None,
+            trigger,
+            fresh=True,
+            replace_hand=replace_hand,
         )
     report = build_report(run_id, run_folder, config.budgets, len(manifest.windows))
     write_report(report, run_folder)
@@ -137,8 +162,11 @@ def settle_earlier(run_id: str, settings: Settings) -> bool:
     while True:
         manifest = load_manifest(run_id, settings)
         attempts = read_attempts(run_folder)
+        work = run_work(run_folder, manifest, attempts)
         groups: dict[str, tuple[RedoStage, dict[str, Any], str, list[str]]] = {}
         for window in manifest.windows:
+            if work[window.folder].frozen:
+                continue  # a person's work: its image and records stay as they are
             for gate, (judged_at, earlier) in EARLIER.items():
                 attempt = latest(attempts, window.folder, judged_at)
                 result = attempt.results.get(gate) if attempt is not None else None

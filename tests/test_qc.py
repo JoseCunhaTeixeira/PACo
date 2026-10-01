@@ -65,7 +65,9 @@ from paco.qc import (
     xmid_of,
 )
 from paco.qc.g3_curve import CurveThresholds
+from paco.qc.log import ASKED
 from paco.qc.loops import RetryBudget, next_try, unchanged
+from paco.qc.used import picking_used
 from paco.settings import Settings
 
 SMALL_WINDOWS = {"masw": {"length": 24, "step": 24}}
@@ -634,6 +636,44 @@ def test_the_checks_notes_outlive_a_retry_that_notes_nothing(tmp_path: Path) -> 
     (unit,) = report.units
     assert unit.notes == {"inversion": (note,)}
     assert any("180" in said for said in changed_settings(report, ("inversion",)))
+
+
+def test_a_windows_first_attempt_at_a_stage_changes_nothing_whatever_asked_it(
+    tmp_path: Path,
+) -> None:
+    # A window never picked, picked on the user's request (at a position, or every window of a
+    # fresh run): its first attempt starts from the run's values and changes none of them. A
+    # second one, with a new value, says that value alone.
+    first = PickingParameters().model_dump()
+    for attempt, parameters in ((1, first), (2, {**first, "threshold": 0.5})):
+        append_attempt(
+            tmp_path,
+            Attempt(
+                unit="xmid_1.00",
+                stage="picking",
+                attempt=attempt,
+                parameters=parameters,
+                triggered_by=ASKED,
+                started_at=WHEN,
+                status="succeeded",
+            ),
+        )
+
+    report = build_report("20260930-120000-abcd", tmp_path, Budgets(), 1)
+
+    assert changed_settings(report) == (
+        f"threshold {first['threshold']:g} -> 0.5 at xmid 1.00 (1), by asked",
+    )
+
+
+def test_the_picking_values_the_user_gave_are_said_with_those_used() -> None:
+    said = picking_used(PickingParameters(), {"threshold": 0.5, "corridor": 0.3})
+
+    assert said[0].startswith("picking: M0 tracked along its ridge")
+    assert said[1] == (
+        "picking threshold 0.5, corridor 0.3: given (in your request, or chosen by the agent)"
+    )
+    assert picking_used(PickingParameters()) == said[:1]
 
 
 def test_the_settings_the_gates_changed_are_said_from_and_to(tmp_path: Path) -> None:

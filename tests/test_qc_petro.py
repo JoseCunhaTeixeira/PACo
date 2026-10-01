@@ -4,12 +4,14 @@ covers a single curve of seven (they end below the 43 Hz it needs). Needs sigpip
 santiludo extras."""
 
 import importlib.util
+import shutil
 from pathlib import Path
 
 import numpy as np
 import pytest
 from sigpipe.masw.quality.line import Series
-from sigpipe.masw.runs import find_run, run_processing
+from sigpipe.masw.runs import RunError, find_run, run_processing
+from sigpipe.masw.runs.history import forget
 
 if not all(importlib.util.find_spec(name) for name in ("santiludo", "keras", "keras_nlp")):
     pytest.skip("needs PACo's petro extra", allow_module_level=True)
@@ -232,6 +234,37 @@ def test_the_covered_curves_are_inverted_and_judged(judged: tuple[Settings, str,
     ]
     assert [(a.attempt, a.replaced) for a in again] == [(1, {"model": GRAND_EST})]
     assert (run_folder / window.unit / MEASURES_FILE).exists()
+
+
+def test_a_soil_column_made_by_hand_is_kept_or_replaced_as_the_user_chooses(
+    judged: tuple[Settings, str, Path], tmp_path: Path
+) -> None:
+    source_settings, run_id, source = judged
+    settings = source_settings.model_copy(update={"output_dir": tmp_path / "outputs"})
+    shutil.copytree(source.parent.parent, tmp_path / "outputs")
+    run_folder = find_run(run_id, settings)
+    invert_petro_line(run_id, GRAND_EST, settings)
+    (unit,) = {
+        a.unit
+        for a in read_attempts(run_folder)
+        if a.stage == "petro_inversion" and a.unit != "line"
+    }
+    window = run_folder / unit
+    # Made again in PAC's Petrophysical inversion page: the assistant's history of it erased,
+    # as PAC does.
+    forget(run_folder, unit, "petro_inversion", later=False, results=False)
+    made = (window / MEASURES_FILE).read_bytes()
+
+    with pytest.raises(RunError, match="hold soil columns made by hand, kept as they are"):
+        invert_petro_line(run_id, GRAND_EST, settings)
+    assert (window / MEASURES_FILE).read_bytes() == made
+
+    invert_petro_line(run_id, GRAND_EST, settings, replace_hand=True)
+
+    (aside,) = (window / "by_hand").iterdir()
+    assert aside.name.startswith("petro_inversion_")
+    assert (aside / MEASURES_FILE).read_bytes() == made
+    assert (window / MEASURES_FILE).exists()
 
 
 def test_an_unknown_model_is_refused(judged: tuple[Settings, str, Path]) -> None:

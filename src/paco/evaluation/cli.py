@@ -1,5 +1,6 @@
 """paco-evaluate [--repeat N] [scenario ...]: play the suite (or the named scenarios) with the
-model in .env, and print the report."""
+model in .env, and print the report; paco-evaluate --scopes: score the model's reading of the
+labelled messages (paco.evaluation.scope_set)."""
 
 import argparse
 import logging
@@ -12,6 +13,7 @@ from paco.agent import AgentSettings, ChatModel, OpenAIChat
 from paco.evaluation.report import format_report
 from paco.evaluation.running import run_evaluation
 from paco.evaluation.scenarios import SCENARIOS
+from paco.evaluation.scope_set import format_scope_report, read_scopes
 
 
 def main() -> None:
@@ -26,9 +28,14 @@ def main() -> None:
         "-n",
         "--repeat",
         type=int,
-        default=1,
+        default=5,
         metavar="N",
-        help="plays of each scenario, for pass rates, since the model samples (default: 1)",
+        help="plays of each scenario, for pass rates, since the model samples (default: 5)",
+    )
+    parser.add_argument(
+        "--scopes",
+        action="store_true",
+        help="score the model's scope forms on the labelled messages instead of the scenarios",
     )
     arguments = parser.parse_args()
     if arguments.repeat < 1:
@@ -36,10 +43,10 @@ def main() -> None:
     # PACo's server runs in this process, and its SDK logs every request at INFO level: the
     # scenarios' own lines (calls, failures, progress) say what matters.
     logging.getLogger().setLevel(logging.WARNING)
-    anyio.run(evaluate, arguments.scenarios, arguments.repeat)
+    anyio.run(evaluate, arguments.scenarios, arguments.repeat, arguments.scopes)
 
 
-async def evaluate(names: list[str], repeat: int = 1) -> None:
+async def evaluate(names: list[str], repeat: int = 1, scopes: bool = False) -> None:
     try:
         settings = AgentSettings()  # pyright: ignore[reportCallIssue]  # fields come from .env
     except ValidationError as error:
@@ -57,7 +64,14 @@ async def evaluate(names: list[str], repeat: int = 1) -> None:
             base_url=settings.llm_base_url, api_key=settings.llm_api_key.get_secret_value()
         ),
         settings.llm_model,
+        settings.llm_temperature,
+        settings.llm_seed,
     )
+    if scopes:
+        read = await read_scopes(model, settings.llm_model, settings.evaluation_dir)
+        print()
+        print(format_scope_report(read))
+        return
     judge_model: ChatModel | None = None
     if settings.judge_base_url and settings.judge_model:
         client = AsyncOpenAI(

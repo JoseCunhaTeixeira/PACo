@@ -208,17 +208,17 @@ def test_what_cannot_be_inverted_is_refused(
 ) -> None:
     settings, run_id, _ = inverted
 
-    # A window G4 did not pass, as one the line does not have.
-    with pytest.raises(RunError, match=r"has no window xmid_26\.88 that G4 passed"):
+    # A window without a curve to invert, as one the line does not have.
+    with pytest.raises(RunError, match=r"has no curve to invert at xmid_26\.88"):
         rerun_inversion(run_id, ["xmid_26.88"], {}, settings)
     with pytest.raises(RunError, match=r"Unknown inversion parameter\(s\) iterations"):
         rerun_inversion(run_id, ["xmid_2.88"], {"iterations": 5}, settings)
-    # A run G4 has not judged.
+    # A run with images and no curve yet.
     fresh = Settings(input_dir=demo_input_dir, output_dir=tmp_path / "outputs", workers=1)
     with pytest.MonkeyPatch.context() as patch:
         patch.chdir(tmp_path)
         other = run_processing("active_p1", "active", SMALL_WINDOWS, fresh).run_id
-    with pytest.raises(RunError, match="has not been judged up to G4"):
+    with pytest.raises(RunError, match="has no curve: pick it first"):
         judge_inversions(other, fresh, SHORT)
 
 

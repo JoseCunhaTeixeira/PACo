@@ -7,7 +7,7 @@ science is done by [sigpipe](https://github.com/JoseCunhaTeixeira/sigpipe) and i
 `sigpipe.masw`, which PAC uses too; the results are written in PAC's layout, so PAC's UI can
 open them. Each stage is checked by a quality gate that fixes what it can (G1 to G8, see
 [Quality control](#quality-control)); the model never sees the data, only the gates' short
-summaries, and asks you only when it is stuck.
+summaries, and asks you when your request leaves a choice open or when it is stuck.
 
 ```
 you  <-->  paco-agent  <-- OpenAI API -->  vLLM (Qwen3)
@@ -90,6 +90,7 @@ PACO_LLM_MODEL=Qwen/Qwen3-8B
 | `PACO_LLM_BASE_URL` | required | The model's OpenAI-compatible API, e.g. `http://gpu-host:8001/v1` |
 | `PACO_LLM_MODEL` | required | The model's name, as vLLM serves it |
 | `PACO_LLM_API_KEY` | `EMPTY` | Only if vLLM was started with `--api-key` |
+| `PACO_LLM_TEMPERATURE`, `PACO_LLM_SEED` | the server's | The conversation's sampling (Qwen3's own is 0.6: it repeats itself colder when it thinks); the scope's form is filled at 0 |
 | `PACO_MCP_URL` | `http://127.0.0.1:8000/mcp` | Where the agent finds `paco-server` |
 | `PACO_MAX_TOOL_CALLS` | `15` | Tool calls the model may make for one answer |
 | `PACO_LOG_DIR` | `data/output/agent_logs` | Where the chat saves its conversations |
@@ -136,20 +137,16 @@ Settings the gates changed:
 Whatever the model writes, PACo's host (`src/paco/agent/host.py`) lists the parameters each
 stage ran with and why (given, a rule on the data, a gate, or a default: the window length,
 the phase shift's band, the picker's settings, the inversions' layers, bounds and effort) and
-the settings the gates changed after the answer, as
-the tools gave them; follows an inversion the model starts until it ends, its progress shown,
-before the model reads on; once the work has started, asks the model
-once more for an answer without a question or an offer, unless a tool said it is stuck (a
-question before any work, such as an impossible request, reaches you); and refuses `invert` (and a
-`redo` of the inversion) unless your message asks for models (invert, inversion, model, Vs,
-shear), and `invert_petro` unless it asks for soils or the water table (soil, sol, water table,
-nappe, N value, SPT, clay, sand, silt, loam, petro...).
+the settings the gates changed after the answer, as the tools gave them, and follows an
+inversion the model starts until it ends, its progress shown, before the model reads on. The
+host watches no words, neither yours nor the model's: what to do, and when to ask, the model
+decides from your request, and the tools apply the rules below.
 
 PACo processes a profile in PAC's three modes: an active profile as shots (`active`, the
 default) or by interferometry on its shots (`passive-active`: each shot's surface waves
 cross-correlated with the receiver nearest the shot, the correlations stacked), a passive
 profile as ambient noise (`passive`). Ask for another mode in plain words ("process active_p1
-in passive-active mode"); `inspect_profile` lists a profile's modes. Passive records are cut into
+in passive-active mode"); `inspect` lists a profile's modes. Passive records are cut into
 1 s segments end to end, FK-selected (0.2, always on), whitened and normalized one-bit, and their
 correlations stacked phase-weighted (power 2), as PAC's forms do. A passive-active shot
 is correlated whole; when its image peaks at the grid's top velocity, G2 asks for the
@@ -172,17 +169,78 @@ each scenario three times and reports pass rates.
 
 | Tool | What it does |
 |---|---|
-| `list_profiles` | The profiles you can process |
-| `inspect_profile` | One profile: active or passive, the modes it can be processed in, receivers, spacing, sampling |
+| `inspect` | Reads what exists, changing nothing: the profiles, one profile (active or passive, the modes it can be processed in, receivers, spacing, sampling), the runs (who made each, what it holds), one run (its settings, then its windows, those alike grouped: who made each image, curve and model, the gates' verdicts, the models' misfits and depths informed), one window in detail |
 | `preset_settings` | The processing settings the model may change, for one profile and mode |
 | `run_processing` | Preprocesses the records (G1, its fixes applied; each record's gather and spectra drawn beside it, `Stream_0000.png` and `Spectrum_0000.png`), proposes a window length from trial windows unless given (the lengths tried listed for the model to choose from) and caps the band to the data, makes one dispersion image per window (G2, retried when it can be fixed); returns a `run_id` and the gates' summary |
-| `pick` | Picks each window's fundamental mode (G3, picked again when it can be fixed), judges the curves over the line (G4, outliers picked again), saves them in PAC's layout |
+| `pick` | Picks each window's fundamental mode (G3, picked again when it can be fixed), judges the curves over the line (G4, outliers picked again), saves them in PAC's layout; for some windows given by their positions (m), with picking settings you gave; curves already there, or picked by hand, ask you first |
+| `judge` | Judges curves as they are, picking nothing: G3 on the automatic curves no gate judged (PAC's Auto-pick), or on some windows, then G4 over the line |
 | `inversion_settings` | The inversion's parameters; left out, each window's bounds come from its own curve |
-| `invert` | Inverts the curves G4 passed, in the background (G5 on each model, G6 over the line, each retrying what it can), then writes the line's velocity section and the picked curves against the predicted ones, as PAC does and shows them (`SeismicInversion_VelocitySection_0000.png`: Vs, its uncertainty and the interfaces, the depth informed veiled; `_lateralsmooth` smoothed along the line; `.hdf5`; `SeismicInversion_PseudoSectionComparison_0000_M0.png` by frequency, `_wavelength` by wavelength; in the run folder, over the models G5 passed); returns the job's status, which PACo's host follows to the end |
+| `invert` | Inverts the curves G3 and G4 passed and those picked by hand (taken as they are), every mode picked in each window, in the background (automatic curves no gate judged are judged first; given positions, those windows only, again if the assistant inverted them; G5 on each model, G6 over the line, each retrying what it can), then writes the line's velocity section and the picked curves against the predicted ones, as PAC does and shows them (`SeismicInversion_VelocitySection_0000.png`: Vs, its uncertainty and the interfaces, the depth informed veiled; `_lateralsmooth` smoothed along the line; `.hdf5`; `SeismicInversion_PseudoSectionComparison_0000_M0.png` by frequency, `_wavelength` by wavelength; in the run folder, over the models G5 passed); returns the job's status, which PACo's host follows to the end |
 | `job_status` | Where an inversion stands, after waiting up to 2 minutes and reporting the windows done: the smooth median models' Vs at a few depths, the depth the data inform them down to (G5's depth informed) and their misfit; the gates' summary once it ends |
 | `petro_models` | Only when you ask for soils or the water table: the Silex models of the petrophysical inversion, what each was trained on, and how many of the run's curves it covers |
 | `invert_petro` | Inverts the curves G4 passed that the chosen model covers into soils, N values and the water table (G7 on each, G8 over the line), then writes PAC's petrophysical sections over the models both passed, as PAC shows them (soils and N, the rock physics, each also smoothed along the line; the picked curves against the models', by frequency and by wavelength); needs the `petro` extra |
 | `redo` | Goes back to a stage (preprocessing, phase shift, picking, inversion) for some windows, with the changes a gate suggested, and redoes what follows |
+
+## The scope of each message
+
+Before any tool runs, the model reads your message into a form, its scope: the stages it asks
+(process, pick, invert, soils; none for a question about what exists), the profile or run, the
+positions in metres, whether to do again work already there, what it says of your hand work,
+and which option it chooses among those a tool offered last. The form's JSON schema constrains
+the model's output, thinking off; a form that does not parse goes back once with its error,
+and a second failure ends the answer asking you to say it again. Code then checks what it can
+(a run id PACo never gives, an option never offered, a negative position) and keeps the turn
+within the scope (`src/paco/agent/scope.py`):
+- a call outside it is refused, unmade, with the reason for the model; an earlier stage stays
+  within a scope that asks a later one, the server deciding whether the run needs it;
+- each call carries the scope, and the tools apply the rules below with it; the positions a
+  tool works at are those your message named (none: the whole line), whatever the model wrote;
+- the answer starts with the scope's line (`Scope: pick, invert · active_p1 · at 9 m.`), for
+  you to check what PACo read;
+- the options a tool offered are kept, so that "the second one" is the call it offered.
+
+The prompts are files (`src/paco/prompts/`: the role, the scope's form, the server's
+instructions); their version is logged with each turn and in the evaluation's report, and
+`tests/test_prompts.py` pins it, so that a change to a prompt is reviewed with the scenarios run
+on it.
+
+## Work already there, and work made in PAC's pages
+
+A run goes records, images, curves, models (seismic, then soil columns). PACo goes on from
+what is there and asks before redoing it: with nothing, it does everything; asked to pick and
+invert a profile whose run has images, it picks and inverts them; asked to process it, it says
+the run is there and asks whether to process again (a new run, the old one kept) or go on from
+it; asked to invert a run with curves, it inverts them; asked to pick it again, or to process
+it, it asks whether to redo the picking, complete the windows without a curve, invert the
+curves as they are, or work on some windows; models and soil columns the same way. The tools
+make these checks themselves: one that meets such work does nothing, says what is there and
+gives the options, each with the call it makes (`again`, `windows="all"` or `"missing"`,
+positions, which narrow `windows`). With the scope of your message the rules are applied in
+code: a stage your message does not ask goes on from the run's work without a question (asked
+to invert, `run_processing` and `pick` point to the run's curves); one it asks whose work is
+there gives the options, unless your message asks to do it again; `again` and
+`windows="all"` hold only when your message asked for them, in its words or by the option it
+chose. What PACo did earlier in the same conversation it goes on with, without asking (the
+host sends the conversation's id, turn and scope with each call).
+
+What you make in PAC's pages is yours, verified by you: no gate judges it, nothing automatic
+changes it (the gates' retries, the fixes of earlier stages), and the inversion takes it as it
+is. A curve you pick or change in Dispersion picking (any mode; each mode apart: adding M1
+leaves PACo's M0 and its checks as they were), a run you process in Active, Passive or
+Passive-active (its images, which PACo may pick), a model you make in Seismic inversion, a soil
+column you make in Petrophysical inversion. A step you ask for that would change it asks first
+whether to keep it (`hand="keep"`) or replace it (`hand="replace"`: yours set aside in the
+window's `by_hand/` folder). It is replaced only when your message asks it, in its words ("my
+hand-picked curve too") or by choosing the replace option the question offered. A client
+that sends no scope gets the same question, and a replace only once the question was shown in
+an earlier turn of the conversation, over those windows, each answer serving one step. PAC's own Auto-pick is automatic: PACo judges it (`judge`, or
+`invert` first) before inverting it. G4 compares PACo's curves with yours, never yours with
+PACo's; a line picked by hand has no G4. The rule for who made a curve is sigpipe's
+(`masw.runs.origin`), which PAC reads too.
+
+PACo picks M0 alone: a higher mode is picked by hand, in Dispersion picking, and PACo inverts
+it with the rest. In PAC's chat, an answer that worked on a run ends with the run, the time it
+took and links to it (Pick the curves, Review, See the models).
 
 ## Quality control
 
@@ -253,7 +311,9 @@ Any model behind an OpenAI-compatible chat API with tool calling works: set `PAC
   tools' descriptions and the gates' summaries, never the records, images or models.
 
 PACo's host and tool descriptions were tuned on Qwen3-8B: measure another model with
-`uv run paco-evaluate --repeat 3` before relying on it, and compare the pass rates.
+`uv run paco-evaluate` (5 plays of each scenario) before relying on it, and compare the pass
+rates, which the report gives per model and prompts' version. The scope's form needs the
+server's JSON-schema output (`response_format`), which vLLM and llama.cpp's server both give.
 
 ## Docker
 

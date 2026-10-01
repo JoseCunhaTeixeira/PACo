@@ -3,6 +3,7 @@ shift's band of a run, the picker's settings, the inversions' layers, bounds and
 with where it comes from (given, a rule on the data, a gate, or a default). The host lists them
 after every answer, as it lists the settings the gates changed."""
 
+import json
 import re
 from collections.abc import Iterable, Mapping, Sequence
 from typing import Any, cast
@@ -85,9 +86,11 @@ def processing_used(
     return tuple(used)
 
 
-def picking_used(parameters: PickingParameters) -> tuple[str, ...]:
+def picking_used(
+    parameters: PickingParameters, given: Mapping[str, Any] | None = None
+) -> tuple[str, ...]:
     """The picker's settings every window started from: PACo's, which G3 changes window by
-    window (in the gates' changes)."""
+    window (in the gates' changes); then the values the call gave (`given`), if any."""
     band = ""
     if parameters.fmin is not None or parameters.fmax is not None:
         band = f", {parameters.fmin or 0:g} to {parameters.fmax or 'the image'} Hz"
@@ -97,7 +100,20 @@ def picking_used(parameters: PickingParameters) -> tuple[str, ...]:
         f"{parameters.min_relative_coherence:g} of the mode's coherence dropped, resampled every "
         f"{parameters.wavelength_step:g} m of wavelength: PACo's starting values, changed "
         "window by window where G3 asked",
+        *(
+            [
+                "picking "
+                + ", ".join(f"{name} {_shown_given(value)}" for name, value in given.items())
+                + ": given (in your request, or chosen by the agent)"
+            ]
+            if given
+            else []
+        ),
     )
+
+
+def _shown_given(value: Any) -> str:  # noqa: ANN401
+    return f"{value:g}" if isinstance(value, float) else json.dumps(value)
 
 
 def inversion_used(

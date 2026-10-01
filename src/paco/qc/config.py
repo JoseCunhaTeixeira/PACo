@@ -107,3 +107,14 @@ def snapshot_qc_config(config: QCConfig, run_folder: Path) -> Path:
 
 def read_qc_config(run_folder: Path) -> QCConfig:
     return QCConfig.model_validate_json((run_folder / CONFIG_FILE).read_text())
+
+
+def run_qc_config(run_folder: Path, path: Path | None) -> QCConfig:
+    """The configuration the run's checks use: its own, or for a run the assistant has not
+    checked yet (one made in PAC's pages), the one in `path` (load_qc_config), recorded next to
+    its results."""
+    if (run_folder / CONFIG_FILE).exists():
+        return read_qc_config(run_folder)
+    config = load_qc_config(path)
+    snapshot_qc_config(config, run_folder)
+    return config

@@ -3,7 +3,7 @@
 How the gates act (option B of `docs/qc_workflow.md`): each stage tool runs its own gate's
 retries and returns one summary; going back across stages is the agent's, with `redo`, but for
 the change of an earlier stage G2 or G3 asks, which `pick` does once itself (below); the agent
-asks the user only when it is stuck. Code: `src/paco/qc/line.py` (`run_processing`),
+asks the user when the request leaves a choice open or when it is stuck. Code: `src/paco/qc/line.py` (`run_processing`),
 `curves.py` (`pick`), `inverting.py` (`invert`, a job), `redo.py` (`redo_stage`,
 `settle_earlier`), `loops.py` (what the loops share), `budgets.py` (the budgets, and why a retry
 is refused); tools: `src/paco/server.py`; tests: `tests/test_server.py` (the tools end to end),
@@ -61,9 +61,11 @@ against it (`G1.md`).
 
 ## When the agent asks
 
-Only when stuck: no image or no curve left for the line, windows rejected once the budget is
-spent, or a request the data do not allow (windows longer than the line). Then one short
-question with 2 or 3 concrete options, its choice first. The tools say when: `pick` answers "G4
+When the request leaves the user's choice open: work already there that the request asks to
+make again without saying how, or work made by hand that a step would change (the tools'
+options, `paco.choices`). And when stuck: no image or no curve left for the line, windows
+rejected once the budget is spent, or a request the data do not allow (windows longer than the
+line). Then one short question with 2 to 4 concrete options, its choice first. The tools say when: `pick` answers "G4
 rejected the line: no curve to invert, you are stuck. Ask the user which to try, with options:
 ..."; `redo` refuses a spent budget the same way. Everywhere else the agent decides from the
 summaries, and says which settings the gates changed.
@@ -103,13 +105,10 @@ The loop retries only where a retry can change the result, and leaves no window 
   stacked as one). Passive-active windows keep one set of receivers, since their correlation
   gathers are stacked sample by sample: the receivers half the shots excluded leave every shot,
   and a shot that excluded another of the window's receivers leaves the window.
-- **What the host guarantees** (`paco.agent.host`): the settings the gates changed are listed
-  after every answer, as the tools gave them; an answer that asks or offers once a stage tool
-  has run is asked again once, unless a tool said the agent is stuck (a question before any
-  work is the request's clarification: asked again, Qwen3-8B runs 96 receivers unasked where
-  120 were asked, in 2 of 3 plays); `invert`, and `redo` of the inversion, are refused unless
-  the user's message asks for models (invert, inversion, model, Vs, shear). Left to itself,
-  Qwen3-8B misses these in 12, 7 and 6 of 39 plays.
+- **What the host guarantees** (`paco.agent.host`): the parameters used and the settings the
+  gates changed are listed after every answer, as the tools gave them, and an inversion the
+  model starts is followed to its end. It watches no words, neither the user's nor the
+  model's: whether to ask, and what the request covers, the model reads.
 - **A step back says what came of it**: the summary's "Retried backtrack, ... now ..." gives
   the verdict of the gate that judges the stage redone (G3 for the picking).
 - **A grid too narrow can fool G2.** With vmax at 150 m/s on a line whose ground reaches
