@@ -294,8 +294,8 @@ def summarize_report(report: QCReport, gates: Sequence[str] | None = None) -> st
             + ", ".join(f"{count} {verdict}" for verdict, count in sorted(now.items()))
             + "."
         )
-    # Notes alike but for their numbers (each window's own velocities) go together, with the
-    # first one's as an example; different notes each get a line.
+    # Notes alike but for their numbers (each window's own velocities) go together, the numbers
+    # that differ given as their range; different notes each get a line.
     noted: dict[tuple[Stage, str], list[tuple[str, str]]] = defaultdict(list)
     for unit in report.units:
         for stage, notes in unit.notes.items():
@@ -303,8 +303,7 @@ def summarize_report(report: QCReport, gates: Sequence[str] | None = None) -> st
             noted[stage, _NUMBER.sub("#", text)].append((unit.unit, text))
     for (stage, _), members in noted.items():
         where = _where([name for name, _ in members], step)
-        suffix = " (each its own values)" if len({text for _, text in members}) > 1 else ""
-        lines.append(f"Changes at {stage}, {where}: {members[0][1]}{suffix}")
+        lines.append(f"Changes at {stage}, {where}: {merged([text for _, text in members])}")
     broken: dict[Stage, list[UnitReport]] = defaultdict(list)
     for unit in report.units:
         for stage in unit.failed:
@@ -477,9 +476,24 @@ def changed_settings(report: QCReport, stages: Sequence[Stage] | None = None) ->
                 noted[stage, _NUMBER.sub("#", text)].append((unit.unit, text))
     for members in noted.values():
         where = _where([name for name, _ in members], step)
-        suffix = " (each its own values)" if len({text for _, text in members}) > 1 else ""
-        said.append(f"{where}: {members[0][1]}{suffix}")
+        said.append(f"{where}: {merged([text for _, text in members])}")
     return tuple(said)
+
+
+def merged(texts: Sequence[str]) -> str:
+    """Notes alike but for their numbers, as one: each number the windows share as it is, each
+    that differs as the range of the windows' values ("the check sets 365 to 429 m/s"), the
+    note then said by window."""
+    if len(set(texts)) == 1:
+        return texts[0]
+    values = [[match.group() for match in _NUMBER.finditer(text)] for text in texts]
+    parts = _NUMBER.sub("\0", texts[0]).split("\0")
+    out = [parts[0]]
+    for index, part in enumerate(parts[1:]):
+        found = [one[index] for one in values]
+        low, high = min(found, key=float), max(found, key=float)
+        out += [low if float(low) == float(high) else f"{low} to {high}", part]
+    return "".join(out).rstrip(".") + ", by window."
 
 
 def _leaves(

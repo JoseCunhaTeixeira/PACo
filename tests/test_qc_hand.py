@@ -306,7 +306,10 @@ def test_positions_are_the_nearest_windows_the_line_holds(
     units, read = at_positions(manifest, [9.0, 3.1, 8.0])
 
     assert units == ["xmid_2.88", "xmid_8.88"]
-    assert read == "9 m: xmid 8.88; 3.1 m: xmid 2.88; 8 m: xmid 8.88"
+    assert read == (
+        "9 m: xmid 8.88, window 2 of 4; 3.1 m: xmid 2.88, window 1 of 4; "
+        "8 m: xmid 8.88, window 2 of 4"
+    )
     with pytest.raises(
         RunError, match=r"50 m is off the line of run .*: its windows are at xmid 2\.88 to 20\.88 m"
     ):

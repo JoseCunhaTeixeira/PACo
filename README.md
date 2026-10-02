@@ -22,6 +22,8 @@ you  <-->  paco-agent  <-- OpenAI API -->  vLLM (Qwen3)
   calls the model asks for. When the data cannot decide (no curve left, a request the line does
   not allow), the model asks you, with a few options, in its answer.
 - **paco-evaluate** plays a suite of scenarios with the model, and scores it.
+- **paco-replay** makes a run again from its inputs and its log, and compares the two.
+- **paco-call** calls one of the tools without the model.
 
 PACo holds the agent, the MCP server, the quality gates (their thresholds, retries and log) and
 the evaluation. Profiles, windows, the processing settings, runs, picks, the inversion and the
@@ -85,6 +87,14 @@ The run's state is kept so that nothing is lost and one writer works on it at a 
   while a tool or an inversion job writes it, and PAC's pages hold it while they write
   (`.run.lock`): PAC is refused a run PACo writes (its message says so), and PACo a run PAC
   writes (the model is told to try again when it ends).
+- A window's image is kept in the images' cache under a key made of the window, the settings,
+  the records it reads (their content) and the code's version; a call that makes the same image
+  takes it from there (`cached` in `run.json`'s windows). `paco-replay` never does.
+- `uv run paco-replay RUN_ID` makes the run again from its inputs and its QC log, in
+  `PACO_OUTPUT_DIR/replays/` (`--keep` keeps it), and compares it with the run: its records,
+  images and curves, the same within `PACO_REPLAY_TOLERANCE` of the largest value. It refuses
+  a run whose inputs changed. What a person made in PAC and the inversions (a random search
+  without a seed) are not replayed, and it says so.
 
 ## Configure
 
@@ -102,6 +112,8 @@ PACO_LLM_MODEL=Qwen/Qwen3-8B
 | `PACO_INPUT_DIR` | `/data/input` | Where the profiles are |
 | `PACO_OUTPUT_DIR` | `data/output` | Where results go |
 | `PACO_WORKERS` | `1` | Worker processes: records preprocessed, windows imaged, picked and inverted in parallel; when fewer windows than workers are inverted (the gates' retries), each window's chains share the idle cores (the evaluation uses 8, PAC's assistant half the cores) |
+| `PACO_CACHE_DIR`, `PACO_CACHE_GB` | `<output dir>/.cache`, `2` | Where the windows' images are kept to be taken again (made by the same code from the same records with the same settings: a profile processed again, the trials of a line), and how many GB at most, those used longest ago removed first; `0` keeps none |
+| `PACO_REPLAY_TOLERANCE` | `1e-5` | The largest difference `paco-replay` allows between a run and its replay, relative to the run's largest value (records and images are float32: 1.2e-7 apart at best) |
 | `PACO_QC_CONFIG` | PACo's defaults | A JSON file of the gates' thresholds and retry budgets (`paco.qc.QCConfig`), changed between runs only |
 | `PACO_HOST`, `PACO_PORT` | `127.0.0.1`, `8000` | Where `paco-server` listens |
 | `PACO_ALLOWED_HOSTS` | none | Host names the server accepts, e.g. `["paco-server:*"]`; needed when it listens beyond 127.0.0.1 |
@@ -187,7 +199,13 @@ The model samples its answers, so one play of a scenario is a noisy measure: it 
 scenario five times (`--repeat N` to change it) and reports each scenario's pass rate against
 its threshold (3 plays of 5 by default). `uv run paco-evaluate --history` tabulates the pass
 rates of every evaluation kept, by model and prompts' version, the latest version against the
-one before (`--model` for one model).
+one before (`--model` for one model), and over the same plays the tool calls that failed, the
+calls refused as outside the message's scope, the answers a cap ended and each gate's retries a
+play. An evaluation's plays share one images' cache, removed at its end.
+
+`uv run paco-call TOOL '{...}'` calls one tool without the model, as the chat would (its run's
+`agent_calls.jsonl` names the conversation `paco-call`); `uv run paco-call --list` names the
+tools, each with an example call.
 
 ## Tools
 
@@ -390,12 +408,22 @@ Any model behind an OpenAI-compatible chat API with tool calling works: set `PAC
 - An online service needs its address, model name and key. It then receives your messages, the
   tools' descriptions and the gates' summaries, never the records, images or models.
 
-Measured on PACo's scenarios (5 plays each), `Qwen/Qwen3-14B-FP8` follows the user's rules
-more often than `Qwen/Qwen3-8B-FP8`: on the same code, 61 of 75 plays of the work-there,
-hand-work and wording scenarios against 49, and both read the scope set's 42 messages right.
-The 14B is the one to run when a 24 GB GPU is at hand; vLLM's context (`--max-model-len`) at
-16,384 tokens at least, 32,768 for long conversations (the largest prompt measured is about
-9,200 tokens). Measure another model with `uv run paco-evaluate` (5 plays of each scenario)
+Measured on PACo's 15 scenarios of the guidelines' rules (5 plays each, 75 plays):
+
+| Model | Plays passed | Scope set (44 messages) | GPU for its weights |
+|---|---|---|---|
+| `Qwen/Qwen3-8B-FP8` | 68 | 42 | 16 GB |
+| `Qwen/Qwen3-14B-FP8` | 74 | 44 | 24 GB |
+| `Qwen/Qwen3.8-27B` | 69 | 43 | 40 to 48 GB (FP8) |
+
+The 8B misses most where a tool's error says what to call next (a higher mode asked: it stops
+instead of picking M0 alone). The 27B's misses were two answers whose fixed parts code now
+writes (each window's value of a bound kept as given, the page where higher modes are picked),
+one processing before a comparison (now refused), and two answers of its own. The 14B is the
+one to run, on a 24 GB GPU: the 27B is no better for twice the memory. vLLM's context
+(`--max-model-len`) at 16,384 tokens at least, 32,768 for long conversations (the largest
+prompt measured is about 9,200 tokens; the 14B's KV cache takes 160 KiB a token, 5 GiB at
+32k). Measure another model with `uv run paco-evaluate` (5 plays of each scenario)
 before relying on it, and compare the pass rates (`--history`), per model and prompts'
 version. The scope's form needs the
 server's JSON-schema output (`response_format`), which vLLM and llama.cpp's server both give.
@@ -438,6 +466,11 @@ uv run ruff check && uv run ruff format --check   # lint and format
 uv run pyright src tests                          # types
 uv run pytest                                     # tests, on the demo profiles
 ```
+
+Each tool has an example call and result in `src/paco/examples.py`, checked against the tool's
+arguments and what it returns (`tests/test_examples.py`); they stay out of the model's prompts,
+whose values a model copies. `pre-commit install` adds the hooks: lint, format, the type check
+and the fast tests (those processing no demo data).
 
 The tools' schemas (their descriptions, arguments, annotations and results, what the model and
 PAC read) are kept in `tests/data/tool_schemas.json` with their version: a change fails

@@ -146,6 +146,19 @@ def test_calls_outside_the_scope_are_refused_to_the_model() -> None:
     )
 
 
+def test_a_comparison_of_lengths_processes_no_line() -> None:
+    compared = _scope(process=True, profile="active_p1", compare_lengths_m=[3.0, 6.0])
+    then_picked = _scope(process=True, pick=True, compare_lengths_m=[3.0, 6.0])
+
+    assert refusal(compared, "compare", '{"profile": "active_p1"}') is None
+    assert refusal(compared, "run_processing", '{"profile": "active_p1"}') == (
+        "Not called: this message compares window lengths, and run_processing is outside it: "
+        "compare needs no run. Compare them; processing the line with one is the user's to ask."
+    )
+    # Curves asked as well: the line is processed for them.
+    assert refusal(then_picked, "run_processing", '{"profile": "active_p1"}') is None
+
+
 def test_the_user_and_the_model_read_the_scope() -> None:
     scope = _scope(
         pick=True, invert=True, profile="active_p1", positions_m=[9.0], redo=True, option=1

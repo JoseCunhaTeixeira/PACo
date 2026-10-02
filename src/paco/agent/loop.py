@@ -39,6 +39,8 @@ from paco.agent.settings import AgentSettings
 
 # The answer a stopped question leaves in the conversation (see Agent.answer).
 STOPPED = "(Stopped on the user's request before the answer was complete.)"
+# How an answer a cap ended (L1) or a repeat (L3) begins.
+CAPPED = "PACo stopped this answer"
 
 # The role the model plays: prompts/role.md.
 ROLE = prompts.prompt("role")
@@ -196,7 +198,7 @@ class Agent:
         while True:
             if (cap := self._cap(time.monotonic() - began, tokens)) is not None:
                 self._on_event(f"   (stopped: {cap})")
-                draft = f"PACo stopped this answer: it reached its {cap}."
+                draft = f"{CAPPED}: it reached its {cap}."
                 return self._ended(render(scope, draft, None, turn, (question, draft)), turn)
             start = time.perf_counter()
             reply = await self._model(self.messages, self._tools)
@@ -225,8 +227,8 @@ class Agent:
                     del self.messages[-1]  # the call left unanswered
                     turn.stuck = True
                     draft = (
-                        f"PACo stopped this answer: {call.name} was called again with the same "
-                        "arguments, without progress."
+                        f"{CAPPED}: {call.name} was called again with the same arguments, "
+                        "without progress."
                     )
                     return self._ended(render(scope, draft, None, turn, (question, draft)), turn)
                 repeats += again

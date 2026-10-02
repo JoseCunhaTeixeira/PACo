@@ -463,7 +463,7 @@ def test_with_a_scope_the_positions_are_the_messages(run: tuple[Settings, str, s
     status = _inverted({"run_id": run_id, "positions": [15, 21]}, new, 1, at_9)
 
     assert status["total"] == 1
-    assert any(note.startswith("Positions: 9 m: xmid 8.88") for note in status["notes"])
+    assert any(note.startswith("Positions: 9 m: xmid 8.88, window") for note in status["notes"])
 
 
 def test_picking_changes_are_picking_settings() -> None:

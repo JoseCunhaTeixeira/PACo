@@ -27,12 +27,14 @@ from pydantic import BaseModel, ConfigDict, Field, ValidationError
 from sigpipe.algorithms.picking.dispersion.tracking import PickingParameters
 from sigpipe.masw import presets, profiles, runs
 from sigpipe.masw.inversion import InversionParameters, priors
+from sigpipe.masw.runs import caching
 from sigpipe.masw.runs.writing import run_lock
 from sigpipe.workers import one_thread_each
 
 from paco import choices, inspection, inversion, logs, prompts, qc, stopping
 from paco.jobs import JobManager
 from paco.qc import StageResult
+from paco.runs import image_cache
 from paco.settings import Settings, get_settings
 
 # pick draws figures in this process, from the SDK's worker threads: never start a GUI backend.
@@ -109,6 +111,8 @@ def _agent_errors[**P, R](tool: Callable[P, R]) -> Callable[P, R]:
         began = time.monotonic()
         outcome, run_id = "error", kwargs.get("run_id")
         tokens = _logged(kwargs.get("ctx"), run_id)
+        # The images the call makes taken from the cache, and kept in it (S8).
+        tokens.append((caching.CACHE, caching.CACHE.set(image_cache(get_settings()))))
         try:
             result = tool(*args, **kwargs)
             outcome = str(getattr(result, "status", None) or getattr(result, "state", "ok"))

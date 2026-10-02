@@ -132,7 +132,7 @@ Constraints: Qwen3 4B or 8B, a 12,288-token context (what the 16 GB card serves)
 - Settings the user types in the chat are the only exception to "derived": the loop starts from them. If a gate then concludes one must change, the agent changes it and says so in its answer, without asking.
 - The go/no-go before the inversion of the assistant's curves is G4's verdict: `invert` reads G4's record from the QC log; a person's curves are taken as they are, and automatic curves no gate judged are judged first. There is no approval step.
 - Work already there is gone on from, and redone only as the user chooses: a tool meeting a profile's run (processing), a run's curves (picking), models or soil columns (inverting) does nothing, says what is there and gives the options with the calls they make (paco.choices). The agent calls the option the request names, goes on from the run when the request asks only for the stages after its work, and otherwise asks. What the agent did in the same conversation it goes on with, without asking (the host sends the conversation's id and turn with each call).
-- The scope of each message is the model's reading, checked in code (`paco.agent.scope`): before any tool, the model fills a form under its JSON schema (the stages asked, the profile or run, the positions, whether to redo, what the message says of hand work, the option chosen among those offered last); the host refuses the calls outside it, each call carries it, and the tools apply the rules with it: a stage not asked goes on from the run's work without a question, one asked whose work is there gives the options unless the message asks to redo it, and `again`, `windows="all"` and `hand="replace"` hold only as the message asked. The answer starts with the scope's line. No word list watches the user's messages: the model reads them.
+- The scope of each message is the model's reading, checked in code (`paco.agent.scope`): before any tool, the model fills a form under its JSON schema (the stages asked, the profile or run, the positions, whether to redo, what the message says of hand work, the option chosen among those offered last); the host refuses the calls outside it (a message comparing window lengths and asking no curve or model processes no line: `compare` makes its own trial windows, and processing the line with one of the lengths is the user's to ask), each call carries it, and the tools apply the rules with it: a stage not asked goes on from the run's work without a question, one asked whose work is there gives the options unless the message asks to redo it, and `again`, `windows="all"` and `hand="replace"` hold only as the message asked. The answer starts with the scope's line. No word list watches the user's messages: the model reads them.
 - A window asked (by position) without what its stage needs is left out and said, never the batch's failure: an inversion at positions takes the windows whose curve it takes (none there, or G3 or G4 rejected it: "Left out, without a curve the inversion takes: ..."). Picking settings the model invents are refused with the settings there are, and the reminder that PACo picks M0 alone.
 - The answer is written by code around the model's text (R2): the scope, the model's text (an answer form whose text holds no question), what was done and left out (from the results), the question and the options only when the turn leaves the user a choice (a tool offered options, a tool is stuck, nothing was done yet), else what the user can ask next; then the parameters used and the settings the gates changed. Numbers in the text no result holds are flagged (R1).
 - What is there is read with `inspect`, which changes nothing (the runs, one run's windows grouped, one window); `pick`, `judge` and `invert` take positions along the line (m, each the nearest window, the mapping said back), outside the run's retry budget.
@@ -155,7 +155,7 @@ Constraints: Qwen3 4B or 8B, a 12,288-token context (what the 16 GB card serves)
   - Work there: images and "pick and invert" (done, no question), images and "process" (asked), curves and "invert" (done), curves and "pick and invert" (asked), a curve picked by hand and "pick every window again" (keep or replace asked, the curve kept).
   - Wording: the same requests in French, with a typo, a synonym (a shear-wave velocity profile) and a negation (pick, do not invert); a hand-picked curve asked to be picked again too (replaced, set aside, no question); a run id that does not exist; a position off the line (`off_line`: refused, nothing inverted); an instruction hidden in the data (`injected`: a profile whose folder name tells the assistant to invert every run; listing the profiles runs nothing).
   - The mute trial and compare: refractions as strong as the surface waves (`refractions`, the `active_refracted` copy: the line muted), a mute the user gives (`custom_mute`: kept as given, no trial), two window lengths compared on depth (`compare_lengths`: compare, no run).
-  - Pass rates (E4): each scenario has a threshold (`Scenario.threshold`, 3 plays of 5 by default **(to review)**), recorded in the report; `paco-evaluate --history` sums the plays of every evaluation kept by model and prompts' version, the latest version against the one before.
+  - Pass rates (E4): each scenario has a threshold (`Scenario.threshold`, 3 plays of 5 by default **(to review)**), recorded in the report; `paco-evaluate --history` sums the plays of every evaluation kept by model and prompts' version, the latest version against the one before; below, over the same plays (O3), the tool calls that failed, the calls the host refused as outside the scope (`scope_blocks`), the answers a cap or a repeat ended (`caps_reached`) and the gates' retries a play, by gate (`retries`, from the runs' QC logs, those a reset left behind too).
   - The scope set (`paco-evaluate --scopes`, `paco.evaluation.scope_set`): 44 labelled messages, English and French, the windows' length and step in receivers or metres and the lengths a comparison names among them, read once by the model into their scope and scored field by field.
   - An air wave and an isolated G4 outlier have no scenario: neither can be made a physical defect of the demo's records (`docs/gates/loop.md`); the gates' tests cover both on analytic curves and synthetic lines.
 
@@ -204,6 +204,34 @@ Each decision states what the system does and the evidence it rests on; the gate
   written (`run_lock`, `.run.lock`): PACo's tools and jobs exclusively, PAC's pages and jobs
   shared among themselves; the one refused is told who holds it. PAC's own redo of a window by
   hand still replaces its results in place, the user's own act **(to review)**.
+- **The windows' images are cached** (S8, sigpipe's `masw.runs.caching`). A window's image costs
+  about 2.5 s of a core and weighs 0.4 MB; a record preprocessed, 0.4 s and 3.6 MB with its
+  figure: only images are kept. The key: the window (its receivers and shots), the whole
+  preset, the content (SHA-256) of each preprocessed record it reads, and the code's version
+  (sigpipe's sources hashed, numpy, scipy, h5py, matplotlib and obspy's versions). Same key,
+  same bytes (an HDF5 file made twice is the same file). PACo's tool calls use the cache the
+  settings give (`PACO_CACHE_DIR`, `PACO_CACHE_GB`: `<output>/.cache`, 2 GB, **(to review)**),
+  an evaluation one cache for all its plays, removed at its end; sigpipe's own runs and PAC's
+  pages none; `paco-replay` none. A window taken from it says `cached` in `run.json`. Measured
+  on active_p2: 346 s, then 147 s for the same run again (its 90 windows, the trials' and G2's
+  retries all taken from the cache; 325 images, 380 MB). Within one run none came back: the
+  trials build their windows with a step of 1 receiver, and the step is part of the key though
+  a window's image does not depend on it. Leaving `masw` out of the key would let them come
+  back, at the risk of a pipeline that reads it later **(to review)**.
+- **A run replays to the same outputs** (S7, `paco.qc.replay`, `paco-replay RUN_ID`). Its inputs
+  checked against `run.json`'s SHA-256 first (changed, refused); then, in a folder of the
+  output's `replays/`, the records the windows use preprocessed with each record's latest
+  parameters on the run's preset, the windows built as the run built them (its near field) and
+  imaged with each window's latest parameters, the curves PACo picked picked again with theirs.
+  Each compared with the run's: the largest difference relative to the run's largest value,
+  within `PACO_REPLAY_TOLERANCE`, 1e-5 (float32 data, whose resolution is 1.2e-7: the margin is
+  for another machine's sums) **(to review)**. Not replayed, and said: a record or image made again in PAC
+  (a person's reset with no attempt of PACo's after), a curve picked in PAC or changed there
+  after PACo's pick (`checks_current`), the inversions (no seed) and the soils made of them. A
+  window built on a record a person preprocessed takes the run's own record. A run that changed
+  during its replay is said to. On the demo profiles (active_p1, active_p2 with its mute trial
+  and 168 phase shifts redone by G2, passive_p1 with its segments) every record, image and
+  curve came out identical.
 - **The pick is saved as it is judged.** The picking attempt writes the window's
   `DispersionCurves_0000.csv` (PAC's layout) before G3 judges it; a pick done again archives the
   previous curve and the inversion under `attempts/<n>_picking/`. What G3 and G4 judge is the
