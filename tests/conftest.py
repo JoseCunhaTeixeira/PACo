@@ -6,6 +6,7 @@ import matplotlib
 import pytest
 from sigpipe.masw.profiles import Profile, load_profile
 
+from paco.agent.settings import AgentSettings
 from paco.settings import Settings, get_settings
 
 # Pipelines save figures to files: use the non-GUI backend, as PAC's API does.
@@ -18,6 +19,18 @@ type CopyDemo = Callable[[str, str], Path]
 
 
 DEMO_PROFILES = ("active_p1", "passive_p1")
+
+
+@pytest.fixture(autouse=True)
+def no_env_file(monkeypatch: pytest.MonkeyPatch) -> Iterator[None]:
+    """The settings from the environment alone, never from a `.env` in the folder the tests run
+    from: a developer's own (their input folder, their model's context) would make the tests
+    pass where CI, which has none, fails."""
+    for settings in (Settings, AgentSettings):
+        monkeypatch.setitem(settings.model_config, "env_file", None)
+    get_settings.cache_clear()
+    yield
+    get_settings.cache_clear()
 
 
 @pytest.fixture(scope="session")

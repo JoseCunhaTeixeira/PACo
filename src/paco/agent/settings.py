@@ -19,7 +19,7 @@ class AgentSettings(BaseSettings):
     # The model, behind an OpenAI-compatible API such as vLLM's: no default, so that a missing
     # setting fails here, with its name.
     llm_base_url: str = Field(description="e.g. http://gpu-host:8001/v1")
-    llm_model: str = Field(description="The name vLLM serves the model under.")
+    llm_model: str = Field(min_length=1, description="The name vLLM serves the model under.")
     # vLLM started without --api-key accepts any key.
     llm_api_key: SecretStr = SecretStr("EMPTY")
     # The conversation's sampling; None keeps the model server's own (Qwen3's: 0.6, as its
