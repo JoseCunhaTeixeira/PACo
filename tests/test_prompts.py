@@ -5,7 +5,7 @@ from paco import prompts, server
 from paco.agent.loop import ROLE
 
 # The prompts' version: update it with the prompt, once the scenarios ran on it.
-VERSION = "prompts-f7fdc480"
+VERSION = "prompts-d6cb9817"
 
 
 def test_the_prompts_version_is_the_one_reviewed() -> None:

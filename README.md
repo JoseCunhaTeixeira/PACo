@@ -188,12 +188,12 @@ is correlated whole; when its image peaks at the grid's top velocity, G2 asks fo
 surface-wave mute (80 to 1,500 m/s) before a wider grid, the records' time origin moved by the
 trigger their files state.
 
-Given no window length, `run_processing` proposes one: the shortest at which most trial windows
+Given no window length, `run_processing` chooses one: the shortest at which most trial windows
 along the line give a curve G3 passes, or a longer one while it makes the picks more precise,
 with a table of every length it tried (trial windows passed, the wavelengths their curves
-reach, the picks' precision, windows on the line). The model keeps it, or runs
-again with another length when the request asks for more depth (longer windows) or lateral
-detail (shorter), and says why; a length you or the model give is kept as it is.
+reach, the picks' precision, windows on the line). The best curves come first: the model keeps
+that length whatever depth or lateral detail the request asks, and says down to which depth
+its curves reach; a length you give is kept as it is.
 
 The conversation is saved when you leave (`exit`). To evaluate the model, run
 `uv run paco-evaluate`, or name scenarios: `uv run paco-evaluate list_profiles pick_active`.

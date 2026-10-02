@@ -260,40 +260,36 @@ def test_the_ladder_stops_where_longer_windows_buy_no_precision(
     ]
 
 
-def test_the_hint_names_the_lengths_to_change_to() -> None:
-    # The demo's ladder with no settings: 11 receivers proposed, 16 tried for comparison, 5 the
-    # shortest whose trials passed half. A model does not turn "longer" or "shorter" into a
-    # length of the table: the hint names them.
-    def trial(length: int, passed: int) -> LengthTrial:
+def test_the_hint_keeps_the_ladders_length_whatever_the_request() -> None:
+    # The demo's ladder with no settings: 11 receivers chosen among 5 to 16. The best curves
+    # first: a request for depth or lateral detail keeps it.
+    def trial(length: int, passed: int, longest: float | None = None) -> LengthTrial:
         return LengthTrial(
             length=length,
             xmids=tuple(float(x) for x in range(27)),
             verdicts=("pass",) * passed + ("reject",) * (27 - passed),
             flags=(),
             passed=passed,
+            wavelengths_m=(5.0, longest) if longest is not None else None,
         )
 
     choice = LengthChoice(
         length=11,
-        trials=tuple(trial(n, k) for n, k in ((5, 17), (7, 19), (9, 19), (11, 23), (16, 25))),
+        trials=tuple(trial(n, k, w) for n, k, w in ((5, 17, 9.0), (11, 23, 16.4), (16, 25, 22.0))),
         notes=(),
     )
-
     then = "pick comes next for run_id 20260926-050000-abcd."
 
-    # The lengths first: the model follows the first step it reads.
     assert length_hint(choice, then) == (
-        "The window length is the ladder's proposal (11 receivers). If the request needs more "
-        "depth, first run_processing again with masw.length 16 (the longest tried). If it needs "
-        "more lateral detail, first run_processing again with masw.length 5 (the shortest whose "
-        "trials passed at least half). Say why. Otherwise, pick comes next for run_id "
-        "20260926-050000-abcd."
+        "The window length is the ladder's (11 receivers), the best curves of the lengths tried, "
+        "its trial curves reaching about 8.2 m deep: kept, whatever depth or detail the request "
+        "asks. pick comes next for run_id 20260926-050000-abcd."
     )
-    # Proposed at the ladder's first rung with nothing longer tried: nothing to name.
+    # No wavelength known: the depth left out.
     alone = choice.model_copy(update={"length": 5, "trials": (trial(5, 27),)})
-    assert length_hint(alone, then) == (
-        "pick comes next for run_id 20260926-050000-abcd. The window length is the ladder's "
-        "proposal (5 receivers)."
+    assert length_hint(alone, then).startswith(
+        "The window length is the ladder's (5 receivers), the best curves of the lengths tried: "
+        "kept"
     )
 
 
