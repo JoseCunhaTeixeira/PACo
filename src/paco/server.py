@@ -112,7 +112,7 @@ def _agent_errors[**P, R](tool: Callable[P, R]) -> Callable[P, R]:
         outcome, run_id = "error", kwargs.get("run_id")
         tokens = _logged(kwargs.get("ctx"), run_id)
         # The images the call makes taken from the cache, and kept in it (S8).
-        tokens.append((caching.CACHE, caching.CACHE.set(image_cache(get_settings()))))
+        tokens.append((caching.CACHE, caching.CACHE.set(_images_cache())))
         try:
             result = tool(*args, **kwargs)
             outcome = str(getattr(result, "status", None) or getattr(result, "state", "ok"))
@@ -561,6 +561,16 @@ def redo(
             runs.load_manifest(run_id, settings), None, _line_notes(report)
         )
         return redone.model_copy(update={"used": processing + picking})
+
+
+def _images_cache() -> caching.Cache | None:
+    """The images' cache the settings give (S8); none while they do not read (an input folder
+    missing): a tool that needs them says so itself, and the others answer without a cache."""
+    try:
+        return image_cache(get_settings())
+    except ValidationError as error:
+        logger.debug("No images' cache, the settings do not read: %s", error)
+        return None
 
 
 def _writing(run_id: str, tool: str) -> AbstractContextManager[None]:

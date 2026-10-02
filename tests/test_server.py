@@ -364,6 +364,21 @@ def test_a_run_made_again_takes_its_images_from_the_cache(paco_env: Settings) ->
     assert manifests[0]["windows"] and paco_env.cache_folder.is_relative_to(paco_env.output_dir)
 
 
+def test_a_tool_that_reads_no_data_answers_whatever_the_folders(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    # The images' cache comes from the settings, which a missing input folder fails: a tool
+    # that needs no folder answers all the same, without a cache.
+    monkeypatch.setenv("PACO_INPUT_DIR", str(tmp_path / "missing"))
+    get_settings.cache_clear()
+    try:
+        result = _call("inversion_settings", {})
+    finally:
+        get_settings.cache_clear()
+
+    assert not result.is_error and "n_iterations" in json.loads(_text(result))["properties"]
+
+
 def test_each_call_takes_the_cache_its_settings_give(
     paco_env: Settings, monkeypatch: pytest.MonkeyPatch
 ) -> None:

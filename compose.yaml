@@ -4,19 +4,20 @@
 #   docker compose run --rm agent           # chat in this terminal; approvals are asked here
 #   docker compose run --rm evaluate        # the evaluation suite
 #
-# Needs NVIDIA's container toolkit on the host. Settings come from .env: PACO_LLM_MODEL,
-# VLLM_MAX_MODEL_LEN, PACO_WORKERS, and HF_TOKEN for gated models. Profiles are read from
-# ./data/input, results written to ./data/output.
+# Needs NVIDIA's container toolkit on the host. Settings come from .env: PACO_LLM_MODEL, which
+# has no default (Qwen/Qwen3-14B-FP8 on a 24 GB GPU; Qwen/Qwen3-8B-FP8 on 16 GB, less
+# performant, with VLLM_MAX_MODEL_LEN=12288), VLLM_MAX_MODEL_LEN, PACO_WORKERS, and HF_TOKEN for
+# gated models. Profiles are read from ./data/input, results written to ./data/output.
 
 x-model: &model
   PACO_LLM_BASE_URL: http://vllm:8000/v1
-  PACO_LLM_MODEL: ${PACO_LLM_MODEL:-Qwen/Qwen3-8B}
+  PACO_LLM_MODEL: ${PACO_LLM_MODEL:?set PACO_LLM_MODEL in .env, Qwen/Qwen3-14B-FP8 on a 24 GB GPU or Qwen/Qwen3-8B-FP8 on 16 GB (less performant)}
 
 services:
   vllm:
     image: vllm/vllm-openai:v0.30.0
     command:
-      - --model=${PACO_LLM_MODEL:-Qwen/Qwen3-8B}
+      - --model=${PACO_LLM_MODEL:?set PACO_LLM_MODEL in .env, Qwen/Qwen3-14B-FP8 on a 24 GB GPU or Qwen/Qwen3-8B-FP8 on 16 GB (less performant)}
       - --max-model-len=${VLLM_MAX_MODEL_LEN:-16384}
       # PACo serves one user: preparing for few conversations at once leaves the GPU's memory to
       # the context (vLLM's default prepares for 512).

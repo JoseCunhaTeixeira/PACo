@@ -40,7 +40,8 @@ README is PACo on its own: its server, its chat in a terminal, and its evaluatio
 ## Install
 
 PACo needs Python 3.14 and [uv](https://docs.astral.sh/uv/). The agent and the evaluation also
-need a Qwen3 model behind an OpenAI-compatible API, such as vLLM (see [vLLM](#vllm)).
+need a model behind an OpenAI-compatible API: Qwen3-14B, served by vLLM on a GPU or by an
+online service (see [The model](#the-model)).
 
 ```sh
 git clone https://github.com/JoseCunhaTeixeira/PACo.git
@@ -104,7 +105,8 @@ from. For the demo, with vLLM on a GPU machine called `gpu-host`:
 ```sh
 PACO_INPUT_DIR=data/input
 PACO_LLM_BASE_URL=http://gpu-host:8001/v1
-PACO_LLM_MODEL=Qwen/Qwen3-8B
+PACO_LLM_MODEL=Qwen/Qwen3-14B-FP8
+PACO_LLM_CONTEXT=16384
 ```
 
 | Setting | Default | What it sets |
@@ -125,7 +127,7 @@ PACO_LLM_MODEL=Qwen/Qwen3-8B
 | `PACO_MAX_TOOL_CALLS` | `15` | Tool calls the model may make for one answer |
 | `PACO_MAX_TURN_S`, `PACO_MAX_TURN_TOKENS` | `7200`, `40000` | The caps on one answer: its time, and the tokens the model writes (its thinking included); an answer that reaches one ends with what was done and the cap named |
 | `PACO_TOOL_TIMEOUT_S` | `3600` | One tool call's timeout (a whole line inverted at PAC's effort takes about 40 min on 8 cores) |
-| `PACO_LLM_CONTEXT` | `12288` | The model's context, as its server serves it: the loop warns past 85% |
+| `PACO_LLM_CONTEXT` | `12288` | The model's context, as its server serves it (vLLM's `--max-model-len`): the loop warns past 85% |
 | `PACO_LOG_DIR` | `data/output/agent_logs` | Where the chat saves its conversations |
 | `PACO_JUDGE_BASE_URL`, `PACO_JUDGE_MODEL`, `PACO_JUDGE_API_KEY` | none | An optional judge model for the evaluation |
 | `PACO_EVALUATION_DIR` | `data/output/evaluations` | Where evaluations write their reports |
@@ -387,46 +389,49 @@ limit), and G8 compares the columns' Vs and water tables with their neighbours
   (`PACO_QC_CONFIG`); every run records the ones it used.
 - Profiles are found by name and runs by ID: a tool never takes a path from the model.
 
-## vLLM
+## The model
 
-Qwen3 calls tools through vLLM's Hermes parser, and its thinking is kept out of the answers by
-the Qwen3 reasoning parser:
-
-```sh
-vllm serve Qwen/Qwen3-8B --max-model-len 16384 \
-    --enable-auto-tool-choice --tool-call-parser hermes --reasoning-parser qwen3
-```
-
-### Another model
-
-Any model behind an OpenAI-compatible chat API with tool calling works: set `PACO_LLM_BASE_URL`,
-`PACO_LLM_MODEL` and, when the server asks for one, `PACO_LLM_API_KEY`.
-- A larger Qwen3 on vLLM keeps the command above: `Qwen/Qwen3-14B-FP8` needs a 24 GB GPU,
-  `Qwen/Qwen3-32B-FP8` 48 GB (or `--tensor-parallel-size 2` over two 24 GB GPUs).
-- Another model family needs vLLM's tool-call parser for that family, in place of `hermes`, and
-  no Qwen3 reasoning parser.
-- An online service needs its address, model name and key. It then receives your messages, the
-  tools' descriptions and the gates' summaries, never the records, images or models.
-
-Measured on PACo's 15 scenarios of the guidelines' rules (5 plays each, 75 plays):
+PACo was measured on its 15 scenarios of the guidelines' rules (5 plays each, 75 plays):
 
 | Model | Plays passed | Scope set (44 messages) | GPU for its weights |
 |---|---|---|---|
-| `Qwen/Qwen3-8B-FP8` | 68 | 42 | 16 GB |
 | `Qwen/Qwen3-14B-FP8` | 74 | 44 | 24 GB |
+| `Qwen/Qwen3-8B-FP8` | 68 | 42 | 16 GB |
 | `Qwen/Qwen3.8-27B` | 69 | 43 | 40 to 48 GB (FP8) |
 
-The 8B misses most where a tool's error says what to call next (a higher mode asked: it stops
-instead of picking M0 alone). The 27B's misses were two answers whose fixed parts code now
-writes (each window's value of a bound kept as given, the page where higher modes are picked),
-one processing before a comparison (now refused), and two answers of its own. The 14B is the
-one to run, on a 24 GB GPU: the 27B is no better for twice the memory. vLLM's context
-(`--max-model-len`) at 16,384 tokens at least, 32,768 for long conversations (the largest
-prompt measured is about 9,200 tokens; the 14B's KV cache takes 160 KiB a token, 5 GiB at
-32k). Measure another model with `uv run paco-evaluate` (5 plays of each scenario)
-before relying on it, and compare the pass rates (`--history`), per model and prompts'
-version. The scope's form needs the
-server's JSON-schema output (`response_format`), which vLLM and llama.cpp's server both give.
+Use **`Qwen/Qwen3-14B-FP8`**. The 27B is no better for twice the memory. `Qwen/Qwen3-8B-FP8`
+also works, on a 16 GB GPU, but it is less performant: it misses most where a tool's error says
+what to call next (asked for a higher mode, it stops instead of picking M0 alone).
+
+**On a GPU, with vLLM** (24 GB for the 14B). Qwen3 calls tools through vLLM's Hermes parser, and
+its thinking is kept out of the answers by the Qwen3 reasoning parser:
+
+```sh
+vllm serve Qwen/Qwen3-14B-FP8 --port 8001 --max-model-len 16384 \
+    --enable-auto-tool-choice --tool-call-parser hermes --reasoning-parser qwen3
+```
+
+Then `PACO_LLM_BASE_URL=http://127.0.0.1:8001/v1` (`paco-server` takes 8000), `PACO_LLM_MODEL=Qwen/Qwen3-14B-FP8` and
+`PACO_LLM_CONTEXT=16384`. The context holds 16,384 tokens at least, 32,768 for long
+conversations (the largest prompt measured is about 9,200 tokens; the 14B's KV cache takes
+160 KiB a token, 5 GiB at 32k). The 8B fits a 16 GB GPU with a 12,288-token context.
+
+**On another machine's GPU** (a lab workstation, a GPU server rented in the cloud): the same
+command there, its port reached through SSH from the machine PACo runs on
+(`ssh -N -L 8001:127.0.0.1:8001 user@gpu-machine`), then
+`PACO_LLM_BASE_URL=http://127.0.0.1:8001/v1`. The model stays invisible from the network.
+
+**From an online service** serving Qwen3-14B behind an OpenAI-compatible API: its address,
+`PACO_LLM_MODEL` as the service names the model, and `PACO_LLM_API_KEY`. The service then
+receives your messages, the tools' descriptions and the gates' summaries, never the records,
+images or models.
+
+**Another model.** Any model behind an OpenAI-compatible chat API with tool calling works. vLLM
+needs the family's tool-call parser in place of `hermes`, and no Qwen3 reasoning parser. The
+scope's form needs the server's JSON-schema output (`response_format`), which vLLM and
+llama.cpp's server both give. Measure it with `uv run paco-evaluate` (5 plays of each scenario)
+before relying on it, and compare its pass rates with the 14B's (`--history`, per model and
+prompts' version).
 
 ## Docker
 
@@ -439,8 +444,10 @@ docker compose run --rm agent           # chat in this terminal
 docker compose run --rm evaluate        # the evaluation suite
 ```
 
-`PACO_LLM_MODEL`, `VLLM_MAX_MODEL_LEN` (default 16384), `PACO_WORKERS` and `HF_TOKEN` can be set
-in `.env`. The server and vLLM publish their ports (8000 and 8001) on 127.0.0.1 only.
+`PACO_LLM_MODEL` is required in `.env` (`Qwen/Qwen3-14B-FP8` on a 24 GB GPU; `Qwen/Qwen3-8B-FP8`
+on 16 GB, less performant, with `VLLM_MAX_MODEL_LEN=12288`); `VLLM_MAX_MODEL_LEN` (default 16384),
+`PACO_WORKERS` and `HF_TOKEN` can be set there too. The server and vLLM publish their ports
+(8000 and 8001) on 127.0.0.1 only.
 
 On an AMD GPU (ROCm: Radeon RX 9000 or 7900 series, Instinct), add `compose.rocm.yaml`, which
 swaps in vLLM's ROCm image and reuses the models in `~/.cache/huggingface`:
@@ -449,12 +456,10 @@ swaps in vLLM's ROCm image and reuses the models in `~/.cache/huggingface`:
 docker compose -f compose.yaml -f compose.rocm.yaml up -d vllm paco-server
 ```
 
-vLLM's 4-bit formats (AWQ, GPTQ) do not run on AMD GPUs, and Qwen3-8B needs about 16.4 GB for
-its weights. On a 16 GB card, both of these run (tried on a Radeon RX 9070 XT):
-
-- `PACO_LLM_MODEL=Qwen/Qwen3-4B` (bf16, 7.6 GiB of weights);
-- `PACO_LLM_MODEL=Qwen/Qwen3-8B-FP8` with `VLLM_MAX_MODEL_LEN=12288`: the weights take 8.8 GiB
-  and leave 2.2 GiB for the KV cache, enough for a 12k context, not for 16k.
+vLLM's 4-bit formats (AWQ, GPTQ) do not run on AMD GPUs: the models run in FP8. The 14B needs a
+24 GB card. On a 16 GB card, `Qwen/Qwen3-8B-FP8` runs with `VLLM_MAX_MODEL_LEN=12288` (its weights
+take 8.8 GiB and leave 2.2 GiB for the KV cache, enough for a 12k context, not for 16k), less
+performant.
 
 With vLLM in Docker and PACo run with uv, point the agent at the container:
 `PACO_LLM_BASE_URL=http://127.0.0.1:8001/v1`.
