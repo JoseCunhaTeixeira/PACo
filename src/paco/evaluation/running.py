@@ -1,31 +1,40 @@
 """Playing the scenarios: the agent against PACo's server, in this process, one scenario at a
 time, each with its own output directory."""
 
+import json
 import os
+import re
 import secrets
+import shutil
 import time
+from collections import Counter
 from collections.abc import Callable, Generator, Sequence
 from contextlib import contextmanager
 from datetime import UTC, datetime
 from pathlib import Path
 
 import anyio
+import openai
 from mcp import Client
 
 from paco import prompts, server
 from paco.agent import Agent, ChatModel
+from paco.agent.loop import CAPPED
+from paco.agent.scope import SCOPE_REFUSAL
 from paco.evaluation.checks import Trial
 from paco.evaluation.defects import build_inputs
 from paco.evaluation.judging import judge
 from paco.evaluation.models import EvaluationReport, ScenarioResult
 from paco.evaluation.scenarios import Scenario
 from paco.inversion import InversionRecord
-from paco.settings import get_settings
+from paco.settings import CACHE_FOLDER, get_settings
 
 _JOBS_TIMEOUT_S = 1_800  # an inversion left running when the conversation ends
 # Worker processes of the server during an evaluation: the zero-settings scenario inverts the
 # whole demo line at PAC's effort, about 6 minutes on 8.
 EVALUATION_WORKERS = 8
+# A gate's name, as a retry's trigger starts with it.
+_GATE = re.compile(r"G\d+")
 
 type OnEvent = Callable[[str], None]
 
@@ -49,6 +58,8 @@ async def run_evaluation(
     eval_id = f"eval-{started_at:%Y%m%d-%H%M%S}-{secrets.token_hex(2)}"
     folder = root / eval_id
     inputs = build_inputs(get_settings().input_dir, folder / "inputs")
+    # One images' cache for every play: the same profiles, imaged once (S8); not a result.
+    cache = folder / CACHE_FOLDER
     results: list[ScenarioResult] = []
     for scenario in scenarios:
         for attempt in range(1, repeat + 1):
@@ -58,11 +69,11 @@ async def run_evaluation(
             else:
                 on_event(f"== {scenario.name} #{attempt}")
                 where = folder / scenario.name / str(attempt)
-            results.append(
-                await run_scenario(
-                    scenario, model, model_name, where, judge_model, on_event, attempt, inputs
-                )
+            play = run_scenario(
+                scenario, model, model_name, where, judge_model, on_event, attempt, inputs, cache
             )
+            results.append(await play)
+    shutil.rmtree(cache, ignore_errors=True)
     report = EvaluationReport(
         eval_id=eval_id,
         model=model_name,
@@ -87,19 +98,27 @@ async def run_scenario(
     on_event: OnEvent = print,
     attempt: int = 1,
     inputs: Path | None = None,
+    cache: Path | None = None,
 ) -> ScenarioResult:
     """Play `scenario` with the server reading `inputs` (the settings' input_dir by default) and
     writing into `folder`/outputs, with EVALUATION_WORKERS, and score it; the conversation is
-    saved as `folder`/transcript.json. `attempt` numbers the play."""
+    saved as `folder`/transcript.json. `attempt` numbers the play; `cache`, the images' cache
+    the plays share (the outputs' own by default)."""
     outputs = folder / "outputs"
     start = time.perf_counter()
-    with _server_settings(outputs, inputs):
+    with _server_settings(outputs, inputs, cache):
         if scenario.setup is not None:
             scenario.setup(get_settings())
+        error: str | None = None
         async with Client(server.server) as client:
             agent = await Agent.start(client, model, on_event=on_event)
-            for question in scenario.questions:
-                await agent.answer(question)
+            try:
+                for question in scenario.questions:
+                    await agent.answer(question)
+            except openai.APIError as failed:
+                # The model's server, not the model: the play is lost, the evaluation goes on.
+                error = f"{type(failed).__name__}: {failed}"
+                on_event(f"   (play lost: {error})")
         await _wait_for_jobs(outputs)
     duration_s = round(time.perf_counter() - start, 1)
 
@@ -114,23 +133,59 @@ async def run_scenario(
         name=scenario.name,
         kind=scenario.kind,
         attempt=attempt,
-        checks=tuple(check(trial) for check in scenario.checks),
-        judge=await judge(judge_model, scenario.rubric, transcript) if judge_model else None,
+        checks=tuple(check(trial) for check in scenario.checks) if error is None else (),
+        judge=(
+            await judge(judge_model, scenario.rubric, transcript)
+            if judge_model and error is None
+            else None
+        ),
         tool_calls=len(transcript.tool_steps),
         failed_calls=sum(step.is_error for step in transcript.tool_steps),
         max_prompt_tokens=max(known_tokens) if known_tokens else None,
         duration_s=duration_s,
         answer=transcript.answer,
+        scope_blocks=sum(
+            not step.called and step.result.startswith(SCOPE_REFUSAL)
+            for step in transcript.tool_steps
+        ),
+        caps_reached=sum(
+            message.get("role") == "assistant" and CAPPED in str(message.get("content") or "")
+            for message in transcript.messages
+        ),
+        retries=gate_retries(outputs),
+        error=error,
     )
 
 
+def gate_retries(outputs: Path) -> dict[str, int]:
+    """The retries the gates asked in the runs under `outputs`, by gate: the attempts of the QC
+    logs each triggered by a gate's flag ("G2:ridge_at_vmax"), those a reset left behind too."""
+    counts: Counter[str] = Counter()
+    for log in outputs.glob("*/*/qc_log.jsonl"):
+        for line in log.read_text().splitlines():
+            try:
+                entry = json.loads(line)
+            except json.JSONDecodeError:
+                continue
+            if not isinstance(entry, dict) or entry.get("event", "stage") != "stage":
+                continue
+            gate, flagged, _ = str(entry.get("triggered_by") or "").partition(":")
+            if flagged and _GATE.fullmatch(gate):
+                counts[gate] += 1
+    return dict(sorted(counts.items()))
+
+
 @contextmanager
-def _server_settings(outputs: Path, inputs: Path | None) -> Generator[None]:
+def _server_settings(
+    outputs: Path, inputs: Path | None, cache: Path | None = None
+) -> Generator[None]:
     """The in-process server reads its settings from the environment: point its outputs (and
-    inputs) here, with the evaluation's workers."""
+    inputs, and images' cache) here, with the evaluation's workers."""
     values = {"PACO_OUTPUT_DIR": str(outputs), "PACO_WORKERS": str(EVALUATION_WORKERS)}
     if inputs is not None:
         values["PACO_INPUT_DIR"] = str(inputs)
+    if cache is not None:
+        values["PACO_CACHE_DIR"] = str(cache)
     previous = {name: os.environ.get(name) for name in values}
     os.environ.update(values)
     get_settings.cache_clear()

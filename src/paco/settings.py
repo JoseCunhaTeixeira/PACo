@@ -6,6 +6,9 @@ from pathlib import Path
 from pydantic import DirectoryPath, Field, field_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
+# The images' cache, in the output folder by default.
+CACHE_FOLDER = ".cache"
+
 
 class Settings(BaseSettings):
     model_config = SettingsConfigDict(
@@ -36,12 +39,25 @@ class Settings(BaseSettings):
     # The QC thresholds and retry budgets, a JSON file (paco.qc.QCConfig); PACo's defaults if
     # none. Changed between runs only: a run records the values it used.
     qc_config: Path | None = None
+    # The windows' images kept, to be taken again when a call makes the same image (the same
+    # code, records and settings: sigpipe.masw.runs.caching): where (None: <output_dir>/.cache),
+    # and how many GB at most, the images used longest ago removed first; 0 keeps none.
+    cache_dir: Path | None = None
+    cache_gb: float = Field(default=2.0, ge=0)
+    # The largest difference paco-replay allows between a run's value and the replay's, relative
+    # to the run's largest value: records and images are float32, whose resolution is 1.2e-7;
+    # the margin is for the sums of a phase shift done in another order, on another machine.
+    replay_tolerance: float = Field(default=1e-5, gt=0)
 
     @field_validator("input_dir", "output_dir")
     @classmethod
     def _resolve(cls, path: Path) -> Path:
         # Relative paths are resolved once, against the directory PACo is started from.
         return path.resolve()
+
+    @property
+    def cache_folder(self) -> Path:
+        return (self.cache_dir or self.output_dir / CACHE_FOLDER).resolve()
 
 
 @lru_cache

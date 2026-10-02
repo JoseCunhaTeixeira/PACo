@@ -6,6 +6,8 @@ from pathlib import Path
 from typing import Any, Literal, cast
 
 import anyio
+import httpx2
+import openai
 import pytest
 from openai.types.chat import ChatCompletionFunctionToolParam, ChatCompletionMessageParam
 from sigpipe.masw.profiles import load_profile
@@ -64,6 +66,7 @@ from paco.evaluation.checks import (
 )
 from paco.evaluation.defects import build_inputs
 from paco.evaluation.report import format_history, read_reports
+from paco.evaluation.running import gate_retries
 from paco.evaluation.scope_set import (
     CASES,
     NOTHING,
@@ -87,7 +90,7 @@ from paco.qc.budgets import budget_spent
 from paco.qc.coherence import COHERENCE_FILE
 from paco.qc.log import JUDGED
 from paco.qc.models import Flag, GateResult, Override
-from paco.settings import Settings
+from paco.settings import CACHE_FOLDER, Settings
 
 SMALL_WINDOWS = {"masw": {"length": 24, "step": 24}}
 
@@ -129,8 +132,9 @@ def _answer_form(messages: list[ChatCompletionMessageParam]) -> str:
 class PolicyModel:
     """Stands in for Qwen: decides each reply from the conversation so far."""
 
-    def __init__(self, policy: Policy) -> None:
+    def __init__(self, policy: Policy, scope: dict[str, Any] | None = None) -> None:
         self._policy = policy
+        self._scope = scope if scope is not None else EVERYTHING
 
     async def __call__(
         self,
@@ -144,11 +148,11 @@ class PolicyModel:
         messages: list[ChatCompletionMessageParam],
         schema: dict[str, Any],
     ) -> Filled:
-        """Every scope filled as a message asking every stage (the tools as without a scope),
-        every answer form from its draft."""
+        """Every scope filled as its `scope` (by default, a message asking every stage: the
+        tools as without a scope), every answer form from its draft."""
         if schema == ANSWER_SCHEMA:
             return Filled(content=_answer_form(messages))
-        return Filled(content=json.dumps(EVERYTHING))
+        return Filled(content=json.dumps(self._scope))
 
 
 def _calls(name: str, arguments: dict[str, Any]) -> Reply:
@@ -887,6 +891,41 @@ def picks_active(messages: list[ChatCompletionMessageParam]) -> Reply:
 
 
 @pytest.mark.usefixtures("paco_env")
+def test_a_play_counts_the_calls_refused_as_outside_its_scope(tmp_path: Path) -> None:
+    def picks_anyway(messages: list[ChatCompletionMessageParam]) -> Reply:
+        if not _results(messages):
+            return _calls("pick", {"run_id": "20261001-120000-abcd"})
+        return _says("The message asked to look only: nothing was picked.")
+
+    async def play() -> ScenarioResult:
+        model = PolicyModel(picks_anyway, scope=NOTHING)
+        scenario = _scenario("list_profiles")
+        return await run_scenario(scenario, model, "scripted", tmp_path, on_event=lambda _: None)
+
+    result = anyio.run(play)
+
+    assert (result.tool_calls, result.failed_calls, result.scope_blocks) == (1, 1, 1)
+    assert (result.caps_reached, result.retries) == (0, {})
+
+
+def test_the_gates_retries_are_counted_from_the_runs_logs(tmp_path: Path) -> None:
+    log = tmp_path / "active_p1" / "20261001-120000-abcd" / "qc_log.jsonl"
+    log.parent.mkdir(parents=True)
+    lines = [
+        {"event": "stage", "triggered_by": "initial"},
+        {"event": "stage", "triggered_by": "G2:ridge_at_vmax"},
+        {"event": "verdict", "triggered_by": "G2:ridge_at_vmax"},  # a verdict, not a retry
+        {"triggered_by": "G1:clipped"},  # a version 1 line: a stage's
+        {"event": "stage", "triggered_by": "mute trial"},
+        {"event": "stage", "triggered_by": "G3:narrow_span"},
+        {"event": "reset", "unit": "xmid_8.88", "stages": ["picking"]},
+    ]
+    log.write_text("\n".join(json.dumps(line) for line in lines) + "\n{")
+
+    assert gate_retries(tmp_path) == {"G1": 1, "G2": 1, "G3": 1}
+
+
+@pytest.mark.usefixtures("paco_env")
 def test_a_good_policy_passes_and_is_judged(tmp_path: Path) -> None:
     result = _play("list_profiles", lists_profiles, tmp_path, '{"score": 5, "reason": "Exact."}')
 
@@ -952,6 +991,71 @@ def test_an_evaluation_writes_its_report_and_transcripts(tmp_path: Path) -> None
     assert EvaluationReport.model_validate_json((folder / "report.json").read_text()) == report
     assert (folder / "list_profiles" / "transcript.json").exists()
     assert report.judge_model is None
+
+
+@pytest.mark.usefixtures("paco_env")
+def test_an_evaluations_plays_share_one_images_cache_gone_at_its_end(tmp_path: Path) -> None:
+    # The muting given: no mute trial, the plays short.
+    overrides = {**SMALL_WINDOWS, "muting": {"method": "none"}}
+
+    def processes(messages: list[ChatCompletionMessageParam]) -> Reply:
+        if not _results(messages):
+            return _calls("run_processing", {"profile": "active_p1", "overrides": overrides})
+        return _says("Processed.")
+
+    async def evaluate() -> EvaluationReport:
+        scenarios = [_scenario("list_profiles")]
+        return await run_evaluation(
+            scenarios,
+            PolicyModel(processes),
+            "scripted",
+            tmp_path,
+            repeat=2,
+            on_event=lambda _: None,
+        )
+
+    report = anyio.run(evaluate)
+
+    folder = tmp_path / report.eval_id
+    cached = [
+        [window["cached"] for window in json.loads(path.read_text())["windows"]]
+        for play in ("1", "2")
+        for path in (folder / "list_profiles" / play / "outputs").glob("*/*/run.json")
+    ]
+    assert len(cached) == 2 and cached[1] and all(cached[1])
+    assert not (folder / CACHE_FOLDER).exists()
+
+
+@pytest.mark.usefixtures("paco_env")
+def test_a_play_the_models_server_cut_short_is_lost_not_failed(tmp_path: Path) -> None:
+    plays = iter([True, False])
+
+    def unreachable_once(messages: list[ChatCompletionMessageParam]) -> Reply:
+        if not _results(messages) and next(plays):
+            request = httpx2.Request("POST", "http://127.0.0.1:8002/v1/chat/completions")
+            raise openai.APIConnectionError(request=request)
+        return lists_profiles(messages)
+
+    async def evaluate() -> EvaluationReport:
+        return await run_evaluation(
+            [_scenario("list_profiles")],
+            PolicyModel(unreachable_once),
+            "scripted",
+            tmp_path,
+            repeat=2,
+            on_event=lambda _: None,
+        )
+
+    report = anyio.run(evaluate)
+
+    lost, played = report.results
+    assert lost.error == "APIConnectionError: Connection error." and not lost.checks
+    assert played.passed and report.pass_rates() == {"list_profiles": (1, 1)}
+    assert (tmp_path / report.eval_id / "list_profiles" / "1" / "transcript.json").exists()
+    assert format_report(report).splitlines()[-2:] == [
+        "Plays the model's server cut short, not counted:",
+        "  list_profiles #1: APIConnectionError: Connection error.",
+    ]
 
 
 @pytest.mark.usefixtures("paco_env")
@@ -1094,11 +1198,14 @@ def test_each_scenario_meets_its_pass_rate_or_not_and_the_history_keeps_them(
             attempt=attempt,
             checks=(CheckResult(name="checked", passed=passed),),
             judge=None,
-            tool_calls=1,
-            failed_calls=0,
+            tool_calls=2,
+            failed_calls=int(not passed),
             max_prompt_tokens=None,
             duration_s=1.0,
             answer="",
+            # A play that failed: a call refused as outside the scope; each, G2 retried twice.
+            scope_blocks=int(not passed),
+            retries={"G2": 2},
         )
 
     def report(version: str, day: int, outcomes: dict[str, list[bool]]) -> EvaluationReport:
@@ -1137,12 +1244,17 @@ def test_each_scenario_meets_its_pass_rate_or_not_and_the_history_keeps_them(
 
     history = format_history(read_reports(tmp_path))
 
-    # The latest prompt version against the one before, scenario by scenario.
+    # The latest prompt version against the one before, scenario by scenario; then the calls
+    # that failed, those refused as outside the scope, the caps, the gates' retries (O3).
     assert history.splitlines() == [
         "Qwen/Qwen3-14B-FP8",
-        "scenario               prompts-aaaa1111   prompts-bbbb2222",
-        "invert                                -        3/5     60%",
-        "pick_active                 2/5     40%        4/5     80%",
+        "scenario                   prompts-aaaa1111   prompts-bbbb2222",
+        "invert                                    -        3/5     60%",
+        "pick_active                     2/5     40%        4/5     80%",
+        "tool calls failed               3/10    30%        3/20    15%",
+        "refused by the scope                      3                  3",
+        "answers a cap ended                       0                  0",
+        "G2 retries a play                       2.0                2.0",
     ]
     assert format_history([], "Qwen/Qwen3-8B") == "No evaluation kept of Qwen/Qwen3-8B."
 

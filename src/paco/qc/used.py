@@ -110,7 +110,8 @@ def picking_used(
         f"{parameters.corridor:.0%} of the velocity{band}), points under "
         f"{parameters.min_relative_coherence:g} of the mode's coherence dropped, resampled every "
         f"{parameters.wavelength_step:g} m of wavelength: PACo's starting values, changed "
-        "window by window where G3 asked",
+        "window by window where G3 asked; a higher mode, by hand in PAC's Dispersion picking "
+        "page",
         *(
             [
                 "picking "

@@ -84,6 +84,9 @@ def test_each_position_maps_to_its_nearest_window_or_is_refused() -> None:
         nearest = min(abs(xmid - position) for xmid in xmids)
         assert abs(float(unit.removeprefix("xmid_")) - position) == pytest.approx(nearest)
         assert said.startswith(f"{position:g} m: xmid ")
+        # The window's index along the line too (R3).
+        index = int(said.split("window ")[1].split(" of ")[0])
+        assert xmids[index - 1] == pytest.approx(float(unit.removeprefix("xmid_")))
 
 
 def test_the_log_read_after_any_resets_holds_what_came_after_each(tmp_path: Path) -> None:

@@ -1,6 +1,7 @@
 """The evaluation report, as a table for the terminal; and the pass rates of every evaluation
 kept, by model and prompt version (E4)."""
 
+from collections import Counter
 from collections.abc import Iterable
 from pathlib import Path
 
@@ -37,20 +38,18 @@ def format_report(report: EvaluationReport) -> str:
             f"{result.duration_s:>6.1f}s"
         )
 
-    passed = sum(result.passed for result in report.results)
+    played = [result for result in report.results if result.error is None]
+    passed = sum(result.passed for result in played)
     if repeated:
-        lines += ["", f"Passed {passed} of {len(report.results)} plays:"]
-        for name, plays in _by_scenario(report.results).items():
-            lines.append(
-                f"  {name:{width}} {sum(play.passed for play in plays)}/{len(plays)}"
-                + _verdict(report, name)
-            )
+        lines += ["", f"Passed {passed} of {len(played)} plays:"]
+        for name, (won, plays) in report.pass_rates().items():
+            lines.append(f"  {name:{width}} {won}/{plays}" + _verdict(report, name))
         judged = [name for name in report.pass_rates() if report.meets(name) is not None]
         if judged:
             met = sum(bool(report.meets(name)) for name in judged)
             lines.append(f"{met} of {len(judged)} scenarios meet their pass-rate threshold.")
     else:
-        lines += ["", f"Passed {passed} of {len(report.results)} scenarios."]
+        lines += ["", f"Passed {passed} of {len(played)} scenarios."]
     scores = [
         result.judge.score
         for result in report.results
@@ -66,6 +65,13 @@ def format_report(report: EvaluationReport) -> str:
     ]
     if failures:
         lines += ["Failed checks:", *failures]
+    lost = [
+        f"  {label}: {result.error}"
+        for label, result in zip(labels, report.results, strict=True)
+        if result.error is not None
+    ]
+    if lost:
+        lines += ["Plays the model's server cut short, not counted:", *lost]
     return "\n".join(lines)
 
 
@@ -82,8 +88,11 @@ def read_reports(root: Path) -> list[EvaluationReport]:
 
 def format_history(reports: Iterable[EvaluationReport], model: str | None = None) -> str:
     """Each scenario's pass rate by model and prompt version, the plays of every evaluation of
-    that pair summed (E4); for each model, its latest prompt version against the one before."""
+    that pair summed (E4); for each model, its latest prompt version against the one before.
+    Below, over the same plays (O3): the tool calls that failed, the calls refused as outside
+    the message's scope, the answers a cap ended, and the gates' retries a play."""
     rates: dict[tuple[str, str], dict[str, tuple[int, int]]] = {}
+    totals: dict[tuple[str, str], Counter[str]] = {}
     order: dict[str, list[str]] = {}
     for report in reports:
         if model is not None and report.model != model:
@@ -96,13 +105,23 @@ def format_history(reports: Iterable[EvaluationReport], model: str | None = None
         for name, (passed, played) in report.pass_rates().items():
             before = into.get(name, (0, 0))
             into[name] = (before[0] + passed, before[1] + played)
+        counted = totals.setdefault(key, Counter())
+        for result in report.results:
+            counted.update(
+                plays=1,
+                calls=result.tool_calls,
+                failed=result.failed_calls,
+                blocks=result.scope_blocks,
+                caps=result.caps_reached,
+            )
+            counted.update({f"retries {gate}": count for gate, count in result.retries.items()})
     if not rates:
         return "No evaluation kept" + (f" of {model}." if model else ".")
     lines: list[str] = []
     for name, versions in order.items():
         shown = versions[-2:]
         names = sorted({scenario for version in shown for scenario in rates[name, version]})
-        width = max([20, *map(len, names)])
+        width = max([24, *map(len, names)])
         lines += ["", name, f"{'scenario':{width}} " + " ".join(f"{one:>18}" for one in shown)]
         for scenario in names:
             cells = []
@@ -110,7 +129,23 @@ def format_history(reports: Iterable[EvaluationReport], model: str | None = None
                 passed, played = rates[name, version].get(scenario, (0, 0))
                 cells.append(f"{passed:>2}/{played:<2} {passed / played:>6.0%}" if played else "-")
             lines.append(f"{scenario:{width}} " + " ".join(f"{cell:>18}" for cell in cells))
+        counts = [totals[name, version] for version in shown]
+        rows = {
+            "tool calls failed": [_share(one["failed"], one["calls"]) for one in counts],
+            "refused by the scope": [str(one["blocks"]) for one in counts],
+            "answers a cap ended": [str(one["caps"]) for one in counts],
+        }
+        gates = sorted({key for one in counts for key in one if key.startswith("retries ")})
+        for gate in gates:
+            label = f"{gate.removeprefix('retries ')} retries a play"
+            rows[label] = [f"{one[gate] / one['plays']:.1f}" for one in counts]
+        for label, cells in rows.items():
+            lines.append(f"{label:{width}} " + " ".join(f"{cell:>18}" for cell in cells))
     return "\n".join(lines).strip("\n")
+
+
+def _share(part: int, whole: int) -> str:
+    return f"{part:>2}/{whole:<3} {part / whole:>5.0%}" if whole else "-"
 
 
 def _verdict(report: EvaluationReport, scenario: str) -> str:
@@ -123,10 +158,3 @@ def _verdict(report: EvaluationReport, scenario: str) -> str:
 
 def _label(result: ScenarioResult, repeated: bool) -> str:
     return f"{result.name} #{result.attempt}" if repeated else result.name
-
-
-def _by_scenario(results: tuple[ScenarioResult, ...]) -> dict[str, list[ScenarioResult]]:
-    plays: dict[str, list[ScenarioResult]] = {}
-    for result in results:
-        plays.setdefault(result.name, []).append(result)
-    return plays

@@ -3,9 +3,19 @@
 
 from pydantic import BaseModel, ConfigDict
 from sigpipe.masw.runs import RunManifest
+from sigpipe.masw.runs.caching import Cache
+
+from paco.settings import Settings
 
 # Recorded in a run's manifest with sigpipe's version.
 PACKAGES = ("paco",)
+
+
+def image_cache(settings: Settings) -> Cache | None:
+    """The images' cache the settings give (S8 of PACo's agent guidelines); None for none."""
+    if settings.cache_gb <= 0:
+        return None
+    return Cache(settings.cache_folder, max_bytes=int(settings.cache_gb * 1e9))
 
 
 class RunSummary(BaseModel):

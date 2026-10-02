@@ -71,6 +71,7 @@ from paco.qc import (
 from paco.qc.g3_curve import CurveThresholds
 from paco.qc.log import ASKED
 from paco.qc.loops import RetryBudget, next_try, unchanged
+from paco.qc.report import merged
 from paco.qc.used import picking_used
 from paco.settings import Settings
 
@@ -665,6 +666,21 @@ def test_the_summary_gives_the_checks_notes_and_the_failures(tmp_path: Path) -> 
     assert {unit.unit: unit.failed for unit in report.units}["xmid_1.25"] == {
         "inversion": "ValueError: shapes"
     }
+
+
+def test_notes_alike_but_for_their_numbers_give_the_range_of_each() -> None:
+    def note(fastest: int, asked: int) -> str:
+        return (
+            f"free.vs_max 180 m/s below 1.09 times the curve's fastest velocity ({fastest} m/s): "
+            f"kept as given (the check sets {asked} m/s)."
+        )
+
+    # Each window's own value within the range said: none hidden behind one example.
+    assert merged([note(286, 429), note(244, 365), note(286, 429)]) == (
+        "free.vs_max 180 m/s below 1.09 times the curve's fastest velocity (244 to 286 m/s): "
+        "kept as given (the check sets 365 to 429 m/s), by window."
+    )
+    assert merged([note(286, 429)] * 2) == note(286, 429)
 
 
 def test_the_checks_notes_outlive_a_retry_that_notes_nothing(tmp_path: Path) -> None:

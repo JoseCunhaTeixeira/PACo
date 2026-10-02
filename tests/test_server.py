@@ -11,10 +11,11 @@ import pytest
 from mcp import Client
 from mcp.types import CallToolResult, RequestParamsMeta, Tool
 from sigpipe.masw.presets import override_schema
+from sigpipe.masw.runs import caching
 from sigpipe.masw.runs.writing import run_lock
 
 from paco import inspection, server
-from paco.settings import Settings
+from paco.settings import Settings, get_settings
 
 # The workflow's order: tools/list should list them the same way, every time.
 TOOLS = [
@@ -70,6 +71,11 @@ def _call(
             return await client.call_tool(name, arguments, progress_callback=on_progress, meta=meta)
 
     return anyio.run(call)
+
+
+def _run_id(result: CallToolResult) -> str:
+    assert not result.is_error and result.structured_content is not None
+    return str(result.structured_content["run_id"])
 
 
 def _text(result: CallToolResult) -> str:
@@ -341,6 +347,40 @@ def test_run_processing_takes_the_mode_as_an_argument(paco_env: Settings) -> Non
     assert "Profile 'active_p1' is active: its modes are active, passive-active." in (
         _text(refused)
     )
+
+
+def test_a_run_made_again_takes_its_images_from_the_cache(paco_env: Settings) -> None:
+    # The muting given: no mute trial, the test's runs short.
+    overrides = {**SMALL_WINDOWS, "muting": {"method": "none"}}
+    arguments = {"profile": "active_p1", "overrides": overrides}
+    first, again = _call("run_processing", arguments), _call("run_processing", arguments)
+
+    manifests = [
+        json.loads(next(paco_env.output_dir.glob(f"*/{run_id}/run.json")).read_text())
+        for run_id in (_run_id(first), _run_id(again))
+    ]
+    # The same code, records and settings: the images the first run made, byte for byte.
+    assert all(window["cached"] for window in manifests[1]["windows"])
+    assert manifests[0]["windows"] and paco_env.cache_folder.is_relative_to(paco_env.output_dir)
+
+
+def test_each_call_takes_the_cache_its_settings_give(
+    paco_env: Settings, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    seen: list[caching.Cache | None] = []
+
+    def listing(_settings: Settings) -> list[str]:
+        seen.append(caching.CACHE.get())
+        return []
+
+    monkeypatch.setattr(inspection, "list_profiles", listing)
+    _call("inspect", {"what": "profiles"})
+    monkeypatch.setenv("PACO_CACHE_GB", "0")
+    get_settings.cache_clear()
+    _call("inspect", {"what": "profiles"})
+
+    assert seen == [caching.Cache(paco_env.cache_folder, max_bytes=2_000_000_000), None]
+    assert caching.CACHE.get() is None
 
 
 @pytest.mark.usefixtures("paco_env")

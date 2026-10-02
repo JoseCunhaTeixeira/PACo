@@ -279,11 +279,23 @@ def chosen(scope: Scope, context: Context) -> Offer | None:
     return context.offers[scope.option - 1] if scope.option is not None else None
 
 
+# How the host's refusal of a call outside the message's scope begins (the evaluation counts
+# them).
+SCOPE_REFUSAL = "Not called: this message"
+
+
 def refusal(scope: Scope, name: str, arguments: str) -> str | None:
     """Why the call `name(arguments)` is outside `scope`, said to the model; None when it is
     within it."""
     if name in READ_ONLY:
         return None
+    if name == "run_processing" and scope.compared and not scope.asked - {"process"}:
+        # A comparison makes its own trial windows: the line processed with one of the lengths
+        # is the user's to ask, with the comparison in hand.
+        return (
+            f"{SCOPE_REFUSAL} compares window lengths, and run_processing is outside it: compare "
+            "needs no run. Compare them; processing the line with one is the user's to ask."
+        )
     serves = _SERVES.get(name)
     if name == "redo":
         serves = _REDO_SERVES.get(_argument(arguments, "stage") or "", frozenset(STAGES))
@@ -292,8 +304,8 @@ def refusal(scope: Scope, name: str, arguments: str) -> str | None:
     asked = _said(scope.asked)
     what = f"asks {asked}" if asked else "asks to look at what exists, running nothing"
     return (
-        f"Not called: this message {what}, and {name} is outside it. Do what it asks, or ask "
-        "the user whether they want more."
+        f"{SCOPE_REFUSAL} {what}, and {name} is outside it. Do what it asks, or ask the user "
+        "whether they want more."
     )
 
 

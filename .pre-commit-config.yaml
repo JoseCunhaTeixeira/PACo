@@ -16,3 +16,22 @@ repos:
       - id: ruff-check
         args: [--fix]
       - id: ruff-format
+
+  # The type check and the fast tests (C2): those that process no demo data, under a second.
+  - repo: local
+    hooks:
+      - id: pyright
+        name: pyright
+        entry: uv run pyright src tests
+        language: system
+        pass_filenames: false
+        types: [python]
+      - id: fast-tests
+        name: fast tests
+        entry: >-
+          uv run pytest -q -p no:cacheprovider tests/test_scope.py tests/test_answer.py
+          tests/test_prompts.py tests/test_given.py tests/test_logs.py tests/test_properties.py
+          tests/test_trace.py tests/test_examples.py
+        language: system
+        pass_filenames: false
+        types: [python]

@@ -46,10 +46,18 @@ class ScenarioResult(BaseModel):
     max_prompt_tokens: int | None  # the largest context the model read, when the API says
     duration_s: float
     answer: str  # the model's last answer to the user
+    # The calls the host refused as outside the message's scope (L4), the answers a cap or a
+    # repeat ended (L1, L3), and the retries the gates asked in the play's runs, by gate (O3).
+    scope_blocks: int = 0
+    caps_reached: int = 0
+    retries: dict[str, int] = {}
+    # Why the play was cut short by the model's server (unreachable, failing): not the model's
+    # doing, so out of the pass rates; its transcript kept as far as it went.
+    error: str | None = None
 
     @property
     def passed(self) -> bool:
-        return all(check.passed for check in self.checks)
+        return self.error is None and all(check.passed for check in self.checks)
 
 
 class EvaluationReport(BaseModel):
@@ -71,9 +79,12 @@ class EvaluationReport(BaseModel):
     thresholds: dict[str, float] = {}
 
     def pass_rates(self) -> dict[str, tuple[int, int]]:
-        """Each scenario's plays passed and played, in the order played."""
+        """Each scenario's plays passed and played, in the order played; a play its model's
+        server cut short not counted."""
         rates: dict[str, tuple[int, int]] = {}
         for result in self.results:
+            if result.error is not None:
+                continue
             passed, played = rates.get(result.name, (0, 0))
             rates[result.name] = (passed + result.passed, played + 1)
         return rates
