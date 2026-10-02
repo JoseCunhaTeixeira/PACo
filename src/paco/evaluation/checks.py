@@ -5,7 +5,7 @@ import re
 from collections.abc import Callable, Sequence
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Any, Literal
+from typing import Any
 
 from sigpipe.masw.runs import RunManifest
 
@@ -523,11 +523,10 @@ def _beyond_length(overrides: Any) -> bool:  # noqa: ANN401
     return not isinstance(masw, dict) or set(masw) - {"length"} != set()
 
 
-def windows_than_proposed(longer: Literal["longer", "shorter"]) -> Check:
-    """The agent ran the line again with windows `longer` (or shorter) than the ladder
-    proposed in the first run: it chose the length for what the user asked (depth, or lateral
-    detail)."""
-    name = f"windows {longer} than the ladder proposed"
+def ladder_length_kept() -> Check:
+    """Every run of the play kept the window length the ladder chose in the first: the length
+    whose curves are best, whatever depth or lateral detail the request asked."""
+    name = "the ladder's window length kept"
 
     def check(trial: Trial) -> CheckResult:
         folders = sorted(
@@ -536,11 +535,46 @@ def windows_than_proposed(longer: Literal["longer", "shorter"]) -> Check:
         )
         first = read_length_choice(folders[0]) if folders else None
         if first is None:
-            return CheckResult(name=name, passed=False, detail="no run proposed a length")
-        last = RunManifest.model_validate_json((folders[-1] / "run.json").read_text())
-        chosen = last.preset.masw.length
-        passed = chosen > first.length if longer == "longer" else chosen < first.length
-        detail = f"proposed {first.length}, last run {chosen}"
+            return CheckResult(name=name, passed=False, detail="no run chose a length")
+        lengths = [
+            RunManifest.model_validate_json((folder / "run.json").read_text()).preset.masw.length
+            for folder in folders
+        ]
+        passed = all(length == first.length for length in lengths)
+        detail = f"the ladder's {first.length}, runs of {', '.join(map(str, lengths))}"
+        return CheckResult(name=name, passed=passed, detail="" if passed else detail)
+
+    return check
+
+
+def soils_as_covered() -> Check:
+    """The soils as far as the petrophysical models cover the curves (petro_models' last
+    answer): with curves covered, invert_petro on them, the answer giving how many and the water
+    table; none covered, no invert_petro, the answer giving the band the curves miss (its Hz)."""
+    name = "the soils as the models cover the curves"
+
+    def check(trial: Trial) -> CheckResult:
+        listed = [
+            step for step in _called(trial) if step.name == "petro_models" and not step.is_error
+        ]
+        if not listed:
+            return CheckResult(name=name, passed=False, detail="petro_models never answered")
+        try:
+            models = json.loads(listed[-1].result).get("models") or []
+        except json.JSONDecodeError:
+            return CheckResult(name=name, passed=False, detail="petro_models' answer unread")
+        covered = max((int(model.get("n_covered") or 0) for model in models), default=0)
+        inverted = any(step.name == "invert_petro" and not step.is_error for step in _called(trial))
+        answer = trial.transcript.answer
+        if covered:
+            table = water_table(trial)
+            passed = inverted and str(covered) in answer and table in answer
+            detail = f"{covered} covered: invert_petro {inverted}, water table {table}"
+        else:
+            bands = [_HZ.findall(str(model.get("covers") or "")) for model in models]
+            band = next((found[-1] for found in bands if found), "")
+            passed = not inverted and bool(band) and band in answer
+            detail = f"none covered: invert_petro {inverted}, the answer without {band or '?'} Hz"
         return CheckResult(name=name, passed=passed, detail="" if passed else detail)
 
     return check
@@ -712,6 +746,8 @@ _CHOICE = re.compile(
 
 # The value a refusal as locked asks, and the value a check asks of a bound kept as given.
 _ASKED = re.compile(r"asks .*?(-?\d+(?:\.\d+)?) \(given: ")
+# A frequency as the tools write it: "43 Hz".
+_HZ = re.compile(r"(\d+(?:\.\d+)?) Hz")
 _CHECK_SETS = re.compile(r"kept as given \(the check sets (-?\d+(?:\.\d+)?)")
 
 

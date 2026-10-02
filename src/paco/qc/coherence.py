@@ -326,31 +326,19 @@ def describe_lengths(choice: LengthChoice) -> tuple[str, ...]:
 
 
 def length_hint(choice: LengthChoice, then: str) -> str:
-    """What comes after the ladder's proposal: the lengths the agent may change it to, named,
-    first (the longest tried for more depth, the shortest whose trials passed at least half for
-    more lateral detail), and `then`, the next step when it stays. Named, as the agent does not
-    turn "longer" or "shorter" into a length of the table; first, as it follows the first step
-    it reads."""
-    deeper = max(trial.length for trial in choice.trials)
-    detail = min(
-        (trial.length for trial in choice.trials if 2 * trial.passed >= len(trial.xmids)),
-        default=choice.length,
+    """The ladder's length, said as kept, with the depth its trial curves reach, then `then`, the
+    next step. The length whose curves are best stays whatever depth or lateral detail a request
+    asks: the curves first."""
+    kept = next((trial for trial in choice.trials if trial.length == choice.length), None)
+    depth = (
+        f", its trial curves reaching about {kept.wavelengths_m[1] / 2:.1f} m deep"
+        if kept is not None and kept.wavelengths_m is not None
+        else ""
     )
-    options = []
-    if deeper > choice.length:
-        options.append(
-            f"If the request needs more depth, first run_processing again with masw.length "
-            f"{deeper} (the longest tried)."
-        )
-    if detail < choice.length:
-        options.append(
-            f"If it needs more lateral detail, first run_processing again with masw.length "
-            f"{detail} (the shortest whose trials passed at least half)."
-        )
-    proposal = f"The window length is the ladder's proposal ({choice.length} receivers)."
-    if not options:
-        return f"{then} {proposal}"
-    return f"{proposal} {' '.join(options)} Say why. Otherwise, {then}"
+    return (
+        f"The window length is the ladder's ({choice.length} receivers), the best curves of the "
+        f"lengths tried{depth}: kept, whatever depth or detail the request asks. {then}"
+    )
 
 
 def receiver_spacing(profile: Profile) -> float:

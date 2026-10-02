@@ -45,6 +45,7 @@ from paco.evaluation.checks import (
     in_order,
     inversion_succeeded,
     kept_as_given,
+    ladder_length_kept,
     line_muted,
     locked_asks,
     loop_retried,
@@ -58,11 +59,11 @@ from paco.evaluation.checks import (
     processed_in_mode,
     refused_as_locked,
     retried_value,
+    soils_as_covered,
     succeeded,
     thresholds_unchanged,
     top_vs_kept,
     water_table,
-    windows_than_proposed,
 )
 from paco.evaluation.defects import build_inputs
 from paco.evaluation.report import format_history, read_reports
@@ -723,17 +724,45 @@ def _run_on_disk(root: Path, run_id: str, length: int, proposed: int | None = No
         (run / COHERENCE_FILE).write_text(choice.model_dump_json())
 
 
-def test_the_window_length_the_agent_chose_is_read_from_the_runs(tmp_path: Path) -> None:
+def test_the_ladders_length_kept_is_read_from_the_runs(tmp_path: Path) -> None:
     _run_on_disk(tmp_path, "20260925-100000-abcd", 16, proposed=16)
     trial = _trial([], "", tmp_path)
-    # One run, the ladder's length: the agent chose nothing.
-    assert not windows_than_proposed("longer")(trial).passed
-    assert windows_than_proposed("longer")(trial).detail == "proposed 16, last run 16"
+    # One run, the ladder's length: kept.
+    assert ladder_length_kept()(trial).passed
 
     _run_on_disk(tmp_path, "20260925-100100-abcd", 24)
 
-    assert windows_than_proposed("longer")(trial).passed
-    assert not windows_than_proposed("shorter")(trial).passed
+    kept = ladder_length_kept()(trial)
+    assert not kept.passed and kept.detail == "the ladder's 16, runs of 16, 24"
+
+
+def _petro_models(covered: int) -> ToolStep:
+    listed = {
+        "models": [
+            {
+                "name": "grand_est_15-50hz_193-415mps",
+                "covers": f"{covered} of the 6 curves G4 passed; {6 - covered} end below 43 Hz",
+                "n_covered": covered,
+            }
+        ]
+    }
+    return _step("petro_models", {"run_id": "r"}).model_copy(update={"result": json.dumps(listed)})
+
+
+def test_the_soils_are_judged_by_the_curves_the_models_cover() -> None:
+    invert_petro = _step("invert_petro", {"run_id": "r", "model": "m"})
+    none: list[Step] = [_petro_models(0)]
+
+    # None covered: no inversion, and the answer says the band the curves miss.
+    assert soils_as_covered()(_trial(none, "No curve reaches 43 Hz: no soils.")).passed
+    told_nothing = soils_as_covered()(_trial(none, "No soils."))
+    assert not told_nothing.passed
+    assert told_nothing.detail == "none covered: invert_petro False, the answer without 43 Hz"
+    assert not soils_as_covered()(_trial([*none, invert_petro], "43 Hz")).passed
+    # Some covered: inverted, the answer saying how many.
+    some: list[Step] = [_petro_models(2), invert_petro]
+    assert not soils_as_covered()(_trial(some, "2 curves")).passed  # no water table on disk
+    assert not soils_as_covered()(_trial([_step("pick", {})], "")).passed
 
 
 def test_the_dead_trace_profile_is_the_demo_with_one_trace_zeroed(

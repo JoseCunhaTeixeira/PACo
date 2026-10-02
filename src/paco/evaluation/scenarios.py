@@ -1,9 +1,9 @@
 """The evaluation suite of the QC loop (docs/qc_workflow.md): looking around, processing and
 picking with the gates' own fixes in PAC's three modes, the loop's changes to the settings the
-user typed (said in the answer), the window length the agent chooses for depth or lateral detail,
-the whole line to Vs models with no setting at all, and the cases where the agent is stuck and
-must ask. Every scenario where the data decide checks that the agent asked nothing, and that the
-thresholds stayed the configuration's."""
+user typed (said in the answer), the window length kept for depth or lateral detail (the best
+curves first), the whole line to Vs models with no setting at all, and the cases where the
+agent is stuck and must ask. Every scenario where the data decide checks that the agent asked
+nothing, and that the thresholds stayed the configuration's."""
 
 from collections.abc import Callable
 from dataclasses import dataclass
@@ -27,6 +27,7 @@ from paco.evaluation.checks import (
     inverted_windows,
     kept_as_given,
     kept_by_hand,
+    ladder_length_kept,
     line_muted,
     locked_asks,
     models,
@@ -40,11 +41,10 @@ from paco.evaluation.checks import (
     processed_in_mode,
     refused_as_locked,
     replaced_by_hand,
+    soils_as_covered,
     succeeded,
     thresholds_unchanged,
     top_vs_kept,
-    water_table,
-    windows_than_proposed,
 )
 from paco.evaluation.models import Kind
 from paco.evaluation.setups import (
@@ -177,19 +177,18 @@ SCENARIOS = (
                 profile="active_p1",
                 overrides={"masw": {"length": 24, "step": 12}},
             ),
-            in_order("run_processing", "pick", "petro_models", "invert_petro"),
-            # The one bundled model, which covers 1 of the 6 curves (the others end below 43 Hz).
-            called("invert_petro", model="grand_est_15-50hz_193-415mps"),
-            succeeded("invert_petro"),
-            answer_mentions(water_table, "43"),
+            in_order("run_processing", "pick", "petro_models"),
+            # Soils for the curves a model covers, and how many; none covered, said, with why.
+            soils_as_covered(),
             never_called("invert"),
             asked_nothing(),
             thresholds_unchanged(),
         ),
         rubric="The user asks for soils and the water table, not Vs models: the agent processes "
-        "and picks, chooses the Silex model petro_models lists, inverts the curves it covers, and "
-        "reports the soils and the water table the gates passed, and that the model covers only "
-        "one curve (the others end below the 43 Hz it needs), without asking anything.",
+        "and picks, asks petro_models which curves its models cover, inverts those and reports "
+        "the soils and the water table the gates passed, and how many curves were fit for it; "
+        "with none covered, it says so and why (the band the models need), without asking "
+        "anything.",
     ),
     Scenario(
         name="pick_passive",
@@ -321,17 +320,16 @@ SCENARIOS = (
         kind="the loop",
         questions=("Process active_p1 and pick the curves, reaching as deep as this line allows.",),
         checks=(
-            # The ladder proposes the shortest length most trial windows pass; longer windows
-            # keep longer wavelengths, which reach deeper.
-            windows_than_proposed("longer"),
+            # The ladder's length gives the best curves: depth asked, it stays.
+            ladder_length_kept(),
             succeeded("pick"),
             never_called("invert"),
             asked_nothing(),
             thresholds_unchanged(),
         ),
-        rubric="The agent reads the lengths run_processing tried, runs the line again with "
-        "longer windows for depth, and says which length it chose and why (the wavelengths it "
-        "reaches), and how many curves passed, without asking anything.",
+        rubric="The agent keeps the window length run_processing chose, the best curves, picks, "
+        "and says down to which depth the curves reach and how many passed, without asking "
+        "anything.",
     ),
     Scenario(
         name="detail",
@@ -340,15 +338,15 @@ SCENARIOS = (
             "Process active_p1 and pick the curves, with as much lateral detail as the data allow.",
         ),
         checks=(
-            windows_than_proposed("shorter"),
+            ladder_length_kept(),
             succeeded("pick"),
             never_called("invert"),
             asked_nothing(),
             thresholds_unchanged(),
         ),
-        rubric="The agent reads the lengths run_processing tried, runs the line again with "
-        "shorter windows for lateral detail, and says which length it chose and why (how many "
-        "trial windows it passed), and how many curves passed, without asking anything.",
+        rubric="The agent keeps the window length run_processing chose, the best curves, picks, "
+        "and says how many windows the line has and how many curves passed, without asking "
+        "anything.",
     ),
     Scenario(
         name="few_iterations",
