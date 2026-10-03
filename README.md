@@ -394,30 +394,19 @@ limit), and G8 compares the columns' Vs and water tables with their neighbours
 
 ## The model
 
-PACo was measured on its 15 scenarios of the guidelines' rules (5 plays each, 75 plays):
+PACo runs with **`Qwen/Qwen3-14B-FP8`**, which needs a GPU with 24 GB of memory.
 
-| Model | Plays passed | Scope set (44 messages) | GPU for its weights |
-|---|---|---|---|
-| `Qwen/Qwen3-14B-FP8` | 74 | 44 | 24 GB |
-| `Qwen/Qwen3-8B-FP8` | 68 | 42 | 16 GB |
-| `Qwen/Qwen3.8-27B` | 69 | 43 | 40 to 48 GB (FP8) |
-
-Use **`Qwen/Qwen3-14B-FP8`**. The 27B is no better for twice the memory. `Qwen/Qwen3-8B-FP8`
-also works, on a 16 GB GPU, but it is less performant: it misses most where a tool's error says
-what to call next (asked for a higher mode, it stops instead of picking M0 alone).
-
-**On a GPU, with vLLM** (24 GB for the 14B). Qwen3 calls tools through vLLM's Hermes parser, and
-its thinking is kept out of the answers by the Qwen3 reasoning parser:
+**On a GPU, with vLLM.** Qwen3 calls tools through vLLM's Hermes parser, and its thinking is kept
+out of the answers by the Qwen3 reasoning parser:
 
 ```sh
 vllm serve Qwen/Qwen3-14B-FP8 --port 8001 --max-model-len 16384 \
     --enable-auto-tool-choice --tool-call-parser hermes --reasoning-parser qwen3
 ```
 
-Then `PACO_LLM_BASE_URL=http://127.0.0.1:8001/v1` (`paco-server` takes 8000), `PACO_LLM_MODEL=Qwen/Qwen3-14B-FP8` and
-`PACO_LLM_CONTEXT=16384`. The context holds 16,384 tokens at least, 32,768 for long
-conversations (the largest prompt measured is about 9,200 tokens; the 14B's KV cache takes
-160 KiB a token, 5 GiB at 32k). The 8B fits a 16 GB GPU with a 12,288-token context.
+Then `PACO_LLM_BASE_URL=http://127.0.0.1:8001/v1` (`paco-server` takes 8000),
+`PACO_LLM_MODEL=Qwen/Qwen3-14B-FP8` and `PACO_LLM_CONTEXT=16384`. 32,768 tokens
+(`--max-model-len 32768`) leave room for long conversations.
 
 **On another machine's GPU** (a lab workstation, a GPU server rented in the cloud): the same
 command there, its port reached through SSH from the machine PACo runs on
@@ -428,13 +417,6 @@ command there, its port reached through SSH from the machine PACo runs on
 `PACO_LLM_MODEL` as the service names the model, and `PACO_LLM_API_KEY`. The service then
 receives your messages, the tools' descriptions and the gates' summaries, never the records,
 images or models.
-
-**Another model.** Any model behind an OpenAI-compatible chat API with tool calling works. vLLM
-needs the family's tool-call parser in place of `hermes`, and no Qwen3 reasoning parser. The
-scope's form needs the server's JSON-schema output (`response_format`), which vLLM and
-llama.cpp's server both give. Measure it with `uv run paco-evaluate` (5 plays of each scenario)
-before relying on it, and compare its pass rates with the 14B's (`--history`, per model and
-prompts' version).
 
 ## Docker
 
@@ -447,8 +429,7 @@ docker compose run --rm agent           # chat in this terminal
 docker compose run --rm evaluate        # the evaluation suite
 ```
 
-`PACO_LLM_MODEL` is required in `.env` (`Qwen/Qwen3-14B-FP8` on a 24 GB GPU; `Qwen/Qwen3-8B-FP8`
-on 16 GB, less performant, with `VLLM_MAX_MODEL_LEN=12288`); `VLLM_MAX_MODEL_LEN` (default 16384),
+`PACO_LLM_MODEL=Qwen/Qwen3-14B-FP8` is required in `.env`; `VLLM_MAX_MODEL_LEN` (default 16384),
 `PACO_WORKERS` and `HF_TOKEN` can be set there too. The server and vLLM publish their ports
 (8000 and 8001) on 127.0.0.1 only.
 
@@ -459,10 +440,7 @@ swaps in vLLM's ROCm image and reuses the models in `~/.cache/huggingface`:
 docker compose -f compose.yaml -f compose.rocm.yaml up -d vllm paco-server
 ```
 
-vLLM's 4-bit formats (AWQ, GPTQ) do not run on AMD GPUs: the models run in FP8. The 14B needs a
-24 GB card. On a 16 GB card, `Qwen/Qwen3-8B-FP8` runs with `VLLM_MAX_MODEL_LEN=12288` (its weights
-take 8.8 GiB and leave 2.2 GiB for the KV cache, enough for a 12k context, not for 16k), less
-performant.
+vLLM's 4-bit formats (AWQ, GPTQ) do not run on AMD GPUs: the model runs in FP8, on a 24 GB card.
 
 With vLLM in Docker and PACo run with uv, point the agent at the container:
 `PACO_LLM_BASE_URL=http://127.0.0.1:8001/v1`.
