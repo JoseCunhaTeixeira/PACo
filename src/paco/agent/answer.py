@@ -1,8 +1,9 @@
 """The answer the user reads, written by code around the model's text (R2): the scope line, what
 the model says (an answer form it fills from its draft, constrained to the form's schema), what
-was done and left out (from the tools' results), the question and the options when the user
-must choose, else what they can do next; then the parameters used and the settings the gates
-changed. Numbers in the model's text that no result of the turn holds are flagged (R1).
+was done and left out (from the tools' results), the stages the message asked that no tool did
+(U6), the question and the options when the user must choose, else what they can do next; then
+the parameters used and the settings the gates changed. Numbers in the model's text that no
+result of the turn holds are flagged (R1).
 
 Whether a question is shown comes from the turn, never from its words: a tool offered options,
 a tool is stuck, or no work was done yet (a clarification). After work done, the model's
@@ -18,7 +19,7 @@ from pydantic import BaseModel, ConfigDict, Field, ValidationError
 
 from paco import prompts
 from paco.agent.model import ChatModel, Filled
-from paco.agent.scope import Offer, Scope, offers_in
+from paco.agent.scope import STAGES, Offer, Scope, offers_in
 
 # The tools that do the request's work, and the stage each serves (job_status: the inversion).
 STAGE_OF_TOOL = {
@@ -30,6 +31,16 @@ STAGE_OF_TOOL = {
     "job_status": "models",
     "invert_petro": "soils",
 }
+# The stage a redo goes back to, by its `stage` argument.
+_REDO_STAGE = {
+    "preprocessing": "images",
+    "phase_shift": "images",
+    "picking": "curves",
+    "inversion": "models",
+    "petro_inversion": "soils",
+}
+# What each stage a message asks makes.
+_MADE = {"process": "images", "pick": "curves", "invert": "models", "soils": "soils"}
 # What the user can ask next, after each stage's work.
 _NEXT_ASK = {
     "images": "the curves (ask to pick them)",
@@ -71,9 +82,12 @@ class Turn:
     changed: list[str] = field(default_factory=list)  # the settings the gates changed
     kept: list[str] = field(default_factory=list)  # the user's settings, kept as given
     results: list[str] = field(default_factory=list)  # every result's text, for R1
+    # A comparison of settings made: what a message asking to compare them asks of processing.
+    compared: bool = False
 
-    def read(self, name: str, result: str, failed: bool) -> None:
-        """Take in a tool's result: the call `name`, its text, and whether it failed."""
+    def read(self, name: str, result: str, failed: bool, arguments: str = "") -> None:
+        """Take in a tool's result: the call `name`, its text, whether it failed, and the call's
+        arguments (a redo's stage)."""
         self.results.append(result)
         if failed:
             self.stuck = self.stuck or _STUCK_ERROR.match(result) is not None
@@ -93,7 +107,8 @@ class Turn:
         did = parsed.get("did")
         if isinstance(did, str) and did and did not in self.done:
             self.done.append(did)
-            if (stage := STAGE_OF_TOOL.get(name)) is not None:
+            self.compared = self.compared or name == "compare"
+            if (stage := _stage_of(name, arguments)) is not None:
                 self.stages.append(stage)
         for key, into in (
             ("left", self.left),
@@ -109,6 +124,24 @@ class Turn:
     def worked(self) -> bool:
         """Whether a stage tool did work in the turn."""
         return bool(self.done)
+
+    def undone(self, asked: Iterable[str]) -> list[str]:
+        """The stages `asked` (the scope's) that no tool did in the turn, in their order."""
+        made = {*self.stages, *(("images",) if self.compared else ())}
+        return [stage for stage in STAGES if stage in asked and _MADE[stage] not in made]
+
+
+def _stage_of(name: str, arguments: str) -> str | None:
+    """The stage a call did: a redo's, the one it went back to."""
+    if name == "redo":
+        try:
+            called = json.loads(arguments)
+        except json.JSONDecodeError:
+            called = None
+        stage = called.get("stage") if isinstance(called, dict) else None
+        if isinstance(stage, str) and stage in _REDO_STAGE:
+            return _REDO_STAGE[stage]
+    return STAGE_OF_TOOL.get(name)
 
 
 class AnswerError(ValueError):
@@ -164,6 +197,11 @@ def render(
         blocks.append("Done:\n" + "\n".join(f"- {line}" for line in turn.done))
     if turn.left:
         blocks.append("Left out:\n" + "\n".join(f"- {line}" for line in turn.left))
+    asks = bool(turn.offers) or bool(question and (turn.stuck or (not turn.worked and scope.asked)))
+    # The stages asked that no tool did, said (U6); when the user must choose, the question
+    # says why.
+    if not asks and (undone := turn.undone(scope.asked)):
+        blocks.append(f"Asked but not done: {', '.join(undone)}.")
     if turn.offers:
         options = "\n".join(f"({i}) {offer.label}" for i, offer in enumerate(turn.offers, 1))
         blocks.append(f"{question or 'Which do you choose?'}\n{options}")

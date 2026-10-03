@@ -87,6 +87,8 @@ Every answer is written by code around the model's text (`src/paco/agent/answer.
   no question;
 - "Done:" and "Left out:", from the tools' results (what each stage did, the windows a gate
   rejected or a stage failed, with why);
+- "Asked but not done:", the stages the message asked that no tool did (none when the answer
+  asks the user to choose: the question says why);
 - the question and the options when you must choose (a tool offered options, a tool cannot go
   on without you, or your request for work left it unclear), else "Next:", what you can ask
   next and where PAC shows the results; a message asking for no work (a look, something no
@@ -213,6 +215,7 @@ rates of every evaluation kept, by model and prompts' version, the latest versio
 one before (`--model` for one model), and over the same plays the tool calls that failed, the
 calls refused as outside the message's scope, the answers a cap ended and each gate's retries a
 play. An evaluation's plays share one images' cache, removed at its end. A play the model's
-server cuts short (out of reach, failing) is lost, not counted, and listed under the report; a
-request it refuses (a JSON schema it does not take, the context exceeded) fails the play, with
-the server's message.
+server cuts short (out of reach, failing, or a 404 page instead of its JSON: a proxy's while
+the server behind it is down) is lost, not counted, and listed under the report; a request it
+refuses (a JSON schema it does not take, the context exceeded, a model name it does not serve)
+fails the play, with the server's message.

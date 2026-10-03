@@ -252,7 +252,7 @@ class Agent:
                     followed = await self._follow(job_id)
                     self.steps.append(followed)
                     result = followed.result
-                turn.read(call.name, result, step.is_error)
+                turn.read(call.name, result, step.is_error, call.arguments)
                 if step.is_error:
                     failed[key] = step.result
                 else:

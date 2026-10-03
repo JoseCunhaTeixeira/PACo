@@ -116,16 +116,17 @@ async def run_scenario(
             try:
                 for question in scenario.questions:
                     await agent.answer(question)
-            except (openai.APIConnectionError, openai.InternalServerError) as failed:
-                # The model's server out of reach or failing (a timeout too): not the model's
-                # doing, the play is lost, the evaluation goes on.
-                error = f"{type(failed).__name__}: {failed}"
-                on_event(f"   (play lost: {error})")
-            except openai.APIStatusError as refusal:
-                # A request the server refused (a schema it does not take, the context
-                # exceeded): this setup cannot play it, a failure, said.
-                refused = f"{type(refusal).__name__}: {refusal.message}"
-                on_event(f"   (refused by the model's server: {refused})")
+            except (openai.APIConnectionError, openai.APIStatusError) as failed:
+                if (lost := _lost(failed)) is not None:
+                    # Not the model's doing: the play is lost, the evaluation goes on.
+                    error = lost
+                    on_event(f"   (play lost: {error})")
+                else:
+                    # A request the server refused (a schema it does not take, the context
+                    # exceeded, a model it does not serve): this setup cannot play it, a
+                    # failure, said.
+                    refused = f"{type(failed).__name__}: {failed.message}"
+                    on_event(f"   (refused by the model's server: {refused})")
         await _wait_for_jobs(outputs)
     duration_s = round(time.perf_counter() - start, 1)
 
@@ -162,6 +163,19 @@ async def run_scenario(
         retries=gate_retries(outputs),
         error=error,
     )
+
+
+def _lost(failed: openai.APIError) -> str | None:
+    """Why `failed` lost the play, when no model's server judged the request: the server out
+    of reach or failing (a timeout too), or a 404 that is not its JSON, a page from whatever
+    answers at its address (a proxy's while the server behind it is down). None for a refusal,
+    the server's own 404 among them (a model it does not serve, a path it does not have)."""
+    name = type(failed).__name__
+    if isinstance(failed, openai.NotFoundError) and not isinstance(failed.body, dict):
+        return f"{name}: a 404 page at {failed.request.url}, no model's server behind it"
+    if isinstance(failed, (openai.APIConnectionError, openai.InternalServerError)):
+        return f"{name}: {failed}"
+    return None
 
 
 def _scored(

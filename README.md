@@ -162,7 +162,8 @@ Other commands:
   and along the line), and fix what they can within budgets; every attempt is in the run's
   `qc_log.jsonl`.
 - **Answers.** Code writes the fixed parts around the model's text: the scope, what was done, the
-  windows left out and why, the parameters used and the settings the gates changed.
+  windows left out and why, the stages your message asked that were not done, the parameters
+  used and the settings the gates changed.
 
 The details are in `docs/agent.md`, the gates' specification in `docs/qc_workflow.md`, and each
 gate in `docs/gates/`.
@@ -212,7 +213,7 @@ rules, played 5 times each (`uv run paco-evaluate`):
 
 | Model | GPU memory | PACo's tests (75 plays) |
 |---|---|---|
-| `Qwen/Qwen3-14B-FP8` (the one PACo runs) | 24 GB | 74 passed |
+| `Qwen/Qwen3-14B-FP8` (the one PACo runs) | 24 GB | 75 passed |
 | `Qwen/Qwen3-8B-FP8` | 16 GB, with a 12,288-token context | 68 passed |
 | `Qwen/Qwen3.8-27B` | 40 to 48 GB (FP8) | 69 passed |
 | `Qwen/Qwen3-30B-A3B-FP8` | 48 GB, or two 24 GB GPUs | not tested |
