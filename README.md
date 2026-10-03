@@ -418,6 +418,20 @@ command there, its port reached through SSH from the machine PACo runs on
 receives your messages, the tools' descriptions and the gates' summaries, never the records,
 images or models.
 
+**Another model.** PACo works with any model served behind an OpenAI-compatible chat API with
+tool calling and JSON-schema output: set `PACO_LLM_BASE_URL`, `PACO_LLM_MODEL` and
+`PACO_LLM_CONTEXT`. In vLLM, a model of another family needs its own tool-call parser in place
+of `hermes`, and no Qwen3 reasoning parser. PACo's tests are 15 scenarios of the assistant's
+rules, played 5 times each (`uv run paco-evaluate`):
+
+| Model | GPU memory | PACo's tests (75 plays) |
+|---|---|---|
+| `Qwen/Qwen3-14B-FP8` (the one PACo runs) | 24 GB | 74 passed |
+| `Qwen/Qwen3-8B-FP8` | 16 GB, with a 12,288-token context | 68 passed |
+| `Qwen/Qwen3.8-27B` | 40 to 48 GB (FP8) | 69 passed |
+| `Qwen/Qwen3-30B-A3B-FP8` | 48 GB, or two 24 GB GPUs | not tested |
+| `Qwen/Qwen3-32B-FP8` | 48 GB, or two 24 GB GPUs | not tested |
+
 ## Docker
 
 On a GPU machine with Docker and NVIDIA's container toolkit, `compose.yaml` runs the whole stack:

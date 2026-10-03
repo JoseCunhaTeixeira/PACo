@@ -758,7 +758,7 @@ def test_openai_chat_sends_the_conversation_and_reads_tool_calls() -> None:
                 "id": "chatcmpl-1",
                 "object": "chat.completion",
                 "created": 0,
-                "model": "Qwen/Qwen3-8B",
+                "model": "Qwen/Qwen3-14B-FP8",
                 "choices": [{"index": 0, "finish_reason": "tool_calls", "message": message}],
             },
         )
@@ -774,7 +774,7 @@ def test_openai_chat_sends_the_conversation_and_reads_tool_calls() -> None:
     ]
 
     async def ask() -> Reply:
-        return await OpenAIChat(client, "Qwen/Qwen3-8B")(messages, tools)
+        return await OpenAIChat(client, "Qwen/Qwen3-14B-FP8")(messages, tools)
 
     reply = anyio.run(ask)
 
@@ -783,7 +783,11 @@ def test_openai_chat_sends_the_conversation_and_reads_tool_calls() -> None:
     assert request.url.path == "/v1/chat/completions"
     assert request.headers["authorization"] == "Bearer secret"
     body = json.loads(request.content)
-    assert (body["model"], body["messages"], body["tools"]) == ("Qwen/Qwen3-8B", messages, tools)
+    assert (body["model"], body["messages"], body["tools"]) == (
+        "Qwen/Qwen3-14B-FP8",
+        messages,
+        tools,
+    )
     # Each call is chosen after the result of the one before.
     assert body["parallel_tool_calls"] is False
 
@@ -799,7 +803,7 @@ def test_openai_chat_fills_a_form_under_its_schema() -> None:
                 "id": "chatcmpl-2",
                 "object": "chat.completion",
                 "created": 0,
-                "model": "Qwen/Qwen3-8B",
+                "model": "Qwen/Qwen3-14B-FP8",
                 "choices": [
                     {
                         "index": 0,
@@ -819,7 +823,7 @@ def test_openai_chat_fills_a_form_under_its_schema() -> None:
     messages: list[ChatCompletionMessageParam] = [{"role": "user", "content": "Pick it."}]
 
     async def fill() -> Filled:
-        return await OpenAIChat(client, "Qwen/Qwen3-8B", 0.6, 7).fill(messages, SCHEMA)
+        return await OpenAIChat(client, "Qwen/Qwen3-14B-FP8", 0.6, 7).fill(messages, SCHEMA)
 
     filled = anyio.run(fill)
 
