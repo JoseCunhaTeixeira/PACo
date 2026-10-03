@@ -193,3 +193,34 @@ def test_windows_left_out_over_a_setting_given_are_named_next() -> None:
         "Next: for the windows left out over a setting you gave, ask again with the change; the "
         "Vs models (ask to invert them); the results in PAC's Visualization page." in answer
     )
+
+
+def test_a_stage_asked_that_no_tool_did_is_said() -> None:
+    asks = ASKS_PICK.model_copy(update={"invert": True})
+    picked = Turn()
+    picked.read("pick", PICKED, failed=False)
+    offered = Turn()
+    offered.read("pick", OFFERED, failed=False)
+    nothing = Turn()
+
+    assert "Asked but not done: invert." in render(asks, "Picked the 4 windows.", None, picked)
+    # Nothing run and nothing asked back: the answer says what was not done.
+    nothing_done = render(asks, "The run holds images.", None, nothing)
+    assert "Asked but not done: pick, invert." in nothing_done
+    # When the user must choose, the question says why.
+    assert "Asked but not done" not in render(asks, "Run r holds 4 curves.", None, offered)
+    assert "Asked but not done" not in render(asks, "Two runs hold it.", "Which one?", nothing)
+
+
+def test_a_comparison_or_a_redo_does_the_stage_it_serves() -> None:
+    process = ASKS_PICK.model_copy(update={"process": True, "pick": False})
+    compared = Turn()
+    compared.read("compare", json.dumps({"did": "Compared 2 variants of active_p1."}), False)
+    redone = Turn()
+    did = {"run_id": "r", "status": "ok", "did": "Redid the phase shift of run r, 1 window."}
+    redone.read("redo", json.dumps(did), False, '{"run_id": "r", "stage": "phase_shift"}')
+
+    assert "Asked but not done" not in render(process, "Variant 2 reaches deeper.", None, compared)
+    assert "Asked but not done" not in render(process, "Redone.", None, redone)
+    # The images made again: the curves come next.
+    assert redone.stages == ["images"]

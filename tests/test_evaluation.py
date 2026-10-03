@@ -13,7 +13,7 @@ from openai.types.chat import ChatCompletionFunctionToolParam, ChatCompletionMes
 from sigpipe.masw.profiles import load_profile
 from sigpipe.masw.runs import RunManifest
 
-from paco.agent import Filled, Reply, Step, ToolCall, ToolStep, Transcript
+from paco.agent import Filled, OpenAIChat, Reply, Step, ToolCall, ToolStep, Transcript
 from paco.agent.answer import SCHEMA as ANSWER_SCHEMA
 from paco.agent.loop import from_data
 from paco.evaluation import (
@@ -886,12 +886,19 @@ def _scenario(name: str) -> Any:  # noqa: ANN401
     return scenario
 
 
-def _play(name: str, policy: Policy, folder: Path, judge_says: str | None = None) -> ScenarioResult:
+def _play(
+    name: str,
+    policy: Policy,
+    folder: Path,
+    judge_says: str | None = None,
+    scope: dict[str, Any] | None = None,
+) -> ScenarioResult:
     judge = PolicyModel(lambda _messages: _says(judge_says)) if judge_says else None
+    model = PolicyModel(policy, scope)
 
     async def play() -> ScenarioResult:
         return await run_scenario(
-            _scenario(name), PolicyModel(policy), "scripted", folder, judge, on_event=lambda _: None
+            _scenario(name), model, "scripted", folder, judge, on_event=lambda _: None
         )
 
     return anyio.run(play)
@@ -956,12 +963,13 @@ def test_the_gates_retries_are_counted_from_the_runs_logs(tmp_path: Path) -> Non
 
 @pytest.mark.usefixtures("paco_env")
 def test_a_good_policy_passes_and_is_judged(tmp_path: Path) -> None:
-    result = _play("list_profiles", lists_profiles, tmp_path, '{"score": 5, "reason": "Exact."}')
+    # A question about what exists: a look, no stage asked.
+    result = _play(
+        "list_profiles", lists_profiles, tmp_path, '{"score": 5, "reason": "Exact."}', NOTHING
+    )
 
     assert result.passed
-    assert result.answer == (
-        "Scope: process, pick, invert, soils.\n\nYou can process active_p1 and passive_p1."
-    )
+    assert result.answer == "Scope: look only.\n\nYou can process active_p1 and passive_p1."
     assert (result.tool_calls, result.failed_calls) == (1, 0)
     assert result.judge == JudgeScore(score=5, reason="Exact.")
     saved = Transcript.model_validate_json((tmp_path / "transcript.json").read_text())
@@ -1085,6 +1093,60 @@ def test_a_play_the_models_server_cut_short_is_lost_not_failed(tmp_path: Path) -
         "Plays the model's server cut short, not counted:",
         "  list_profiles #1: APIConnectionError: Connection error.",
     ]
+
+
+def _model_at(answer: Callable[[httpx2.Request], httpx2.Response]) -> OpenAIChat:
+    """The model through the real client, at an address that answers every request with
+    `answer`: the client makes its errors from the answer, as from a real server's."""
+    client = openai.AsyncOpenAI(
+        base_url="http://vllm.test/v1",
+        api_key="secret",
+        http_client=httpx2.AsyncClient(transport=httpx2.MockTransport(answer)),
+    )
+    return OpenAIChat(client, "Qwen/Qwen3-14B-FP8")
+
+
+def _played(model: OpenAIChat, folder: Path) -> ScenarioResult:
+    async def play() -> ScenarioResult:
+        scenario = _scenario("list_profiles")
+        return await run_scenario(scenario, model, "scripted", folder, on_event=lambda _: None)
+
+    return anyio.run(play)
+
+
+@pytest.mark.usefixtures("paco_env")
+def test_a_page_not_found_at_the_servers_address_loses_the_play(tmp_path: Path) -> None:
+    # What a proxy answers while the server behind it is down: a page, not the server's JSON.
+    page = "<html><head><title>404 Page not found</title></head></html>"
+
+    result = _played(_model_at(lambda _: httpx2.Response(404, text=page)), tmp_path)
+
+    # No model there to fail: the play lost, out of the pass rates.
+    assert result.error == (
+        "NotFoundError: a 404 page at http://vllm.test/v1/chat/completions, "
+        "no model's server behind it"
+    )
+    assert not result.checks
+
+
+@pytest.mark.usefixtures("paco_env")
+def test_a_model_the_server_does_not_serve_fails_the_play(tmp_path: Path) -> None:
+    # vLLM's 404 for a model name it does not serve, in its JSON.
+    error = {
+        "message": "The model `Qwen/Qwen3-14B-FP8` does not exist.",
+        "type": "NotFoundError",
+        "param": "model",
+        "code": 404,
+    }
+
+    result = _played(_model_at(lambda _: httpx2.Response(404, json={"error": error})), tmp_path)
+
+    # The server answered: a setup to correct, a failure with its message, not a play lost.
+    assert result.error is None and not result.passed
+    (check,) = result.checks
+    assert check.name == "the model's server took every request"
+    assert check.detail.startswith("NotFoundError: Error code: 404")
+    assert "The model `Qwen/Qwen3-14B-FP8` does not exist." in check.detail
 
 
 @pytest.mark.usefixtures("paco_env")

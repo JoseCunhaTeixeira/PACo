@@ -67,6 +67,13 @@ EVERYTHING = Scope(
 )
 
 
+# A question about what exists, and a request to invert: the scopes those messages have.
+LOOK = EVERYTHING.model_copy(
+    update={"process": False, "pick": False, "invert": False, "soils": False}
+)
+INVERT = EVERYTHING.model_copy(update={"process": False, "pick": False, "soils": False})
+
+
 def _scoped(answer: str, scope: Scope = EVERYTHING) -> str:
     """`answer` as the user reads it: after the scope's line."""
     return f"{scope.line()}\n\n{answer}"
@@ -187,11 +194,12 @@ def test_the_agent_calls_tools_until_the_model_answers(paco_env: Settings) -> No
         _calls(("inspect", {"what": "profiles"})),
         _calls(("inspect", {"what": "profile", "profile": "active_p1"})),
         _says("Two profiles; active_p1 is an active line of 96 receivers."),
+        scopes=(LOOK,),
     )
 
     answer, events, messages = _converse(model, "What can I process?")
 
-    assert answer == _scoped("Two profiles; active_p1 is an active line of 96 receivers.")
+    assert answer == _scoped("Two profiles; active_p1 is an active line of 96 receivers.", LOOK)
     assert events == [
         '-> inspect({"what": "profiles"})',
         '-> inspect({"what": "profile", "profile": "active_p1"})',
@@ -691,6 +699,7 @@ class JobServer:
                 "done": 4,
                 "total": 4,
                 "changed": ["n_layers 4 -> 5"],
+                "did": "Inverted run 20260925-100000-abcd, 4 windows: G5 4 pass.",
             }
         )
 
@@ -703,7 +712,9 @@ def _structured(value: dict[str, Any]) -> CallToolResult:
 
 def test_an_inversion_is_followed_to_its_end_before_the_model_reads_on() -> None:
     model = ScriptedModel(
-        _calls(("invert", {"run_id": "20260925-100000-abcd"})), _says("Four models.")
+        _calls(("invert", {"run_id": "20260925-100000-abcd"})),
+        _says("Four models."),
+        scopes=(INVERT,),
     )
     server_ = JobServer()
     events: list[str] = []
@@ -727,7 +738,14 @@ def test_an_inversion_is_followed_to_its_end_before_the_model_reads_on() -> None
         "   job_status: inverted: 2 of 4 windows",
     ]
     # The settings the job changed are listed after the answer.
-    assert answer == _scoped("Four models.\n\nSettings the gates changed:\n- n_layers 4 -> 5")
+    assert answer == _scoped(
+        "Four models.\n\n"
+        "Done:\n- Inverted run 20260925-100000-abcd, 4 windows: G5 4 pass.\n\n"
+        "Next: the soils and the water table (ask for them); the results in PAC's Visualization "
+        "page.\n\n"
+        "Settings the gates changed:\n- n_layers 4 -> 5",
+        INVERT,
+    )
     (followed,) = [step for step in agent.steps if isinstance(step, ToolStep) and step.by_host]
     assert isinstance(followed, ToolStep)
     assert (followed.name, followed.by_host) == ("job_status", True)
@@ -891,7 +909,7 @@ def test_a_call_made_already_is_refused_and_a_third_ends_the_answer() -> None:
     runs = _calls(("inspect", {"what": "runs"}))
     server_ = MetaServer()
 
-    answer, agent, events = _played(ScriptedModel(runs, runs, runs, runs), server_)
+    answer, agent, events = _played(ScriptedModel(runs, runs, runs, runs, scopes=(LOOK,)), server_)
 
     assert [name for name, _ in server_.calls] == ["inspect"]  # made once
     refused = _tool_results(agent.messages)[1:]
@@ -901,7 +919,8 @@ def test_a_call_made_already_is_refused_and_a_third_ends_the_answer() -> None:
     assert events[-1] == "   (stopped: inspect called again, the same way)"
     assert answer == _scoped(
         "PACo stopped this answer: inspect was called again with the same arguments, without "
-        "progress."
+        "progress.",
+        LOOK,
     )
 
 
@@ -909,12 +928,13 @@ def test_an_answer_stops_at_its_caps() -> None:
     model = ScriptedModel(
         _with_tokens(_calls(("inspect", {"what": "runs"})), 100, 30),
         _with_tokens(_says("Never read."), 100, 30),
+        scopes=(LOOK,),
     )
 
     answer, _, events = _played(model, MetaServer(), limits=Limits(tokens=20))
 
     assert answer == _scoped(
-        "PACo stopped this answer: it reached its cap of 20 tokens written by the model."
+        "PACo stopped this answer: it reached its cap of 20 tokens written by the model.", LOOK
     )
     assert events[-1] == "   (stopped: cap of 20 tokens written by the model)"
 
