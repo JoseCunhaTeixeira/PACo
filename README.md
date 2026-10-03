@@ -203,7 +203,10 @@ its threshold (3 plays of 5 by default). `uv run paco-evaluate --history` tabula
 rates of every evaluation kept, by model and prompts' version, the latest version against the
 one before (`--model` for one model), and over the same plays the tool calls that failed, the
 calls refused as outside the message's scope, the answers a cap ended and each gate's retries a
-play. An evaluation's plays share one images' cache, removed at its end.
+play. An evaluation's plays share one images' cache, removed at its end. A play the model's
+server cuts short (out of reach, failing) is lost, not counted, and listed under the report; a
+request it refuses (a JSON schema it does not take, the context exceeded) fails the play, with
+the server's message.
 
 `uv run paco-call TOOL '{...}'` calls one tool without the model, as the chat would (its run's
 `agent_calls.jsonl` names the conversation `paco-call`); `uv run paco-call --list` names the

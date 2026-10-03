@@ -1088,6 +1088,28 @@ def test_a_play_the_models_server_cut_short_is_lost_not_failed(tmp_path: Path) -
 
 
 @pytest.mark.usefixtures("paco_env")
+def test_a_request_the_models_server_refuses_fails_the_play(tmp_path: Path) -> None:
+    def refused(messages: list[ChatCompletionMessageParam]) -> Reply:  # noqa: ARG001
+        request = httpx2.Request("POST", "http://127.0.0.1:8002/v1/chat/completions")
+        response = httpx2.Response(400, request=request)
+        message = "The provided JSON schema contains features not supported by xgrammar."
+        raise openai.BadRequestError(message, response=response, body=None)
+
+    async def play() -> ScenarioResult:
+        scenario = _scenario("list_profiles")
+        model = PolicyModel(refused)
+        return await run_scenario(scenario, model, "scripted", tmp_path, on_event=lambda _: None)
+
+    result = anyio.run(play)
+
+    # Not the server out of reach: the setup cannot play it, counted as a failure.
+    assert result.error is None and not result.passed
+    (check,) = result.checks
+    assert check.name == "the model's server took every request"
+    assert check.detail.startswith("BadRequestError: The provided JSON schema contains features")
+
+
+@pytest.mark.usefixtures("paco_env")
 def test_an_evaluation_repeats_each_scenario(tmp_path: Path) -> None:
     async def evaluate() -> EvaluationReport:
         return await run_evaluation(

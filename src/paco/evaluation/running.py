@@ -24,7 +24,7 @@ from paco.agent.scope import SCOPE_REFUSAL
 from paco.evaluation.checks import Trial
 from paco.evaluation.defects import build_inputs
 from paco.evaluation.judging import judge
-from paco.evaluation.models import EvaluationReport, ScenarioResult
+from paco.evaluation.models import CheckResult, EvaluationReport, ScenarioResult
 from paco.evaluation.scenarios import Scenario
 from paco.inversion import InversionRecord
 from paco.settings import CACHE_FOLDER, get_settings
@@ -110,15 +110,22 @@ async def run_scenario(
         if scenario.setup is not None:
             scenario.setup(get_settings())
         error: str | None = None
+        refused: str | None = None
         async with Client(server.server) as client:
             agent = await Agent.start(client, model, on_event=on_event)
             try:
                 for question in scenario.questions:
                     await agent.answer(question)
-            except openai.APIError as failed:
-                # The model's server, not the model: the play is lost, the evaluation goes on.
+            except (openai.APIConnectionError, openai.InternalServerError) as failed:
+                # The model's server out of reach or failing (a timeout too): not the model's
+                # doing, the play is lost, the evaluation goes on.
                 error = f"{type(failed).__name__}: {failed}"
                 on_event(f"   (play lost: {error})")
+            except openai.APIStatusError as refusal:
+                # A request the server refused (a schema it does not take, the context
+                # exceeded): this setup cannot play it, a failure, said.
+                refused = f"{type(refusal).__name__}: {refusal.message}"
+                on_event(f"   (refused by the model's server: {refused})")
         await _wait_for_jobs(outputs)
     duration_s = round(time.perf_counter() - start, 1)
 
@@ -133,7 +140,7 @@ async def run_scenario(
         name=scenario.name,
         kind=scenario.kind,
         attempt=attempt,
-        checks=tuple(check(trial) for check in scenario.checks) if error is None else (),
+        checks=_scored(scenario, trial, error, refused),
         judge=(
             await judge(judge_model, scenario.rubric, transcript)
             if judge_model and error is None
@@ -155,6 +162,19 @@ async def run_scenario(
         retries=gate_retries(outputs),
         error=error,
     )
+
+
+def _scored(
+    scenario: Scenario, trial: Trial, error: str | None, refused: str | None
+) -> tuple[CheckResult, ...]:
+    """The play's checks: none for a play lost; for a request the server refused, that alone."""
+    if error is not None:
+        return ()
+    if refused is not None:
+        return (
+            CheckResult(name="the model's server took every request", passed=False, detail=refused),
+        )
+    return tuple(check(trial) for check in scenario.checks)
 
 
 def gate_retries(outputs: Path) -> dict[str, int]:
