@@ -1171,7 +1171,7 @@ def test_the_report_table() -> None:
 
     report = EvaluationReport(
         eval_id="eval-20260923-100000-abcd",
-        model="Qwen/Qwen3-8B",
+        model="Qwen/Qwen3-14B-FP8",
         judge_model="judge",
         started_at=datetime(2026, 9, 23, tzinfo=UTC),
         results=(result("list_profiles", True, 5), result("describe_profile", False, 2)),
@@ -1179,7 +1179,9 @@ def test_the_report_table() -> None:
 
     text = format_report(report)
 
-    assert text.startswith("Evaluation eval-20260923-100000-abcd of Qwen/Qwen3-8B (judge: judge)")
+    assert text.startswith(
+        "Evaluation eval-20260923-100000-abcd of Qwen/Qwen3-14B-FP8 (judge: judge)"
+    )
     assert (
         "list_profiles        look around          1/1      5     2      0      1,612    3.2s"
         in text
@@ -1207,7 +1209,7 @@ def test_the_report_table_with_repeats() -> None:
 
     report = EvaluationReport(
         eval_id="eval-20260923-100000-abcd",
-        model="Qwen/Qwen3-4B",
+        model="Qwen/Qwen3-14B-FP8",
         judge_model=None,
         started_at=datetime(2026, 9, 23, tzinfo=UTC),
         repeat=2,
@@ -1222,7 +1224,7 @@ def test_the_report_table_with_repeats() -> None:
     text = format_report(report)
 
     assert text.startswith(
-        "Evaluation eval-20260923-100000-abcd of Qwen/Qwen3-4B (judge: none), "
+        "Evaluation eval-20260923-100000-abcd of Qwen/Qwen3-14B-FP8 (judge: none), "
         "2 plays of each scenario"
     )
     # The column widens for the longest label.
@@ -1307,7 +1309,7 @@ def test_each_scenario_meets_its_pass_rate_or_not_and_the_history_keeps_them(
         "answers a cap ended                       0                  0",
         "G2 retries a play                       2.0                2.0",
     ]
-    assert format_history([], "Qwen/Qwen3-8B") == "No evaluation kept of Qwen/Qwen3-8B."
+    assert format_history([], "Qwen/Qwen3-14B-FP8") == "No evaluation kept of Qwen/Qwen3-14B-FP8."
 
 
 # ---------------------------------------------------------------- the scope set

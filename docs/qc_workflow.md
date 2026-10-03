@@ -127,7 +127,7 @@ Three steps, the range, the fit and the line (`docs/gates/G7.md`, `G8.md`):
 - Offsets: the nearest shot at least half the trial curves' longest wavelength from the window, against near-field effects, where the window has a farther one; the farthest within the reach G1 found.
 
 ## Agent side
-Constraints: Qwen3 4B or 8B, a 12,288-token context (what the 16 GB card serves), one tool call per reply, `PACO_MAX_TOOL_CALLS` = 15; the model sees summaries only, and the tool cards have a measured budget.
+Constraints: Qwen3-14B in FP8, a 16,384-token context, one tool call per reply, `PACO_MAX_TOOL_CALLS` = 15; the model sees summaries only, and the tool cards have a measured budget.
 - The agent asks when the request leaves the user's choice open (work already there, work made by hand: below) or when it is stuck: the data cannot decide (no image or no curve left for the line, windows rejected once the retry budget is spent, a request the data do not allow, such as windows longer than the line). It asks one short question with 2 to 4 concrete options, its choice first, and waits. Settings the user did not give are its own to choose, never a reason to ask; otherwise it applies the gates' fixes and goes back a stage by itself, saying what it changed.
 - Settings the user types in the chat are the only exception to "derived": the loop starts from them. If a gate then concludes one must change, the agent changes it and says so in its answer, without asking.
 - The go/no-go before the inversion of the assistant's curves is G4's verdict: `invert` reads G4's record from the QC log; a person's curves are taken as they are, and automatic curves no gate judged are judged first. There is no approval step.
@@ -174,7 +174,7 @@ Each decision states what the system does and the evidence it rests on; the gate
   context; (B) each stage tool runs its own bounded retry loop with its gate's suggested
   overrides and returns one summary, and the LLM handles backtracking across stages and
   explains what it did; (C) a mix. B: a straight pass already takes 4–8 calls and 2.2–3.4k-token
-  prompts with Qwen3-4B, and a play that loops burns all 15 calls and invents a result. The
+  prompts, and a play that loops burns all 15 calls and invents a result. The
   earlier stage G2 or G3 blames is done again once by PACo itself, at the end of `pick`
   (`docs/gates/loop.md`).
 - **The agent's loop: plan, act, observe, adapt.** With option B the tools run the retries
@@ -268,15 +268,14 @@ Each decision states what the system does and the evidence it rests on; the gate
   (`derive_inversion(..., locked=...)`). A rule kept by the code, not by the prompt: Qwen3 does
   not keep such a rule.
 - **The host refuses a call identical to one that just failed**, with the failure and "change
-  it or answer the user": Qwen3-8B otherwise sends the same wrong `invert` call three times, and
-  Qwen3-4B loops ten times and invents a result.
+  it or answer the user": a model otherwise sends the same wrong call again, or loops and
+  invents a result.
 - **What the host guarantees, whatever the model says** (`paco.agent.host`): the parameters
   used and the settings the gates changed are listed after every answer, as the tools gave
   them, and an inversion the model starts is followed to its end. The host watches no words,
   neither the user's nor the model's: reading the request is the model's, applying the rules
-  is the tools'. Left to itself, Qwen3-8B reports the gates' changes in few answers (hence the
-  lists), closes with a question in 7 of 39 plays and inverts unasked in 6: the scenarios
-  measure it.
+  is the tools'. Left to itself, a model reports the gates' changes in few answers (hence the
+  lists), closes with a question, or inverts unasked: the scenarios measure it.
 - **Synthetic defects in the data where they are physical** (`paco.evaluation.defects`): a copy
   of active_p1 with a zeroed trace (G1), and passive_p1's geometry with white noise for records
   (a line with no curve); the demo's own trigger delay; typed settings for the rest (a velocity
