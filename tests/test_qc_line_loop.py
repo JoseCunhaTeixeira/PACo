@@ -7,11 +7,13 @@ from pathlib import Path
 from typing import Any
 
 import pytest
+from sigpipe.masw.profiles import Profile
 from sigpipe.masw.runs import find_run, load_manifest
 
 from paco.qc import QCConfig, latest, processing_used, read_attempts, read_report
 from paco.qc import line as line_module
 from paco.qc.g4_profile import LINE
+from paco.qc.line import _line_mute as line_mute  # pyright: ignore[reportPrivateUsage]
 from paco.qc.line import process_line
 from paco.qc.line_loop import (
     LINE_LOOP_FILE,
@@ -161,6 +163,28 @@ def test_an_ask_the_line_did_not_keep_is_kept_as_a_note() -> None:
     assert still == alias
 
 
+def test_a_mute_tried_for_the_line_is_made_as_the_mute_trials(profiles: dict[str, Profile]) -> None:
+    # G2 asks a mute without its width and taper: the line's pulse (no record measured one: the
+    # configuration's), and the mute trial's taper, one mute for every record.
+    profile = profiles["active_p1"]
+    asked = Candidate(
+        stage="preprocessing",
+        overrides=MUTE,
+        flag="G2:weak_coherence",
+        windows=("xmid_1.00",),
+        failing=1,
+    )
+    config = QCConfig()
+
+    made = line_mute(asked, (), ["1.dat", "2.dat"], config, profile)
+
+    taper = round(config.mute.taper_s * profile.sampling_rate_hz)
+    assert made.overrides == {
+        "muting": {**MUTE["muting"], "width": config.signal.mute_width_s, "taper": taper}
+    }
+    assert line_mute(made, (), ["1.dat"], config, profile) == made  # given whole, kept
+
+
 def _demo(demo_input_dir: Path, root: Path) -> Settings:
     return Settings(input_dir=demo_input_dir, output_dir=root / "outputs", workers=2)
 
@@ -186,6 +210,7 @@ def test_a_change_kept_is_made_on_the_whole_line(
         return LineTrial(
             stage=candidate.stage,
             overrides=candidate.overrides,
+            change="dispersion vmax",
             flag=candidate.flag,
             asked_by=1,
             xmids=(2.88,),
@@ -209,7 +234,8 @@ def test_a_change_kept_is_made_on_the_whole_line(
     for window in manifest.windows:
         attempt = latest(attempts, window.folder, "phase_shift")
         assert attempt is not None and attempt.triggered_by == LINE_CHANGE
-        assert not attempt.parameters and "G2" in attempt.results
+        # What it ran with differently: the line's change, said on every window it remade.
+        assert attempt.parameters == {"dispersion": {"vmax": 900.0}} and "G2" in attempt.results
     line = latest(attempts, LINE, "phase_shift")
     assert line is not None and line.parameters["dispersion"] == {"vmax": 900.0}
     assert line.notes[-1] == KEPT_NOTE
@@ -249,6 +275,7 @@ def test_the_loop_keeps_at_most_its_changes(
         return LineTrial(
             stage=candidate.stage,
             overrides=candidate.overrides,
+            change="dispersion vmax",
             flag=candidate.flag,
             asked_by=1,
             xmids=(2.88,),

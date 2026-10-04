@@ -235,7 +235,7 @@ def _process(
             changes = deep_merge(changes, muted)
             preset = resolve_preset(apply_overrides(preset, muted), loaded)
             records = reprocess_records(
-                run_folder, loaded, preset, records, exclusions, settings.workers, MUTE_TRIAL
+                run_folder, loaded, preset, records, exclusions, settings.workers, MUTE_TRIAL, muted
             )
             records, exclusions, usable = settle_records(
                 run_folder, loaded, preset, records, config, reach
@@ -327,12 +327,14 @@ def reprocess_records(
     exclusions: Exclusions,
     workers: int,
     trigger: str,
+    change: Mapping[str, Any],
 ) -> tuple[RecordOutcome, ...]:
     """The line's records preprocessed again with the line's settings (`preset`), the same for
     every record, their previous results archived; logged as `trigger`'s attempts (the mute
-    trial's, the line loop's, a redo's), each with no setting of its own. Those G1 left out stay
-    as they were. Stopped, the records that finished are logged and the others given back their
-    previous stream."""
+    trial's, the line loop's, a redo's), each with the line's `change` it was made for as what
+    it ran with differently (the same for every record: already in `preset`). Those G1 left out
+    stay as they were. Stopped, the records that finished are logged and the others given back
+    their previous stream."""
     attempts = read_attempts(run_folder)
     by_name = {record.path.name: record for record in profile.records}
     outcomes = {record.name: record for record in records}
@@ -369,7 +371,7 @@ def reprocess_records(
             outcome.name,
             "preprocessing",
             numbers[outcome.name],
-            {},
+            dict(change),
             trigger,
             started_at,
             outcome,
@@ -739,7 +741,7 @@ def settle_line(
         adopted: Candidate | None = None
         for candidate in found:
             tried.add(candidate.key)
-            asked = _with_line_pulse(candidate, attempts, kept, config)
+            asked = _line_mute(candidate, attempts, kept, config, profile)
             trial = try_candidate(
                 asked,
                 preset,
@@ -765,12 +767,29 @@ def settle_line(
         preset = resolve_preset(apply_overrides(preset, adopted.overrides), profile)
         if adopted.stage == "preprocessing":
             records = reprocess_records(
-                run_folder, profile, preset, records, exclusions, settings.workers, LINE_CHANGE
+                run_folder,
+                profile,
+                preset,
+                records,
+                exclusions,
+                settings.workers,
+                LINE_CHANGE,
+                adopted.overrides,
             )
             records, exclusions, usable = settle_records(
                 run_folder, profile, preset, records, config, reach_m
             )
-        image_line(run_id, run_folder, profile, preset, records, exclusions, settings, LINE_CHANGE)
+        image_line(
+            run_id,
+            run_folder,
+            profile,
+            preset,
+            records,
+            exclusions,
+            settings,
+            LINE_CHANGE,
+            adopted.overrides,
+        )
         judge_images(run_folder, load_manifest(run_id, settings), config, settings, usable)
     return SettledLine(
         preset, records, exclusions, usable, changes, tuple(trial.note for trial in trials)
@@ -786,13 +805,14 @@ def image_line(
     exclusions: Exclusions,
     settings: Settings,
     trigger: str,
+    change: Mapping[str, Any],
     replace_hand: bool = False,
 ) -> list[str]:
     """Every window of run `run_id` imaged again with the line's settings (`preset`), the same
     for each, from the records as they are: the manifest written with them first, the phase
-    shift's attempts logged as `trigger`'s. A window holding a person's work keeps it, unless
-    they chose to have it done again (`replace_hand`: their image archived). Returns the windows
-    imaged."""
+    shift's attempts logged as `trigger`'s, each with the line's `change` it was made for as what
+    it ran with differently. A window holding a person's work keeps it, unless they chose to
+    have it done again (`replace_hand`: their image archived). Returns the windows imaged."""
     manifest = load_manifest(run_id, settings)
     write_manifest(
         run_id,
@@ -813,7 +833,8 @@ def image_line(
         if replace_hand or not work[window.folder].frozen
     ]
     if units:
-        rerun_phase_shift(run_id, units, {}, settings, trigger)
+        # Already the manifest's: applied again, it changes nothing; it says what changed.
+        rerun_phase_shift(run_id, units, change, settings, trigger)
     return units
 
 
@@ -861,21 +882,29 @@ def _latest_results(
     return found
 
 
-def _with_line_pulse(
-    candidate: Candidate, attempts: tuple[Attempt, ...], names: list[str], config: QCConfig
+def _line_mute(
+    candidate: Candidate,
+    attempts: tuple[Attempt, ...],
+    names: list[str],
+    config: QCConfig,
+    profile: Profile,
 ) -> Candidate:
-    """`candidate`, a mute without its width given, with the line's pulse as its width (the
-    records' median pulse, as G1 measured them): one width for every record."""
+    """`candidate`, a mute missing its width or taper, made as the mute trial makes its own: the
+    line's pulse as its width (the records' median pulse, as G1 measured them), the mute rules'
+    taper; one mute for every record."""
     muting = candidate.overrides.get("muting")
     if not isinstance(muting, Mapping):
         return candidate
-    values = cast(Mapping[str, Any], muting)
-    if values.get("method") != "mute" or "width" in values:
+    values = dict(cast(Mapping[str, Any], muting))
+    if values.get("method") != "mute":
         return candidate
-    widths = pulse_widths(attempts, names, config.signal.mute_width_s)
-    pulse = round(statistics.median(widths.values()), 4) if widths else config.signal.mute_width_s
-    overrides = {**candidate.overrides, "muting": {**values, "width": pulse}}
-    return replace(candidate, overrides=overrides)
+    if "width" not in values:
+        widths = pulse_widths(attempts, names, config.signal.mute_width_s)
+        median = statistics.median(widths.values()) if widths else config.signal.mute_width_s
+        values["width"] = round(median, 4)
+    if "taper" not in values:
+        values["taper"] = max(0, round(config.mute.taper_s * profile.sampling_rate_hz))
+    return replace(candidate, overrides={**candidate.overrides, "muting": values})
 
 
 def _line_settings(

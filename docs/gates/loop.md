@@ -25,11 +25,14 @@ loops share), `budgets.py` (the budgets, and why a retry is refused); tools:
 Every retry is an attempt in the run's QC log, triggered by `<gate>:<flag>` (a gate's retry)
 or `backtrack` (the agent's `redo`); its results move to `attempts/<n>_<stage>/`. A record or
 an image made again because the line's settings changed (a change the line loop kept, a
-`redo` of the line) is an attempt triggered by `line change`, with no setting of its own: the
-change is the line's, logged on the line's attempt with the loop's notes, and in
-`line_loop.json`. The budgets (rule 4): 2 retries per gate and window, 2 per window over the
-run, counted as each is granted (a batch of windows cannot overshoot); a window's inversion
-draws on its own 6; the line loop keeps 4 changes at most (`QCConfig.line`), outside them. A
+`redo` of the line) is an attempt triggered by `line change` (by `mute trial`, for the mute
+trial's), its parameters the line's change it was made for, the same on every record and
+window it remade (PAC's attempts say it as what changed, and credit it to the line); the change
+is logged on the line's attempt too, with the loop's notes, and each change the loop tried in
+`line_loop.json`, with its trial windows' scores (PAC's run card lists them). The budgets
+(rule 4): 2 retries per gate and window, 2 per window over the run, counted as each is granted
+(a batch of windows cannot overshoot); a window's inversion draws on its own 6; the line loop
+keeps 4 changes at most (`QCConfig.line`), outside them. A
 unit asking for a retry it cannot have is rejected with its last flags: its budget spent
 (`budget_spent`), the retry would run with the parameters of the attempt before
 (`nothing_to_try`), or it asks only to change settings the user gave (`locked`, its reason
@@ -101,8 +104,9 @@ The loop retries only where a retry can change the result, and leaves no window 
   windows, those asking it and the others spread along the line, and kept with 2 more passing
   G3 without losing a fifth of the curves' longest wavelengths (the mute trial's rule); the
   whole line is then made again with it, judged again, and the asks read again. A mute keeps
-  the line's median pulse as its width. Measured on the four real lines, fixes made per record
-  and window against the line loop (curves the inversion takes; processing and picking):
+  the line's median pulse as its width, and the mute trial's taper. Measured on the four real
+  lines, fixes made per record and window against the line loop (curves the inversion takes;
+  processing and picking):
   `active_p1` 69 and 69, 51 s and 46 s; `active_p2` 82 and 90 (the standard mute, which 3
   noisy windows asked: 15 of 15 trial windows against 11), 544 s and 192 s; `passive_p1` 54
   and 55 (the fk threshold halved: 8 of 15 against 3), 76 s and 42 s; `passive_p2` 86 and 82,
