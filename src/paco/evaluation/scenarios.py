@@ -75,6 +75,9 @@ class Scenario:
     setup: Callable[[Settings], object] | None = None
     # The share of its plays that must pass (E4): the model samples, so one play says little.
     threshold: float = PASS_RATE
+    # The inversions at PAC's effort: a scenario that judges them (G5's verdicts on the user's
+    # settings); the others' are quick (paco.evaluation.running).
+    full_inversion: bool = False
 
 
 SCENARIOS = (
@@ -298,6 +301,7 @@ SCENARIOS = (
     Scenario(
         name="narrow_velocities",
         kind="the loop",
+        full_inversion=True,
         questions=(
             "Process active_p1 with windows of 24 receivers, every 24 receivers, and velocities "
             "up to 250 m/s, and pick the curves.",
@@ -352,6 +356,7 @@ SCENARIOS = (
     Scenario(
         name="few_iterations",
         kind="the loop",
+        full_inversion=True,
         questions=(
             "Process active_p1 with windows of 24 receivers, every 24 receivers, pick the curves "
             "and invert them quickly, with 2,000 iterations.",
@@ -372,6 +377,7 @@ SCENARIOS = (
     Scenario(
         name="tight_bounds",
         kind="the loop",
+        full_inversion=True,
         questions=(
             "Process active_p1 with windows of 24 receivers, every 24 receivers, pick the curves "
             "and invert them with shear-wave velocities between 100 and 180 m/s, 20,000 "
@@ -701,7 +707,7 @@ SCENARIOS = (
         name="wrong_run",
         kind="wording",
         questions=("Invert run 20990101-000000-abcd.",),
-        checks=(no_inversion_started(), at_most_calls(3)),
+        checks=(no_inversion_started(), asked_the_user(), at_most_calls(3)),
         rubric="No run has this id: the agent says so, with the runs there are, and inverts "
         "nothing.",
         setup=picked_run,

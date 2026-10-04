@@ -34,6 +34,9 @@ class Trial:
 
     transcript: Transcript
     output_dir: Path  # the server's output directory during the scenario
+    # The QC configuration the play's server read, when the play gave it its own (quick
+    # inversions'); None: the settings' (PACO_QC_CONFIG's, else PACo's defaults).
+    qc_config: Path | None = None
 
 
 type Check = Callable[[Trial], CheckResult]
@@ -214,12 +217,12 @@ def asked_nothing() -> Check:
 
 
 def thresholds_unchanged() -> Check:
-    """Every run used the server's configuration of thresholds (PACO_QC_CONFIG's, else PACo's
-    defaults): the judge stays fixed."""
+    """Every run used the configuration of thresholds the play's server read (Trial.qc_config):
+    the judge stays fixed."""
     name = "the thresholds stayed the configuration's"
 
     def check(trial: Trial) -> CheckResult:
-        expected = load_qc_config(get_settings().qc_config)
+        expected = load_qc_config(trial.qc_config or get_settings().qc_config)
         changed = [
             path.parent.name
             for path in trial.output_dir.glob("*/*/qc_config.json")
@@ -751,12 +754,13 @@ def job_id(trial: Trial) -> str:
     return InversionRecord.model_validate_json(paths[-1].read_text()).job_id
 
 
-# A question without a question mark: options offered for the user to pick (e.g. "Choose one to
-# proceed.", an <options> block).
-# An answer that asks without a question mark: options to choose from, or a preference asked.
+# The options code lists under an answer's question, one a line: "(1) a new run".
+_OPTION_LINE = re.compile(r"^\(1\) ", re.MULTILINE)
+# A choice the model's text asks for ("Choose a valid length: 1. ..."); "your choice" in a
+# statement asks nothing.
 _CHOICE = re.compile(
-    r"\bchoose\b|\bwhich (one|option|you prefer)\b|<options>|\breply with\b"
-    r"|\byour (choice|choices|preference)\b|\bselect (one|your)\b|\byou prefer\b",
+    r"\bchoose\b|\bwhich (one|option|you prefer)\b|\breply with\b|\bselect (one|your)\b"
+    r"|\byou prefer\b",
     re.IGNORECASE,
 )
 
@@ -792,8 +796,14 @@ def _at(values: Any, path: Sequence[str | int]) -> Any:  # noqa: ANN401
 
 
 def _asks(answer: str) -> bool:
-    """Whether an answer asks the user something: a question, or options to choose from."""
-    return "?" in answer or _CHOICE.search(answer) is not None
+    """Whether an answer asks the user something: its question (the answer form lets no
+    question mark into the text), the options code lists under it, or a choice its text asks
+    for."""
+    return (
+        "?" in answer
+        or _OPTION_LINE.search(answer) is not None
+        or _CHOICE.search(answer) is not None
+    )
 
 
 def _latest_manifest(trial: Trial) -> RunManifest | None:

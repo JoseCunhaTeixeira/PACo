@@ -35,6 +35,9 @@ _JOBS_TIMEOUT_S = 1_800  # an inversion left running when the conversation ends
 EVALUATION_WORKERS = 8
 # A gate's name, as a retry's trigger starts with it.
 _GATE = re.compile(r"G\d+")
+# G5's convergence at the quick inversion effort (paco.qc.inverting.QUICK_SAMPLER: 15 models a
+# chain, two chains): the plays measure the agent's calls and answers, not the models.
+QUICK_MODEL = {"max_rhat": 2.0, "min_samples_per_chain": 10, "min_ess": 10.0}
 
 type OnEvent = Callable[[str], None]
 
@@ -48,11 +51,13 @@ async def run_evaluation(
     judge_name: str | None = None,
     repeat: int = 1,
     on_event: OnEvent = print,
+    full_inversion: bool = False,
 ) -> EvaluationReport:
     """Play every scenario `repeat` times, then write report.json in a new folder of `root`.
 
     Each play has its own folder: the scenario's name, or with repeats, one numbered folder per
-    play inside it (pick_active/1, pick_active/2, ...).
+    play inside it (pick_active/1, pick_active/2, ...). The plays' inversions are quick, but those
+    of the scenarios that judge them (Scenario.full_inversion), or all with `full_inversion`.
     """
     started_at = datetime.now(UTC)
     eval_id = f"eval-{started_at:%Y%m%d-%H%M%S}-{secrets.token_hex(2)}"
@@ -69,8 +74,18 @@ async def run_evaluation(
             else:
                 on_event(f"== {scenario.name} #{attempt}")
                 where = folder / scenario.name / str(attempt)
+            full = full_inversion or scenario.full_inversion
             play = run_scenario(
-                scenario, model, model_name, where, judge_model, on_event, attempt, inputs, cache
+                scenario,
+                model,
+                model_name,
+                where,
+                judge_model,
+                on_event,
+                attempt,
+                inputs,
+                cache,
+                quick_inversion=not full,
             )
             results.append(await play)
     shutil.rmtree(cache, ignore_errors=True)
@@ -99,6 +114,7 @@ async def run_scenario(
     attempt: int = 1,
     inputs: Path | None = None,
     cache: Path | None = None,
+    quick_inversion: bool = False,
 ) -> ScenarioResult:
     """Play `scenario` with the server reading `inputs` (the settings' input_dir by default) and
     writing into `folder`/outputs, with EVALUATION_WORKERS, and score it; the conversation is
@@ -106,7 +122,8 @@ async def run_scenario(
     the plays share (the outputs' own by default)."""
     outputs = folder / "outputs"
     start = time.perf_counter()
-    with _server_settings(outputs, inputs, cache):
+    quick = _quick_config(folder) if quick_inversion else None
+    with _server_settings(outputs, inputs, cache, quick):
         if scenario.setup is not None:
             scenario.setup(get_settings())
         error: str | None = None
@@ -134,7 +151,7 @@ async def run_scenario(
     # A scenario that never processed a profile left no folder behind.
     folder.mkdir(parents=True, exist_ok=True)
     (folder / "transcript.json").write_text(transcript.model_dump_json(indent=2))
-    trial = Trial(transcript, outputs)
+    trial = Trial(transcript, outputs, quick)
     tokens = [step.prompt_tokens for step in transcript.steps if step.kind == "model"]
     known_tokens = [count for count in tokens if count is not None]
     return ScenarioResult(
@@ -211,15 +228,18 @@ def gate_retries(outputs: Path) -> dict[str, int]:
 
 @contextmanager
 def _server_settings(
-    outputs: Path, inputs: Path | None, cache: Path | None = None
+    outputs: Path, inputs: Path | None, cache: Path | None = None, quick: Path | None = None
 ) -> Generator[None]:
     """The in-process server reads its settings from the environment: point its outputs (and
-    inputs, and images' cache) here, with the evaluation's workers."""
+    inputs, and images' cache) here, with the evaluation's workers; `quick`, the QC
+    configuration of quick inversions (_quick_config), with their effort."""
     values = {"PACO_OUTPUT_DIR": str(outputs), "PACO_WORKERS": str(EVALUATION_WORKERS)}
     if inputs is not None:
         values["PACO_INPUT_DIR"] = str(inputs)
     if cache is not None:
         values["PACO_CACHE_DIR"] = str(cache)
+    if quick is not None:
+        values |= {"PACO_INVERSION_EFFORT": "quick", "PACO_QC_CONFIG": str(quick)}
     previous = {name: os.environ.get(name) for name in values}
     os.environ.update(values)
     get_settings.cache_clear()
@@ -232,6 +252,15 @@ def _server_settings(
             else:
                 os.environ[name] = value
         get_settings.cache_clear()
+
+
+def _quick_config(folder: Path) -> Path:
+    """The QC configuration of a play's quick inversions, written in its `folder`: G5 takes
+    their short chains as converged (QUICK_MODEL), so that it does not sample them longer."""
+    folder.mkdir(parents=True, exist_ok=True)
+    path = folder / "quick_qc.json"
+    path.write_text(json.dumps({"model": QUICK_MODEL}))
+    return path
 
 
 async def _wait_for_jobs(outputs: Path) -> None:

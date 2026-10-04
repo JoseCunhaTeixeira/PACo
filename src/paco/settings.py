@@ -2,6 +2,7 @@
 
 from functools import lru_cache
 from pathlib import Path
+from typing import Literal
 
 from pydantic import DirectoryPath, Field, field_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
@@ -48,6 +49,9 @@ class Settings(BaseSettings):
     # to the run's largest value: records and images are float32, whose resolution is 1.2e-7;
     # the margin is for the sums of a phase shift done in another order, on another machine.
     replay_tolerance: float = Field(default=1e-5, gt=0)
+    # The inversions' effort: PAC's sampler, or quick, short chains where the user gave none, to
+    # evaluate the agent (its calls and its answers, not the models' quality).
+    inversion_effort: Literal["full", "quick"] = "full"
 
     @field_validator("input_dir", "output_dir")
     @classmethod

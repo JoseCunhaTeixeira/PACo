@@ -34,7 +34,7 @@ EXAMPLES: dict[str, Example] = {
             "status": "ok",
             "did": f"Processed run {RUN}, 4 windows: G1 3 pass; G2 4 pass.",
             "summary": "G1: 3 pass. G2: 4 pass.",
-            "next": f"pick comes next for run_id {RUN}, if the user asked for curves or models.",
+            "next": f"Run {RUN}'s images are made: pick gives their curves.",
         },
     ),
     "compare": Example(
@@ -91,7 +91,7 @@ EXAMPLES: dict[str, Example] = {
             "did": f"Picked run {RUN}, 4 windows: G3 3 pass, 1 reject; G4 3 pass.",
             "left": ["xmid 2.88 (1): G3 narrow_span"],
             "summary": "G3: 3 pass, 1 reject.",
-            "next": f"invert comes next for run_id {RUN}, if the user asked for models.",
+            "next": f"3 curves of run {RUN} passed G3 and G4: invert gives their models.",
         },
     ),
     "judge": Example(
@@ -175,7 +175,7 @@ EXAMPLES: dict[str, Example] = {
             "status": "ok",
             "did": f"Redid the phase shift of run {RUN}, 1 window: G2 1 pass.",
             "summary": "G2: 1 pass.",
-            "next": f"pick comes next for run_id {RUN}.",
+            "next": f"Run {RUN}'s images are made: pick gives their curves.",
         },
     ),
 }

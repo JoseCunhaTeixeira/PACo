@@ -24,6 +24,10 @@
     "form": {"process": true, "invert": true, "profile": "line_b", "workers": 8}
   },
   {
+    "message": "Process line_b with the passive-active method and pick it.",
+    "form": {"process": true, "pick": true, "profile": "line_b", "mode": "passive-active"}
+  },
+  {
     "message": "Process line_b with windows of 12 receivers, every 6 receivers, and pick it.",
     "form": {
       "process": true,

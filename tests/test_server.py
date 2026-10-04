@@ -255,9 +255,7 @@ def test_the_workflow_process_pick_redo_invert() -> None:
     # No trigger corrected: the demo's files say the shot comes 20 ms in, where the first breaks
     # put it, and the muting is off (the trigger is part of it).
     assert "shifted_trigger" not in done["summary"]
-    assert done["next"] == (
-        f"pick comes next for run_id {run_id}, if the user asked for curves or models."
-    )
+    assert done["next"] == f"Run {run_id}'s images are made: pick gives their curves."
     # The settings the gates changed, in words, for the agent to report.
     changed = done["changed"]
     # The line's rules: the shots' reach, the length as given, then the near field.
@@ -294,9 +292,8 @@ def test_the_workflow_process_pick_redo_invert() -> None:
     assert changed[1] == "min_relative_coherence 0.3 -> 0.18 at xmid 2.88 (1), by G3:narrow_span"
     assert changed[2].endswith("at xmid 20.88 (1), by G4:outlier")
     assert picked.structured_content["next"] == (
-        f"3 curves passed G3 and G4. invert can run on run_id {run_id}, if the user asked for "
-        "models; otherwise answer. Higher modes (M1, M2) are picked by hand in PAC's Dispersion "
-        "picking page, then invert takes them with M0."
+        f"3 curves of run {run_id} passed G3 and G4: invert gives their models. Higher modes (M1, "
+        "M2) are picked by hand in PAC's Dispersion picking page, then invert takes them with M0."
     )
 
     # Going back to the picking for a window, with a change: the verdict of the gate that

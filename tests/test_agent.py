@@ -65,6 +65,7 @@ EVERYTHING = Scope(
     replace_hand_work=False,
     option=None,
     workers=None,
+    mode=None,
 )
 
 
@@ -325,14 +326,18 @@ def test_the_agent_asks_what_the_request_leaves_open_or_when_stuck() -> None:
     # in its answer, what the request leaves to the user (work already there, work made by
     # hand) or what the data cannot decide; the settings are its own.
     assert "Ask the user when the request leaves open what they want" in ROLE
-    assert "for a stage whose work is there already, the tool gives the user's options" in ROLE
+    # The run and the plan are PACo's to say; the user's choice of the run, PACo's to ask.
+    assert "Make the plan's calls, all of them and nothing more, on that" in ROLE
+    assert "When the user must choose the run, PACo asks them itself" in ROLE
     assert "the work they made by hand in PAC's pages, verified by them" in ROLE
     assert "2 to 4 concrete options, your choice first" in ROLE
     # Rejected windows are gaps to report; PACo writes what was done and what next.
     assert "rejected windows (gaps to report), are never a reason to ask" in ROLE
     assert "do not repeat them, and offer nothing" in ROLE
     assert "Answer in the user's language" in ROLE
-    assert "Ask when stuck, or for a tool's choice the request leaves open" in server.INSTRUCTIONS
+    assert "gives the user's options first, doing nothing: ask the user with them" in (
+        server.INSTRUCTIONS
+    )
 
 
 def test_the_role_has_a_fixed_structure() -> None:
@@ -455,11 +460,32 @@ def test_a_question_before_any_work_reaches_the_user() -> None:
 
 
 class MetaServer:
-    """Stands in for PACo's server: keeps each call and what it carried, and answers {}."""
+    """Stands in for PACo's server: keeps each call and what it carried, and answers {}; its
+    runs (`runs`: by profile, the newest first, each id with its label) listed as PACo's
+    resources list them."""
 
     def __init__(self) -> None:
         self.calls: list[tuple[str, dict[str, Any]]] = []
         self.metas: list[dict[str, Any]] = []
+        self.runs: dict[str, dict[str, str]] = {}
+
+    async def read_resource(self, uri: str) -> ReadResourceResult:
+        listed = [
+            {"run_id": run_id, "profile": profile, "label": label, "went": label.split(", ")[-1]}
+            for profile, runs in self.runs.items()
+            for run_id, label in runs.items()
+        ]
+        if uri.startswith("paco://runs/"):
+            found = [one for one in listed if one["run_id"] == uri.removeprefix("paco://runs/")]
+            if not found:
+                raise MCPError(-32002, f"Unknown run: {uri}")
+            text = json.dumps(found[0])
+        elif uri == "paco://runs":
+            text = json.dumps({"runs": listed})
+        else:
+            profile = uri.removeprefix("paco://profiles/").removesuffix("/runs")
+            text = json.dumps({"runs": [one for one in listed if one["profile"] == profile]})
+        return ReadResourceResult(contents=[TextResourceContents(uri=uri, text=text)])
 
     async def call_tool(
         self,
@@ -519,8 +545,10 @@ class OfferServer(MetaServer):
         meta: dict[str, Any] | None = None,
     ) -> CallToolResult:
         await super().call_tool(name, arguments, None, progress_callback, meta)
-        if name != "pick" or "windows" in arguments:
+        if name != "pick":
             return _structured({})
+        if "windows" in arguments:
+            return _structured({"run_id": "r", "did": "Picked run r, 4 windows: G3 4 pass."})
         options = [
             {
                 "label": "complete the 1 windows without a curve",
@@ -607,22 +635,21 @@ def test_compare_serves_a_message_asking_to_process_and_nothing_else() -> None:
         assert bool(ran) != events[0].endswith("refused: outside the scope")
 
 
-def test_an_option_chosen_is_the_one_the_tool_offered() -> None:
+def test_an_option_chosen_is_made_by_the_host() -> None:
     first = EVERYTHING.model_copy(update={"process": False, "soils": False, "invert": False})
     second = first.model_copy(update={"option": 2})
     model = ScriptedModel(
         _calls(("pick", {"run_id": "r"})),
         _says("Run r has 3 curves: complete the missing one, or pick every window again?"),
-        _calls(("pick", {"run_id": "r", "windows": "all"})),
         _says("Picked again."),
         scopes=(first, second),
     )
     server_ = OfferServer()
-
     pending: list[int] = []
+    events: list[str] = []
 
     async def conversation() -> Agent:
-        agent = Agent(server_, model, [], None, on_event=lambda _: None)  # pyright: ignore[reportArgumentType]
+        agent = Agent(server_, model, [], None, on_event=events.append)  # pyright: ignore[reportArgumentType]
         await agent.answer("Pick run r.")
         pending.append(len(agent.offers))  # the answer asks the user to choose
         await agent.answer("The second.")
@@ -632,17 +659,19 @@ def test_an_option_chosen_is_the_one_the_tool_offered() -> None:
     agent = anyio.run(conversation)
 
     assert pending == [2, 0]
-
-    # The form read "the second" among the options offered; the model and the server were
-    # told the call it makes.
+    # The form read "the second" among the options offered.
     offered = model.forms[1][-1].get("content")
     assert isinstance(offered, str) and offered.startswith(
         'Offered last: (1) complete the 1 windows without a curve: pick(run_id="r", '
         'windows="missing"); (2) pick every window again: pick(run_id="r", windows="all").'
     )
-    assert agent.messages[-4].get("content") == (
-        f"The second.\n\n{second.for_model(None)} The user chose (2) pick every window again: "
-        'pick(run_id="r", windows="all"). Make that call, then the rest this message asks.'
+    # The host made the call the user chose, the model told so; it read the result, answered.
+    assert server_.calls[-1] == ("pick", {"run_id": "r", "windows": "all"})
+    assert events[-1] == '-> pick({"run_id": "r", "windows": "all"})'
+    told = str(agent.messages[-4].get("content"))
+    assert told.endswith(
+        "The user chose (2) pick every window again: PACo makes it below. Work on run r, and on "
+        "no other run: pick."
     )
     assert server_.metas[-1]["scope"]["chosen"] == 'pick(run_id="r", windows="all")'
 
@@ -657,12 +686,12 @@ def test_options_wait_through_a_message_that_chooses_none() -> None:
         _says("Run r holds 3 curves."),
         _calls(("inspect", {"what": "runs"})),
         _says("One run, r."),
-        _calls(("pick", {"run_id": "r", "windows": "all"})),
         _calls(("invert", {"run_id": "r"})),
         _says("Picked and inverted."),
-        scopes=(asks, LOOK, choice),
+        # "%" fills no form: a sign is read in code, as asking nothing.
+        scopes=(asks, choice),
     )
-    server_ = OfferServer()
+    server_ = WorkServer()
     pending: list[int] = []
 
     async def conversation() -> list[str]:
@@ -681,7 +710,7 @@ def test_options_wait_through_a_message_that_chooses_none() -> None:
         "Which do you choose?\n(1) complete the 1 windows without a curve\n"
         "(2) pick every window again"
     )
-    offered = model.forms[2][-1].get("content")
+    offered = model.forms[1][-1].get("content")
     assert isinstance(offered, str) and offered.startswith("Offered last: (1) complete the 1")
     assert [name for name, _ in server_.calls] == ["pick", "inspect", "pick", "invert"]
     # The choice's scope: its stage on, the stages the first message asked.
@@ -729,6 +758,173 @@ def test_options_give_way_to_a_message_that_asks_for_work() -> None:
 
     # The work the second message asked done, the options are no longer offered.
     assert pending == [2, 0]
+
+
+class PlanServer(MetaServer):
+    """Stands in for PACo's server: its stages do their work and say it, run_processing making
+    run MADE; every other call answers {}."""
+
+    made = "20261004-090000-cccc"
+
+    async def call_tool(
+        self,
+        name: str,
+        arguments: dict[str, Any],
+        read_timeout_seconds: float | None = None,  # noqa: ARG002
+        progress_callback: ProgressFnT | None = None,
+        meta: dict[str, Any] | None = None,
+    ) -> CallToolResult:
+        await super().call_tool(name, arguments, None, progress_callback, meta)
+        run_id = str(arguments.get("run_id", self.made))
+        did = {"run_processing": "Processed", "pick": "Picked", "invert": "Inverted"}.get(name)
+        if did is None:
+            return _structured({})
+        return _structured({"run_id": run_id, "did": f"{did} run {run_id}, 4 windows."})
+
+
+# Two runs of active_p1, the newest first, as the server labels them.
+RUN_A, RUN_B = "20261004-070000-aaaa", "20261003-070000-bbbb"
+TWO_RUNS = {
+    "active_p1": {
+        RUN_A: "active, windows of 24 receivers, curves",
+        RUN_B: "active, windows of 12 receivers, images",
+    }
+}
+
+
+def _on(*stages: str, **fields: Any) -> Scope:  # noqa: ANN401
+    """A message's scope asking `stages` of active_p1, with `fields`."""
+    asked = {stage: stage in stages for stage in ("process", "pick", "invert", "soils")}
+    return LOOK.model_copy(update={"profile": "active_p1", **asked, **fields})
+
+
+def test_calls_stay_on_the_run_settled() -> None:
+    # The message names run A: a call on another run is refused, A's goes through.
+    server_ = PlanServer()
+    server_.runs = TWO_RUNS
+    model = ScriptedModel(
+        _calls(("invert", {"run_id": RUN_B})),
+        _calls(("invert", {"run_id": RUN_A})),
+        _says("Inverted."),
+        scopes=(_on("invert", run_id=RUN_A),),
+    )
+
+    _, _, events = _played(model, server_, f"Invert run {RUN_A}.")
+
+    assert [name for name, _ in server_.calls] == ["invert"]
+    assert events[0] == f'-> invert({{"run_id": "{RUN_B}"}}) refused: outside the scope'
+
+
+def test_a_new_run_the_turn_makes_is_the_one_it_goes_on_with() -> None:
+    # Asked to process run A's profile again and pick: the new run made, picked, A untouched.
+    server_ = PlanServer()
+    server_.runs = TWO_RUNS
+    model = ScriptedModel(
+        _calls(("run_processing", {"profile": "active_p1", "again": True})),
+        _calls(("pick", {"run_id": PlanServer.made})),
+        _says("Processed and picked."),
+        scopes=(_on("process", "pick", run_id=RUN_A, redo=True),),
+    )
+
+    _played(model, server_, f"Process run {RUN_A}'s profile again, and pick it.")
+
+    assert [name for name, _ in server_.calls] == ["run_processing", "pick"]
+    # After each result, the host's next step, as the model read it (the history keeps
+    # results short, without it).
+    processed, picked = (str(seen[-1].get("content")) for seen in model.seen[1:3])
+    assert processed.endswith(f"[PACo] Next: pick on run {PlanServer.made}.")
+    assert picked.endswith("[PACo] The plan is done: answer the user.")
+
+
+def test_a_run_named_that_does_not_exist_is_said_with_the_runs_there() -> None:
+    server_ = MetaServer()
+    server_.runs = TWO_RUNS
+    model = ScriptedModel(scopes=(_on("invert", run_id="20990101-000000-abcd"),))
+
+    answer, agent, _ = _played(model, server_, "Invert run 20990101-000000-abcd.")
+
+    # Said by code: the model is not called, nothing runs; the runs there to choose from.
+    assert answer.endswith(
+        "Run 20990101-000000-abcd does not exist. active_p1 has 2 runs.\n\nWhich run?\n"
+        f"(1) work on run {RUN_A} (active, windows of 24 receivers, curves)\n"
+        f"(2) work on run {RUN_B} (active, windows of 12 receivers, images)"
+    )
+    assert model.seen == [] and server_.calls == []
+    assert [offer.run_id for offer in agent.offers] == [RUN_A, RUN_B]
+
+
+def test_processing_a_profile_with_runs_asks_a_new_run_or_which() -> None:
+    server_ = PlanServer()
+    server_.runs = TWO_RUNS
+    model = ScriptedModel(
+        _calls(("invert", {"run_id": RUN_A})),
+        _says("Inverted."),
+        scopes=(_on("process", "invert"), _on("invert", option=2)),
+    )
+    answers: list[str] = []
+
+    async def conversation() -> Agent:
+        agent = Agent(server_, model, [], None, on_event=lambda _: None)  # pyright: ignore[reportArgumentType]
+        answers.append(await agent.answer("Process active_p1 and invert it."))
+        answers.append(await agent.answer("2"))
+        return agent
+
+    agent = anyio.run(conversation)
+
+    assert answers[0].endswith(
+        "active_p1 has 2 runs.\n\nA new run, or a run to work on?\n(1) a new run\n"
+        f"(2) work on run {RUN_A} (active, windows of 24 receivers, curves)\n"
+        f"(3) work on run {RUN_B} (active, windows of 12 receivers, images)"
+    )
+    # The run chosen: the model told it and the plan, its curves inverted, nothing processed.
+    told = str(agent.messages[-4].get("content"))
+    assert f"Work on run {RUN_A} of active_p1, and on no other run: invert." in told
+    assert [name for name, _ in server_.calls] == ["invert"]
+
+
+def test_later_stages_ask_which_of_several_runs_and_go_on_with_one() -> None:
+    several = MetaServer()
+    several.runs = TWO_RUNS
+    asked, _, _ = _played(ScriptedModel(scopes=(_on("invert"),)), several, "Invert active_p1.")
+    assert asked.endswith(
+        "active_p1 has 2 runs.\n\nWhich run?\n"
+        + f"(1) work on run {RUN_A} (active, windows of 24 receivers, curves)\n"
+        + f"(2) work on run {RUN_B} (active, windows of 12 receivers, images)"
+    )
+
+    one = PlanServer()
+    one.runs = {"active_p1": {RUN_A: TWO_RUNS["active_p1"][RUN_A]}}
+    model = ScriptedModel(
+        _calls(("invert", {"run_id": RUN_A})), _says("Inverted."), scopes=(_on("invert"),)
+    )
+    _, agent, _ = _played(model, one, "Invert active_p1.")
+    assert str(agent.messages[1].get("content")).endswith(
+        f"Work on run {RUN_A} of active_p1, and on no other run: invert."
+    )
+
+
+def test_the_model_is_sent_back_once_when_it_stops_before_the_plan_is_done() -> None:
+    server_ = PlanServer()
+    server_.runs = {"active_p1": {RUN_A: TWO_RUNS["active_p1"][RUN_B]}}
+    model = ScriptedModel(
+        _calls(("pick", {"run_id": RUN_A})),
+        _says("Picked: the inversion can now proceed."),
+        _calls(("invert", {"run_id": RUN_A})),
+        _says("Picked and inverted."),
+        scopes=(_on("pick", "invert"),),
+    )
+
+    answer, agent, _ = _played(model, server_, "Pick and invert active_p1.")
+
+    assert [name for name, _ in server_.calls] == ["pick", "invert"]
+    assert {
+        "role": "user",
+        "content": (
+            f"[PACo] Not done yet: invert on run {RUN_A}, which this message asks. Make those calls, "
+            "or say why they cannot run."
+        ),
+    } in agent.messages
+    assert "Picked and inverted." in answer
 
 
 def test_a_message_whose_scope_cannot_be_read_runs_nothing() -> None:
@@ -1065,29 +1261,6 @@ def test_a_tool_call_has_a_timeout() -> None:
     (result,) = _tool_results(agent.messages)
     assert result.startswith('{"error"') or "No result in 2 s" in result
     assert "   failed: no result in 2 s" in events
-
-
-class RunsServer(MetaServer):
-    """Stands in for PACo's server: its resource names the profile's latest run."""
-
-    async def read_resource(self, uri: str) -> ReadResourceResult:
-        assert uri == "paco://profiles/active_p1/latest-run"
-        text = "Run 20260930-161253-89f5: active_p1 (active). Holds 4 images, 4 M0 curves."
-        return ReadResourceResult(contents=[TextResourceContents(uri=uri, text=text)])
-
-
-def test_the_model_is_told_the_profiles_latest_run() -> None:
-    # The host supplies the run's id (M4): the model makes none up.
-    on_active = EVERYTHING.model_copy(update={"profile": "active_p1"})
-    model = ScriptedModel(_says("Run 20260930-161253-89f5 holds 4 curves."), scopes=(on_active,))
-
-    _, agent, _ = _played(model, RunsServer(), "What does active_p1 hold?")
-
-    told = str(agent.messages[1].get("content"))
-    assert told.endswith(
-        "active_p1's latest run: Run 20260930-161253-89f5: active_p1 (active). Holds 4 images, "
-        "4 M0 curves."
-    )
 
 
 def test_earlier_results_are_kept_short_and_the_trace_whole() -> None:

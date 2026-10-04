@@ -39,3 +39,16 @@ def job_running(status: str) -> bool:
     except json.JSONDecodeError:
         return False
     return isinstance(parsed, dict) and parsed.get("state") in ("queued", "running")
+
+
+def processed(result: str) -> str | None:
+    """The run run_processing made, from its `result`; None when it made none (it gave the
+    user's options instead, or failed)."""
+    try:
+        parsed = json.loads(result)
+    except json.JSONDecodeError:
+        return None
+    if not isinstance(parsed, dict) or parsed.get("options") or parsed.get("status") == "refused":
+        return None
+    run_id = parsed.get("run_id")
+    return run_id if isinstance(run_id, str) and run_id else None

@@ -64,8 +64,9 @@ Before any tool runs, the model reads your message into a form, its scope: the s
 (process, pick, invert, soils; none for a question about what exists, or a request no tool
 makes), the profile or run, the positions in metres, the windows' length and step in the unit
 you give them (receivers or metres), the window lengths a comparison names, whether to do again
-work already there, what it says of your hand work, which option it chooses among those a tool
-offered, and the workers (CPU cores) it asks the work to use. The form's JSON schema constrains
+work already there, what it says of your hand work, which option it chooses among those
+offered, the processing mode it names and the workers (CPU cores) it asks the work to use. The
+form's JSON schema constrains
 the model's output, thinking off; a form that does not parse goes back once with its error,
 and a second failure ends the answer asking you to say it again. Code then checks what it can
 (a run id PACo never gives, an option never offered, a negative position) and keeps the turn
@@ -87,7 +88,30 @@ within the scope (`src/paco/agent/scope.py`):
   after "process and invert" processes, picks and inverts; choosing a run to work on picks and
   inverts it);
 - the workers your message asks run every stage of its work, at most the machine's cores, said
-  in the scope's line and the parameters used.
+  in the scope's line and the parameters used;
+- a run your message names is the one its calls change: a call on another run is refused (one
+  the turn made aside, or the one an option you chose names), so that a run that does not
+  exist is said so, with the runs there, never replaced by one the model picked.
+
+## The run and the plan, settled by code
+
+Before the model acts, the host settles the run the message's work is on
+(`src/paco/agent/runs.py`), from the scope and the server's lists of runs (the resources
+`paco://profiles/{profile}/runs`, `paco://runs/{run_id}` and `paco://runs`):
+- a run the message names is checked: one that does not exist is said so, with the profile's
+  runs (else the newest of every profile) to choose from, and nothing runs;
+- processing asked of a profile that has runs: you choose a new run or the run to work on (the
+  newest three, each with its mode, windows and how far it went); asked again, or with a run
+  this conversation made, a new run without a question; with no run, a new run;
+- only later stages asked (pick, invert, soils): the run the conversation is on goes on;
+  otherwise the profile's one run, or you choose among several;
+- code writes these questions, the model not called, and the options wait for your choice.
+
+The model then reads one plan after your message: the run (or a new run to make first) and
+the stages to do on it, in their order, with those the run lacks (its curves before its
+models). A call on another run is refused. After each result the host says what is next; an
+answer before the plan is done, nothing in its way, is sent back once. An option you chose
+among a tool's is made by the host itself, then the plan goes on.
 
 Every answer is written by code around the model's text (`src/paco/agent/answer.py`):
 - the scope's line;
@@ -148,10 +172,8 @@ on it.
 A run goes records, images, curves, models (seismic, then soil columns). PACo goes on from
 what is there and asks before redoing it: with nothing, it does everything; asked to pick and
 invert a profile whose run has images, it picks and inverts them; asked to process a profile
-that has runs, it asks whether to make a new run or to work on one of them (the newest three,
-each with its mode, windows and how far it went), then does what you asked on the run you
-chose, and a stage the model would start on one of those runs first waits for that choice;
-asked to invert a run with curves, it inverts them; asked to pick it again, or to process
+that has runs, it asks whether to make a new run or to work on one of them (above), then does
+what you asked on the run you chose; asked to invert a run with curves, it inverts them; asked to pick it again, or to process
 it, it asks whether to redo the picking, complete the windows without a curve, invert the
 curves as they are, or work on some windows; models and soil columns the same way. The tools
 make these checks themselves: one that meets such work does nothing, says what is there and
@@ -228,8 +250,11 @@ its threshold (3 plays of 5 by default). `uv run paco-evaluate --history` tabula
 rates of every evaluation kept, by model and prompts' version, the latest version against the
 one before (`--model` for one model), and over the same plays the tool calls that failed, the
 calls refused as outside the message's scope, the answers a cap ended and each gate's retries a
-play. An evaluation's plays share one images' cache, removed at its end. A play the model's
-server cuts short (out of reach, failing, or a 404 page instead of its JSON: a proxy's while
-the server behind it is down) is lost, not counted, and listed under the report; a request it
-refuses (a JSON schema it does not take, the context exceeded, a model name it does not serve)
-fails the play, with the server's message.
+play. An evaluation's plays share one images' cache, removed at its end, and their inversions
+are quick (two chains of 3,000 iterations where the message gave no sampler, G5 taking them as
+converged): the plays measure the agent's calls and answers, not the models; the scenarios that
+judge the inversion's gates on your settings invert at PAC's effort, as every play does with
+`--full-inversion`. A play the model's server cuts short (out of reach, failing, or a 404 page
+instead of its JSON: a proxy's while the server behind it is down) is lost, not counted, and
+listed under the report; a request it refuses (a JSON schema it does not take, the context
+exceeded, a model name it does not serve) fails the play, with the server's message.

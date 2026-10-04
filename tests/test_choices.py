@@ -15,7 +15,8 @@ import anyio
 import numpy as np
 import pytest
 from mcp import Client
-from mcp.types import CallToolResult, RequestParamsMeta
+from mcp.shared.exceptions import MCPError
+from mcp.types import CallToolResult, RequestParamsMeta, TextResourceContents
 from sigpipe.base.dispersion_curve import DispersionCurve, Mode
 from sigpipe.masw.picks import CURVES_FILE, load_curves, save_pick
 from sigpipe.masw.runs import RunError, find_run, load_image, load_manifest
@@ -237,6 +238,35 @@ def test_more_workers_than_cores_run_on_the_cores_and_say_so() -> None:
         "12 workers: the machine's cores, fewer than the 64 asked"
     )
     assert server.with_workers(result, None, 12) is result
+
+
+def test_the_host_reads_the_runs_from_the_servers_resources(
+    run: tuple[Settings, str, str],
+) -> None:
+    _, run_id, _ = run
+
+    async def read() -> list[Any]:
+        async with Client(server.server) as client:
+            texts: list[Any] = []
+            for uri in ("paco://profiles/active_p1/runs", f"paco://runs/{run_id}", "paco://runs"):
+                found = await client.read_resource(uri)
+                content = found.contents[0]
+                assert isinstance(content, TextResourceContents)
+                texts.append(json.loads(content.text))
+            with pytest.raises(MCPError):
+                await client.read_resource("paco://runs/20990101-000000-abcd")
+            return texts
+
+    listed, described, newest = anyio.run(read)
+
+    one = {
+        "run_id": run_id,
+        "profile": "active_p1",
+        "label": "active, windows of 24 receivers, curves",
+        "went": "curves",
+    }
+    assert listed == {"runs": [one]} == newest
+    assert described == one
 
 
 def test_a_run_with_curves_is_picked_as_the_user_chooses(run: tuple[Settings, str, str]) -> None:

@@ -42,6 +42,7 @@ NOTHING: dict[str, Any] = {
     "replace_hand_work": False,
     "option": None,
     "workers": None,
+    "mode": None,
 }
 
 
@@ -188,6 +189,7 @@ def test_the_user_and_the_model_read_the_scope() -> None:
         "window": {},
         "compared": {},
         "workers": None,
+        "mode": None,
     }
 
 
@@ -252,3 +254,29 @@ def test_a_choice_goes_on_with_what_the_message_that_got_the_options_asked() -> 
     # A run to look at: nothing more of the request, what it asked being there.
     look = Offer("work on run r (active, images)", 'inspect(what="run", run_id="r")')
     assert continued(_scope(option=2), _scope(process=True), look).asked == frozenset()
+
+
+def test_a_call_on_another_run_than_the_one_named_is_refused() -> None:
+    named = _scope(invert=True, run_id="20990101-000000-abcd")
+    latest = '{"run_id": "20261004-075517-daeb"}'
+
+    assert refusal(named, "invert", '{"run_id": "20990101-000000-abcd"}') is None
+    assert refusal(named, "invert", latest) == (
+        "Not called: this message names run 20990101-000000-abcd, and invert is on run "
+        "20261004-075517-daeb: work on the run it names. If that run does not exist, say so, "
+        "with the runs there (inspect lists them), and ask which one the user means."
+    )
+    # The run the turn made, or the one the option chosen names: worked on.
+    assert refusal(named, "invert", latest, frozenset({"20261004-075517-daeb"})) is None
+    # Reading another run, always.
+    assert refusal(named, "inspect", '{"what": "run", "run_id": "20261004-075517-daeb"}') is None
+
+
+def test_a_message_of_signs_asks_nothing_and_chooses_nothing() -> None:
+    # A typo while options wait ("%"): no answer to them, the model not asked.
+    model = FormModel()
+    offered = Context(offers=(Offer("a new run", 'run_processing(profile="p", again=true)'),))
+
+    read = anyio.run(read_scope, model, "%", offered)
+
+    assert read.scope == _scope() and read.fills == () and model.sent == []

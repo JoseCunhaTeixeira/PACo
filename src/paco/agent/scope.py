@@ -59,6 +59,8 @@ _STAGE_ARGUMENT = re.compile(r'stage="(\w+)"')
 _PROCESS_ONLY: frozenset[Stage] = frozenset({"process"})
 # A run id as PACo gives them: when it started, and a short random suffix.
 _RUN_ID = re.compile(r"\d{8}-\d{6}-[0-9a-f]{4}")
+# The run an offered call names.
+_RUN_IN_CALL = re.compile(r'run_id="([^"]+)"')
 
 
 class Scope(BaseModel):
@@ -93,6 +95,9 @@ class Scope(BaseModel):
     option: int | None = Field(description="The option it chooses among those offered last.")
     workers: int | None = Field(
         ge=1, description="The workers (CPU cores) it asks the work to use."
+    )
+    mode: Literal["active", "passive", "passive-active"] | None = Field(
+        description="The processing mode it names."
     )
 
     @property
@@ -160,6 +165,8 @@ class Scope(BaseModel):
             parts.append(f"run {self.run_id}" if self.run_id else str(self.profile))
         if self.positions_m:
             parts.append("at " + ", ".join(f"{position:g}" for position in self.positions_m) + " m")
+        if self.mode is not None:
+            parts.append(self.mode)
         if windows := self._windows_said():
             parts.append(windows)
         if compared := self._compared_said():
@@ -183,6 +190,8 @@ class Scope(BaseModel):
             said.append(f"run {self.run_id}" if self.run_id else f"profile {self.profile}")
         if self.positions_m:
             said.append("positions " + ", ".join(f"{p:g}" for p in self.positions_m) + " m")
+        if self.mode is not None:
+            said.append(f"processed {self.mode}")
         if windows := self._windows_said():
             said.append(windows)
         if compared := self._compared_said():
@@ -213,6 +222,7 @@ class Scope(BaseModel):
             "window": self.window,
             "compared": self.compared,
             "workers": self.workers,
+            "mode": self.mode,
         }
 
 
@@ -237,15 +247,18 @@ _BLANK: dict[str, Any] = {
     "replace_hand_work": False,
     "option": None,
     "workers": None,
+    "mode": None,
 }
 
 
 @dataclass(frozen=True)
 class Offer:
-    """An option a tool offered the user: its words, and the call that makes it."""
+    """An option given to the user: its words, and the call that makes it; a run to work on
+    (`run_id`), which the host settles, no tool to call."""
 
     label: str
     call: str
+    run_id: str | None = None
 
 
 @dataclass(frozen=True)
@@ -273,7 +286,10 @@ class Read:
 async def read_scope(model: ChatModel, message: str, context: Context) -> Read:
     """The scope of `message`: the model fills the form, strictly parsed; a form that does not
     parse is sent back once with its error. Raises ScopeError when the second does not parse
-    either."""
+    either. A message without a letter or a digit (a typo, a lone sign) asks nothing and chooses
+    no option, the model not asked: a sign is no answer to the options."""
+    if not any(character.isalnum() for character in message):
+        return Read(scope=Scope.model_validate(_BLANK), fills=())
     messages: list[ChatCompletionMessageParam] = [
         {"role": "system", "content": prompts.prompt("scope")},
         *_examples(),
@@ -312,14 +328,18 @@ def chosen(scope: Scope, context: Context) -> Offer | None:
 def continued(scope: Scope, request: Scope, offer: Offer) -> Scope:
     """`scope`, a message choosing `offer`, with what `request` (the message that got the
     options) asked: its stages from the option's on (the option says how, the request what
-    for), and its positions, windows, hand work and workers where the choice says none."""
+    for), and its positions, windows, hand work, workers and mode where the choice says none; a run to
+    work on, that run, its processing there."""
     tool = offer.call.split("(", 1)[0]
     stage = _OPTION_STAGE.get(tool)
     if tool == "redo" and (found := _STAGE_ARGUMENT.search(offer.call)) is not None:
         stage = _REDO_STAGE.get(found.group(1))
-    if tool in READ_ONLY:
+    if offer.run_id is not None:
+        # A run to work on: its processing is there, the request's later stages are not.
+        later: tuple[Stage, ...] = STAGES[1:]
+    elif tool in READ_ONLY:
         # A run to look at: what the request asked is there already.
-        later: tuple[Stage, ...] = ()
+        later = ()
     else:
         later = STAGES[STAGES.index(stage) :] if stage is not None else STAGES
     update: dict[str, Any] = {name: True for name in later if name in request.asked}
@@ -334,6 +354,10 @@ def continued(scope: Scope, request: Scope, offer: Offer) -> Scope:
         update["replace_hand_work"] = True
     if scope.workers is None:
         update["workers"] = request.workers
+    if scope.mode is None:
+        update["mode"] = request.mode
+    if offer.run_id is not None:
+        update |= {"process": False, "run_id": offer.run_id}
     return scope.model_copy(update=update)
 
 
@@ -342,11 +366,21 @@ def continued(scope: Scope, request: Scope, offer: Offer) -> Scope:
 SCOPE_REFUSAL = "Not called: this message"
 
 
-def refusal(scope: Scope, name: str, arguments: str) -> str | None:
+def refusal(
+    scope: Scope, name: str, arguments: str, runs: frozenset[str] = frozenset()
+) -> str | None:
     """Why the call `name(arguments)` is outside `scope`, said to the model; None when it is
-    within it."""
+    within it. A run the message names is the one its calls change: another only among `runs`
+    (one the turn made, or the option chosen named), never one the model picked instead."""
     if name in READ_ONLY:
         return None
+    target = _argument(arguments, "run_id")
+    if scope.run_id and target and target != scope.run_id and target not in runs:
+        return (
+            f"{SCOPE_REFUSAL} names run {scope.run_id}, and {name} is on run {target}: work on "
+            "the run it names. If that run does not exist, say so, with the runs there (inspect "
+            "lists them), and ask which one the user means."
+        )
     if name == "run_processing" and scope.compared and not scope.asked - {"process"}:
         # A comparison makes its own trial windows: the line processed with one of the lengths
         # is the user's to ask, with the comparison in hand.
@@ -371,6 +405,11 @@ def refusal(scope: Scope, name: str, arguments: str) -> str | None:
         f"{SCOPE_REFUSAL} {what}, and {name} is outside it. Do what it asks, or ask the user "
         "whether they want more."
     )
+
+
+def runs_in(call: str) -> frozenset[str]:
+    """The runs an offered call names: name(run_id="...", ...)."""
+    return frozenset(_RUN_IN_CALL.findall(call))
 
 
 def offers_in(result: str) -> tuple[Offer, ...]:

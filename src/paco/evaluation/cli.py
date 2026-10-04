@@ -45,6 +45,12 @@ def main() -> None:
         help="print each scenario's pass rate by model and prompt version, from the reports kept",
     )
     parser.add_argument("--model", help="with --history: only this model's evaluations")
+    parser.add_argument(
+        "--full-inversion",
+        action="store_true",
+        help="every play's inversions at PAC's effort (by default quick, but in the scenarios "
+        "that judge them)",
+    )
     arguments = parser.parse_args()
     if arguments.repeat < 1:
         parser.error("--repeat must be at least 1")
@@ -57,10 +63,14 @@ def main() -> None:
     # PACo's server runs in this process, and its SDK logs every request at INFO level: the
     # scenarios' own lines (calls, failures, progress) say what matters.
     logs.setup(logging.WARNING)
-    anyio.run(evaluate, arguments.scenarios, arguments.repeat, arguments.scopes)
+    anyio.run(
+        evaluate, arguments.scenarios, arguments.repeat, arguments.scopes, arguments.full_inversion
+    )
 
 
-async def evaluate(names: list[str], repeat: int = 1, scopes: bool = False) -> None:
+async def evaluate(
+    names: list[str], repeat: int = 1, scopes: bool = False, full_inversion: bool = False
+) -> None:
     try:
         settings = AgentSettings()  # pyright: ignore[reportCallIssue]  # fields come from .env
     except ValidationError as error:
@@ -103,6 +113,7 @@ async def evaluate(names: list[str], repeat: int = 1, scopes: bool = False) -> N
         judge_model,
         settings.judge_model,
         repeat,
+        full_inversion=full_inversion,
     )
     print()
     print(format_report(report))

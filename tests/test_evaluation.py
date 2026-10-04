@@ -1,4 +1,5 @@
 import json
+import os
 import re
 from collections.abc import Callable
 from datetime import UTC, datetime
@@ -69,7 +70,7 @@ from paco.evaluation.checks import (
 )
 from paco.evaluation.defects import build_inputs
 from paco.evaluation.report import format_history, read_reports
-from paco.evaluation.running import gate_retries
+from paco.evaluation.running import QUICK_MODEL, gate_retries
 from paco.evaluation.scope_set import (
     CASES,
     NOTHING,
@@ -120,6 +121,7 @@ EVERYTHING = {
     "replace_hand_work": False,
     "option": None,
     "workers": None,
+    "mode": None,
 }
 
 
@@ -549,6 +551,12 @@ def test_thresholds_must_stay_the_configurations(tmp_path: Path, paco_env: Setti
     changed = QCConfig.model_validate({"curve": {"max_jump": 0.5}})
     snapshot_qc_config(changed, run)
     assert thresholds_unchanged()(trial).detail == f"changed in {run.name}"
+    # A play given its own configuration (quick inversions'): its runs are held to that one.
+    quick = tmp_path / "quick_qc.json"
+    quick.write_text(json.dumps({"model": QUICK_MODEL}))
+    snapshot_qc_config(load_qc_config(quick), run)
+    assert not thresholds_unchanged()(trial).passed
+    assert thresholds_unchanged()(Trial(trial.transcript, tmp_path, quick)).passed
 
 
 def test_the_lines_muting_and_the_best_comparison_are_read(tmp_path: Path) -> None:
@@ -677,18 +685,18 @@ def test_the_agent_asks_or_not() -> None:
 
     assert asked_the_user()(asking).passed and not asked_the_user()(telling).passed
     assert asked_nothing()(telling).passed and not asked_nothing()(asking).passed
-    # Options to pick from ask too, question mark or not.
-    for options in (
-        "1. Redo. 2. New run. 3. Stop. Choose one to proceed.",
-        "<options>1, 2</options>",
-        "Here are your choices: 1. Pick all again. 2. Invert. Select your preference.",
-        "Tell me which you prefer: pick again, or invert as they are.",
+    # The options code lists under the question ask too.
+    options = "Scope: process.\n\nactive_p1 has 1 run.\n\n(1) a new run\n(2) work on run r (images)"
+    assert asked_the_user()(_trial([], options)).passed
+    # A choice the text asks for, without a question mark, asks too.
+    choose = "Choose a valid length: 1. the whole line (96 receivers), 2. half of it (48)."
+    assert asked_the_user()(_trial([], choose)).passed
+    # Words of a statement are no question: the answer form lets none into the text.
+    for told in (
+        "G3 selected 3 windows; the choice of length was mine.",
+        "Gaps remain at xmid 2.88 m, as per your choice to keep the work made by hand.",
     ):
-        assert asked_the_user()(_trial([], options)).passed
-    # Words of a report are no question.
-    assert asked_nothing()(
-        _trial([], "G3 selected 3 windows; the choice of length was mine.")
-    ).passed
+        assert asked_nothing()(_trial([], told)).passed
 
 
 def test_no_settings_invented() -> None:
@@ -1085,6 +1093,27 @@ def test_an_evaluations_plays_share_one_images_cache_gone_at_its_end(tmp_path: P
 
 
 @pytest.mark.usefixtures("paco_env")
+def test_a_play_inverts_quickly_with_its_own_qc_configuration(tmp_path: Path) -> None:
+    async def play() -> ScenarioResult:
+        return await run_scenario(
+            _scenario("list_profiles"),
+            PolicyModel(lists_profiles, NOTHING),
+            "scripted",
+            tmp_path,
+            on_event=lambda _: None,
+            quick_inversion=True,
+        )
+
+    result = anyio.run(play)
+
+    # G5 takes short chains as converged: the play measures the agent, not the models.
+    assert result.passed
+    assert load_qc_config(tmp_path / "quick_qc.json").model.max_rhat == QUICK_MODEL["max_rhat"]
+    # The server's settings as they were, the play over.
+    assert "PACO_INVERSION_EFFORT" not in os.environ
+
+
+@pytest.mark.usefixtures("paco_env")
 def test_a_play_the_models_server_cut_short_is_lost_not_failed(tmp_path: Path) -> None:
     plays = iter([True, False])
 
@@ -1427,7 +1456,7 @@ def test_the_scope_set_scores_each_field_of_each_form(tmp_path: Path) -> None:
 
     report = anyio.run(read_scopes, LabelModel(), "labels", tmp_path, CASES, events.append)
 
-    assert len(report.results) == len(CASES) == 48
+    assert len(report.results) == len(CASES) == 50
     (wrong,) = [result for result in report.results if not result.passed]
     assert (wrong.message, wrong.wrong) == ("invret active_p1", {"soils": (False, True)})
     assert events[CASES.index(next(c for c in CASES if c.message == "invret active_p1"))] == (
@@ -1436,7 +1465,7 @@ def test_the_scope_set_scores_each_field_of_each_form(tmp_path: Path) -> None:
     saved = ScopeReport.model_validate_json((tmp_path / report.eval_id / "scopes.json").read_text())
     assert saved == report
     assert format_scope_report(report).splitlines() == [
-        f"Scopes {report.eval_id} of labels on {report.prompt_version}: 47 of 48 read right.",
+        f"Scopes {report.eval_id} of labels on {report.prompt_version}: 49 of 50 read right.",
         "  invret active_p1",
         "    soils False -> True",
     ]

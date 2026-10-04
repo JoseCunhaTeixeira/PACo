@@ -15,7 +15,7 @@ from typing import Any
 import anyio
 from mcp import Client
 from mcp.shared.exceptions import MCPError
-from mcp.types import REQUEST_TIMEOUT, RequestParamsMeta, TextResourceContents
+from mcp.types import REQUEST_TIMEOUT, ReadResourceResult, RequestParamsMeta, TextResourceContents
 from openai.types.chat import ChatCompletionFunctionToolParam, ChatCompletionMessageParam
 
 from paco import logs, prompts
@@ -24,17 +24,21 @@ from paco.agent.answer import AnswerError, Turn, Written, render, write_answer
 from paco.agent.conversion import result_for_model, tools_for_model
 from paco.agent.model import ChatModel, Reply, ToolCall
 from paco.agent.record import AnswerStep, ModelStep, ScopeStep, Step, ToolStep, Transcript
+from paco.agent.runs import Ask, Lister, Plan, RunInfo, parse_call, plan_note, resolve, to_do
 from paco.agent.scope import (
     READ_ONLY,
+    STAGES,
     Context,
     Offer,
     Read,
     Scope,
     ScopeError,
+    Stage,
     chosen,
     continued,
     read_scope,
     refusal,
+    runs_in,
 )
 from paco.agent.settings import AgentSettings
 
@@ -49,7 +53,7 @@ ROLE = prompts.prompt("role")
 _KEYS = ("run_id", "job_id", "state", "status", "did", "left", "done", "total", "error")
 _KEPT = 400
 # A tool's result in the conversation: its tool, and the result.
-_DATA = re.compile(r'<data from="([^"]*)">\n(.*)\n</data>', re.DOTALL)
+_DATA = re.compile(r'<data from="([^"]*)">\n(.*)\n</data>(?:\n\n\[PACo\] .*)?', re.DOTALL)
 logger = logging.getLogger(__name__)
 # The answer when the model filled no valid scope form, twice.
 UNREAD = "I could not read what your message asks ({error}). Please say it again in other words."
@@ -125,6 +129,7 @@ class Agent:
         self._offered_for: Scope | None = None
         self._profile: str | None = None
         self._run_id: str | None = None
+        self._made: set[str] = set()  # the runs the conversation made
         self.steps: list[Step] = []
         self.started_at = datetime.now(UTC)
 
@@ -186,23 +191,94 @@ class Agent:
             if self._offered_for is not None:
                 scope = continued(scope, self._offered_for, offer)
             self._offers, self._offered_for = (), None
+        # The run the work is on, settled by code before the model acts; or the user's choice
+        # of it, asked first, the model not called.
+        settled = await self._settle(scope, offer)
+        if isinstance(settled, Ask):
+            return self._asks(question, scope, settled)
+        plan = settled
+        if plan.run_id is not None:
+            scope = scope.model_copy(update={"run_id": plan.run_id})
+            self._profile, self._run_id = plan.profile, plan.run_id
+        elif plan.profile is not None:
+            self._profile = plan.profile
         self.meta["scope"] = {**scope.for_server(), "chosen": offer.call if offer else None}
-        note = scope.for_model(offer)
-        if scope.profile and not scope.run_id and (latest := await self._latest(scope.profile)):
-            note += f" {scope.profile}'s latest run: {latest}"
+        made = _made_call(offer)  # the option the user chose, a tool's: the host makes it
+        note = plan_note(scope, plan, offer, made is not None)
         first = len(self.messages)
         self.messages.append({"role": "user", "content": f"{question}\n\n{note}"})
         try:
-            return await self._turn(question, scope)
+            return await self._turn(question, scope, plan, made)
         finally:
             _compact(self.messages, first)
 
-    async def _turn(self, question: str, scope: Scope) -> str:
-        """The model's calls and their results until it answers, within the answer's caps."""
+    async def _settle(self, scope: Scope, offer: Offer | None) -> Plan | Ask:
+        """The run `scope`'s work is on (paco.agent.runs): the one the option chosen names, the
+        new one it makes; else as the message and the conversation say it."""
+        stages: tuple[Stage, ...] = tuple(stage for stage in STAGES if stage in scope.asked)
+        lister = self._lister()
+        if offer is not None:
+            if offer.run_id is not None:
+                run = await lister.run_of(offer.run_id)
+                profile = run.profile if run is not None else self._profile
+                return Plan(to_do(stages, run), profile, offer.run_id)
+            if offer.call.startswith("run_processing("):
+                return Plan(to_do(stages, None), scope.profile or self._profile, new=True)
+            named = next(iter(runs_in(offer.call)), None) or self._run_id
+            return Plan(stages, self._profile, named)
+        current = await lister.run_of(self._run_id) if self._run_id is not None else None
+        return await resolve(scope, current, frozenset(self._made), lister)
+
+    def _asks(self, question: str, scope: Scope, ask: Ask) -> str:
+        """The answer when the user chooses the run first, as code writes it: what is there,
+        and the options, which wait for the next message."""
+        answer = render(scope, ask.said, ask.question, Turn(offers=ask.offers), (question,))
+        self._offers, self._offered_for = ask.offers, scope if ask.offers else None
+        self.meta["scope"] = {**scope.for_server(), "chosen": None}
+        self.messages.append({"role": "user", "content": question})
+        self.messages.append({"role": "assistant", "content": answer})
+        return answer
+
+    def _lister(self) -> Lister:
+        """How code reads the runs: the server's resources."""
+
+        async def runs_of(profile: str) -> list[RunInfo]:
+            return await self._listed(f"paco://profiles/{profile}/runs")
+
+        async def run_of(run_id: str) -> RunInfo | None:
+            try:
+                read = await self._client.read_resource(f"paco://runs/{run_id}")
+            except MCPError:
+                return None  # a run PACo does not have
+            found = _runs_read(read, single=True)
+            return found[0] if found else None
+
+        async def newest() -> list[RunInfo]:
+            return await self._listed("paco://runs")
+
+        return Lister(runs_of, run_of, newest)
+
+    async def _listed(self, uri: str) -> list[RunInfo]:
+        try:
+            read = await self._client.read_resource(uri)
+        except MCPError as error:
+            logger.warning("Could not read %s: %s", uri, error)
+            return []
+        return _runs_read(read)
+
+    async def _turn(
+        self, question: str, scope: Scope, plan: Plan, made_first: ToolCall | None
+    ) -> str:
+        """The model's calls and their results until it answers, within the answer's caps, on
+        the plan's run (another refused): first the option the user chose (`made_first`, the
+        host's call), then a line after each result saying what is next."""
         calls = repeats = tokens = 0
         failed: dict[tuple[str, str], str] = {}  # calls that failed in this answer: their error
         made: set[tuple[str, str]] = set()  # calls made in this answer
         blocked: set[tuple[str, str]] = set()  # calls the host refused in this answer
+        runs: set[str] = set()  # the runs the turn made, worked on as the plan's
+        run = plan.run_id
+        nudged = last_failed = False
         turn = Turn(pending=self._offers)
         began = time.monotonic()
         while True:
@@ -210,20 +286,31 @@ class Agent:
                 self._on_event(f"   (stopped: {cap})")
                 draft = f"{CAPPED}: it reached its {cap}."
                 return self._ended(render(scope, draft, None, turn, (question, draft)), turn, scope)
-            start = time.perf_counter()
-            reply = await self._model(self.messages, self._tools)
-            tokens += reply.completion_tokens or 0
-            self._watch_context(reply.prompt_tokens)
-            self.steps.append(
-                ModelStep(
-                    duration_s=round(time.perf_counter() - start, 3),
-                    prompt_tokens=reply.prompt_tokens,
-                    completion_tokens=reply.completion_tokens,
-                    tool_calls=len(reply.tool_calls),
+            if made_first is not None:
+                reply, made_first = Reply(content="", tool_calls=(made_first,)), None
+            else:
+                start = time.perf_counter()
+                reply = await self._model(self.messages, self._tools)
+                tokens += reply.completion_tokens or 0
+                self._watch_context(reply.prompt_tokens)
+                self.steps.append(
+                    ModelStep(
+                        duration_s=round(time.perf_counter() - start, 3),
+                        prompt_tokens=reply.prompt_tokens,
+                        completion_tokens=reply.completion_tokens,
+                        tool_calls=len(reply.tool_calls),
+                    )
                 )
-            )
             self.messages.append(_assistant_message(reply))
             if not reply.tool_calls:
+                left = turn.undone(plan.stages)
+                # Answered before the plan is done, nothing in its way: back once (L2).
+                ready = plan.run_id is not None or plan.new
+                blocked_by = turn.offers or turn.stuck or last_failed
+                if left and ready and not nudged and not blocked_by:
+                    nudged = True
+                    self.messages.append({"role": "user", "content": _unfinished(left, run)})
+                    continue
                 answer = await self._written(question, reply.content, scope, turn)
                 self.messages[-1] = {"role": "assistant", "content": answer}
                 return self._ended(answer, turn, scope)
@@ -245,7 +332,7 @@ class Agent:
                         render(scope, draft, None, turn, (question, draft)), turn, scope
                     )
                 repeats += again
-                outside = refusal(scope, call.name, call.arguments)
+                outside = refusal(scope, call.name, call.arguments, frozenset(runs))
                 # A tool offered the user options: the choice is theirs, nothing more runs but
                 # reading (the user's rules: ask first).
                 waiting = bool(turn.offers) and call.name not in READ_ONLY
@@ -276,8 +363,16 @@ class Agent:
                     failed.pop(key, None)
                     made.add(key)
                     self._keep_track(call, result)
-                # PACo's results are data (T10, X3); the host's own refusals are not.
+                    if call.name == "run_processing" and (new := host.processed(result)):
+                        runs.add(new)
+                        self._made.add(new)
+                        run = new
+                last_failed = step.is_error
+                # PACo's results are data (T10, X3); the host's own refusals are not; after a
+                # result, the host says what is next.
                 content = as_data(call.name, result) if step.called else result
+                if plan.stages and step.called and not step.is_error and not turn.stuck:
+                    content += f"\n\n{_next_line(plan, turn, run)}"
                 self.messages.append({"role": "tool", "tool_call_id": call.id, "content": content})
 
     def _ended(self, answer: str, turn: Turn, scope: Scope) -> str:
@@ -303,19 +398,6 @@ class Agent:
         if prompt_tokens is not None and prompt_tokens > CONTEXT_WARNING * self._limits.context:
             share = prompt_tokens / self._limits.context
             self._on_event(f"   (the conversation fills {share:.0%} of the model's context)")
-
-    async def _latest(self, profile: str) -> str | None:
-        """The profile's latest run in one line, as the server's resource says it (M4); None
-        when the server has none to say."""
-        try:
-            read = await self._client.read_resource(f"paco://profiles/{profile}/latest-run")
-        except MCPError as error:
-            logger.warning("Could not read %s's latest run: %s", profile, error)
-            return None
-        texts = [
-            content.text for content in read.contents if isinstance(content, TextResourceContents)
-        ]
-        return texts[0] if texts else None
 
     async def _written(self, question: str, draft: str, scope: Scope, turn: Turn) -> str:
         """The answer the user reads: the model's `draft` put into the answer form (as it is
@@ -598,3 +680,67 @@ def _canonical(arguments: str) -> str:
         return json.dumps(json.loads(arguments or "{}"), sort_keys=True)
     except json.JSONDecodeError:
         return arguments
+
+
+# What the plan's stages call, as the host's lines say it.
+_CALLS: dict[str, str] = {
+    "process": "run_processing",
+    "pick": "pick",
+    "invert": "invert",
+    "soils": "petro_models, then invert_petro",
+}
+
+
+def _made_call(offer: Offer | None) -> ToolCall | None:
+    """The call of a tool's option the user chose, for the host to make; None for a run to
+    work on (no tool), or a call the user must fill (a position)."""
+    if offer is None or offer.run_id is not None:
+        return None
+    parsed = parse_call(offer.call)
+    if parsed is None:
+        return None
+    name, arguments = parsed
+    return ToolCall("paco_choice", name, json.dumps(arguments))
+
+
+def _next_line(plan: Plan, turn: Turn, run: str | None) -> str:
+    """The host's line after a result: the options to answer with, the plan's next stage, or
+    that the plan is done."""
+    if turn.offers:
+        return "[PACo] A tool gave the user options: answer now, PACo lists them after your text."
+    left = turn.undone(plan.stages)
+    if not left:
+        return "[PACo] The plan is done: answer the user."
+    on = f" on run {run}" if run else ""
+    return f"[PACo] Next: {_CALLS[left[0]]}{on}."
+
+
+def _unfinished(left: list[str], run: str | None) -> str:
+    """The host's message when the model answers before the plan is done."""
+    on = f" on run {run}" if run else ""
+    calls = ", then ".join(_CALLS[stage] for stage in left)
+    return (
+        f"[PACo] Not done yet: {calls}{on}, which this message asks. Make those calls, or say "
+        "why they cannot run."
+    )
+
+
+def _runs_read(read: ReadResourceResult, single: bool = False) -> list[RunInfo]:
+    """The runs a resource lists (paco://profiles/{profile}/runs, paco://runs), or the one it
+    describes (`single`: paco://runs/{run_id})."""
+    texts = [content.text for content in read.contents if isinstance(content, TextResourceContents)]
+    try:
+        parsed: Any = json.loads(texts[0]) if texts else {}
+    except json.JSONDecodeError:
+        return []
+    found = [parsed] if single else parsed.get("runs", []) if isinstance(parsed, dict) else []
+    return [
+        RunInfo(
+            str(one["run_id"]),
+            str(one["profile"]),
+            str(one.get("label", "")),
+            str(one.get("went", "images")),
+        )
+        for one in found
+        if isinstance(one, dict) and "run_id" in one and "profile" in one
+    ]
