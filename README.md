@@ -150,10 +150,13 @@ Other commands:
 ## How PACo works
 
 - **The scope of your message.** Before any tool runs, the model reads your message into a
-  form: the stages asked, the profile or run, the positions, the windows. Code refuses calls
-  outside it, and the answer starts with that line, for you to check what PACo read.
-- **Work already there.** PACo goes on from a run's work, and asks before redoing it (a new
-  run, the windows without a curve, everything again).
+  form: the stages asked, the profile or run, the positions, the windows, the workers ("use 8
+  workers"). Code refuses calls outside it, and the answer starts with that line, for you to
+  check what PACo read.
+- **Work already there.** Asked to process a profile that has runs, PACo asks whether to make
+  a new run or which run to work on. It goes on from a run's work, and asks before redoing it
+  (the windows without a curve, everything again); the options wait until you choose, and your
+  choice goes on with what you asked.
 - **Your work in PAC.** Curves, runs and models you make in PAC's pages are yours: no gate judges
   or changes them, and PACo asks before replacing one (the old one kept in `by_hand/`).
 - **Your settings.** Settings you give are kept for the run: no gate changes them; a window that

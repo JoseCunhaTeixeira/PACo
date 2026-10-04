@@ -37,6 +37,7 @@ NOTHING: dict[str, Any] = {
     "redo": False,
     "replace_hand_work": False,
     "option": None,
+    "workers": None,
 }
 # What an answer to an offer is scored on: the profile and run come from the conversation.
 ANSWER = ("process", "pick", "invert", "soils", "redo", "replace_hand_work", "option")
@@ -65,13 +66,13 @@ HAND_THERE = Context(
     profile="active_p1",
     run_id=RUN,
 )
-# run_processing, on a profile whose images are there.
+# run_processing, on a profile whose run has images: a new run, or that run to work on.
 IMAGES_THERE = Context(
     offers=(
-        Offer("go on from these images", f'pick(run_id="{RUN}")'),
+        Offer("a new run", 'run_processing(profile="active_p1", again=true)'),
         Offer(
-            "process again, a new run (this one stays)",
-            'run_processing(profile="active_p1", again=true)',
+            f"work on run {RUN} (active, windows of 24 receivers, images)",
+            f'pick(run_id="{RUN}")',
         ),
     ),
     profile="active_p1",
@@ -137,6 +138,12 @@ CASES: tuple[Case, ...] = (
         "Traite active_p1 avec des fenêtres de 12 capteurs, tous les 12 capteurs.",
         {"process": True, "profile": "active_p1", "length_receivers": 12, "step_receivers": 12},
     ),
+    # The workers the work may use.
+    Case(
+        "Process active_p1 and invert it, use 10 workers.",
+        {"process": True, "invert": True, "profile": "active_p1", "workers": 10},
+    ),
+    Case("Inverse active_p1 sur 4 cœurs.", {"invert": True, "profile": "active_p1", "workers": 4}),
     Case(
         "Process passive_p1 and give me the soils.",
         {"process": True, "soils": True, "profile": "passive_p1"},
@@ -221,11 +228,19 @@ CASES: tuple[Case, ...] = (
     Case("Oui, la première.", {"pick": True, "option": 1}, CURVES_THERE, ANSWER),
     Case("Keep it.", {"pick": True, "option": 1}, HAND_THERE, ANSWER),
     Case(
-        "Go on from those images, and invert.",
-        {"pick": True, "invert": True, "option": 1},
+        "Work on that run, and invert it.",
+        {"pick": True, "invert": True, "option": 2},
         IMAGES_THERE,
         ANSWER,
     ),
+    Case(
+        "A new run.",
+        {"process": True, "option": 1},
+        IMAGES_THERE,
+        ("process", "pick", "invert", "soils", "option"),
+    ),
+    # A typo is no answer to the options: it chooses none.
+    Case("%", {}, CURVES_THERE, ANSWER),
 )
 
 

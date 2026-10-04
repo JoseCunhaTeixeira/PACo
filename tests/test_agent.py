@@ -64,6 +64,7 @@ EVERYTHING = Scope(
     redo=False,
     replace_hand_work=False,
     option=None,
+    workers=None,
 )
 
 
@@ -641,9 +642,93 @@ def test_an_option_chosen_is_the_one_the_tool_offered() -> None:
     )
     assert agent.messages[-4].get("content") == (
         f"The second.\n\n{second.for_model(None)} The user chose (2) pick every window again: "
-        'pick(run_id="r", windows="all").'
+        'pick(run_id="r", windows="all"). Make that call, then the rest this message asks.'
     )
     assert server_.metas[-1]["scope"]["chosen"] == 'pick(run_id="r", windows="all")'
+
+
+def test_options_wait_through_a_message_that_chooses_none() -> None:
+    # Options, a typo, then the choice: the options still offered, read against the choice,
+    # which goes on with what the message that got them asked (here, the inversion too).
+    asks = EVERYTHING.model_copy(update={"process": False, "soils": False})
+    choice = LOOK.model_copy(update={"pick": True, "redo": True, "option": 2})
+    model = ScriptedModel(
+        _calls(("pick", {"run_id": "r"})),
+        _says("Run r holds 3 curves."),
+        _calls(("inspect", {"what": "runs"})),
+        _says("One run, r."),
+        _calls(("pick", {"run_id": "r", "windows": "all"})),
+        _calls(("invert", {"run_id": "r"})),
+        _says("Picked and inverted."),
+        scopes=(asks, LOOK, choice),
+    )
+    server_ = OfferServer()
+    pending: list[int] = []
+
+    async def conversation() -> list[str]:
+        agent = Agent(server_, model, [], None, on_event=lambda _: None)  # pyright: ignore[reportArgumentType]
+        answers: list[str] = []
+        for message in ("Pick and invert run r.", "%", "2"):
+            answers.append(await agent.answer(message))
+            pending.append(len(agent.offers))
+        return answers
+
+    answers = anyio.run(conversation)
+
+    assert pending == [2, 2, 0]
+    # The message between asked nothing: its answer gives the options again.
+    assert answers[1].endswith(
+        "Which do you choose?\n(1) complete the 1 windows without a curve\n"
+        "(2) pick every window again"
+    )
+    offered = model.forms[2][-1].get("content")
+    assert isinstance(offered, str) and offered.startswith("Offered last: (1) complete the 1")
+    assert [name for name, _ in server_.calls] == ["pick", "inspect", "pick", "invert"]
+    # The choice's scope: its stage on, the stages the first message asked.
+    assert server_.metas[-1]["scope"]["asked"] == ["pick", "invert"]
+    assert answers[2].startswith("Scope: pick, invert")
+
+
+class WorkServer(OfferServer):
+    """Stands in for PACo's server: as OfferServer, and invert does its work."""
+
+    async def call_tool(
+        self,
+        name: str,
+        arguments: dict[str, Any],
+        read_timeout_seconds: float | None = None,
+        progress_callback: ProgressFnT | None = None,
+        meta: dict[str, Any] | None = None,
+    ) -> CallToolResult:
+        offered = await super().call_tool(
+            name, arguments, read_timeout_seconds, progress_callback, meta
+        )
+        if name != "invert":
+            return offered
+        return _structured({"run_id": "r", "did": "Inverted run r, 3 windows: G5 3 pass."})
+
+
+def test_options_give_way_to_a_message_that_asks_for_work() -> None:
+    model = ScriptedModel(
+        _calls(("pick", {"run_id": "r"})),
+        _says("Run r holds 3 curves."),
+        _calls(("invert", {"run_id": "r"})),
+        _says("Inverted."),
+        scopes=(EVERYTHING.model_copy(update={"process": False, "soils": False}), INVERT),
+    )
+    server_ = WorkServer()
+    pending: list[int] = []
+
+    async def conversation() -> None:
+        agent = Agent(server_, model, [], None, on_event=lambda _: None)  # pyright: ignore[reportArgumentType]
+        for message in ("Pick and invert run r.", "Invert the curves as they are."):
+            await agent.answer(message)
+            pending.append(len(agent.offers))
+
+    anyio.run(conversation)
+
+    # The work the second message asked done, the options are no longer offered.
+    assert pending == [2, 0]
 
 
 def test_a_message_whose_scope_cannot_be_read_runs_nothing() -> None:
@@ -919,6 +1004,25 @@ def test_a_call_made_already_is_refused_and_a_third_ends_the_answer() -> None:
     assert events[-1] == "   (stopped: inspect called again, the same way)"
     assert answer == _scoped(
         "PACo stopped this answer: inspect was called again with the same arguments, without "
+        "progress.",
+        LOOK,
+    )
+
+
+def test_a_call_refused_and_made_again_ends_the_answer() -> None:
+    # Refused outside the message's scope, the same call again: refused again it would be (L3).
+    invert = _calls(("invert", {"run_id": "r"}))
+    server_ = MetaServer()
+
+    answer, _, events = _played(ScriptedModel(invert, invert, scopes=(LOOK,)), server_)
+
+    assert server_.calls == []
+    assert events == [
+        '-> invert({"run_id": "r"}) refused: outside the scope',
+        "   (stopped: invert called again, the same way)",
+    ]
+    assert answer == _scoped(
+        "PACo stopped this answer: invert was called again with the same arguments, without "
         "progress.",
         LOOK,
     )

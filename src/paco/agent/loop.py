@@ -32,6 +32,7 @@ from paco.agent.scope import (
     Scope,
     ScopeError,
     chosen,
+    continued,
     read_scope,
     refusal,
 )
@@ -116,9 +117,12 @@ class Agent:
         # The model's name, for what its calls make (S4): a model that names itself.
         if isinstance(name := getattr(model, "name", None), str):
             self.meta["model"] = name
-        # What the host knows for the next message: the options a tool offered last, and the
-        # profile and run the conversation is on.
+        # What the host knows for the next message: the options a tool offered, with the scope
+        # of the message that got them (they wait until a message chooses one, a tool offers
+        # others, or a stage's work is done: L9), and the profile and run the conversation is
+        # on.
         self._offers: tuple[Offer, ...] = ()
+        self._offered_for: Scope | None = None
         self._profile: str | None = None
         self._run_id: str | None = None
         self.steps: list[Step] = []
@@ -164,7 +168,6 @@ class Agent:
 
     async def _answer(self, question: str) -> str:
         context = Context(self._offers, self._profile, self._run_id)
-        self._offers = ()  # answered by this message, or left
         start = time.perf_counter()
         try:
             read = await read_scope(self._model, question, context)
@@ -177,6 +180,12 @@ class Agent:
         self.steps.append(_scope_step(read, time.perf_counter() - start))
         scope = read.scope
         offer = chosen(scope, context)
+        if offer is not None:
+            # The options answered: the choice goes on with what the message that got them
+            # asked.
+            if self._offered_for is not None:
+                scope = continued(scope, self._offered_for, offer)
+            self._offers, self._offered_for = (), None
         self.meta["scope"] = {**scope.for_server(), "chosen": offer.call if offer else None}
         note = scope.for_model(offer)
         if scope.profile and not scope.run_id and (latest := await self._latest(scope.profile)):
@@ -193,13 +202,14 @@ class Agent:
         calls = repeats = tokens = 0
         failed: dict[tuple[str, str], str] = {}  # calls that failed in this answer: their error
         made: set[tuple[str, str]] = set()  # calls made in this answer
-        turn = Turn()
+        blocked: set[tuple[str, str]] = set()  # calls the host refused in this answer
+        turn = Turn(pending=self._offers)
         began = time.monotonic()
         while True:
             if (cap := self._cap(time.monotonic() - began, tokens)) is not None:
                 self._on_event(f"   (stopped: {cap})")
                 draft = f"{CAPPED}: it reached its {cap}."
-                return self._ended(render(scope, draft, None, turn, (question, draft)), turn)
+                return self._ended(render(scope, draft, None, turn, (question, draft)), turn, scope)
             start = time.perf_counter()
             reply = await self._model(self.messages, self._tools)
             tokens += reply.completion_tokens or 0
@@ -216,13 +226,14 @@ class Agent:
             if not reply.tool_calls:
                 answer = await self._written(question, reply.content, scope, turn)
                 self.messages[-1] = {"role": "assistant", "content": answer}
-                return self._ended(answer, turn)
+                return self._ended(answer, turn, scope)
             for call in reply.tool_calls:
                 calls += 1
                 key = (call.name, _canonical(call.arguments))
                 again = key in made and call.name not in _REPEATABLE
-                if again and repeats >= _REPEATS:
-                    # The model goes round in circles: the answer ends as stuck (L3).
+                # Made and refused twice, or refused by the host and asked again (refused again
+                # it would be): the model goes round in circles, the answer ends as stuck (L3).
+                if (again and repeats >= _REPEATS) or key in blocked:
                     self._on_event(f"   (stopped: {call.name} called again, the same way)")
                     del self.messages[-1]  # the call left unanswered
                     turn.stuck = True
@@ -230,18 +241,24 @@ class Agent:
                         f"{CAPPED}: {call.name} was called again with the same arguments, "
                         "without progress."
                     )
-                    return self._ended(render(scope, draft, None, turn, (question, draft)), turn)
+                    return self._ended(
+                        render(scope, draft, None, turn, (question, draft)), turn, scope
+                    )
                 repeats += again
+                outside = refusal(scope, call.name, call.arguments)
+                # A tool offered the user options: the choice is theirs, nothing more runs but
+                # reading (the user's rules: ask first).
+                waiting = bool(turn.offers) and call.name not in READ_ONLY
                 step = await self._call(
                     call,
                     over_budget=calls > self._limits.tool_calls,
                     failed_before=failed.get(key),
-                    outside=refusal(scope, call.name, call.arguments),
+                    outside=outside,
                     repeated=again,
-                    # A tool offered the user options: the choice is theirs, nothing more runs
-                    # but reading (the user's rules: ask first).
-                    waiting=bool(turn.offers) and call.name not in READ_ONLY,
+                    waiting=waiting,
                 )
+                if outside is not None or waiting:
+                    blocked.add(key)
                 self.steps.append(step)
                 result = step.result
                 job_id = (
@@ -263,9 +280,14 @@ class Agent:
                 content = as_data(call.name, result) if step.called else result
                 self.messages.append({"role": "tool", "tool_call_id": call.id, "content": content})
 
-    def _ended(self, answer: str, turn: Turn) -> str:
-        """`answer`, the turn ended: the options it left are the next message's to choose."""
-        self._offers = turn.offers
+    def _ended(self, answer: str, turn: Turn, scope: Scope) -> str:
+        """`answer`, the turn ended: the options a tool offered in it wait for the user, with
+        `scope`, what the message that got them asked; options still waiting stay until a
+        stage's work is done."""
+        if turn.offers:
+            self._offers, self._offered_for = turn.offers, scope
+        elif turn.worked:
+            self._offers, self._offered_for = (), None
         return answer
 
     def _cap(self, seconds: float, tokens: int) -> str | None:
@@ -303,15 +325,25 @@ class Agent:
             written = await write_answer(self._model, question, draft)
         except AnswerError as error:
             self.steps.append(_answer_step(None, time.perf_counter() - start, str(error)))
-            return render(scope, draft, None, turn, (question,))
+            return render(scope, draft, None, turn, (question, *self._held()))
         self.steps.append(_answer_step(written, time.perf_counter() - start))
         form = written.form
-        return render(scope, form.said, form.question, turn, (question,))
+        return render(scope, form.said, form.question, turn, (question, *self._held()))
+
+    def _held(self) -> list[str]:
+        """What the conversation holds that an answer's numbers may come from (R1): the user's
+        messages and the tools' results, earlier turns' as kept (not the answers, written by
+        the model)."""
+        return [
+            str(message.get("content") or "")
+            for message in self.messages
+            if message["role"] in ("user", "tool")
+        ]
 
     @property
     def offers(self) -> tuple[Offer, ...]:
-        """The options a tool offered in the last answer, among which the user's next message
-        may choose: that answer asks the user to choose."""
+        """The options a tool offered that still wait for the user's choice, among which the
+        next message may choose: the last answer asks the user to choose."""
         return self._offers
 
     def transcript(self, model: str) -> Transcript:

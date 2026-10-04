@@ -40,6 +40,7 @@ LOOK = {
     "redo": False,
     "replace_hand_work": False,
     "option": None,
+    "workers": None,
 }
 
 SMALL_WINDOWS = {"masw": {"length": 24, "step": 24}}

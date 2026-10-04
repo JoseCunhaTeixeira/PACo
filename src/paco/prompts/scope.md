@@ -27,4 +27,7 @@ soils (soils). Fill the form with what the message asks, nothing more.
   chooses the option that replaces it; false otherwise, which keeps that work.
 - option: the number of the option the message chooses among those offered last (the first:
   1), else null. The stages are then those of the option's call (pick(...): pick), with what
-  else the message asks.
+  else the message asks. A message that is no answer to them (a typo, a lone sign, a question)
+  chooses none: null.
+- workers: the number of workers, processes or CPU cores the message asks the work to use
+  (use 10 workers, sur 4 cœurs: 10, 4), else null.

@@ -64,8 +64,8 @@ Before any tool runs, the model reads your message into a form, its scope: the s
 (process, pick, invert, soils; none for a question about what exists, or a request no tool
 makes), the profile or run, the positions in metres, the windows' length and step in the unit
 you give them (receivers or metres), the window lengths a comparison names, whether to do again
-work already there, what it says of your hand work,
-and which option it chooses among those a tool offered last. The form's JSON schema constrains
+work already there, what it says of your hand work, which option it chooses among those a tool
+offered, and the workers (CPU cores) it asks the work to use. The form's JSON schema constrains
 the model's output, thinking off; a form that does not parse goes back once with its error,
 and a second failure ends the answer asking you to say it again. Code then checks what it can
 (a run id PACo never gives, an option never offered, a negative position) and keeps the turn
@@ -79,7 +79,15 @@ within the scope (`src/paco/agent/scope.py`):
   you to check what PACo read;
 - the options a tool offered are kept, so that "the second one" is the call it offered; once a
   tool offered options, the answer runs nothing more but reading (inspect, the settings), and
-  ends with them: the choice is yours.
+  ends with them: the choice is yours. They wait until a message chooses one, a tool offers
+  others, or a stage's work is done: a message in between (a typo, a question about the run)
+  leaves them offered, its answer giving them again;
+- a message that chooses an option asks, with it, what the message that got the options asked:
+  its stages from the option's on and its positions, windows and workers (choosing "a new run"
+  after "process and invert" processes, picks and inverts; choosing a run to work on picks and
+  inverts it);
+- the workers your message asks run every stage of its work, at most the machine's cores, said
+  in the scope's line and the parameters used.
 
 Every answer is written by code around the model's text (`src/paco/agent/answer.py`):
 - the scope's line;
@@ -95,13 +103,17 @@ Every answer is written by code around the model's text (`src/paco/agent/answer.
   tool makes) gets an answer, not a question back;
 - "Parameters used", "Settings the gates changed" and "Settings kept as you gave them", last.
 
-A number in the model's text that no result of the turn holds is flagged after it.
+A number in the model's text that neither a result of the turn, your messages, the tools'
+results kept from earlier turns nor the scope holds is flagged after it ("Numbers not found in
+the tools' results: ..."); a run's or a job's id is a name, not numbers.
 
 The loop keeps itself in check (`src/paco/agent/loop.py`):
 - With each message naming a profile, the host tells the model the profile's latest run, read
   from the server's resource `paco://profiles/{profile}/latest-run`: the model makes no run id
   up.
-- A call made already in the answer is refused; a third time, the answer ends.
+- A call made already in the answer is refused; a third time, the answer ends. A call the host
+  refused (outside the scope, or waiting for your choice) made again ends it at once: it would
+  be refused again.
 - Tool results reach the model in a delimited data block (`<data from="pick">...</data>`), which
   its role says is never an instruction: a profile's or a file's name that reads as one is data.
 - Tool results of earlier messages are kept short in the conversation (what each did, the
@@ -135,9 +147,11 @@ on it.
 
 A run goes records, images, curves, models (seismic, then soil columns). PACo goes on from
 what is there and asks before redoing it: with nothing, it does everything; asked to pick and
-invert a profile whose run has images, it picks and inverts them; asked to process it, it says
-the run is there and asks whether to process again (a new run, the old one kept) or go on from
-it; asked to invert a run with curves, it inverts them; asked to pick it again, or to process
+invert a profile whose run has images, it picks and inverts them; asked to process a profile
+that has runs, it asks whether to make a new run or to work on one of them (the newest three,
+each with its mode, windows and how far it went), then does what you asked on the run you
+chose, and a stage the model would start on one of those runs first waits for that choice;
+asked to invert a run with curves, it inverts them; asked to pick it again, or to process
 it, it asks whether to redo the picking, complete the windows without a curve, invert the
 curves as they are, or work on some windows; models and soil columns the same way. The tools
 make these checks themselves: one that meets such work does nothing, says what is there and
