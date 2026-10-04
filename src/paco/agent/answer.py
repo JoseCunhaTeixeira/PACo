@@ -52,6 +52,8 @@ _STUCK_ERROR = re.compile(r"Error executing tool \w+: \[stuck\]")
 # Numbers of a count or an order (3 windows, option 2): not checked against the results.
 _SMALL = 10
 _NUMBER = re.compile(r"(?<![\w.])\d+(?:[.,]\d+)?(?![\w])")
+# A run's id, or a job's (a run's with its kind before): a name, its digits no numbers.
+_ID = re.compile(r"(?:\w+-)?\d{8}-\d{6}-[0-9a-f]{4}")
 
 
 class AnswerForm(BaseModel):
@@ -76,6 +78,8 @@ class Turn:
     done: list[str] = field(default_factory=list)  # each stage's work, in one line
     left: list[str] = field(default_factory=list)  # the windows left out, with why
     offers: tuple[Offer, ...] = ()  # the options of the last result, if it offered any
+    # The options an earlier answer gave, which still wait for the user's choice.
+    pending: tuple[Offer, ...] = ()
     stuck: bool = False  # a tool cannot go on without the user
     stages: list[str] = field(default_factory=list)  # the stages done, in order
     used: list[str] = field(default_factory=list)  # the parameters the stages ran with
@@ -186,24 +190,26 @@ async def write_answer(model: ChatModel, message: str, draft: str) -> Written:
 def render(
     scope: Scope, said: str, question: str | None, turn: Turn, sources: Sequence[str] = ()
 ) -> str:
-    """The answer the user reads: the scope line, the model's text (`said`), its numbers no
-    result holds flagged, what was done and left out, the question with the options or what
-    to ask next, then the parameters used and the settings the gates changed (last: PAC's chat
-    folds them)."""
+    """The answer the user reads: the scope line, the model's text (`said`), its numbers that
+    neither the turn's results nor `sources` (what the conversation holds) nor the scope hold
+    flagged, what was done and left out, the question with the options (the turn's, else
+    those still waiting when it did no work) or what to ask next, then the parameters used and
+    the settings the gates changed (last: PAC's chat folds them)."""
     blocks = [scope.line(), said.strip()]
-    if unfound := unfound_numbers(said, [*turn.results, *sources]):
-        blocks.append(f"(Not in this turn's results: {', '.join(unfound)}.)")
+    if unfound := unfound_numbers(said, [*turn.results, *sources, scope.line()]):
+        blocks.append(f"Numbers not found in the tools' results: {', '.join(unfound)}.")
     if turn.done:
         blocks.append("Done:\n" + "\n".join(f"- {line}" for line in turn.done))
     if turn.left:
         blocks.append("Left out:\n" + "\n".join(f"- {line}" for line in turn.left))
-    asks = bool(turn.offers) or bool(question and (turn.stuck or (not turn.worked and scope.asked)))
+    offers = turn.offers or (() if turn.worked else turn.pending)
+    asks = bool(offers) or bool(question and (turn.stuck or (not turn.worked and scope.asked)))
     # The stages asked that no tool did, said (U6); when the user must choose, the question
     # says why.
     if not asks and (undone := turn.undone(scope.asked)):
         blocks.append(f"Asked but not done: {', '.join(undone)}.")
-    if turn.offers:
-        options = "\n".join(f"({i}) {offer.label}" for i, offer in enumerate(turn.offers, 1))
+    if offers:
+        options = "\n".join(f"({i}) {offer.label}" for i, offer in enumerate(offers, 1))
         blocks.append(f"{question or 'Which do you choose?'}\n{options}")
     elif question and (turn.stuck or (not turn.worked and scope.asked)):
         # A question when the user must answer it: stuck, or a request for work left unclear.
@@ -222,11 +228,11 @@ def render(
 
 
 def unfound_numbers(text: str, sources: Iterable[str]) -> list[str]:
-    """The numbers of `text` (10 and over, or with decimals) that none of `sources` holds, to
-    the text's precision (12.5 is found in 12.46)."""
+    """The numbers of `text` (10 and over, or with decimals; a run's or a job's id is a name)
+    that none of `sources` holds, to the text's precision (12.5 is found in 12.46)."""
     found = [_value(number) for source in sources for number in _NUMBER.findall(source)]
     unfound: list[str] = []
-    for number in _NUMBER.findall(text):
+    for number in _NUMBER.findall(_ID.sub(" ", text)):
         value = _value(number)
         decimals = len(number.replace(",", ".").partition(".")[2])
         if "." not in number.replace(",", ".") and value < _SMALL:

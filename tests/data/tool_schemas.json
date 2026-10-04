@@ -1946,7 +1946,7 @@
     "open_world_hint": false,
     "read_only_hint": false
    },
-   "description": "Process a profile into one dispersion image per window, checked stage by stage: records\n(G1, its fixes applied: trigger delays corrected, bad traces left out), window length and\nband from the data unless given, images (G2, retried when a change can fix them). Takes\nseconds to minutes. Returns the run_id and the gates' summary; a profile with a run already\ngives options first.",
+   "description": "Process a profile into one dispersion image per window, checked stage by stage: records\n(G1, its fixes applied: trigger delays corrected, bad traces left out), window length and\nband from the data unless given, images (G2, retried when a change can fix them). Takes\nseconds to minutes. Returns the run_id and the gates' summary; a profile with runs gives\noptions first: a new run, or a run to work on.",
    "input_schema": {
     "properties": {
      "again": {
@@ -2137,5 +2137,5 @@
    }
   }
  },
- "version": "tools-dd26908d"
+ "version": "tools-b8351008"
 }

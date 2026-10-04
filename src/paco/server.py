@@ -8,6 +8,7 @@ http://<PACO_HOST>:<PACO_PORT>/mcp, by default http://127.0.0.1:8000/mcp, this m
 import functools
 import json
 import logging
+import os
 import time
 from collections.abc import Callable
 from contextlib import AbstractContextManager
@@ -71,6 +72,9 @@ READ_ONLY = frozenset(
 )
 # The calls a host made on a run, one JSON line each, in the run's folder (O1).
 CALLS_FILE = "agent_calls.jsonl"
+# The workers the message of the call being served asks (its scope), at most the machine's
+# cores; None: the settings' own.
+_WORKERS: ContextVar[int | None] = ContextVar("paco_workers", default=None)
 logger = logging.getLogger(__name__)
 
 ProfileName = Annotated[str, Field(description="A profile name from inspect(what=profiles).")]
@@ -113,11 +117,14 @@ def _agent_errors[**P, R](tool: Callable[P, R]) -> Callable[P, R]:
         tokens = _logged(kwargs.get("ctx"), run_id)
         # The images the call makes taken from the cache, and kept in it (S8).
         tokens.append((caching.CACHE, caching.CACHE.set(_images_cache())))
+        asked = _workers_asked(kwargs.get("ctx"))
+        cores = os.cpu_count() or 1
+        tokens.append((_WORKERS, _WORKERS.set(min(asked, cores) if asked else None)))
         try:
             result = tool(*args, **kwargs)
             outcome = str(getattr(result, "status", None) or getattr(result, "state", "ok"))
             run_id = getattr(result, "run_id", run_id)
-            return result
+            return with_workers(result, asked, cores)
         except stopping.Stopped:
             outcome = "stopped"
             raise ToolError(STOPPED) from None
@@ -214,14 +221,14 @@ def run_processing(
     """Process a profile into one dispersion image per window, checked stage by stage: records
     (G1, its fixes applied: trigger delays corrected, bad traces left out), window length and
     band from the data unless given, images (G2, retried when a change can fix them). Takes
-    seconds to minutes. Returns the run_id and the gates' summary; a profile with a run already
-    gives options first."""
+    seconds to minutes. Returns the run_id and the gates' summary; a profile with runs gives
+    options first: a new run, or a run to work on."""
 
     def report(done: int, total: int) -> None:
         # The SDK runs this tool in a worker thread: progress goes out through the event loop.
         anyio.from_thread.run(ctx.report_progress, done, total, f"{done} of {total} windows")
 
-    settings = get_settings()
+    settings = _settings()
     _preset(profile, mode)  # a mode the profile cannot take refused first
     spacing = profiles.inspect_profile(profile, settings).receiver_spacing_m
     conversation = _conversation(ctx)
@@ -280,9 +287,8 @@ def compare(
     """Compare processing settings on a sample of the line's windows, changing no run: a
     table and the best. To optimise, take the metric closest to the request and say it."""
     variants = _compared_variants(_conversation(ctx), variants)
-    return qc.compare_settings(
-        profile, variants, metric, get_settings(), _qc_config(get_settings())
-    )
+    settings = _settings()
+    return qc.compare_settings(profile, variants, metric, settings, _qc_config(settings))
 
 
 @server.tool(annotations=REPLACES)
@@ -302,7 +308,7 @@ def pick(
     over the line (outliers picked again along their neighbours), saved in PAC's layout. G4's
     verdict on the line decides whether invert can run. Curves already there, or picked by
     hand, give options first."""
-    settings = get_settings()
+    settings = _settings()
     with _writing(run_id, "pick"):
         conversation = _conversation(ctx)
         run_folder = runs.find_run(run_id, settings)
@@ -331,7 +337,7 @@ def pick(
 def judge(run_id: RunId, ctx: Context, positions: Positions = None) -> StageResult:
     """Judge curves as they are, picking nothing: G3 on automatic M0s no gate judged (PAC's
     Auto-pick) or at positions, then G4 over the line. Hand-picked curves are never judged."""
-    settings = get_settings()
+    settings = _settings()
     with _writing(run_id, "judge"):
         conversation = _conversation(ctx)
         units, read = _positions(run_id, _asked_positions(conversation, positions), settings)
@@ -374,7 +380,7 @@ def invert(
     curves are judged first. By default the windows without a model. Bounds from each curve
     (values given are checked), G5 and G6 retrying what they can. Follow it with job_status.
     Models already there, or made by hand, give options first."""
-    settings = get_settings()
+    settings = _settings()
     checked = priors.checkable(parameters, priors.PriorRules().n_layers) if parameters else None
     _parse(InversionParameters, checked, "parameters", "inversion_settings")
     with _writing(run_id, "invert"):
@@ -462,7 +468,7 @@ def invert_petro(
     def report(done: int, total: int) -> None:
         anyio.from_thread.run(ctx.report_progress, done, total, f"{done} of {total} windows")
 
-    settings = get_settings()
+    settings = _settings()
     with _writing(run_id, "invert_petro"):
         conversation = _conversation(ctx)
         run_folder = runs.find_run(run_id, settings)
@@ -505,7 +511,7 @@ def redo(
     what follows up to G4: preprocessing (their records), phase_shift or picking; inversion runs
     as a job to follow with job_status. For a change a gate asked of an earlier stage. Work made
     by hand there gives options first."""
-    settings = get_settings()
+    settings = _settings()
     with _writing(run_id, "redo"):
         units = qc.select_windows(run_id, settings, xmids, flag)
         run_folder = runs.find_run(run_id, settings)
@@ -578,6 +584,41 @@ def _writing(run_id: str, tool: str) -> AbstractContextManager[None]:
     writers are refused meanwhile; one writing it already, waited for a little, then said."""
     run_folder = runs.find_run(run_id, get_settings())
     return run_lock(run_folder, f"PACo ({tool})", wait_s=WRITER_WAIT_S)
+
+
+def _workers_asked(ctx: object) -> int | None:
+    """The workers the call's message asked, as its scope says them (paco.agent.scope); None
+    when it asked none, or from a client that sends no scope."""
+    meta = ctx.request_context.meta if isinstance(ctx, Context) else None
+    scope = meta.get("scope") if isinstance(meta, dict) else None
+    workers = scope.get("workers") if isinstance(scope, dict) else None
+    if isinstance(workers, int) and not isinstance(workers, bool) and workers >= 1:
+        return workers
+    return None
+
+
+def _settings() -> Settings:
+    """The settings the call being served runs with: the server's, with the workers its
+    message asked (at most the machine's cores)."""
+    settings = get_settings()
+    workers = _WORKERS.get()
+    return settings if workers is None else settings.model_copy(update={"workers": workers})
+
+
+def with_workers[R](result: R, asked: int | None, cores: int) -> R:
+    """`result`, its parameters used saying the workers its message asked, when it asked some
+    and the call did work (no options to choose from): those used, or the machine's cores."""
+    if asked is None or not isinstance(result, BaseModel):
+        return result
+    if "used" not in type(result).model_fields or getattr(result, "options", None):
+        return result
+    used: tuple[str, ...] = getattr(result, "used", ())
+    line = (
+        f"{asked} workers: as your message asked"
+        if asked <= cores
+        else f"{cores} workers: the machine's cores, fewer than the {asked} asked"
+    )
+    return cast(R, result.model_copy(update={"used": (*used, line)}))
 
 
 def _logged(ctx: object, run_id: object) -> list[tuple[ContextVar[Any], Token[Any]]]:
@@ -755,6 +796,7 @@ class _Scope(BaseModel):
     window: dict[Literal["length", "length_m", "step", "step_m"], float] = {}
     compared: dict[Literal["length", "length_m"], list[float]] = {}
     chosen: str | None = None
+    workers: int | None = None  # applied to the call's work (_settings)
 
 
 def _asked_window(

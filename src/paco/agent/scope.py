@@ -39,6 +39,24 @@ _REDO_SERVES: dict[str, frozenset[Stage]] = {
     "picking": frozenset({"pick", "invert", "soils"}),
     "inversion": frozenset({"invert"}),
 }
+# The stage an offered call does, by its tool (a redo's, by the stage it goes back to).
+_OPTION_STAGE: dict[str, Stage] = {
+    "run_processing": "process",
+    "pick": "pick",
+    "judge": "pick",
+    "invert": "invert",
+    "invert_petro": "soils",
+    "petro_models": "soils",
+}
+_REDO_STAGE: dict[str, Stage] = {
+    "preprocessing": "process",
+    "phase_shift": "process",
+    "picking": "pick",
+    "inversion": "invert",
+}
+_STAGE_ARGUMENT = re.compile(r'stage="(\w+)"')
+# A message asking only to process: its later stages are not the request.
+_PROCESS_ONLY: frozenset[Stage] = frozenset({"process"})
 # A run id as PACo gives them: when it started, and a short random suffix.
 _RUN_ID = re.compile(r"\d{8}-\d{6}-[0-9a-f]{4}")
 
@@ -73,6 +91,9 @@ class Scope(BaseModel):
     redo: bool = Field(description="It asks to do again work already done.")
     replace_hand_work: bool = Field(description="It asks to replace work made by hand.")
     option: int | None = Field(description="The option it chooses among those offered last.")
+    workers: int | None = Field(
+        ge=1, description="The workers (CPU cores) it asks the work to use."
+    )
 
     @property
     def window(self) -> dict[str, float]:
@@ -149,6 +170,8 @@ class Scope(BaseModel):
             parts.append("your hand work replaced")
         if self.option is not None:
             parts.append(f"option {self.option}")
+        if self.workers is not None:
+            parts.append(_workers(self.workers))
         return "Scope: " + " · ".join(parts) + "."
 
     def for_model(self, chosen: Offer | None) -> str:
@@ -170,9 +193,14 @@ class Scope(BaseModel):
             if self.replace_hand_work
             else "not to replace the work made by hand"
         )
+        if self.workers is not None:
+            said.append(f"{_workers(self.workers)}, which PACo gives every stage")
         note = "[PACo] This message " + "; ".join(said) + "."
         if chosen is not None:
-            note += f" The user chose ({self.option}) {chosen.label}: {chosen.call}."
+            note += (
+                f" The user chose ({self.option}) {chosen.label}: {chosen.call}. Make that call, "
+                "then the rest this message asks."
+            )
         return note
 
     def for_server(self) -> dict[str, Any]:
@@ -184,6 +212,7 @@ class Scope(BaseModel):
             "positions_m": list(self.positions_m),
             "window": self.window,
             "compared": self.compared,
+            "workers": self.workers,
         }
 
 
@@ -207,6 +236,7 @@ _BLANK: dict[str, Any] = {
     "redo": False,
     "replace_hand_work": False,
     "option": None,
+    "workers": None,
 }
 
 
@@ -279,6 +309,34 @@ def chosen(scope: Scope, context: Context) -> Offer | None:
     return context.offers[scope.option - 1] if scope.option is not None else None
 
 
+def continued(scope: Scope, request: Scope, offer: Offer) -> Scope:
+    """`scope`, a message choosing `offer`, with what `request` (the message that got the
+    options) asked: its stages from the option's on (the option says how, the request what
+    for), and its positions, windows, hand work and workers where the choice says none."""
+    tool = offer.call.split("(", 1)[0]
+    stage = _OPTION_STAGE.get(tool)
+    if tool == "redo" and (found := _STAGE_ARGUMENT.search(offer.call)) is not None:
+        stage = _REDO_STAGE.get(found.group(1))
+    if tool in READ_ONLY:
+        # A run to look at: what the request asked is there already.
+        later: tuple[Stage, ...] = ()
+    else:
+        later = STAGES[STAGES.index(stage) :] if stage is not None else STAGES
+    update: dict[str, Any] = {name: True for name in later if name in request.asked}
+    if not scope.positions_m:
+        update["positions_m"] = list(request.positions_m)
+    if not scope.window:
+        update |= {
+            name: getattr(request, name)
+            for name in ("length_receivers", "length_m", "step_receivers", "step_m")
+        }
+    if request.replace_hand_work:
+        update["replace_hand_work"] = True
+    if scope.workers is None:
+        update["workers"] = request.workers
+    return scope.model_copy(update=update)
+
+
 # How the host's refusal of a call outside the message's scope begins (the evaluation counts
 # them).
 SCOPE_REFUSAL = "Not called: this message"
@@ -303,6 +361,12 @@ def refusal(scope: Scope, name: str, arguments: str) -> str | None:
         return None  # an unknown tool: the server says so
     asked = _said(scope.asked)
     what = f"asks {asked}" if asked else "asks to look at what exists, running nothing"
+    if scope.asked == _PROCESS_ONLY:
+        # The run's later stages are not the request: processing, and the choice it gives.
+        return (
+            f"{SCOPE_REFUSAL} {what}, and {name} is outside it. Call run_processing: when the "
+            "profile has runs, it gives the user's choice of a new run or the run to work on."
+        )
     return (
         f"{SCOPE_REFUSAL} {what}, and {name} is outside it. Do what it asks, or ask the user "
         "whether they want more."
@@ -363,6 +427,10 @@ def _argument(arguments: str, name: str) -> str | None:
         return None
     value = parsed.get(name) if isinstance(parsed, dict) else None
     return value if isinstance(value, str) else None
+
+
+def _workers(count: int) -> str:
+    return f"{count} worker" + ("s" if count != 1 else "")
 
 
 def _said(stages: frozenset[Stage]) -> str:

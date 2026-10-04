@@ -34,6 +34,7 @@ from paco.evaluation.checks import (
     never_called,
     no_inversion_started,
     no_settings_invented,
+    none_outside_the_scope,
     not_succeeded,
     nothing_given,
     nothing_redone,
@@ -529,6 +530,65 @@ SCENARIOS = (
         "process again (a new run) or go on from those images, and does nothing before the "
         "answer.",
         setup=imaged_run,
+    ),
+    # A typo between the options and the choice: the options wait, and the choice goes on with
+    # the request that got them (its inversion).
+    Scenario(
+        name="typo_then_choice",
+        kind="work there",
+        questions=("Pick and invert active_p1.", "%", "Pick every window again."),
+        # A call the typo's turn makes is refused as outside its scope: the guard, as it should.
+        checks=(called("pick", windows="all"), inversion_succeeded(), at_most_calls(10)),
+        rubric="active_p1's run already has curves: the agent gives the options, the user's typo "
+        "leaves them offered, and their choice to pick every window again picks the line again "
+        "and inverts it, as their first message asked.",
+        setup=picked_run,
+    ),
+    # Asked to process a profile with a run: a new run, or the run to work on, the user's choice.
+    Scenario(
+        name="work_on_a_run",
+        kind="work there",
+        questions=("Process active_p1 and invert it.", "2"),
+        checks=(
+            called("pick"),
+            inversion_succeeded(),
+            nothing_redone("preprocessing", "phase_shift"),
+            none_outside_the_scope(),
+            at_most_calls(9),
+        ),
+        rubric="active_p1 has a run with images: the agent asks whether to make a new run or "
+        "work on that run; the user chooses the run, and the agent picks and inverts it, "
+        "processing nothing.",
+        setup=imaged_run,
+    ),
+    Scenario(
+        name="new_run",
+        kind="work there",
+        # Small windows: the new run as quick as the one there (the data's own takes 88).
+        questions=("Process active_p1 with windows of 24 receivers every 24, and invert it.", "1"),
+        checks=(
+            called("run_processing", again=True),
+            inversion_succeeded(),
+            none_outside_the_scope(),
+            at_most_calls(9),
+        ),
+        rubric="active_p1 has a run with images: the agent asks whether to make a new run or "
+        "work on that run; the user chooses a new run, and the agent processes it, picks it and "
+        "inverts it.",
+        setup=imaged_run,
+    ),
+    Scenario(
+        name="workers",
+        kind="process and judge",
+        questions=("Process active_p1 with windows of 24 receivers every 24, using 2 workers.",),
+        checks=(
+            called("run_processing"),
+            answer_mentions("2 workers: as your message asked"),
+            asked_nothing(),
+            at_most_calls(4),
+        ),
+        rubric="The agent processes active_p1 with the windows asked, its work on 2 workers, "
+        "said with the parameters used.",
     ),
     Scenario(
         name="curves_invert",

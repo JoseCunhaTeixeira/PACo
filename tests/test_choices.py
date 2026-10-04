@@ -24,7 +24,7 @@ from sigpipe.masw.runs.origin import mark_edited
 from paco import choices, inspection, server
 from paco.agent.conversion import result_for_model
 from paco.agent.scope import READ_ONLY as READ_ONLY_FOR_THE_HOST
-from paco.qc import run_work
+from paco.qc import StageResult, run_work
 from paco.qc.log import read_attempts
 from paco.qc.origin import MODEL_FILES, SOIL_FILES
 from paco.settings import Settings, get_settings
@@ -126,14 +126,14 @@ def test_a_profile_with_a_run_is_processed_again_only_as_the_user_chooses(
         "Nothing was done. Asked to process, the user chooses how, unless their request says "
         "which option: ask them with these options"
     )
-    assert f'invert(run_id="{run_id}")' in asked["next"]
-    # Asked only for the stages the run lacks, the agent goes on from it.
-    assert asked["next"].endswith(
-        f'Asked only to invert: go on without asking, invert(run_id="{run_id}").'
+    # A new run, or the run there to work on: its curves, a client sending no scope.
+    assert (
+        '(1) a new run: run_processing(profile="active_p1", overrides={"masw": {"length": 24, '
+        '"step": 24}}, again=true)' in asked["next"]
     )
     assert (
-        'run_processing(profile="active_p1", overrides={"masw": {"length": 24, "step": 24}}, '
-        "again=true)" in asked["next"]
+        f"(2) work on run {run_id} (active, windows of 24 receivers, curves): "
+        f'pick(run_id="{run_id}")' in asked["next"]
     )
     assert len(list((settings.output_dir / "active_p1").iterdir())) == 1  # nothing done
     again = _call(
@@ -145,6 +145,98 @@ def test_a_profile_with_a_run_is_processed_again_only_as_the_user_chooses(
     # The same conversation goes on with its own run: processed again, no question.
     goes_on = _call("run_processing", {"profile": "active_p1", "overrides": SMALL_WINDOWS}, new)
     assert goes_on["run_id"] not in (run_id, again["run_id"])
+
+
+def test_a_profile_asked_with_other_windows_still_offers_its_runs(
+    run: tuple[Settings, str, str],
+) -> None:
+    # Other windows than the run there's: the user chooses still, the run said with its own.
+    settings, run_id, new = run
+
+    asked = _call(
+        "run_processing", {"profile": "active_p1", "overrides": {"masw": {"length": 12}}}, new
+    )
+
+    assert (
+        '(1) a new run: run_processing(profile="active_p1", overrides={"masw": {"length": 12}}, '
+        "again=true)" in asked["next"]
+    )
+    assert f"(2) work on run {run_id} (active, windows of 24 receivers, curves)" in asked["next"]
+    assert len(list((settings.output_dir / "active_p1").iterdir())) == 1
+
+
+def test_the_run_chosen_goes_on_to_the_first_stage_asked(
+    run: tuple[Settings, str, str],
+) -> None:
+    settings, run_id, new = run
+
+    def go_on(*stages: str) -> str:
+        asked = choices.Conversation(new, 1, choices.Asked(frozenset(stages)))
+        planned = choices.processing("active_p1", asked, settings, {})
+        assert planned is not None and planned.options[0][0] == "a new run"
+        return planned.options[1][1]
+
+    # The run has curves and no model: inverted; picking asked, picked; nothing after, read.
+    assert go_on("process", "invert") == f'invert(run_id="{run_id}")'
+    assert go_on("process", "pick", "invert") == f'pick(run_id="{run_id}")'
+    assert go_on("process") == f'inspect(what="run", run_id="{run_id}")'
+
+
+def test_a_stage_on_an_earlier_run_waits_for_the_choice_processing_gives(
+    run: tuple[Settings, str, str],
+) -> None:
+    # Asked to process and pick, the model picks the run there first: the choice comes before.
+    settings, run_id, new = run
+    run_folder = find_run(run_id, settings)
+    before = run_work(run_folder, load_manifest(run_id, settings))
+
+    refused = _call("pick", {"run_id": run_id}, new, scope=_scope("process", "pick"))
+
+    assert refused["status"] == "refused"
+    assert refused["next"] == (
+        'Nothing was done. Call run_processing(profile="active_p1") first: it gives the user\'s '
+        "choice of a new run or a run to work on."
+    )
+    assert run_work(run_folder, load_manifest(run_id, settings)) == before
+
+
+def test_the_workers_a_message_asks_run_its_work(
+    run: tuple[Settings, str, str], monkeypatch: pytest.MonkeyPatch
+) -> None:
+    _, _, new = run
+    used: list[int] = []
+    process_line = server.qc.process_line
+
+    def recorded(profile: str, overrides: Any, settings: Settings, *more: Any) -> Any:  # noqa: ANN401
+        used.append(settings.workers)
+        return process_line(profile, overrides, settings, *more)
+
+    monkeypatch.setattr(server.qc, "process_line", recorded)
+    asked = {**_scope("process", redo=True), "workers": 3}
+
+    processed = _call(
+        "run_processing",
+        {"profile": "active_p1", "overrides": SMALL_WINDOWS, "again": True},
+        new,
+        scope=asked,
+    )
+
+    # Three, not the settings' two; said with the parameters used.
+    assert used == [3]
+    assert processed["used"][-1] == "3 workers: as your message asked"
+
+
+def test_more_workers_than_cores_run_on_the_cores_and_say_so() -> None:
+    result = StageResult(run_id="r", summary="Processed.", next="", used=("mode active",))
+
+    assert server.with_workers(result, 2, 12).used == (
+        "mode active",
+        "2 workers: as your message asked",
+    )
+    assert server.with_workers(result, 64, 12).used[-1] == (
+        "12 workers: the machine's cores, fewer than the 64 asked"
+    )
+    assert server.with_workers(result, None, 12) is result
 
 
 def test_a_run_with_curves_is_picked_as_the_user_chooses(run: tuple[Settings, str, str]) -> None:

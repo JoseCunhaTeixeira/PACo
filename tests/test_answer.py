@@ -39,6 +39,7 @@ ASKS_PICK = Scope(
     redo=False,
     replace_hand_work=False,
     option=None,
+    workers=None,
 )
 PICKED = json.dumps(
     {
@@ -172,9 +173,23 @@ def test_numbers_no_result_holds_are_flagged() -> None:
 
     answer = render(ASKS_PICK, "The curves span 5.2 to 12.5 m, and reach 40 m.", None, turn)
 
-    assert "(Not in this turn's results: 40.)" in answer
+    assert "Numbers not found in the tools' results: 40." in answer
     assert unfound_numbers("12,5 m and 3 windows", ["12.46"]) == []
     assert unfound_numbers("12.4 m", ["12.46"]) == ["12.4"]
+
+
+def test_ids_and_numbers_the_conversation_holds_are_not_flagged() -> None:
+    # A run's and a job's ids are names; a number the user wrote, or a result of an earlier
+    # turn, comes from the conversation; one of the scope's, from the message.
+    on_run = ASKS_PICK.model_copy(update={"run_id": "20261003-194146-cf2f", "positions_m": [37.5]})
+    said = (
+        "Run 20261003-194146-cf2f stays; job inv-20261003-194751-be40 follows its 82 windows, "
+        "the one at 37.5 m with 120 iterations."
+    )
+
+    answer = render(on_run, said, None, Turn(), ("Invert the 82 windows.",))
+
+    assert "Numbers not found in the tools' results: 120." in answer
 
 
 def test_windows_left_out_over_a_setting_given_are_named_next() -> None:

@@ -20,6 +20,10 @@
   {"message": "Is there anything left to invert on line_b?", "form": {"profile": "line_b"}},
   {"message": "Make me a 3D Vs model of line_b.", "form": {"profile": "line_b"}},
   {
+    "message": "Process line_b and invert it, with 8 workers.",
+    "form": {"process": true, "invert": true, "profile": "line_b", "workers": 8}
+  },
+  {
     "message": "Process line_b with windows of 12 receivers, every 6 receivers, and pick it.",
     "form": {
       "process": true,

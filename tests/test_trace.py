@@ -30,6 +30,7 @@ LOOK: dict[str, Any] = {
     "redo": False,
     "replace_hand_work": False,
     "option": None,
+    "workers": None,
 }
 
 

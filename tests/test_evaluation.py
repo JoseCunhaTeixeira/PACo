@@ -16,6 +16,7 @@ from sigpipe.masw.runs import RunManifest
 from paco.agent import Filled, OpenAIChat, Reply, Step, ToolCall, ToolStep, Transcript
 from paco.agent.answer import SCHEMA as ANSWER_SCHEMA
 from paco.agent.loop import from_data
+from paco.agent.scope import SCOPE_REFUSAL
 from paco.evaluation import (
     SCENARIOS,
     CheckResult,
@@ -53,6 +54,7 @@ from paco.evaluation.checks import (
     never_called,
     no_inversion_started,
     no_settings_invented,
+    none_outside_the_scope,
     not_succeeded,
     nothing_redone,
     only_called,
@@ -117,6 +119,7 @@ EVERYTHING = {
     "redo": False,
     "replace_hand_work": False,
     "option": None,
+    "workers": None,
 }
 
 
@@ -299,6 +302,24 @@ def test_never_called() -> None:
         name="invert never called", passed=False, detail="called 1 time(s)"
     )
     assert never_called("invert")(refused).passed
+
+
+def test_none_outside_the_scope() -> None:
+    blocked = ToolStep(
+        name="pick",
+        arguments="{}",
+        called=False,
+        is_error=True,
+        duration_s=0.0,
+        result=f"{SCOPE_REFUSAL} asks process, and pick is outside it.",
+    )
+    waiting = blocked.model_copy(update={"result": "Not called: a tool offered the user options"})
+
+    assert none_outside_the_scope()(_trial([_step("run_processing", {}), blocked])) == (
+        CheckResult(name="no call outside the scope", passed=False, detail="refused: pick")
+    )
+    # Refused for another reason, it is not the scope's.
+    assert none_outside_the_scope()(_trial([waiting])).passed
 
 
 def test_in_order() -> None:
@@ -1406,7 +1427,7 @@ def test_the_scope_set_scores_each_field_of_each_form(tmp_path: Path) -> None:
 
     report = anyio.run(read_scopes, LabelModel(), "labels", tmp_path, CASES, events.append)
 
-    assert len(report.results) == len(CASES) == 44
+    assert len(report.results) == len(CASES) == 48
     (wrong,) = [result for result in report.results if not result.passed]
     assert (wrong.message, wrong.wrong) == ("invret active_p1", {"soils": (False, True)})
     assert events[CASES.index(next(c for c in CASES if c.message == "invret active_p1"))] == (
@@ -1415,7 +1436,7 @@ def test_the_scope_set_scores_each_field_of_each_form(tmp_path: Path) -> None:
     saved = ScopeReport.model_validate_json((tmp_path / report.eval_id / "scopes.json").read_text())
     assert saved == report
     assert format_scope_report(report).splitlines() == [
-        f"Scopes {report.eval_id} of labels on {report.prompt_version}: 43 of 44 read right.",
+        f"Scopes {report.eval_id} of labels on {report.prompt_version}: 47 of 48 read right.",
         "  invret active_p1",
         "    soils False -> True",
     ]

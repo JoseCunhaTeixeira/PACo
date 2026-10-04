@@ -3,10 +3,12 @@ hand: the stage tools meet it, say what is there, and give the options, each wit
 makes, doing nothing. The agent reads the request: when it says which option, the agent calls
 it; when it asks only for later stages, the agent goes on from the run; otherwise it asks.
 
-Records, images, curves, models and soil columns: asked to process a profile that has a run, to
-pick a run that has curves, to invert one that has models (seismic or soil columns), the user
-chooses whether to start again, complete what is missing, go on from what is there, or work on
-some windows. A step that would change work made by hand in PAC's pages (paco.qc.origin) asks
+Records, images, curves, models and soil columns: asked to process a profile that has runs,
+the user chooses a new run or the run to work on (and a stage meeting one of those runs first
+sends to that choice); asked to pick a run that has curves, to invert one that has models
+(seismic or soil columns), whether to start again, complete what is missing, go on from what
+is there, or work on some windows. A step that would change work made by hand in PAC's pages
+(paco.qc.origin) asks
 whether to keep it or replace it (theirs set aside in the window's by_hand/ folder), and
 replaces it only once the user could reply: the question shown in an earlier turn of the
 conversation, over those windows. Work the assistant did in the same conversation is its own to
@@ -215,15 +217,22 @@ def held(run_folder: Path, manifest: RunManifest, work: dict[str, WindowWork]) -
     )
 
 
+# The runs from before a conversation that a request to process offers to work on, the newest
+# first: with a new run, the role's 2 to 4 options.
+_RUNS_OFFERED = 3
+
+
 def processing(
     profile: str,
     conversation: Conversation,
     settings: Settings,
     given: dict[str, Any],
 ) -> Choice | None:
-    """Asked to process `profile` (with `given`, the call's other arguments): its latest run
-    from before this conversation, when it has one, and the user's options (start again, or go
-    on from it); None to process, as when the conversation made a run of it already."""
+    """Asked to process `profile` (with `given`, the call's other arguments): with runs from
+    before this conversation, the user chooses a new run or one of them to work on (the
+    newest first, each with its mode, windows and work; its option's call goes on with it to
+    the first stage the message asks that it lacks); None to process, as when the conversation
+    made a run of it already, or the message asks to process again."""
     found = [one.split("/", 1) for one in list_runs(settings)]
     ids = [run_id for name, run_id in found if name == profile]
     asked = conversation.asked
@@ -231,18 +240,61 @@ def processing(
         return _processed(profile, ids, settings, asked.stages)
     if any(not earlier(conversation, run_id) for run_id in ids) or (asked and asked.redo):
         return None
+    there: list[tuple[str, Path, RunManifest, dict[str, WindowWork]]] = []
     for run_id, run_folder, manifest in _readable(ids, settings):
         work = run_work(run_folder, manifest)
-        if not any(one.image is not None for one in work.values()):
-            continue
-        count = _Counts(work)
-        options = _goes_on(run_id, count)
-        again = call("run_processing", profile=profile, **given, again=True)
-        options.append(("process again, a new run (this one stays)", again))
-        what = held(run_folder, manifest, work)
-        later = _later(run_id, count) if asked is None else None
-        return choose(run_id, what, "to process", options, later)
-    return None
+        if any(one.image is not None for one in work.values()):
+            there.append((run_id, run_folder, manifest, work))
+    if not there:
+        return None
+    stages = asked.stages if asked is not None else None
+    options = [("a new run", call("run_processing", profile=profile, **given, again=True))]
+    shown = there[:_RUNS_OFFERED]
+    for run_id, _, manifest, work in shown:
+        label = f"work on run {run_id} ({_made(manifest, work)})"
+        options.append((label, _work_on(run_id, _Counts(work), stages)))
+    what = " ".join(held(run_folder, manifest, work) for _, run_folder, manifest, work in shown)
+    if len(there) > len(shown):
+        what += f" {_of(len(there) - len(shown), 'older runs')} too (inspect lists them)."
+    return choose(there[0][0], what, "to process", options)
+
+
+def processing_first(conversation: Conversation, run_id: str, profile: str) -> Choice | None:
+    """When the message asks to process `profile` and run `run_id` is from before this
+    conversation: nothing done on it, processing gives the user's choice first (a new run, or
+    a run to work on); None otherwise."""
+    asked = conversation.asked
+    if asked is None or "process" not in asked.stages or not earlier(conversation, run_id):
+        return None
+    return Choice(
+        run_id=run_id,
+        summary=f"This message asks to process {profile}, and run {run_id} is from before it.",
+        next=f"Nothing was done. Call {call('run_processing', profile=profile)} first: it "
+        "gives the user's choice of a new run or a run to work on.",
+    )
+
+
+def _made(manifest: RunManifest, work: dict[str, WindowWork]) -> str:
+    """How a run was made and how far it went, in a few words: "active, windows of 7
+    receivers, curves"."""
+    preset = manifest.preset.model_dump(mode="json")
+    count = _Counts(work)
+    went = "models" if count.models else "curves" if count.curves else "images"
+    return f"{preset['mode']}, windows of {preset['masw']['length']} receivers, {went}"
+
+
+def _work_on(run_id: str, count: _Counts, stages: frozenset[str] | None) -> str:
+    """The call that works on run `run_id` for what the message asks after processing
+    (`stages`; None: every stage): its curves picked when picking is asked or it has none,
+    else inverted, else its soils; the run read when the message asks nothing after it."""
+    later = {"pick", "invert", "soils"} if stages is None else set(stages) - {"process"}
+    if "pick" in later or (later and not count.curves):
+        return call("pick", run_id=run_id)
+    if "invert" in later:
+        return call("invert", run_id=run_id)
+    if "soils" in later:
+        return call("petro_models", run_id=run_id)
+    return call("inspect", what="run", run_id=run_id)
 
 
 def _processed(
@@ -288,6 +340,8 @@ def picking(
     choice when it has curves from before this conversation and they did not say which
     windows, or when a curve picked by hand would be picked again; else the windows to pick."""
     run_id = manifest.run_id
+    if (first := processing_first(conversation, run_id, manifest.profile.name)) is not None:
+        return first
     given = given or {}
     hand = conversation.hand(hand, "pick", "pick")
     if windows == "all" and not conversation.allows("pick", 'windows="all"'):
@@ -360,6 +414,8 @@ def inverting(
     windows, or when a model made by hand would be made again; else the windows to invert
     (None: those without a model)."""
     run_id = manifest.run_id
+    if (first := processing_first(conversation, run_id, manifest.profile.name)) is not None:
+        return first
     given = given or {}
     hand = conversation.hand(hand, "invert", "invert")
     if windows == "all" and not conversation.allows("invert", 'windows="all"'):
@@ -413,6 +469,8 @@ def soils(
     hand would be made again; else the windows to invert (None: the whole line, a new inversion
     replacing the last one)."""
     run_id = manifest.run_id
+    if (first := processing_first(conversation, run_id, manifest.profile.name)) is not None:
+        return first
     hand = conversation.hand(hand, "invert_petro", "soils")
     if windows == "all" and not conversation.allows("invert_petro", 'windows="all"'):
         windows = None  # the message did not ask for the soils again
@@ -555,36 +613,6 @@ class _Step:
             f"{keep}; (2) replace it, theirs set aside in the window's by_hand folder: "
             f"{replace}.",
         )
-
-
-def _later(run_id: str, count: _Counts) -> tuple[str, str] | None:
-    """The stages after a run's work, and the call that goes on with them: its images picked,
-    its curves inverted, its models' soils; none after its soil columns."""
-    if not count.curves:
-        return "to pick or invert", call("pick", run_id=run_id)
-    if not count.models:
-        return "to invert", call("invert", run_id=run_id)
-    if not count.soils:
-        return "for soils", call("petro_models", run_id=run_id)
-    return None
-
-
-def _goes_on(run_id: str, count: _Counts) -> list[tuple[str, str]]:
-    """The ways to go on from a run: its curves inverted, its picking redone or completed, its
-    images picked, or some windows only."""
-    if not count.curves:
-        return [("go on from these images", call("pick", run_id=run_id))]
-    options: list[tuple[str, str]] = []
-    if count.models:
-        options.append(("invert every window again", call("invert", run_id=run_id, windows="all")))
-    else:
-        options.append(("invert the curves as they are", call("invert", run_id=run_id)))
-    options.append(("pick every window again", call("pick", run_id=run_id, windows="all")))
-    if count.missing_curves:
-        done = f"complete the {len(count.missing_curves)} windows without a curve"
-        options.append((done, call("pick", run_id=run_id, windows="missing")))
-    options.append(("some windows only", call("pick", run_id=run_id, positions=["<m>"])))
-    return options
 
 
 def _without_model(

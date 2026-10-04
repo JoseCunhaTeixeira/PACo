@@ -7,6 +7,7 @@ from typing import Any
 import anyio
 import pytest
 from openai.types.chat import ChatCompletionFunctionToolParam, ChatCompletionMessageParam
+from pydantic import ValidationError
 
 from paco import prompts
 from paco.agent.model import Filled, Reply
@@ -17,6 +18,7 @@ from paco.agent.scope import (
     Scope,
     ScopeError,
     checked,
+    continued,
     offers_in,
     read_scope,
     refusal,
@@ -39,6 +41,7 @@ NOTHING: dict[str, Any] = {
     "redo": False,
     "replace_hand_work": False,
     "option": None,
+    "workers": None,
 }
 
 
@@ -144,6 +147,11 @@ def test_calls_outside_the_scope_are_refused_to_the_model() -> None:
         "Not called: this message asks to look at what exists, running nothing, and pick is "
         "outside it. Do what it asks, or ask the user whether they want more."
     )
+    # Asked only to process: processing, which gives the choice of a new run or one there.
+    assert refusal(_scope(process=True), "pick", '{"run_id": "r"}') == (
+        "Not called: this message asks process, and pick is outside it. Call run_processing: "
+        "when the profile has runs, it gives the user's choice of a new run or the run to work on."
+    )
 
 
 def test_a_comparison_of_lengths_processes_no_line() -> None:
@@ -169,7 +177,7 @@ def test_the_user_and_the_model_read_the_scope() -> None:
     assert scope.for_model(offer) == (
         "[PACo] This message asks pick, invert; profile active_p1; positions 9 m; to do again; "
         "not to replace the work made by hand. The user chose (1) pick every window again: "
-        'pick(run_id="r", windows="all").'
+        'pick(run_id="r", windows="all"). Make that call, then the rest this message asks.'
     )
     assert _scope().line() == "Scope: look only."
     assert scope.for_server() == {
@@ -179,6 +187,7 @@ def test_the_user_and_the_model_read_the_scope() -> None:
         "positions_m": [9.0],
         "window": {},
         "compared": {},
+        "workers": None,
     }
 
 
@@ -211,3 +220,35 @@ def test_the_lengths_a_comparison_names_are_read_in_their_unit() -> None:
     assert receivers.for_server()["compared"] == {"length": [12.0, 24.0, 48.0]}
     assert metres.line() == "Scope: process · active_p1 · comparing windows of 3, 6 m."
     assert "comparing windows of 12, 24, 48 receivers" in receivers.for_model(None)
+
+
+def test_the_workers_the_message_asks_are_read_and_given_every_stage() -> None:
+    scope = _scope(process=True, profile="active_p1", workers=10)
+
+    assert scope.line() == "Scope: process · active_p1 · 10 workers."
+    assert "10 workers, which PACo gives every stage" in scope.for_model(None)
+    assert scope.for_server()["workers"] == 10
+    with pytest.raises(ValidationError):
+        _scope(workers=0)
+
+
+def test_a_choice_goes_on_with_what_the_message_that_got_the_options_asked() -> None:
+    request = _scope(process=True, invert=True, profile="active_p2", positions_m=[30.0], workers=10)
+    again = Offer(
+        "process again, a new run (this one stays)",
+        'run_processing(profile="active_p2", again=true)',
+    )
+
+    went_on = continued(_scope(process=True, redo=True, option=5), request, again)
+
+    # The option says how (a new run), the request what for (its inversion too).
+    assert went_on.asked == {"process", "invert"} and went_on.redo and went_on.option == 5
+    assert (went_on.positions_m, went_on.workers) == ([30.0], 10)
+    # An option of a later stage: the request's stages from it on, none before.
+    curves = Offer("pick every window again", 'pick(run_id="r", windows="all")')
+    assert continued(_scope(pick=True, option=2), request, curves).asked == {"pick", "invert"}
+    models = Offer("invert again", 'redo(run_id="r", stage="inversion")')
+    assert continued(_scope(option=1), request, models).asked == {"invert"}
+    # A run to look at: nothing more of the request, what it asked being there.
+    look = Offer("work on run r (active, images)", 'inspect(what="run", run_id="r")')
+    assert continued(_scope(option=2), _scope(process=True), look).asked == frozenset()

@@ -10,6 +10,7 @@ from typing import Any
 from sigpipe.masw.runs import RunManifest
 
 from paco.agent.record import ToolStep, Transcript
+from paco.agent.scope import SCOPE_REFUSAL
 from paco.evaluation.models import CheckResult
 from paco.inversion import InversionRecord
 from paco.qc import (
@@ -122,6 +123,22 @@ def never_called(tool: str) -> Check:
         calls = sum(step.name == tool for step in _called(trial))
         detail = f"called {calls} time(s)" if calls else ""
         return CheckResult(name=f"{tool} never called", passed=not calls, detail=detail)
+
+    return check
+
+
+def none_outside_the_scope() -> Check:
+    """No call was refused as outside its message's scope: each message's scope held what the
+    agent had to do, an option chosen with the request that got it."""
+
+    def check(trial: Trial) -> CheckResult:
+        refused = [
+            step.name
+            for step in trial.transcript.tool_steps
+            if not step.called and step.result.startswith(SCOPE_REFUSAL)
+        ]
+        detail = f"refused: {', '.join(refused)}" if refused else ""
+        return CheckResult(name="no call outside the scope", passed=not refused, detail=detail)
 
     return check
 
