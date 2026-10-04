@@ -99,6 +99,7 @@ class LineTrial(BaseModel):
 
     stage: LineStage
     overrides: dict[str, Any]
+    change: str  # the change in words, as the line's rules word their settings
     flag: str
     asked_by: int  # windows asking it
     xmids: tuple[float, ...]
@@ -332,6 +333,7 @@ def try_candidate(
     return LineTrial(
         stage=candidate.stage,
         overrides=candidate.overrides,
+        change=what,
         flag=candidate.flag,
         asked_by=len(candidate.windows),
         xmids=tuple(windows[unit].xmid for unit in chosen),

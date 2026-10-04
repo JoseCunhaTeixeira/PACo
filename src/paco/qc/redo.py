@@ -153,7 +153,14 @@ def _redo_line(
     usable = _usable_bands(run_folder)
     if stage == "preprocessing":
         records = reprocess_records(
-            run_folder, profile, preset, records, Exclusions(), settings.workers, LINE_CHANGE
+            run_folder,
+            profile,
+            preset,
+            records,
+            Exclusions(),
+            settings.workers,
+            LINE_CHANGE,
+            changes,
         )
         reach = line_reach(run_folder, profile, records, config, preset)
         records, exclusions, usable = settle_records(
@@ -168,6 +175,7 @@ def _redo_line(
         exclusions,
         settings,
         LINE_CHANGE,
+        changes,
         replace_hand,
     )
     judge_images(run_folder, load_manifest(run_id, settings), config, settings, usable)

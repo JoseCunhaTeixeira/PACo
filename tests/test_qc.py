@@ -421,7 +421,7 @@ def test_the_line_imaged_again_is_picked_again_but_the_windows_g2_rejects(
     demo_input_dir: Path, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     # The images are the line's: done again for every window with the line's settings changed,
-    # each window's attempt with no setting of its own; a window whose new image G2 rejects is
+    # each window's attempt saying the line's change; a window whose new image G2 rejects is
     # not picked, the others are, and the line keeps their curves for G4.
     monkeypatch.chdir(tmp_path)
     settings = Settings(input_dir=demo_input_dir, output_dir=tmp_path / "outputs", workers=2)
@@ -449,7 +449,7 @@ def test_the_line_imaged_again_is_picked_again_but_the_windows_g2_rejects(
     for unit in windows:
         attempt = latest(attempts, unit, "phase_shift")
         assert attempt is not None and attempt.triggered_by == LINE_CHANGE
-        assert not attempt.parameters
+        assert attempt.parameters == {"dispersion": {"vmax": 900}}
     assert load_manifest(run_id, settings).preset.model_dump()["dispersion"]["vmax"] == 900
     picked = {a.unit for a in attempts if a.stage == "picking" and a.triggered_by != "initial"}
     assert picked == set(windows) - {"xmid_2.88"}
