@@ -4,16 +4,17 @@ QC log records the attempt. The other windows keep their results."""
 
 from collections.abc import Mapping, Sequence
 from datetime import UTC, datetime
+from pathlib import Path
 from typing import cast
 
 from pydantic import ValidationError
 from sigpipe.algorithms.picking.dispersion.tracking import PickingParameters
-from sigpipe.masw.presets import apply_overrides, resolve_preset
-from sigpipe.masw.profiles import load_profile
+from sigpipe.masw.presets import ActivePreset, PassivePreset, apply_overrides, resolve_preset
+from sigpipe.masw.profiles import Profile, load_profile
 from sigpipe.masw.runs import RunError, WindowOutcome, find_run, load_image, load_manifest
 from sigpipe.masw.runs.processing import process_windows
 from sigpipe.masw.runs.stopping import Stopped
-from sigpipe.masw.windows import build_windows
+from sigpipe.masw.windows import MASWWindow, build_windows
 
 from paco import stopping
 from paco.qc.attempts import invalidate, restore
@@ -53,13 +54,7 @@ def rerun_phase_shift(
     manifest = load_manifest(run_id, settings)
     profile = load_profile(manifest.profile.name, settings)
     preset = resolve_preset(apply_overrides(manifest.preset, overrides), profile)
-    windows = build_windows(profile, preset.masw)
-    # The shots the run's windows stack out of the near field, as the line kept them.
-    line = latest(read_attempts(run_folder), LINE, "phase_shift")
-    near = line.parameters.get("near_field", {}) if line is not None else {}
-    if isinstance(near, Mapping) and isinstance(distance := near.get("distance_m"), int | float):
-        windows, _ = near_field_windows(windows, float(distance))
-    by_folder = {f"xmid_{window.xmid:.2f}": window for window in windows}
+    by_folder = line_windows(run_folder, profile, preset)
     if unknown := [unit for unit in units if unit not in by_folder]:
         raise RunError(
             f"Run '{run_id}' has no window {', '.join(unknown)}. Its windows: "
@@ -112,6 +107,20 @@ def rerun_phase_shift(
         raise
     log(outcomes)
     return outcomes
+
+
+def line_windows(
+    run_folder: Path, profile: Profile, preset: ActivePreset | PassivePreset
+) -> dict[str, MASWWindow]:
+    """The run's windows as `preset` builds them, by folder (xmid_<x>), the shots out of the near
+    field as the line kept them: what the phase shift stacks, before the traces and records G1
+    left out."""
+    windows = build_windows(profile, preset.masw)
+    line = latest(read_attempts(run_folder), LINE, "phase_shift")
+    near = line.parameters.get("near_field", {}) if line is not None else {}
+    if isinstance(near, Mapping) and isinstance(distance := near.get("distance_m"), int | float):
+        windows, _ = near_field_windows(windows, float(distance))
+    return {f"xmid_{window.xmid:.2f}": window for window in windows}
 
 
 def rerun_picking(

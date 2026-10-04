@@ -173,9 +173,10 @@ def test_a_given_length_is_kept_as_it_is(demo_input_dir: Path, tmp_path: Path) -
         "masw length 5 for the whole line, as given: trial windows G3 passed 1/3 at 5 (picks "
     )
     # At 5 receivers, the mute trial keeps a mute (its note after the length's); the near field
-    # last.
+    # last of the processing's rules, the line loop's tries after them.
     assert line.notes[2].startswith("muting mute ")
-    assert line.notes[-1].startswith("near_field distance_m ")
+    rules = [note for note in line.notes if not note.startswith("Tried for the line")]
+    assert rules[-1].startswith("near_field distance_m ")
 
 
 def test_a_record_g1_rejects_goes_into_no_window(demo_input_dir: Path, tmp_path: Path) -> None:

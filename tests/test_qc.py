@@ -9,7 +9,7 @@ from pydantic import TypeAdapter, ValidationError
 from sigpipe.algorithms.picking.dispersion.tracking import PickingParameters
 from sigpipe.masw.picks import CURVES_FILE
 from sigpipe.masw.presets import PresetError, apply_overrides, make_preset
-from sigpipe.masw.runs import RunError, find_run, load_image, run_processing
+from sigpipe.masw.runs import RunError, find_run, load_image, load_manifest, run_processing
 from sigpipe.masw.runs.history import LOG_VERSION
 
 from paco import logs
@@ -69,7 +69,7 @@ from paco.qc import (
     xmid_of,
 )
 from paco.qc.g3_curve import CurveThresholds
-from paco.qc.log import ASKED
+from paco.qc.log import ASKED, LINE_CHANGE
 from paco.qc.loops import RetryBudget, next_try, unchanged
 from paco.qc.report import merged
 from paco.qc.used import picking_used
@@ -320,12 +320,8 @@ def test_a_retry_that_changes_nothing_is_refused_and_said() -> None:
     assert next_try(asked, "phase_shift", budget, changes) is None
     assert unchanged(asked, "phase_shift", changes) and not unchanged(asked, "phase_shift", {})
     assert next_try(asked, "phase_shift", budget, {}) is not None
-    said = {why: budget_spent(asked, why).flags[0] for why in ("budget", "unchanged", "redone")}
-    assert [flag.name for flag in said.values()] == [
-        "budget_spent",
-        "nothing_to_try",
-        "redone_once",
-    ]
+    said = {why: budget_spent(asked, why).flags[0] for why in ("budget", "unchanged")}
+    assert [flag.name for flag in said.values()] == ["budget_spent", "nothing_to_try"]
     assert all(not flag.fixable and "ridge_at_vmax" in flag.message for flag in said.values())
 
 
@@ -421,38 +417,42 @@ def test_going_back_is_refused_once_the_runs_budget_is_spent(tmp_path: Path) -> 
     check_budget("r", tmp_path, QCConfig(), 3)  # 4 of 6: not spent
 
 
-def test_the_windows_imaged_again_are_picked_again_but_those_g2_rejects(
+def test_the_line_imaged_again_is_picked_again_but_the_windows_g2_rejects(
     demo_input_dir: Path, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    # An earlier stage done again may leave a window's new image rejected by G2: the others are
-    # picked again, and the line keeps their curves for G4.
+    # The images are the line's: done again for every window with the line's settings changed,
+    # each window's attempt with no setting of its own; a window whose new image G2 rejects is
+    # not picked, the others are, and the line keeps their curves for G4.
     monkeypatch.chdir(tmp_path)
     settings = Settings(input_dir=demo_input_dir, output_dir=tmp_path / "outputs", workers=2)
     run_id = run_processing("active_p1", "active", SMALL_WINDOWS, settings).run_id
     judge_run(run_id, settings, QCConfig())
     run_folder = find_run(run_id, settings)
-    imaged = redo._redo_images  # pyright: ignore[reportPrivateUsage]
+    windows = [window.folder for window in load_manifest(run_id, settings).windows]
+    judged = redo.judge_images
 
     def rejecting(*args: Any, **kwargs: Any) -> None:  # noqa: ANN401
-        imaged(*args, **kwargs)
+        judged(*args, **kwargs)
         attempt = latest(read_attempts(run_folder), "xmid_2.88", "phase_shift")
         assert attempt is not None
         g2 = attempt.results["G2"].model_copy(update={"verdict": "reject"})
         record_result(run_folder, "xmid_2.88", "phase_shift", attempt.attempt, g2)
 
-    monkeypatch.setattr(redo, "_redo_images", rejecting)
-    redo.redo_stage(
-        run_id,
-        "phase_shift",
-        ["xmid_2.88", "xmid_8.88"],
-        {"dispersion": {"vmax": 900}},
-        settings,
-        "G2:ridge_at_vmax",
-    )
+    monkeypatch.setattr(redo, "judge_images", rejecting)
+    with pytest.raises(RunError, match="the line's, the same for every window"):
+        redo.redo_stage(
+            run_id, "phase_shift", ["xmid_2.88"], {"dispersion": {"vmax": 900}}, settings
+        )
+    redo.redo_stage(run_id, "phase_shift", windows, {"dispersion": {"vmax": 900}}, settings)
 
     attempts = read_attempts(run_folder)
+    for unit in windows:
+        attempt = latest(attempts, unit, "phase_shift")
+        assert attempt is not None and attempt.triggered_by == LINE_CHANGE
+        assert not attempt.parameters
+    assert load_manifest(run_id, settings).preset.model_dump()["dispersion"]["vmax"] == 900
     picked = {a.unit for a in attempts if a.stage == "picking" and a.triggered_by != "initial"}
-    assert picked == {"xmid_8.88"}
+    assert picked == set(windows) - {"xmid_2.88"}
     line = latest(attempts, LINE, "picking")
     assert line is not None and line.results["G4"].verdict == "pass"
 

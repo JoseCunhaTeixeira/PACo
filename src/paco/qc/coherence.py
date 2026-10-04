@@ -26,7 +26,7 @@ from paco import stopping
 from paco.qc.g2_image import ImageThresholds, judge_image
 from paco.qc.g3_curve import CurveThresholds, judge_curve
 from paco.qc.loops import deep_merge
-from paco.qc.models import Override
+from paco.qc.models import GateResult, Override
 
 TRIALS_FOLDER = "coherence"  # inside the run folder: the ladder's trial windows, by length
 COHERENCE_FILE = "coherence.json"
@@ -419,10 +419,12 @@ def try_windows(
     judge: TrialJudge,
     workers: int,
     exclusions: Exclusions | None = None,
+    fix_grids: bool = True,
 ) -> TriedWindows:
     """S2 on `windows` from the preprocessed records in `records_folder`, into `folder` (made
-    afresh), their grids fixed as G2 asks (_fix_grids), then the picking and G3 on each: the
-    trials of the window length and of the muting alike."""
+    afresh), their grids fixed as G2 asks (_fix_grids; not with `fix_grids` off: the line
+    loop's trials, which judge the line's grid as it is), then the picking and G3 on each: the
+    trials of the window length, of the muting and of the line's settings alike."""
     shutil.rmtree(folder, ignore_errors=True)
     folder.mkdir(parents=True)
     outcomes = process_windows(
@@ -435,18 +437,19 @@ def try_windows(
         exclusions=exclusions,
         stop=stopping.current(),
     )
-    outcomes = _fix_grids(
-        trial_preset,
-        profile,
-        windows,
-        outcomes,
-        records,
-        records_folder,
-        folder,
-        judge,
-        workers,
-        exclusions,
-    )
+    if fix_grids:
+        outcomes = _fix_grids(
+            trial_preset,
+            profile,
+            windows,
+            outcomes,
+            records,
+            records_folder,
+            folder,
+            judge,
+            workers,
+            exclusions,
+        )
     verdicts: list[str] = []
     # A passive line has no muting: a flag only a mute fixes rejects (G3).
     mutable = "muting" in type(trial_preset).model_fields
@@ -458,13 +461,7 @@ def try_windows(
         if outcome.status != "succeeded":
             verdicts.append("failed")
             continue
-        image = load_image(folder / outcome.folder)
-        modes = pick_modes(image, judge.picking)
-        m0 = modes[0] if modes else None
-        offset = nearest_offset(folder / outcome.folder)
-        g3 = judge_curve(
-            outcome.folder, image, m0, judge.curve, None, judge.picking, offset, mutable
-        )
+        g3 = trial_pick(folder / outcome.folder, judge, mutable)
         verdicts.append(g3.verdict)
         for flag in g3.flags:
             flags[flag.name] = flags.get(flag.name, 0) + 1
@@ -485,6 +482,19 @@ def try_windows(
         wavelengths_m=_medians(ranges),
         uncertainty=round(float(np.median(uncertainties)), 3) if uncertainties else None,
         band_hz=_medians(bands),
+    )
+
+
+def trial_pick(window_folder: Path, judge: TrialJudge, mutable: bool) -> GateResult:
+    """G3 on a pick of the image in `window_folder` with the trials' picking, the curve kept in
+    memory: how a trial judges a window (`mutable`: whether a mute of the line is there to try,
+    which a flag only a mute fixes asks)."""
+    image = load_image(window_folder)
+    modes = pick_modes(image, judge.picking)
+    m0 = modes[0] if modes else None
+    offset = nearest_offset(window_folder)
+    return judge_curve(
+        window_folder.name, image, m0, judge.curve, None, judge.picking, offset, mutable
     )
 
 

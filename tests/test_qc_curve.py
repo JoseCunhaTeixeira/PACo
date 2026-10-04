@@ -170,12 +170,13 @@ def test_a_brighter_ridge_above_asks_to_narrow_the_band_to_the_pick() -> None:
 
     assert result.verdict == "retry"
     (flag,) = result.flags
-    assert flag.name == "on_data" and flag.stage == "phase_shift"
-    # No band given: the pick's own.
+    # The image is the line's: the window's picking narrows to the band. No band given: the
+    # pick's own.
+    assert flag.name == "on_data" and flag.stage == "picking"
     assert flag.action.model_dump() == {
         "kind": "override",
-        "stage": "phase_shift",
-        "overrides": {"dispersion": {"fmin": 10.0, "fmax": 40.0}},
+        "stage": "picking",
+        "overrides": {"fmin": 10.0, "fmax": 40.0},
     }
 
 

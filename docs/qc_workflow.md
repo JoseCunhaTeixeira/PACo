@@ -60,7 +60,7 @@ Artifacts in [ ], gates in < >.
 - Lateral coherence: median correlation between neighbouring traces inside the surface-wave window, in the same band as the SNR.
 - Trigger consistency: a delay the same on every trace is corrected in S1 (the muting's trigger); read from the direct wave (the traces nearest the shot) on the record before its muting, and judged on muted records only. First breaks that make no line (a t0 differing from trace to trace) reject the record.
 - On a muted record, the noise, the usable band, the first breaks and the pulse are measured on the record before its muting.
-- Actions: exclude traces; exclude the record from the windows that use it; correct a muted record's trigger. No filter or mute: a record under its limits is left out at once, since neither could change what G1 measures. Details: `docs/gates/G1.md`.
+- Actions: exclude traces; exclude the record from the windows that use it; ask the line's trigger (the records' delays as their median, the line loop's to try). No filter or mute: a record under its limits is left out at once, since neither could change what G1 measures. Details: `docs/gates/G1.md`.
 
 ### G2 dispersion image QC (per xmid, before picking)
 - Coherent energy: the share of frequency columns whose maximum rises 30 % of the way from the noise floor 1/sqrt(N) (the floor the picker uses) to 1.
@@ -68,7 +68,7 @@ Artifacts in [ ], gates in < >.
 - Competing ridges of similar strength at the same frequency: a higher mode dominating (kept: the fundamental mode is picked as the slowest ridge), or aliasing (compared with the aliasing limit v = 2·dx·f: the band is cut where the alias starts).
 - Coherent band much narrower than G1's usable band: reported; the band is capped, never widened.
 - A passive or passive-active window's stacked correlations, measured as a record is against G1's limits, and a passive window's fk selection: falling short, the phase shift again with more of the data, else the window rejected.
-- Actions: vmin/vmax, fmax at an alias, a passive window's fk threshold, or back to S1 (a surface-wave mute between the expected vg_min and vg_max often cleans the image a lot; asked only of records not muted yet, and done once by PACo at the end of the picking).
+- Actions: the line's vmin/vmax, a passive line's fk threshold, or a surface-wave mute of the line's records between the expected vg_min and vg_max (it often cleans the image a lot; asked only of a line not muted yet): the line loop's to try, for every window alike (`docs/gates/loop.md`). An alias stops the window's picking below it, the image staying the line's.
 - The metrics computed on the picked M0 (sharpness, prominence, on_data, constant_wavelength) belong to G3. Details: `docs/gates/G2.md`.
 
 ### G3 curve QC (per xmid)
@@ -78,7 +78,7 @@ No one looks at the curves before the inversion: G3 is the safety net for the pi
 - Air wave: near-constant velocity around 330 to 345 m/s: rejected, since no mute parts it from the surface waves.
 - Normal dispersion expected (velocity rising with wavelength). An inverse trend is flagged, not rejected, since a stiff layer over a soft one produces it.
 - At least 4 points, and a span of wavelengths the inversion can use (the longest over the shortest at least 1.34); the Lorentzian uncertainty reported, not judged: the picker caps each point's at 40 % of its velocity.
-- Actions: picking parameters (corridor, coherence rule, max wavelength, mode rule, resampling), or back to S2 or S1, done once by PACo at the end of the picking (`docs/gates/loop.md`). Details: `docs/gates/G3.md`.
+- Actions: the window's picking parameters (corridor, coherence rule, max wavelength, mode rule, resampling, the band of the coherent ridge); a mute is the line's, which the line loop tries on G3's trial picks (`docs/gates/loop.md`). Details: `docs/gates/G3.md`.
 
 ### G4 curve profile QC (whole line)
 - Build the pseudo-section Vr(λ, xmid) from the passing curves.
@@ -120,9 +120,9 @@ Three steps, the range, the fit and the line (`docs/gates/G7.md`, `G8.md`):
 ## Coherence rules for S2 (checked before running)
 - Window length: one value for the whole profile, so lateral resolution and depth of investigation stay comparable and xmids don't move; proposed by a ladder of trial windows, the agent's to change (`docs/gates/S2_rules.md`).
 - Muting: tried at the line's length on active and passive-active lines (`qc/muting.py`), unless the user gave one; a mute kept only where the images gain (below).
-- Step: 1 receiver by default (every xmid). Per-xmid retries change only parameters that don't move the xmid: band, velocity range, offsets, records used, mute.
+- Step: 1 receiver by default (every xmid). The records' and the images' settings are the line's, the same for every xmid, as in PAC's pages; the picking and the inversion change per xmid.
 - Frequency range: fmin >= the records' median fmin_usable from G1; fmax <= min(their median fmax_usable, Nyquist), never widened.
-- Velocity range: vmin and vmax bracket the expected velocities: G2 widens them per window where a ridge sits on the grid's edge.
+- Velocity range: vmin and vmax bracket the expected velocities: where a ridge sits on the grid's edge, G2 asks a wider range of the line, which the line loop tries.
 - Frequency step: a step finer than 1/T (T = record length after the mute) only interpolates: no padding before the phase shift.
 - Offsets: the nearest shot at least half the trial curves' longest wavelength from the window, against near-field effects, where the window has a farther one; the farthest within the reach G1 found.
 
@@ -137,7 +137,7 @@ Constraints: Qwen3-14B in FP8, a 16,384-token context, one tool call per reply, 
 - The answer is written by code around the model's text (R2): the scope, the model's text (an answer form whose text holds no question), what was done and left out (from the results), the question and the options only when the turn leaves the user a choice (a tool offered options, a tool is stuck, nothing was done yet), else what the user can ask next; then the parameters used and the settings the gates changed. Numbers in the text no result holds are flagged (R1).
 - What is there is read with `inspect`, which changes nothing (the runs, one run's windows grouped, one window); `pick`, `judge` and `invert` take positions along the line (m, each the nearest window, the mapping said back), outside the run's retry budget.
 - Gates work on a whole run and return one short summary: counts per verdict, flags grouped by runs of xmids (e.g. "xmid 12-18: ridge at vmax"), with the suggested overrides per group. Never one line per xmid.
-- Retries target a subset: redo stage k for listed xmids, or for the ones carrying flag X, with overrides.
+- Retries target a subset for the picking and the inversion: redo them for listed xmids, or for the ones carrying flag X, with overrides. The records and the images are redone for the whole line, with the line's settings changed.
 - Placeholders, not values, in tool descriptions (small models copy example values).
 - Raise `PACO_MAX_TOOL_CALLS` only with evaluation evidence.
 - Evaluation scenarios (`paco.evaluation`), on the demo profiles, synthetic variants of the demo profiles with known defects, and settings the user types:
@@ -175,17 +175,19 @@ Each decision states what the system does and the evidence it rests on; the gate
   context; (B) each stage tool runs its own bounded retry loop with its gate's suggested
   overrides and returns one summary, and the LLM handles backtracking across stages and
   explains what it did; (C) a mix. B: a straight pass already takes 4–8 calls and 2.2–3.4k-token
-  prompts, and a play that loops burns all 15 calls and invents a result. The
-  earlier stage G2 or G3 blames is done again once by PACo itself, at the end of `pick`
-  (`docs/gates/loop.md`).
+  prompts, and a play that loops burns all 15 calls and invents a result. The records and the
+  images are made with one set of settings for the line, as a person sets them in PAC's pages;
+  the changes the gates ask of them are tried by the line loop, inside `run_processing`, and
+  kept for the whole line when more windows get a curve G3 passes (`docs/gates/loop.md`).
 - **The agent's loop: plan, act, observe, adapt.** With option B the tools run the retries
   within a stage; the agent keeps that loop across stages: it plans the stages, acts by calling
   them, observes each gate's summary, and adapts by backtracking with the suggested overrides.
 - **The tools: one per stage, each with its gate's retries, and `redo`.** `run_processing` runs
-  S1, G1 and its fixes, the S2 rules, S2 and G2; `pick` runs S3, G3 and G4 (the re-picks
-  included), then the earlier stage G2 or G3 blames, once; `invert` runs S4, G5 and G6 as a
-  background job, refused unless G4 passed the line; `job_status` follows it; `redo` goes back
-  to a stage for some windows (listed, or those carrying a flag) with changes. A straight run is
+  S1, G1, the S2 rules and trials, S2, G2 and the line loop; `pick` runs S3, G3 and G4 (the
+  re-picks included), each window's own; `invert` runs S4, G5 and G6 as a background job,
+  refused unless G4 passed the line; `job_status` follows it; `redo` goes back to a stage with
+  changes: the records or the images for the whole line, the picking or the inversion for some
+  windows (listed, or those carrying a flag). A straight run is
   4 calls and the polling, and the agent observes after each stage. Not one tool up to G4 (a
   single look before the inversion), nor one job end to end (the agent would only report).
 - **Attempts: history inside one run.** The final result keeps PAC's layout at the top of each
@@ -251,9 +253,11 @@ Each decision states what the system does and the evidence it rests on; the gate
   is refused (`nothing_to_try`). None of: a filter or a mute for G1, a second mode for G2, a
   filter or an air-wave mute for G3 (the air wave is rejected), a mute of records muted already,
   a vmin under 30 m/s, a longer sampling of a converged model for G6 (`non_unique` is kept).
-- **An earlier stage G2 or G3 blames is done again once**, by PACo at the end of `pick`, then
-  the window is rejected if it still asks (`redone_once`): left to the agent, G3's are not run,
-  and the window is a gap, unsaid (`docs/gates/loop.md`).
+- **The changes the gates ask of the records or the images are the line's** (the line loop,
+  `docs/gates/loop.md`): grouped by what they change, tried on trial windows, the one the most
+  failing windows ask first, and kept for the whole line with 2 more windows passing G3; not
+  kept, their units stay as they are, the flag a note; asking a setting the user gave, the unit
+  is rejected, `locked`.
 - **One name, one meaning**: `trigger_error_s`; `neighbour_misfit` for G4, G6 and G8, "misfit"
   alone a fit's (G5, G7); one depth informed, G5's (`depth_informed`), which G6 compares the
   models down to and `job_status` reports (`depth_informed_m`); G5's `min_vs_ratio`, apart from
@@ -339,8 +343,9 @@ Each decision states what the system does and the evidence it rests on; the gate
   that passes more often on poor images, nor full runs escalated by the gates (whole runs and
   tool calls). The tests' and scenarios' 24-receiver windows are an explicit request.
 - **The mute trial: a mute where the images gain, at the line's length** (point 8.2, L10).
-  Muting is off in every preset, and was only a repair (G2's `no_coherent_energy` and
-  `weak_coherence`, G3's `prominence`, at a fixed 80-1500 m/s, once at the end of `pick`). The
+  Muting is off in every preset; the line loop tries one later where G2 (`no_coherent_energy`,
+  `weak_coherence`) or G3 (`prominence`) asks it, the standard 80-1500 m/s with the line's
+  pulse as its width. The
   trial runs once the ladder chose the length, so that a mute changes the images, never the
   windows: on active_p2, a trial before the ladder moved its choice from 7 to 11 receivers
   (muted picks more precise at 9 and 11, less at 7). The surface waves' cone comes from the
@@ -489,8 +494,9 @@ Each decision states what the system does and the evidence it rests on; the gate
   at-bound limit of 6 %: it would flag the demo's inverse windows, whose half-space presses
   against its lowest Vs, and reject them after two widenings although they fit. A non-unique
   model is kept with its flag: its posterior converged, and sampling longer gives it again.
-- **G5's `no_mode` suggests the phase shift again with the band below the points no mode
-  reaches**: the window stays rejected, the change the agent's to make with `redo`.
+- **G5's `no_mode` suggests the window's picking again with the band below the points no mode
+  reaches**: the window stays rejected, the change the agent's to make with `redo` (the image
+  staying the line's).
 - **G6 and `job_status` read G5's depth informed**, from the models' Vs spread (a median of
   7.5 m on `active_p2`), G6 within the curve's depth of investigation.
 

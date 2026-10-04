@@ -18,6 +18,7 @@ from paco.qc.g5_model import ModelThresholds
 from paco.qc.g6_models import ModelProfileThresholds
 from paco.qc.g7_petro import PetroThresholds
 from paco.qc.g8_petro_line import PetroLineThresholds
+from paco.qc.line_loop import LineRules
 from paco.qc.models import Budgets
 from paco.qc.muting import MuteRules
 from paco.qc.segments import SegmentRules
@@ -57,6 +58,7 @@ class QCConfig(BaseModel):
     coherence: CoherenceRules = Field(default_factory=CoherenceRules)  # the rules for S2
     segments: SegmentRules = Field(default_factory=SegmentRules)  # S2's, a passive line
     mute: MuteRules = Field(default_factory=MuteRules)  # the mute trial, before S1
+    line: LineRules = Field(default_factory=LineRules)  # the line loop, after S2
     signal: SignalThresholds = Field(default_factory=SignalThresholds)  # G1
     image: ImageThresholds = Field(default_factory=ImageThresholds)  # G2
     curve: CurveThresholds = Field(default_factory=CurveThresholds)  # G3

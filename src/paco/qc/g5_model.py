@@ -444,16 +444,13 @@ def _no_mode(layered: ModelFit) -> Flag:
         "higher mode may be picked there"
     )
     # The model is rejected either way; the suggested change is the agent's to make with
-    # redo, a band stopping under those points.
+    # redo: the window's picking stopping under those points, its image staying the line's.
     if lowest is not None:
         return Flag(
             name="no_mode",
-            message=f"{message}: redo the phase shift with the band below {lowest:g} Hz.",
-            stage="phase_shift",
-            action=Override(
-                stage="phase_shift",
-                overrides={"dispersion": {"fmax": round(0.95 * lowest, 1)}},
-            ),
+            message=f"{message}: redo the picking with the band below {lowest:g} Hz.",
+            stage="picking",
+            action=Override(stage="picking", overrides={"fmax": round(0.95 * lowest, 1)}),
             fixable=False,
         )
     return Flag(

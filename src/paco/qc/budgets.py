@@ -27,20 +27,14 @@ def can_retry(
 
 
 # Why a unit is refused the retry it asks: its budget is spent; the retry would run as the
-# attempt before (loops.unchanged); the earlier stage it blames was done again once already, with
-# the change it asks (redo.settle_earlier); it asks only to change settings the user gave
-# (qc.given: kept as given).
-type Refusal = Literal["budget", "unchanged", "redone", "locked"]
+# attempt before (loops.unchanged); it asks only to change settings the user gave (qc.given: kept
+# as given).
+type Refusal = Literal["budget", "unchanged", "locked"]
 _REFUSED: dict[Refusal, tuple[str, str]] = {
     "budget": ("budget_spent", "the retry budget is spent; the last attempt raised {raised}."),
     "unchanged": (
         "nothing_to_try",
         "its retry would run as the attempt before, which raised {raised}: nothing left to try.",
-    ),
-    "redone": (
-        "redone_once",
-        "the stage it blames was done again once with the change it asks, and it still raises "
-        "{raised}.",
     ),
     "locked": (
         "locked",

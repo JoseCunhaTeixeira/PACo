@@ -69,7 +69,7 @@ def _maker(triggered_by: str) -> Actor:
     call (the first attempt, one asked for, a step back)."""
     if triggered_by == JUDGED:
         return "user"
-    return "agent" if starts_afresh(triggered_by) or triggered_by == MUTE_TRIAL else "gate"
+    return "agent" if starts_afresh(triggered_by) or triggered_by in RULES else "gate"
 
 
 # The trigger of a stage the user asked for, for some windows: done afresh, outside the run's
@@ -78,6 +78,12 @@ ASKED = "asked"
 # The trigger of the records preprocessed again with the mute the mute trial kept: a rule of the
 # processing (qc.muting), outside the retry budgets.
 MUTE_TRIAL = "mute trial"
+# The trigger of the records and images made again with a change of the line's settings (one the
+# line loop kept, qc.line_loop, or a redo of the line's): every record and window alike, the
+# change logged on the line; outside the retry budgets.
+LINE_CHANGE = "line change"
+# The processing's own rules: a choice of the line's settings, no unit's retry.
+RULES = (MUTE_TRIAL, LINE_CHANGE)
 
 
 def starts_afresh(triggered_by: str) -> bool:
@@ -191,7 +197,7 @@ def _on_run_budget(attempt: Attempt) -> int:
     """1 when `attempt` is a retry the run's budget pays for, else 0: not the first, nor one the
     user asked for, nor a judgement of a curve as it is (JUDGED)."""
     return int(
-        attempt.triggered_by not in ("initial", ASKED, JUDGED, MUTE_TRIAL)
+        attempt.triggered_by not in ("initial", ASKED, JUDGED, *RULES)
         and not attempt.triggered_by.startswith("G1:")
         and not _by_inversion_gate(attempt)
     )
@@ -208,7 +214,7 @@ def _by_inversion_gate(attempt: Attempt) -> bool:
 
 
 def retries_by_unit(attempts: Iterable[Attempt]) -> Counter[str]:
-    return Counter(a.unit for a in attempts if a.triggered_by not in ("initial", MUTE_TRIAL))
+    return Counter(a.unit for a in attempts if a.triggered_by not in ("initial", *RULES))
 
 
 def ensure_initial_attempts(run_folder: Path, manifest: RunManifest) -> tuple[Attempt, ...]:

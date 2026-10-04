@@ -51,8 +51,9 @@ def judge_curve(
 ) -> GateResult:
     """G3's verdict on one window's M0 pick, with the band G2 found coherent (or G1 usable)
     when known, the band a fix narrows to, the picking parameters the fixes start from, and
-    the distance from the window's nearest shot to its receivers. Not `mutable` (a passive
-    line, which has no muting, or records muted already), a flag only a mute would fix rejects."""
+    the distance from the window's nearest shot to its receivers. `mutable`: whether a mute of
+    the line's records is there to try (the line's trials and loop); not (a window's picking, a
+    passive line, which has no muting), a flag only a mute would fix rejects."""
     picking = picking or PickingParameters()
     # The curve's measures, sigpipe's (PAC's alike), each saying what it covers.
     report = measure_curve(image, m0, thresholds, nearest_offset)
@@ -290,18 +291,19 @@ def _flag(
                 "barely."
             )
             # A filter cannot change the image (the phase shift divides each trace's spectrum
-            # by its own amplitude): a mute alone, on records not muted yet.
+            # by its own amplitude): a mute alone, the line's, on records not muted yet.
             if not mutable:
                 return Flag(
                     name="prominence",
-                    message=f"{said} Its records muted already, or a passive line: nothing to try.",
+                    message=f"{said} A mute is the line's, made for every window (a passive line "
+                    "has none): nothing to try on this one.",
                     stage="preprocessing",
                     action=Reject(reason="the ridge barely stands out"),
                     fixable=False,
                 )
             return Flag(
                 name="prominence",
-                message=f"{said} Mute its records to their surface waves.",
+                message=f"{said} Mute the line's records to their surface waves.",
                 stage="preprocessing",
                 action=Override(
                     stage="preprocessing",
@@ -311,13 +313,14 @@ def _flag(
                 ),
             )
         case "on_data":
-            overrides = {"dispersion": {"fmin": _low(band), "fmax": _high(band)}} if band else {}
+            # The image is the line's: the window's picking narrows to the coherent band.
+            overrides = {"fmin": _low(band), "fmax": _high(band)} if band else {}
             return Flag(
                 name="on_data",
                 message=f"Only {quality.on_data:.0%} of the points sit on their column's brightest "
-                "value: competing ridges. Narrow the dispersion band.",
-                stage="phase_shift",
-                action=Override(stage="phase_shift", overrides=overrides),
+                "value: competing ridges. Pick in the coherent band alone.",
+                stage="picking",
+                action=Override(stage="picking", overrides=overrides),
             )
         case _:
             message = (

@@ -3,8 +3,10 @@ against the noise floor, the energy maximum on the grid's edges, competing ridge
 or aliasing), and a coherent band much narrower than the record's usable band. A passive or
 passive-active window's stacked correlations, the signal its image is made of, measured as a
 record is (sigpipe's measure_signal, from the virtual source), and a passive window's fk segment
-selection: judged too, the phase shift again with more of the data when they fall short, then
-rejected. The measures are sigpipe's (sigpipe.masw.quality.image, .measures); G2 judges them."""
+selection: judged too, more of the data asked when they fall short, then rejected. The changes
+G2 asks of the records or the images are the line's to make, for every window alike (the line
+loop, qc.line_loop); an alias limits the window's own picking. The measures are sigpipe's
+(sigpipe.masw.quality.image, .measures); G2 judges them."""
 
 from collections.abc import Mapping, Sequence
 from typing import Any
@@ -46,10 +48,11 @@ def judge_image(
     tries the surface-wave mute before a wider grid: correlated whole, a record's noise common
     to every trace peaks there. A passive or passive-active window's stacked `correlations`,
     measured as a record is (their SNR, coherence and usable band), and a passive one's fk
-    `selection` (the share of segments kept): falling short, the phase shift again with more of
-    the data (`more`: more_data), else rejected. An image mostly noise tries the surface-wave
-    mute when its records are not muted yet; else (a passive line has no muting) it is flagged
-    and kept, the later gates judging its pick: no retry that could not change it."""
+    `selection` (the share of segments kept): falling short, more of the data asked (`more`:
+    more_data), else rejected. An image mostly noise asks the surface-wave mute when its records
+    are not muted yet; else (a passive line has no muting) it is flagged and kept, the later
+    gates judging its pick. An alias is no fault of the image: the window's picking stops below
+    it, which leaves the verdict as it is."""
     fs = np.asarray(image.fs, dtype=float)
     vs = np.asarray(image.vs, dtype=float)
     # The image's measures, sigpipe's (PAC's alike), each saying what it covers.
@@ -218,11 +221,10 @@ def judge_image(
                 Flag(
                     name="aliasing",
                     message=f"{competing_share:.0%} of the coherent columns hold a second ridge, "
-                    f"mostly below the aliasing limit 2 dx f: an alias from {first:.1f} Hz on.",
-                    stage="phase_shift",
-                    action=Override(
-                        stage="phase_shift", overrides={"dispersion": {"fmax": round(first, 1)}}
-                    ),
+                    f"mostly below the aliasing limit 2 dx f: an alias from {first:.1f} Hz on, "
+                    "picked below it.",
+                    stage="picking",
+                    action=Override(stage="picking", overrides={"fmax": round(first, 1)}),
                 )
             )
         else:
@@ -319,8 +321,13 @@ def more_data(mode: str, values: Mapping[str, Any]) -> Override | None:
 
 def _result(unit: str, metrics: list[Metric], flags: list[Flag], kept: Kept) -> GateResult:
     # A kept flag is information: it never changes the verdict; one no change fixes rejects, as
-    # G3's.
-    acted = [flag for flag in flags if not isinstance(flag.action, Keep)]
+    # G3's. The picking's limits are the window's picking's: the image stands.
+    acted = [
+        flag
+        for flag in flags
+        if not isinstance(flag.action, Keep)
+        and not (isinstance(flag.action, Override) and flag.action.stage == "picking")
+    ]
     verdict = (
         "pass" if not acted else "reject" if any(not flag.fixable for flag in acted) else "retry"
     )

@@ -245,7 +245,6 @@ def judge_picking(
         config.curve,
         band,
         previous,
-        mutable_window(run_folder, unit),
         image,
     )
     _log_pick(run_folder, unit, previous, picking, triggered_by, started_at, g3)
@@ -265,7 +264,6 @@ def pick_windows(
     they end. G3's results by window."""
     attempts = read_attempts(run_folder)
     previous = {unit: len(attempts_of(attempts, unit, "picking")) for unit in jobs}
-    mutable = {unit: mutable_window(run_folder, unit) for unit in jobs}
     started_at = datetime.now(UTC)
     results: dict[str, GateResult] = {}
 
@@ -281,7 +279,7 @@ def pick_windows(
             stopping.check()
             logged(
                 unit,
-                _pick(run_folder, unit, picking, config.curve, band, previous[unit], mutable[unit]),
+                _pick(run_folder, unit, picking, config.curve, band, previous[unit]),
             )
         return results
     one_thread_each()  # the workers are the cores the picks take
@@ -290,7 +288,7 @@ def pick_windows(
     ) as executor:
         futures = {
             executor.submit(
-                _pick, run_folder, unit, picking, config.curve, band, previous[unit], mutable[unit]
+                _pick, run_folder, unit, picking, config.curve, band, previous[unit]
             ): unit
             for unit, (picking, band) in jobs.items()
         }
@@ -306,11 +304,11 @@ def _pick(
     thresholds: CurveThresholds,
     band: tuple[float, float] | None,
     previous: int,
-    mutable: bool,
     image: DispersionImage | None = None,
 ) -> GateResult:
     """One window's pick, in a worker or here: the `previous` attempts' files archived, M0
-    picked and saved in PAC's layout, G3 on it (`mutable`: whether the line can be muted)."""
+    picked and saved in PAC's layout, G3 on it. A mute is the line's, never one window's: a flag
+    only a mute fixes rejects the pick."""
     folder = run_folder / unit
     if previous:
         invalidate(folder, "picking", previous)
@@ -319,21 +317,9 @@ def _pick(
     m0 = modes[0] if modes else None
     if m0 is not None and m0.curve is not None:
         save_pick(folder, image, m0.curve)
-    return judge_curve(unit, image, m0, thresholds, band, picking, nearest_offset(folder), mutable)
-
-
-def mutable_window(run_folder: Path, unit: str) -> bool:
-    """Whether window `unit`'s records can be muted: not a passive line's (its preset has no
-    muting), nor records muted already (no retry that could not change them), nor an image made
-    in PAC's pages (a person's, never made again)."""
-    manifest = RunManifest.model_validate_json((run_folder / "run.json").read_text())
-    if "muting" not in type(manifest.preset).model_fields:
-        return False
-    attempts = read_attempts(run_folder)
-    if not attempts_of(attempts, unit, "phase_shift"):
-        return False
-    muted = muted_records(manifest.preset, attempts, latest)
-    return not window_muted(run_folder / unit, muted)
+    return judge_curve(
+        unit, image, m0, thresholds, band, picking, nearest_offset(folder), mutable=False
+    )
 
 
 def _log_pick(

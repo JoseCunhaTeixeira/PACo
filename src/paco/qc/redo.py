@@ -1,47 +1,44 @@
-"""Going back to a stage for some windows (docs/qc_workflow.md: "Retries target a subset"): the
-agent's backtracking across stages, with the changes a gate suggested of an earlier stage. The
-stage runs again with the changes, then every stage after it up to G4, each with its gate's own
-retries; the inversions of those windows are archived, for invert to do again. The inversion
-itself is done again as a job (paco.qc.inverting.run_inversion_job)."""
+"""Going back to a stage (docs/qc_workflow.md: "Retries target a subset"): the agent's
+backtracking across stages, with the changes a gate suggested or the user asked. The records and
+the images are the line's, the same for every window: their stage is done again for the whole
+line with the line's settings changed, then G2, and every window picked again. The picking is
+each window's: done again for some windows. Then every stage after it up to G4, each with its
+gate's own retries; the inversions of those windows are archived, for invert to do again. The
+inversion itself is done again as a job (paco.qc.inverting.run_inversion_job)."""
 
 import json
 from collections.abc import Mapping, Sequence
-from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any, Literal, cast
 
-from sigpipe.masw.pipelines import record_folder
 from sigpipe.masw.presets import apply_overrides, resolve_preset
 from sigpipe.masw.profiles import load_profile
-from sigpipe.masw.runs import RecordOutcome, RunError, RunManifest, find_run, load_manifest
-from sigpipe.masw.runs.processing import RECORDS_FOLDER, preprocess_records, write_manifest
-from sigpipe.masw.runs.stopping import Stopped
-from sigpipe.masw.windows import MASWWindow
+from sigpipe.masw.runs import RunError, RunManifest, find_run, load_manifest
+from sigpipe.masw.windows import Exclusions
 
-from paco import stopping
-from paco.qc.attempts import invalidate_record, restore_record
-from paco.qc.budgets import Refusal, budget_spent, run_budget
+from paco.qc.budgets import run_budget
 from paco.qc.config import QCConfig, read_qc_config
 from paco.qc.curves import imaged_windows, pick_line
-from paco.qc.given import locked
-from paco.qc.line import line_reach, settle_images, settle_records
+from paco.qc.g4_profile import LINE
+from paco.qc.line import (
+    image_line,
+    judge_images,
+    keep_line_asks,
+    line_reach,
+    reprocess_records,
+    settle_records,
+)
 from paco.qc.log import (
-    afresh,
+    LINE_CHANGE,
     append_attempt,
     latest,
     read_attempts,
-    record_result,
     retries_in_run,
 )
-from paco.qc.loops import deep_merge, refusal, stage_changes
-from paco.qc.models import Attempt, Stage
-from paco.qc.origin import left_alone, run_work
+from paco.qc.origin import run_work
 from paco.qc.report import QCReport, build_report, write_report
-from paco.qc.rerun import rerun_phase_shift
-from paco.qc.shots import pulse_widths, with_pulse
 from paco.qc.state import read_report
 from paco.qc.stuck import Stuck
-from paco.runs import PACKAGES
 from paco.settings import Settings
 
 type RedoStage = Literal["preprocessing", "phase_shift", "picking"]
@@ -88,13 +85,13 @@ def redo_stage(
     trigger: str = "backtrack",
     replace_hand: bool = False,
 ) -> QCReport:
-    """`stage` again for the windows `units` of run `run_id`, with `changes` over their latest
-    parameters, then the stages after it up to G4, each with its gate's retries. Going back to
-    the preprocessing does again every record those windows use, and every window using them.
-    `trigger`: who asked (the agent's backtrack, or a gate's flag, "<gate>:<flag>"). A window
-    holding a person's work (paco.qc.origin) keeps it (never imaged again, its M0 by hand never
-    picked again), unless they chose to have it done again (`replace_hand`); refused when no
-    window is left to redo."""
+    """`stage` again with `changes`, then the stages after it up to G4. The preprocessing and the
+    phase shift are the line's: done again for every window (`units` all of them; some only,
+    refused), the line's settings changed (_redo_line). The picking, for the windows `units`, from
+    their latest parameters with `changes`, with G3's retries. `trigger`: who asked (the agent's
+    backtrack, or a gate's flag, "<gate>:<flag>"). A window holding a person's work
+    (paco.qc.origin) keeps it (never imaged again, its M0 by hand never picked again), unless
+    they chose to have it done again (`replace_hand`); refused when no window is left to redo."""
     run_folder = find_run(run_id, settings)
     manifest = load_manifest(run_id, settings)
     config = read_qc_config(run_folder)
@@ -106,142 +103,126 @@ def redo_stage(
             "with the new window length."
         )
     work = run_work(run_folder, manifest)
-    kept = (
-        []
-        if replace_hand
-        else [unit for unit in units if work[unit].m0 == "user"]
-        if stage == "picking"
-        else left_alone(work, units)
-    )
+    if stage in ("preprocessing", "phase_shift"):
+        if set(units) != {window.folder for window in manifest.windows}:
+            said = stage.replace("_", " ")
+            raise RunError(
+                f"The {said} is the line's, the same for every window: redo it for the whole line "
+                "(no xmids, no flag), or leave it as it is."
+            )
+        if not replace_hand and all(work[unit].frozen for unit in units):
+            raise RunError(
+                "Every window holds work made by hand in PAC (verified by the user): left as it "
+                "is, nothing to redo."
+            )
+        return _redo_line(run_id, manifest, stage, changes, settings, trigger, replace_hand)
+    kept = [] if replace_hand else [unit for unit in units if work[unit].m0 == "user"]
     windows = [unit for unit in units if unit not in kept]
     if not windows:
         raise RunError(
             f"{', '.join(kept)} hold work made by hand in PAC (verified by the user): left as "
             "they are, nothing to redo."
         )
-    if stage == "preprocessing":
-        windows = _redo_records(run_id, manifest, windows, changes, settings, trigger)
-        windows = [unit for unit in windows if replace_hand or not work[unit].frozen]
-        manifest = load_manifest(run_id, settings)
-        _redo_images(run_id, manifest, windows, {}, settings, trigger)
-    elif stage == "phase_shift":
-        _redo_images(run_id, manifest, windows, changes, settings, trigger)
-    if stage == "picking":
-        pick_line(run_id, settings, windows, changes, trigger, replace_hand=replace_hand)
-    else:
-        # The images changed: their windows are picked again from the run's first parameters,
-        # those whose new image G2 rejected left out (nothing to pick).
-        kept = imaged_windows(run_folder, load_manifest(run_id, settings))
-        pick_line(
-            run_id,
-            settings,
-            [unit for unit in windows if unit in kept],
-            None,
-            trigger,
-            fresh=True,
-            replace_hand=replace_hand,
-        )
+    pick_line(run_id, settings, windows, changes, trigger, replace_hand=replace_hand)
     report = build_report(run_id, run_folder, config.budgets, len(manifest.windows))
     write_report(report, run_folder)
     return report
 
 
-# The gates that may ask a change of an earlier stage than the one they judge: G2 (the image)
-# its records' mute; G3 (the curve) its records', or its image made again.
-EARLIER: dict[str, tuple[Stage, tuple[RedoStage, ...]]] = {
-    "G2": ("phase_shift", ("preprocessing",)),
-    "G3": ("picking", ("preprocessing", "phase_shift")),
-}
-
-
-def settle_earlier(run_id: str, settings: Settings) -> bool:
-    """The windows whose latest G2 or G3 result asks a change of an earlier stage (their records
-    muted, their image made again): that stage done again once with it, then the stages after
-    it (redo_stage, the run's budget paying), each window once for each flag. Asked again after
-    it, asked with no change, or with the budget spent, the window is rejected, said: none left
-    silently without a curve. Whether any window changed."""
+def _redo_line(
+    run_id: str,
+    manifest: RunManifest,
+    stage: RedoStage,
+    changes: Mapping[str, Any],
+    settings: Settings,
+    trigger: str,
+    replace_hand: bool,
+) -> QCReport:
+    """The line's `stage` done again with `changes` on the line's settings, the same for every
+    record and window: for the preprocessing, every record preprocessed again and judged by G1
+    afresh (what it leaves out decided again); every window imaged again and judged by G2, a
+    person's work kept unless `replace_hand`; then every window picked again from the run's first
+    parameters, those whose new image G2 rejected left out (nothing to pick). The records' and
+    images' attempts are the line's change (LINE_CHANGE); the line's attempt says it."""
     run_folder = find_run(run_id, settings)
-    changed = False
-    while True:
-        manifest = load_manifest(run_id, settings)
-        attempts = read_attempts(run_folder)
-        work = run_work(run_folder, manifest, attempts)
-        groups: dict[str, tuple[RedoStage, dict[str, Any], str, list[str]]] = {}
-        for window in manifest.windows:
-            if work[window.folder].frozen:
-                continue  # a person's work: its image and records stay as they are
-            for gate, (judged_at, earlier) in EARLIER.items():
-                attempt = latest(attempts, window.folder, judged_at)
-                result = attempt.results.get(gate) if attempt is not None else None
-                if attempt is None or result is None or result.verdict != "retry":
-                    continue
-                asked: tuple[RedoStage, tuple[dict[str, Any], str]] | None = next(
-                    (
-                        (stage, wanted)
-                        for stage in earlier
-                        if (wanted := stage_changes(result, stage, locked(run_folder, stage)))
-                        is not None
-                    ),
-                    None,
-                )
-                if asked is None:
-                    # Only changes of settings the user gave: kept, the window rejected.
-                    held = [
-                        refused[1]
-                        for stage in earlier
-                        if (refused := refusal(result, stage, {}, locked(run_folder, stage)))[0]
-                        == "locked"
-                    ]
-                    if held:
-                        record_result(
-                            run_folder,
-                            window.folder,
-                            judged_at,
-                            attempt.attempt,
-                            budget_spent(result, "locked", "; ".join(held)),
-                        )
-                        changed = True
-                    continue
-                stage, (changes, flag) = asked
-                trigger = f"{gate}:{flag}"
-                # Once: its image made again for this flag already (with its records, or alone).
-                done = any(
-                    one.unit == window.folder
-                    and one.stage == "phase_shift"
-                    and one.triggered_by == trigger
-                    for one in attempts
-                )
-                if done or not changes:
-                    why: Refusal = "redone" if done else "unchanged"
-                    record_result(
-                        run_folder,
-                        window.folder,
-                        judged_at,
-                        attempt.attempt,
-                        budget_spent(result, why),
-                    )
-                    changed = True
-                    continue
-                key = json.dumps([stage, changes, trigger], sort_keys=True)
-                groups.setdefault(key, (stage, changes, trigger, []))[3].append(window.folder)
-        if not groups:
-            return changed
-        for stage, changes, trigger, units in groups.values():
-            try:
-                redo_stage(run_id, stage, units, changes, settings, trigger)
-            except BudgetSpent:
-                # Rejected, as a gate's retry without the budget.
-                attempts = read_attempts(run_folder)
-                gate = trigger.split(":")[0]
-                judged_at = EARLIER[gate][0]
-                for unit in units:
-                    attempt = latest(attempts, unit, judged_at)
-                    result = attempt.results.get(gate) if attempt is not None else None
-                    if attempt is not None and result is not None:
-                        record_result(
-                            run_folder, unit, judged_at, attempt.attempt, budget_spent(result)
-                        )
-        changed = True
+    config = read_qc_config(run_folder)
+    profile = load_profile(manifest.profile.name, settings)
+    preset = resolve_preset(apply_overrides(manifest.preset, changes), profile)
+    records = tuple(manifest.records)
+    exclusions = manifest.exclusions
+    usable = _usable_bands(run_folder)
+    if stage == "preprocessing":
+        records = reprocess_records(
+            run_folder, profile, preset, records, Exclusions(), settings.workers, LINE_CHANGE
+        )
+        reach = line_reach(run_folder, profile, records, config, preset)
+        records, exclusions, usable = settle_records(
+            run_folder, profile, preset, records, config, reach
+        )
+    imaged = image_line(
+        run_id,
+        run_folder,
+        profile,
+        preset,
+        records,
+        exclusions,
+        settings,
+        LINE_CHANGE,
+        replace_hand,
+    )
+    judge_images(run_folder, load_manifest(run_id, settings), config, settings, usable)
+    keep_line_asks(run_folder)
+    _line_redone(run_folder, stage, changes)
+    ready = imaged_windows(run_folder, load_manifest(run_id, settings))
+    pick_line(
+        run_id,
+        settings,
+        [unit for unit in imaged if unit in ready],
+        None,
+        trigger,
+        fresh=True,
+        replace_hand=replace_hand,
+    )
+    report = build_report(run_id, run_folder, config.budgets, len(manifest.windows))
+    write_report(report, run_folder)
+    return report
+
+
+def _line_redone(run_folder: Path, stage: RedoStage, changes: Mapping[str, Any]) -> None:
+    """The line's attempt, logged again with the line redone: the settings the processing chose
+    that `changes` replaced taken out of it (theirs now, not the checks'), and a note saying the
+    redo."""
+    line = latest(read_attempts(run_folder), LINE, "phase_shift")
+    if line is None:
+        return
+    said = stage.replace("_", " ")
+    shown = "; ".join(
+        f"{name} {json.dumps(value, sort_keys=True)}" for name, value in changes.items()
+    )
+    note = f"The {said} done again for the whole line" + (f", with {shown}." if shown else ".")
+    append_attempt(
+        run_folder,
+        line.model_copy(
+            update={
+                "parameters": _without(line.parameters, changes),
+                "notes": (*line.notes, note),
+            }
+        ),
+    )
+
+
+def _without(values: Mapping[str, Any], changes: Mapping[str, Any]) -> dict[str, Any]:
+    """`values` without the leaves `changes` gives."""
+    kept: dict[str, Any] = {}
+    for key, value in values.items():
+        change = changes.get(key)
+        if key not in changes:
+            kept[key] = value
+        elif isinstance(value, Mapping) and isinstance(change, Mapping):
+            inner = _without(cast(Mapping[str, Any], value), cast(Mapping[str, Any], change))
+            if inner:
+                kept[key] = inner
+    return kept
 
 
 class BudgetSpent(Stuck):
@@ -259,144 +240,6 @@ def check_budget(run_id: str, run_folder: Path, config: QCConfig, n_windows: int
             "Tell the user what the run has, and ask whether to start a new run with other "
             "settings, or to stop here."
         )
-
-
-def _redo_images(
-    run_id: str,
-    manifest: RunManifest,
-    windows: Sequence[str],
-    changes: Mapping[str, Any],
-    settings: Settings,
-    trigger: str = "backtrack",
-) -> None:
-    """The phase shift again for `windows`, each from its latest phase-shift changes with
-    `changes` over them (grouped by the changes they end with), then G2's retries."""
-    run_folder = find_run(run_id, settings)
-    attempts = read_attempts(run_folder)
-    groups: dict[str, tuple[dict[str, Any], list[str]]] = {}
-    for unit in windows:
-        attempt = latest(attempts, unit, "phase_shift")
-        parameters = deep_merge(attempt.parameters if attempt is not None else {}, changes)
-        key = json.dumps(parameters, sort_keys=True)
-        groups.setdefault(key, (parameters, []))[1].append(unit)
-    for parameters, units in groups.values():
-        rerun_phase_shift(run_id, units, parameters, settings, trigger)
-    usable = _usable_bands(run_folder)
-    settle_images(run_id, run_folder, manifest, read_qc_config(run_folder), settings, usable)
-
-
-def _redo_records(
-    run_id: str,
-    manifest: RunManifest,
-    windows: Sequence[str],
-    changes: Mapping[str, Any],
-    settings: Settings,
-    trigger: str = "backtrack",
-) -> list[str]:
-    """The records `windows` use preprocessed again with `changes` over their latest
-    parameters, then G1's fixes; returns every window that uses one of those records."""
-    run_folder = find_run(run_id, settings)
-    config = read_qc_config(run_folder)
-    profile = load_profile(manifest.profile.name, settings)
-    names = {
-        path.name
-        for unit in windows
-        for path in MASWWindow.model_validate_json(
-            (run_folder / unit / "window.json").read_text()
-        ).selected_files
-    }
-    attempts = read_attempts(run_folder)
-    by_name = {record.path.name: record for record in profile.records}
-    # A mute asked without a width keeps each record's own pulse (shots.py).
-    widths = pulse_widths(attempts, names, config.signal.mute_width_s)
-    parameters: dict[str, dict[str, Any]] = {}
-    for name in sorted(names):
-        attempt = latest(attempts, name, "preprocessing")
-        number = attempt.attempt if attempt is not None else 0
-        parameters[name] = with_pulse(
-            deep_merge(attempt.parameters if attempt is not None else {}, changes), widths[name]
-        )
-        invalidate_record(record_folder(run_folder / RECORDS_FOLDER, by_name[name]), number)
-    started_at = datetime.now(UTC)
-
-    def log(outcomes: tuple[RecordOutcome, ...]) -> None:
-        # Asked of the agent: each record's preprocessing afresh, its earlier attempts forgotten.
-        for outcome in outcomes:
-            attempt = Attempt(
-                unit=outcome.name,
-                stage="preprocessing",
-                attempt=1,
-                parameters=parameters[outcome.name],
-                triggered_by=trigger,
-                started_at=started_at,
-                finished_at=datetime.now(UTC),
-                status=outcome.status,
-                error=outcome.error,
-            )
-            folder = record_folder(run_folder / RECORDS_FOLDER, by_name[outcome.name])
-            append_attempt(run_folder, afresh(run_folder, attempt, folder))
-
-    try:
-        redone = preprocess_records(
-            manifest.preset,
-            profile,
-            run_folder,
-            settings.workers,
-            presets={
-                name: resolve_preset(apply_overrides(manifest.preset, values), profile)
-                for name, values in parameters.items()
-            },
-            stop=stopping.current(),
-        )
-    except Stopped as stopped:
-        # The records that finished logged; the others given back their previous stream.
-        done = cast(tuple[RecordOutcome, ...], stopped.kept or ())
-        log(done)
-        for name in set(parameters) - {outcome.name for outcome in done}:
-            attempt = latest(attempts, name, "preprocessing")
-            restore_record(
-                record_folder(run_folder / RECORDS_FOLDER, by_name[name]),
-                attempt.attempt if attempt is not None else 0,
-            )
-        raise
-    log(redone)
-    records = tuple(
-        next((one for one in redone if one.name == record.name), record)
-        for record in manifest.records
-    )
-    records, exclusions, _ = settle_records(
-        run_folder,
-        profile,
-        manifest.preset,
-        records,
-        config,
-        settings.workers,
-        line_reach(run_folder, profile, records, config, manifest.preset),
-    )
-    write_manifest(
-        run_id,
-        run_folder,
-        profile,
-        manifest.preset,
-        manifest.started_at,
-        records,
-        manifest.windows,
-        exclusions,
-        packages=PACKAGES,
-        inputs=manifest.inputs,
-    )
-    return [
-        window.folder
-        for window in manifest.windows
-        if (run_folder / window.folder / "window.json").exists()
-        and names
-        & {
-            path.name
-            for path in MASWWindow.model_validate_json(
-                (run_folder / window.folder / "window.json").read_text()
-            ).selected_files
-        }
-    ]
 
 
 def _usable_bands(run_folder: Path) -> dict[str, tuple[float, float] | None]:

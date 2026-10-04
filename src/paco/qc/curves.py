@@ -33,7 +33,7 @@ from paco.qc.config import QCConfig, run_qc_config
 from paco.qc.g3_curve import judge_curve
 from paco.qc.g4_profile import LINE
 from paco.qc.given import locked
-from paco.qc.judging import judge_line, mutable_window, pick_windows, saved_m0
+from paco.qc.judging import judge_line, pick_windows, saved_m0
 from paco.qc.log import append_attempt, attempts_of, latest, read_attempts, record_result
 from paco.qc.loops import RetryBudget, deep_merge, next_try, refusal, spent, stage_changes
 from paco.qc.models import Attempt, GateResult
@@ -88,14 +88,9 @@ def pick_line(
         jobs[unit] = (parameters, g2.kept.band_hz if g2 is not None else None)
     if jobs:
         pick_windows(run_folder, jobs, config, triggered_by, settings.workers)
+    # Each window's curve picked on its own; the records and the images are the line's, made
+    # before (qc.line_loop): no window sends its own back.
     settle_curves(run_folder, manifest, config, settings.workers)
-    if triggered_by == "initial":
-        # The earlier stages G2 and G3 blame, done again once (the redo tool picks again
-        # through here, as another trigger: no loop); then the line again.
-        from paco.qc.redo import settle_earlier  # redo imports pick_line
-
-        if settle_earlier(run_id, settings):
-            settle_curves(run_folder, load_manifest(run_id, settings), config, settings.workers)
     # The picks along the line as PAC shows them, before any inversion: best effort.
     try:
         save_picks_figures(run_folder, window_folders(run_folder))
@@ -251,7 +246,7 @@ def judge_curves(run_id: str, settings: Settings, units: Sequence[str] | None = 
             g2.kept.band_hz if g2 is not None else None,
             picking,
             nearest_offset(folder),
-            mutable_window(run_folder, unit),
+            mutable=False,
         )
         append_attempt(
             run_folder,

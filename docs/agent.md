@@ -213,10 +213,14 @@ Eight gates judge the stages (`docs/qc_workflow.md`, the spec, with its design d
 each record, G2 each dispersion image, G3 each curve, G4 the curves over the line, G5 each
 model, G6 the models over the line, G7 each petrophysical model, G8 those over the line. Each
 gives a verdict (pass, retry, reject), each metric with its threshold, and for each flag the
-stage at fault and a change that can be applied as it is. The stage tools apply their own
-gate's changes, within budgets (2 retries per gate and window, 2 per window over the run, and 6
-inversion retries per window of its own); `pick` makes the change of an earlier stage G2 or G3
-asks for, once, and any other change of an earlier stage is the model's to make, with `redo`.
+stage at fault and a change that can be applied as it is. The records and the images have one
+set of settings for the whole line, the same for every record and window as in PAC's pages: the
+changes G1, G2 and G3 ask of them are tried by the line loop inside `run_processing`, and kept
+for the whole line when more windows then give a curve G3 passes (at most 4,
+`docs/gates/loop.md`). The picking and the inversion are each window's: `pick` and `invert`
+apply their gates' changes, within budgets (2 retries per gate and window, 2 per window over the
+run, and 6 inversion retries per window of its own); any other change is the model's to make,
+with `redo` (the records or the images for the whole line).
 The band (the records' median usable band), the farthest shot a window stacks (where the
 traces' median SNR falls under 2 dB), the nearest (half the longest wavelength its trial curves
 reach) and the inversion's bounds come from the data; the window length is proposed from it,

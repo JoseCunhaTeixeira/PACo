@@ -231,23 +231,29 @@ def test_g4_compares_the_assistants_curves_with_a_persons_never_the_reverse() ->
     assert verdicts["off"] == "retry" and "h1" not in verdicts and "h2" not in verdicts
 
 
-def test_a_stage_done_again_leaves_a_persons_work_as_it_is(
+def test_the_line_done_again_leaves_a_persons_work_as_it_is(
     outputs: tuple[Settings, str, str],
 ) -> None:
     settings, _, run_id = outputs
     run_folder = find_run(run_id, settings)
+    windows = [window.folder for window in load_manifest(run_id, settings).windows]
     _picked_by_hand(run_folder / "xmid_8.88")
     image = (run_folder / "xmid_8.88" / "DispersionImage_0000.hdf5").read_bytes()
 
-    with pytest.raises(RunError, match="made by hand in PAC"):
+    # The images are the line's: one window's alone is no redo of them.
+    with pytest.raises(RunError, match="the line's, the same for every window"):
         redo_stage(run_id, "phase_shift", ["xmid_8.88"], {"dispersion": {"vmax": 900}}, settings)
-    redo_stage(
-        run_id, "phase_shift", ["xmid_2.88", "xmid_8.88"], {"dispersion": {"vmax": 900}}, settings
-    )
+    redo_stage(run_id, "phase_shift", windows, {"dispersion": {"vmax": 900}}, settings)
 
+    # The person's window keeps its image; the line's others are made with the new range.
     assert (run_folder / "xmid_8.88" / "DispersionImage_0000.hdf5").read_bytes() == image
     assert load_image(run_folder / "xmid_2.88").vs.max() == pytest.approx(900.0)
     np.testing.assert_allclose(load_image(run_folder / "xmid_8.88").vs.max(), 1000.0)
+    # Every window a person's: nothing left to redo.
+    for window in windows:
+        _picked_by_hand(run_folder / window)
+    with pytest.raises(RunError, match="made by hand in PAC"):
+        redo_stage(run_id, "phase_shift", windows, {"dispersion": {"vmax": 800}}, settings)
 
 
 def test_asked_stages_and_judgements_are_off_the_runs_budget() -> None:

@@ -36,7 +36,8 @@ def processing_used(
         return isinstance(values, Mapping) and key in cast(Mapping[str, Any], values)
 
     def rule(prefix: str) -> str | None:
-        note = next((note for note in notes if note.startswith(prefix)), None)
+        # The latest note setting it: the line loop's changes come after the trials'.
+        note = next((note for note in reversed(notes) if note.startswith(prefix)), None)
         return note.split(": ", 1)[1].rstrip(".") if note is not None else None
 
     xmids = [window.xmid for window in manifest.windows]
@@ -76,7 +77,11 @@ def processing_used(
             f"velocities {_value(values, 'vmin')} to {_value(values, 'vmax')} m/s"
             + (f" ({values['nv']} steps)" if "nv" in values else "")
             + ": "
-            + (GIVEN if asked("dispersion", "vmin") or asked("dispersion", "vmax") else DEFAULT)
+            + (
+                GIVEN
+                if asked("dispersion", "vmin") or asked("dispersion", "vmax")
+                else rule("dispersion vmax") or rule("dispersion vmin") or DEFAULT
+            )
         )
     muting = preset.pop("muting", None)
     if isinstance(muting, Mapping):
@@ -89,11 +94,22 @@ def processing_used(
                 f"muting {bounds} m/s: "
                 + (GIVEN if "muting" in given else rule("muting mute") or DEFAULT)
             )
+    trigger = preset.pop("trigger", None)
+    if isinstance(trigger, Mapping) and isinstance(
+        t0 := cast(Mapping[str, Any], trigger).get("t0"), int | float
+    ):
+        used.append(
+            f"trigger t0 {t0:g} s: "
+            + (GIVEN if "trigger" in given else rule("trigger t0") or DEFAULT)
+        )
     for stage, values in preset.items():
         if isinstance(values, Mapping):
             method = cast(Mapping[str, Any], values).get("method")
             if method not in (None, "none"):
-                used.append(f"{stage} {method}: " + (GIVEN if stage in given else DEFAULT))
+                used.append(
+                    f"{stage} {method}: "
+                    + (GIVEN if stage in given else rule(f"{stage} ") or DEFAULT)
+                )
     return tuple(used)
 
 
