@@ -1,36 +1,43 @@
 # The loop: stage tools, retries, going back, asking
 
-How the gates act (option B of `docs/qc_workflow.md`): each stage tool runs its own gate's
-retries and returns one summary; going back across stages is the agent's, with `redo`, but for
-the change of an earlier stage G2 or G3 asks, which `pick` does once itself (below); the agent
-asks the user when the request leaves a choice open or when it is stuck. Code: `src/paco/qc/line.py` (`run_processing`),
-`curves.py` (`pick`), `inverting.py` (`invert`, a job), `redo.py` (`redo_stage`,
-`settle_earlier`), `loops.py` (what the loops share), `budgets.py` (the budgets, and why a retry
-is refused); tools: `src/paco/server.py`; tests: `tests/test_server.py` (the tools end to end),
-`tests/test_inversion.py` (the job), `tests/test_qc_*.py`.
+How the gates act (option B of `docs/qc_workflow.md`): the records and the images are made
+with one set of settings for the whole line, every record and window alike, as a person sets
+them in PAC's pages; the gates judge each record and window, and the changes they ask of the
+records or the images are the line's, tried by the line loop and kept when more windows get a
+curve G3 passes. The picking is each window's, with G3's retries; the inversion each window's,
+with G5's. Each stage tool returns one summary; going back across stages is the agent's, with
+`redo`; the agent asks the user when the request leaves a choice open or when it is stuck.
+Code: `src/paco/qc/line.py` (`run_processing`), `line_loop.py` (the line loop), `curves.py`
+(`pick`), `inverting.py` (`invert`, a job), `redo.py` (`redo_stage`), `loops.py` (what the
+loops share), `budgets.py` (the budgets, and why a retry is refused); tools:
+`src/paco/server.py`; tests: `tests/test_server.py` (the tools end to end),
+`tests/test_inversion.py` (the job), `tests/test_qc_line_loop.py`, `tests/test_qc_*.py`.
 
 ## What each tool runs
 
 | Tool | Stages | Its gate's retries | Left to the agent |
 |---|---|---|---|
-| `run_processing` | S1 per record, G1, the S2 rules (band, window length), S2 per window, G2 | G1: a muted record preprocessed again with its trigger corrected; traces and records it excludes left out of the windows. G2: the phase shift again, in groups sharing the same change (the velocity range first; a passive window's fk threshold halved) | none: G2's mute, an earlier stage, is done once at the end of `pick` |
-| `pick` | S3 and G3 per window, G4 over the line; then the earlier stage G2 or G3 asks for, once | G3: the picking again with its change (corridor, coherence rule, longest wavelength, mode rule, resampling). G4: an outlier picked again along its neighbours' median curve, then G3 on it. At the end, the changes G2 and G3 ask of an earlier stage (the records' mute, the phase shift's band) done once, the stages after it again, then G3 and G4 (`settle_earlier`) | another change of an earlier stage (`redo`) |
-| `invert` (a job) | S4 per window (bounds from its curve), G5, G6 | G5: longer sampling (the iterations 100 models a chain need, or twice), a Vs bound widened, a layer more or fewer. G6: none (a non-unique model is kept: its posterior converged, and sampling longer gives it again) | G5's `no_mode` band: the phase shift, an earlier stage |
-| `redo` | the stage given, for the windows given (by xmid or by flag), then what follows up to G4; the inversion as a job | the gates' own, as above | |
+| `run_processing` | S1 per record, G1, the S2 rules (band, window length, mute), S2 per window, G2, the line loop | G1: the traces and records it excludes left out of the windows. The line loop: the changes G1, G2 and G3 (on a trial pick) ask of the records or the images (a mute, the velocity range, the records' trigger, a passive line's fk threshold), each tried on trial windows and, kept, made on the whole line | none |
+| `pick` | S3 and G3 per window, G4 over the line | G3: the window's picking again with its change (corridor, coherence rule, longest wavelength, mode rule, resampling, a band: the coherent one, or below an alias G2 found). G4: an outlier picked again along its neighbours' median curve, then G3 on it | a change of the line's settings (`redo`) |
+| `invert` (a job) | S4 per window (bounds from its curve), G5, G6 | G5: longer sampling (the iterations 100 models a chain need, or twice), a Vs bound widened, a layer more or fewer. G6: none (a non-unique model is kept: its posterior converged, and sampling longer gives it again) | G5's `no_mode` band: the window's picking, an earlier stage |
+| `redo` | the preprocessing or the phase shift for the whole line (the line's settings changed, some windows only refused), the picking or the inversion for the windows given (by xmid or by flag), then what follows up to G4; the inversion as a job | the gates' own, as above | |
 
-Every retry is an attempt in the run's QC log, triggered by `<gate>:<flag>` (a gate's retry, or
-an earlier stage done again at the end of `pick`) or `backtrack` (the agent's `redo`); its
-results move to `attempts/<n>_<stage>/`. The budgets (rule 4): 2 retries per gate and window, 2
-per window over the run (the earlier stages done again at the end of `pick` among them),
-counted as each is granted (a batch of windows cannot overshoot); G1's retries draw on each
-record's own budget, a window's inversion on its own 6. A unit asking for a retry it cannot
-have is rejected with its last flags: its budget spent (`budget_spent`), the retry would run
-with the parameters of the attempt before (`nothing_to_try`), the earlier stage it blames was
-done again once already (`redone_once`), or it asks only to change settings the user gave
-(`locked`, its reason naming the change asked: `locked, asks dispersion vmax 900 (given:
-250)`). A flag whose change touches a setting the user gave is held back whole, its parts going
-together (G5's longer sampling doubles the iterations and the burn-in); the unit's other flags
-retry.
+Every retry is an attempt in the run's QC log, triggered by `<gate>:<flag>` (a gate's retry)
+or `backtrack` (the agent's `redo`); its results move to `attempts/<n>_<stage>/`. A record or
+an image made again because the line's settings changed (a change the line loop kept, a
+`redo` of the line) is an attempt triggered by `line change`, with no setting of its own: the
+change is the line's, logged on the line's attempt with the loop's notes, and in
+`line_loop.json`. The budgets (rule 4): 2 retries per gate and window, 2 per window over the
+run, counted as each is granted (a batch of windows cannot overshoot); a window's inversion
+draws on its own 6; the line loop keeps 4 changes at most (`QCConfig.line`), outside them. A
+unit asking for a retry it cannot have is rejected with its last flags: its budget spent
+(`budget_spent`), the retry would run with the parameters of the attempt before
+(`nothing_to_try`), or it asks only to change settings the user gave (`locked`, its reason
+naming the change asked: `locked, asks dispersion vmax 375 (given: 250)`). A flag whose change
+touches a setting the user gave is held back whole, its parts going together (G5's longer
+sampling doubles the iterations and the burn-in); the unit's other flags retry. A change of the
+line's settings the line loop did not keep leaves its units as they are, the flag kept as a
+note.
 `redo` is refused once the run's budget is spent.
 
 ## What the agent reads
@@ -85,17 +92,25 @@ The loop retries only where a retry can change the result, and leaves no window 
   measures in the band the images use, the noise before the muting: `G1.md`), G2 for no second
   mode, G3 for no filter or air-wave mute (`G2.md`, `G3.md`), and G6 does not sample a
   converged model longer (`G6.md`); a mute is asked only of records not muted yet.
-- **The earlier stage G2 or G3 blames is done again once, by PACo** (`settle_earlier`, at the
-  end of the agent's `pick`; `redo_stage` with the trigger `<gate>:<flag>`, the run's budget
-  paying): the records muted, or the image made again with the pick's band, then the stages
-  after it up to G4, the windows whose new image G2 rejects left out of the picking (nothing to
-  pick there), the others picked again. Asked again after it, the window is rejected (`redone_once`); the run's
-  budget spent, `budget_spent`. Left to the agent, such a change is not made, and the window is
-  a gap, unsaid. A `pick` that `redo` runs does not start it again: no loop.
-- **G1's retries are the records'**: they count against each record's own budget (2 per
-  gate), not the windows' run budget, and never wait on it: a narrow velocity range can spend
-  the run's budget on G2, and a record's trigger correction in a step back would then be
-  refused. The summary's "Retries: n of N" counts the windows' only.
+- **One set of settings for the line, the line loop changing it** (`line_loop.py`): the
+  records and the images made as a person makes them in PAC's pages, the same settings for every
+  record and window, so that the images compare along the line and a window's fix never makes
+  the images of the windows sharing its records over. The gates still judge each unit; the
+  changes they ask of the records or the images go together by what they change (the records'
+  trigger delays as their median), the one the most failing windows ask first: tried on 15 trial
+  windows, those asking it and the others spread along the line, and kept with 2 more passing
+  G3 without losing a fifth of the curves' longest wavelengths (the mute trial's rule); the
+  whole line is then made again with it, judged again, and the asks read again. A mute keeps
+  the line's median pulse as its width. Measured on the four real lines, fixes made per record
+  and window against the line loop (curves the inversion takes; processing and picking):
+  `active_p1` 69 and 69, 51 s and 46 s; `active_p2` 82 and 90 (the standard mute, which 3
+  noisy windows asked: 15 of 15 trial windows against 11), 544 s and 192 s; `passive_p1` 54
+  and 55 (the fk threshold halved: 8 of 15 against 3), 76 s and 42 s; `passive_p2` 86 and 82,
+  200 s and 80 s (the fk threshold halved helped the 24 windows asking it, and costs the
+  others: 9 of 15 against 12, not kept).
+- **An alias, or competing ridges, limit the window's picking**: G2's alias and G3's
+  `on_data` ask the picking's band of the window (`picking {"fmax": ...}`, `fmin`), the image
+  staying the line's.
 - **A mode jump's first fix cuts the band** where the largest step between points consecutive
   in frequency sits, the side with fewer points going (`picking {"fmax": ...}` or `fmin`); once
   the band is cut, the corridor is halved. Halving the corridor twice does not fix the jump of
@@ -120,9 +135,9 @@ The loop retries only where a retry can change the result, and leaves no window 
   290 m/s, only 13 % of the columns peak on the grid's edge (the ridge lies wholly outside),
   and the correlation's artifact at 1 m/s reads as an alias, which would cut the band to 12 Hz.
   So G2 looks above its 30 m/s floor for the edge, the competing ridges and the aliases, and
-  judges no second ridge while the grid is too narrow. With vmax at 250 m/s, G2 widens the
-  range to 375 m/s on the windows that need it, and every curve passes; at 150 m/s the widening
-  (x1.5, twice) spends the run's budget of 8 retries on 4 windows before the picking.
+  judges no second ridge while the grid is too narrow. With vmax at 250 m/s, G2 asks 375 m/s
+  of the windows that need it: the line loop widens the line's range when it gains windows; a
+  range the user gave stays, and those windows are rejected, `locked`.
 - **The ladder's trial windows get G2's velocity-range fix before G3 judges them**: a grid too
   narrow for the ground is no fault of the window's length.
 - **A band wholly below the usable one** (a record usable only from 122 Hz, a preset fmax of

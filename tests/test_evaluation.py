@@ -689,12 +689,16 @@ def test_the_agent_asks_or_not() -> None:
     options = "Scope: process.\n\nactive_p1 has 1 run.\n\n(1) a new run\n(2) work on run r (images)"
     assert asked_the_user()(_trial([], options)).passed
     # A choice the text asks for, without a question mark, asks too.
-    choose = "Choose a valid length: 1. the whole line (96 receivers), 2. half of it (48)."
-    assert asked_the_user()(_trial([], choose)).passed
+    for choose in (
+        "Choose a valid length: 1. the whole line (96 receivers), 2. half of it (48).",
+        "Choose between keeping the curves and picking them again.",
+    ):
+        assert asked_the_user()(_trial([], choose)).passed
     # Words of a statement are no question: the answer form lets none into the text.
     for told in (
         "G3 selected 3 windows; the choice of length was mine.",
         "Gaps remain at xmid 2.88 m, as per your choice to keep the work made by hand.",
+        "Recommendation: Choose the 6-m window for deeper investigation.",
     ):
         assert asked_nothing()(_trial([], told)).passed
 

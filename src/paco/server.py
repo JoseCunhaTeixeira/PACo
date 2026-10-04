@@ -531,10 +531,10 @@ def redo(
     ] = None,
     hand: Hand = None,
 ) -> StageResult:
-    """Go back to a stage for some windows (all, without xmids or flag) with changes, and redo
-    what follows up to G4: preprocessing (their records), phase_shift or picking; inversion runs
-    as a job to follow with job_status. For a change a gate asked of an earlier stage. Work made
-    by hand there gives options first."""
+    """Go back to a stage with changes, and redo what follows up to G4: preprocessing or
+    phase_shift, the line's, for every window (no xmids, no flag); picking for some windows
+    (all, without xmids or flag); inversion runs as a job to follow with job_status. For a
+    change a gate asked of an earlier stage. Work made by hand there gives options first."""
     settings = _settings()
     with _writing(run_id, "redo"):
         units = qc.select_windows(run_id, settings, xmids, flag)

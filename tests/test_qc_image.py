@@ -157,7 +157,7 @@ def test_a_second_ridge_of_similar_strength_is_a_higher_mode() -> None:
     assert _flags(_image(_ridge(M0, 0.8), _ridge(M0 * 1.8, 0.3))) == {}
 
 
-def test_a_second_ridge_below_the_aliasing_limit_cuts_the_band() -> None:
+def test_a_second_ridge_below_the_aliasing_limit_stops_the_windows_picking() -> None:
     coarse = _line(10, spacing=5.0)  # the alias limit 2 dx f is 100 to 400 m/s here
     image = _image(_ridge(M0, 0.8), _ridge(M0 + 300, 0.7), acquisition=coarse)
     coherent = coherent_columns(image, 0.3)
@@ -168,13 +168,11 @@ def test_a_second_ridge_below_the_aliasing_limit_cuts_the_band() -> None:
     # M0 = 150 + 250 exp(-f/15) drops below 10 f between 21 and 22 Hz.
     first = FREQUENCIES[alias][0]
     assert first == 21.5
+    # The image is the line's: the window's picking stops below the alias, the image stands.
     assert flags == {
-        "aliasing": {
-            "kind": "override",
-            "stage": "phase_shift",
-            "overrides": {"dispersion": {"fmax": float(first)}},
-        }
+        "aliasing": {"kind": "override", "stage": "picking", "overrides": {"fmax": float(first)}}
     }
+    assert judge_image("xmid_12.50", image, THRESHOLDS).verdict == "pass"
 
 
 def test_weak_or_absent_coherence_suggests_a_mute() -> None:

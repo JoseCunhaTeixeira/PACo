@@ -326,13 +326,13 @@ def test_points_no_mode_of_the_model_reaches_reject_the_curve() -> None:
     result = _judge(_measures(fits=(fits[0], at)))
     assert result.verdict == "reject"
     flag = _flags(result)["no_mode"]
-    assert (flag.stage, flag.fixable) == ("phase_shift", False)
+    assert (flag.stage, flag.fixable) == ("picking", False)
     assert flag.action.model_dump() == {
         "kind": "override",
-        "stage": "phase_shift",
-        "overrides": {"dispersion": {"fmax": 57.0}},
+        "stage": "picking",
+        "overrides": {"fmax": 57.0},
     }
-    assert flag.message.endswith("redo the phase shift with the band below 60 Hz.")
+    assert flag.message.endswith("redo the picking with the band below 60 Hz.")
 
 
 def test_thresholds_round_trip() -> None:

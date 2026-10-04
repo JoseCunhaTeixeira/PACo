@@ -756,11 +756,13 @@ def job_id(trial: Trial) -> str:
 
 # The options code lists under an answer's question, one a line: "(1) a new run".
 _OPTION_LINE = re.compile(r"^\(1\) ", re.MULTILINE)
-# A choice the model's text asks for ("Choose a valid length: 1. ..."); "your choice" in a
-# statement asks nothing.
+# A choice the model's text asks for, with the options it offers ("Choose a valid length: 1.
+# ...", "choose between ..."); "your choice" in a statement, or a recommendation ("Choose the
+# 6-m window"), asks nothing.
 _CHOICE = re.compile(
-    r"\bchoose\b|\bwhich (one|option|you prefer)\b|\breply with\b|\bselect (one|your)\b"
-    r"|\byou prefer\b",
+    r"\b(?:choose|select)\b[^.?!\n]*?:\s*(?:1[.)]|\(1\))"
+    r"|\b(?:choose|select) (?:between|one of|an option|from)\b"
+    r"|\bwhich (?:one|option|you prefer)\b|\breply with\b|\bselect (?:one|your)\b|\byou prefer\b",
     re.IGNORECASE,
 )
 

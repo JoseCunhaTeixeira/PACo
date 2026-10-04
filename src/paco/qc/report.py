@@ -16,7 +16,7 @@ from pydantic import BaseModel, ConfigDict
 from sigpipe.masw.runs import RunManifest
 from sigpipe.masw.runs.writing import write_atomic
 
-from paco.qc.log import MUTE_TRIAL, read_attempts, retries_in_run, retries_of_inversion
+from paco.qc.log import RULES, read_attempts, retries_in_run, retries_of_inversion
 from paco.qc.models import (
     Action,
     Attempt,
@@ -220,8 +220,8 @@ def build_report(run_id: str, run_folder: Path, budgets: Budgets, n_xmids: int) 
     before: dict[tuple[str, Stage], dict[str, Any]] = {}
     for attempt in attempts:
         key = (attempt.unit, attempt.stage)
-        # A rule's choice, the mute trial's records, is no retry.
-        if attempt.triggered_by not in ("initial", MUTE_TRIAL):
+        # A rule's choice of the line's settings (the mute trial's, the line loop's) is no retry.
+        if attempt.triggered_by not in ("initial", *RULES):
             if attempt.unit not in retried[attempt.triggered_by]:
                 retried[attempt.triggered_by].append(attempt.unit)
             # Against the attempt before, or the one it replaced when it started afresh. A

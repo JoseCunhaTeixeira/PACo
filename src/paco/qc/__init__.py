@@ -38,7 +38,7 @@ from .inverting import (
     submit_inversion,
 )
 from .judging import judge_line, judge_picking, judge_records, judge_run, judge_windows
-from .line import process_line, settle_images, settle_records
+from .line import judge_images, process_line, settle_line, settle_records
 from .log import (
     ASKED,
     LOG_FILE,
@@ -182,6 +182,7 @@ __all__ = [
     "invert_petro_line",
     "invertible",
     "judge_curves",
+    "judge_images",
     "judge_inversions",
     "judge_line",
     "judge_model",
@@ -224,7 +225,7 @@ __all__ = [
     "run_work",
     "select_windows",
     "settle_curves",
-    "settle_images",
+    "settle_line",
     "settle_models",
     "settle_records",
     "snapshot_qc_config",

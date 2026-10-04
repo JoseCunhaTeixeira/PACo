@@ -102,8 +102,7 @@ you> Process active_p1 with windows of 24 receivers, every 24 receivers, and pic
    run_processing: 4 of 4 windows
 -> pick({"run_id": "20260924-175047-f0a0"})
 
-paco> The 4 curves passed G3 and G4. G1 corrected the records' 19 and 10 ms trigger delays and
-left out traces 1, 89 and 90 of 2.dat.
+paco> The 4 curves passed G3 and G4. G1 left out traces 1, 89 and 90 of 2.dat.
 
 Parameters used:
 - mode active: the profile's kind
@@ -112,14 +111,16 @@ Parameters used:
 - ...
 
 Settings the gates changed:
-- trigger t0 the default -> 0.0188 at 1.dat, 2.dat (each window its own), by G1:shifted_trigger
 - 2.dat: traces [1, 89, 90] left out of the windows
 - ...
 ```
 
 PACo processes a profile in PAC's three modes: active (shots), passive-active (interferometry on
 the shots) and passive (ambient noise); ask for another mode in plain words. Given no window
-length, it chooses the one whose curves are best, from trial windows.
+length, it chooses the one whose curves are best, from trial windows. Like a run made in PAC's
+pages, a run has one set of settings for its records and its images, the same for every window,
+which PACo changes for the whole line when more windows then give a curve that passes; each
+window's curve is picked on its own, and each curve inverted with settings of its own.
 
 Other commands:
 - `uv run paco-evaluate` plays the scenarios (5 times each) and reports each one's pass rate;
