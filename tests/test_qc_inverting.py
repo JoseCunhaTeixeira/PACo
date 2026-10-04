@@ -35,7 +35,13 @@ from paco.qc import (
     read_report,
 )
 from paco.qc.given import give
-from paco.qc.inverting import MEASURES_FILE, judge_inversions, rerun_inversion
+from paco.qc.inverting import (
+    MEASURES_FILE,
+    QUICK_SAMPLER,
+    judge_inversions,
+    rerun_inversion,
+    with_effort,
+)
 from paco.qc.models import Flag, GateResult, Override
 from paco.settings import Settings
 
@@ -383,3 +389,40 @@ def test_a_retry_keeps_the_bounds_the_user_gave_for_every_window(
         assert derived.parameters.n_iterations == 3_000
         assert derived.parameters.vs_layers[-1].vs_max == 180.0
         assert derived.notes[0].endswith("kept as given (the check sets 450 m/s).")
+
+
+def test_a_quick_inversion_samples_short_where_the_user_gave_nothing(tmp_path: Path) -> None:
+    derived = Derived(parameters=InversionParameters(), notes=(), reach_m=10.0)
+    quick = Settings(input_dir=tmp_path, output_dir=tmp_path, inversion_effort="quick")
+
+    short = with_effort(derived, None, quick).parameters
+    given = with_effort(derived, {"n_iterations": 50_000}, quick).parameters
+
+    assert (short.n_iterations, short.n_burnin_iterations, short.n_chains) == (3_000, 750, 2)
+    # The user's own sampler kept: the effort changes only what they did not give.
+    assert given.n_iterations == InversionParameters().n_iterations
+    assert given.n_chains == QUICK_SAMPLER["n_chains"]
+    full = Settings(input_dir=tmp_path, output_dir=tmp_path)
+    assert with_effort(derived, None, full) is derived
+
+
+def test_windows_named_are_inverted_quickly_too(
+    demo_input_dir: Path, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    # A window inverted for the first time because a call names it, at the quick effort.
+    settings = Settings(
+        input_dir=demo_input_dir,
+        output_dir=tmp_path / "outputs",
+        workers=2,
+        inversion_effort="quick",
+    )
+    monkeypatch.chdir(tmp_path)
+    run_id = run_processing("active_p1", "active", SMALL_WINDOWS, settings).run_id
+    no_retry = QCConfig(budgets=Budgets(per_gate_and_unit=0, inversion_per_window=0))
+    judge_run(run_id, settings, no_retry)
+
+    rerun_inversion(run_id, ["xmid_8.88"], {}, settings)
+
+    attempt = latest(read_attempts(find_run(run_id, settings)), "xmid_8.88", "inversion")
+    assert attempt is not None
+    assert {key: attempt.parameters[key] for key in QUICK_SAMPLER} == QUICK_SAMPLER

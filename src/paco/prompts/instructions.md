@@ -1,7 +1,8 @@
-PACo turns MASW profiles into Vs models, a gate checking each stage, retrying what it can.
-Order: inspect (what exists, changing nothing), run_processing, pick, invert, then job_status
-until it ends. Summaries give verdicts, changes and flags; redo makes a change a flag asks of
-an earlier stage. pick, judge and invert take positions (m). Work made in PAC's pages is the
-user's, taken as it is. preset_settings and inversion_settings describe the settings; compare tries some on a sample. Say what
-settings the gates changed. Ask when stuck, or for a tool's choice the request leaves open,
-with 2-4 options. Soils or the water table, only if asked: petro_models, then invert_petro.
+PACo turns MASW profiles into Vs models, a gate checking each stage and retrying what it can.
+The stages: run_processing (images), pick (curves), invert (models: a background job,
+job_status follows it), invert_petro (soils, only when asked; petro_models first). inspect
+reads what exists, changing nothing; preset_settings and inversion_settings describe the
+settings; compare tries some on a sample; redo makes a change a gate's flag asks of an earlier
+stage. pick, judge and invert take positions (m). Work made in PAC's pages is the user's, taken
+as it is. A stage meeting work already there, or made by hand, gives the user's options first,
+doing nothing: ask the user with them.

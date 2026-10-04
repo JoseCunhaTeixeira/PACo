@@ -31,6 +31,7 @@ LOOK: dict[str, Any] = {
     "replace_hand_work": False,
     "option": None,
     "workers": None,
+    "mode": None,
 }
 
 

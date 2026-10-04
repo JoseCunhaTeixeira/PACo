@@ -72,6 +72,8 @@ READ_ONLY = frozenset(
 )
 # The calls a host made on a run, one JSON line each, in the run's folder (O1).
 CALLS_FILE = "agent_calls.jsonl"
+# The newest runs the host lists when the run a message names does not exist.
+NEWEST_RUNS = 5
 # The workers the message of the call being served asks (its scope), at most the machine's
 # cores; None: the settings' own.
 _WORKERS: ContextVar[int | None] = ContextVar("paco_workers", default=None)
@@ -179,13 +181,34 @@ def inspect(
 
 
 @server.resource(
-    "paco://profiles/{profile}/latest-run",
-    mime_type="text/plain",
-    description="The profile's latest run and what it holds, for the host to tell the model.",
+    "paco://profiles/{profile}/runs",
+    mime_type="application/json",
+    description="The profile's runs with images, the newest first: each its id and how it was "
+    "made, for the host to settle the run a message works on.",
 )
-def latest_run(profile: str) -> str:
-    """Read by the host with each message naming a profile, not by the model: no tool call."""
-    return inspection.latest_run(profile, get_settings()) or "none yet."
+def profile_runs(profile: str) -> str:
+    """Read by the host, not by the model: no tool call."""
+    return json.dumps({"runs": choices.listed(get_settings(), profile)})
+
+
+@server.resource(
+    "paco://runs/{run_id}",
+    mime_type="application/json",
+    description="A run: its profile and how it was made; a run PACo does not have, an error.",
+)
+def run_described(run_id: str) -> str:
+    """Read by the host, to check a run a message names."""
+    return json.dumps(choices.described(run_id, get_settings()))
+
+
+@server.resource(
+    "paco://runs",
+    mime_type="application/json",
+    description="The newest runs with images, of every profile.",
+)
+def newest_runs() -> str:
+    """Read by the host when a run a message names does not exist and it names no profile."""
+    return json.dumps({"runs": choices.listed(get_settings(), most=NEWEST_RUNS)})
 
 
 @server.tool(annotations=READS)
@@ -229,11 +252,12 @@ def run_processing(
         anyio.from_thread.run(ctx.report_progress, done, total, f"{done} of {total} windows")
 
     settings = _settings()
-    _preset(profile, mode)  # a mode the profile cannot take refused first
     spacing = profiles.inspect_profile(profile, settings).receiver_spacing_m
     conversation = _conversation(ctx)
     overrides = _asked_window(conversation, overrides)
     overrides, in_metres = qc.in_receivers(overrides, spacing)
+    mode = _asked_mode(ctx, mode)
+    _preset(profile, mode)  # a mode the profile cannot take refused first
     given = {"overrides": overrides} if overrides else {}
     given |= {"mode": mode} if mode else {}
     again = again and conversation.allows("run_processing", "again=true")
@@ -586,6 +610,19 @@ def _writing(run_id: str, tool: str) -> AbstractContextManager[None]:
     return run_lock(run_folder, f"PACo ({tool})", wait_s=WRITER_WAIT_S)
 
 
+def _asked_mode(
+    ctx: object, mode: Literal["active", "passive", "passive-active"] | None
+) -> Literal["active", "passive", "passive-active"] | None:
+    """The mode run_processing runs in: the one the call's message names (its scope), whatever
+    the model wrote, else the call's."""
+    meta = ctx.request_context.meta if isinstance(ctx, Context) else None
+    scope = meta.get("scope") if isinstance(meta, dict) else None
+    named = scope.get("mode") if isinstance(scope, dict) else None
+    if named == "active" or named == "passive" or named == "passive-active":
+        return named
+    return mode
+
+
 def _workers_asked(ctx: object) -> int | None:
     """The workers the call's message asked, as its scope says them (paco.agent.scope); None
     when it asked none, or from a client that sends no scope."""
@@ -797,6 +834,7 @@ class _Scope(BaseModel):
     compared: dict[Literal["length", "length_m"], list[float]] = {}
     chosen: str | None = None
     workers: int | None = None  # applied to the call's work (_settings)
+    mode: Literal["active", "passive", "passive-active"] | None = None  # run_processing's
 
 
 def _asked_window(
@@ -957,7 +995,7 @@ def _after_processing(
             "with a change the flags suggest, a new run with other settings, or stopping here.",
             stuck=True,
         )
-    step = f"pick comes next for run_id {report.run_id}, if the user asked for curves or models."
+    step = f"Run {report.run_id}'s images are made: pick gives their curves."
     if length_given or choice is None:
         return _Next(step)
     return _Next(qc.length_hint(choice, step))
@@ -980,9 +1018,9 @@ def _after_picking(report: qc.QCReport) -> _Next:
         and unit.verdicts.get("G4") == "pass"
     ]
     return _Next(
-        f"{len(curves)} curves passed G3 and G4. invert can run on run_id {report.run_id}, if the "
-        "user asked for models; otherwise answer. Higher modes (M1, M2) are picked by hand in "
-        "PAC's Dispersion picking page, then invert takes them with M0."
+        f"{len(curves)} curves of run {report.run_id} passed G3 and G4: invert gives their models. "
+        "Higher modes (M1, M2) are picked by hand in PAC's Dispersion picking page, then invert "
+        "takes them with M0."
     )
 
 

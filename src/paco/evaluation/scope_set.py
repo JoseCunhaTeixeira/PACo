@@ -38,6 +38,7 @@ NOTHING: dict[str, Any] = {
     "replace_hand_work": False,
     "option": None,
     "workers": None,
+    "mode": None,
 }
 # What an answer to an offer is scored on: the profile and run come from the conversation.
 ANSWER = ("process", "pick", "invert", "soils", "redo", "replace_hand_work", "option")
@@ -144,6 +145,15 @@ CASES: tuple[Case, ...] = (
         {"process": True, "invert": True, "profile": "active_p1", "workers": 10},
     ),
     Case("Inverse active_p1 sur 4 cœurs.", {"invert": True, "profile": "active_p1", "workers": 4}),
+    # The processing mode, in its words.
+    Case(
+        "Process active_p1 using the passive-active method and invert it.",
+        {"process": True, "invert": True, "profile": "active_p1", "mode": "passive-active"},
+    ),
+    Case(
+        "Traite active_p1 en mode actif.",
+        {"process": True, "profile": "active_p1", "mode": "active"},
+    ),
     Case(
         "Process passive_p1 and give me the soils.",
         {"process": True, "soils": True, "profile": "passive_p1"},

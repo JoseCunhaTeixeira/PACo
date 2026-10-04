@@ -251,12 +251,51 @@ def processing(
     options = [("a new run", call("run_processing", profile=profile, **given, again=True))]
     shown = there[:_RUNS_OFFERED]
     for run_id, _, manifest, work in shown:
-        label = f"work on run {run_id} ({_made(manifest, work)})"
+        label = f"work on run {run_id} ({run_label(manifest, work)})"
         options.append((label, _work_on(run_id, _Counts(work), stages)))
     what = " ".join(held(run_folder, manifest, work) for _, run_folder, manifest, work in shown)
     if len(there) > len(shown):
         what += f" {_of(len(there) - len(shown), 'older runs')} too (inspect lists them)."
     return choose(there[0][0], what, "to process", options)
+
+
+def listed(
+    settings: Settings, profile: str | None = None, most: int | None = None
+) -> list[dict[str, str]]:
+    """The runs with images, the newest first, of `profile` or of every profile (the `most`
+    newest): each its id, profile, label (run_label) and how far it went, for the host to
+    settle the run a message works on."""
+    found = [one.split("/", 1) for one in list_runs(settings)]
+    ids = [run_id for name, run_id in found if profile is None or name == profile]
+    runs: list[dict[str, str]] = []
+    for run_id, run_folder, manifest in _readable(ids, settings):
+        work = run_work(run_folder, manifest)
+        if any(one.image is not None for one in work.values()):
+            runs.append(
+                {
+                    "run_id": run_id,
+                    "profile": manifest.profile.name,
+                    "label": run_label(manifest, work),
+                    "went": went(work),
+                }
+            )
+            if most is not None and len(runs) >= most:
+                break
+    return runs
+
+
+def described(run_id: str, settings: Settings) -> dict[str, str]:
+    """Run `run_id`: its id, profile and label (run_label). Raises RunError for a run PACo does
+    not have."""
+    run_folder = find_run(run_id, settings)
+    manifest = load_manifest(run_id, settings)
+    work = run_work(run_folder, manifest)
+    return {
+        "run_id": run_id,
+        "profile": manifest.profile.name,
+        "label": run_label(manifest, work),
+        "went": went(work),
+    }
 
 
 def processing_first(conversation: Conversation, run_id: str, profile: str) -> Choice | None:
@@ -274,13 +313,17 @@ def processing_first(conversation: Conversation, run_id: str, profile: str) -> C
     )
 
 
-def _made(manifest: RunManifest, work: dict[str, WindowWork]) -> str:
+def run_label(manifest: RunManifest, work: dict[str, WindowWork]) -> str:
     """How a run was made and how far it went, in a few words: "active, windows of 7
     receivers, curves"."""
     preset = manifest.preset.model_dump(mode="json")
+    return f"{preset['mode']}, windows of {preset['masw']['length']} receivers, {went(work)}"
+
+
+def went(work: dict[str, WindowWork]) -> Literal["images", "curves", "models"]:
+    """How far a run went: its models, its curves, else its images."""
     count = _Counts(work)
-    went = "models" if count.models else "curves" if count.curves else "images"
-    return f"{preset['mode']}, windows of {preset['masw']['length']} receivers, {went}"
+    return "models" if count.models else "curves" if count.curves else "images"
 
 
 def _work_on(run_id: str, count: _Counts, stages: frozenset[str] | None) -> str:

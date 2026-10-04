@@ -31,3 +31,5 @@ soils (soils). Fill the form with what the message asks, nothing more.
   chooses none: null.
 - workers: the number of workers, processes or CPU cores the message asks the work to use
   (use 10 workers, sur 4 cœurs: 10, 4), else null.
+- mode: the processing mode the message names (active, passive, passive-active; the
+  passive-active method: passive-active), else null.

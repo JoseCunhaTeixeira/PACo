@@ -10,7 +10,7 @@ import math
 import traceback
 from collections.abc import Callable, Mapping, Sequence
 from concurrent.futures import Future, ProcessPoolExecutor
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from datetime import UTC, datetime
 from itertools import pairwise
 from pathlib import Path
@@ -271,6 +271,20 @@ def _run_job(
     return record
 
 
+# The sampler where the user gave none, at the quick effort (Settings.inversion_effort): 15
+# models a chain (one every SAVE_EVERY of 150 after the burn-in), two chains.
+QUICK_SAMPLER: dict[str, int] = {"n_iterations": 3_000, "n_burnin_iterations": 750, "n_chains": 2}
+
+
+def with_effort(derived: Derived, given: Mapping[str, Any] | None, settings: Settings) -> Derived:
+    """`derived` at the settings' inversion effort: quick, the sampler's fields the user did not
+    give (`given`) short (QUICK_SAMPLER); full, as derived."""
+    if settings.inversion_effort != "quick":
+        return derived
+    quick = {key: value for key, value in QUICK_SAMPLER.items() if key not in (given or {})}
+    return replace(derived, parameters=derived.parameters.model_copy(update=quick))
+
+
 def judge_inversions(
     run_id: str,
     settings: Settings,
@@ -297,7 +311,9 @@ def judge_inversions(
     mine = locked(run_folder, "inversion")
     for unit, curve in pending.items():
         try:
-            jobs[unit] = derive_inversion(curve, config.priors, given, mine)
+            jobs[unit] = with_effort(
+                derive_inversion(curve, config.priors, given, mine), given, settings
+            )
         except InversionError as error:
             refused[unit] = error
     if refused and not jobs:
@@ -362,7 +378,9 @@ def rerun_inversion(
         previous = latest(attempts, unit, "inversion")
         base = dict(previous.parameters) if previous is not None else {}
         again = given_again(base, overrides)
-        jobs[unit] = derive_inversion(ready[unit], config.priors, again, mine)
+        jobs[unit] = with_effort(
+            derive_inversion(ready[unit], config.priors, again, mine), again, settings
+        )
     depths = line_depths(ready)
     results = _invert(
         run_folder, jobs, depths, config, triggered_by, settings.workers, on_progress, on_window

@@ -71,22 +71,6 @@ def runs_text(settings: Settings) -> str:
     return "\n".join(lines)
 
 
-def latest_run(profile: str, settings: Settings) -> str | None:
-    """The profile's latest run whose manifest reads, in one line (who made it, its windows,
-    what it holds): the host tells the model, which then makes no run id up; None when the
-    profile has none."""
-    for run in list_runs(settings):
-        name, run_id = run.split("/", 1)
-        if name != profile:
-            continue
-        try:
-            load_manifest(run_id, settings)
-        except RunError, ValidationError:
-            continue
-        return _run_line(run_id, settings)
-    return None
-
-
 def run_text(run_id: str, settings: Settings) -> str:
     """One run: who made it, its windows and settings, the retries it spent, then its windows,
     those alike next to each other in one line (their image, curves and model, who made each,

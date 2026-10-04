@@ -40,6 +40,7 @@ ASKS_PICK = Scope(
     replace_hand_work=False,
     option=None,
     workers=None,
+    mode=None,
 )
 PICKED = json.dumps(
     {

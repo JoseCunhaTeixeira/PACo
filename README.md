@@ -123,7 +123,8 @@ length, it chooses the one whose curves are best, from trial windows.
 
 Other commands:
 - `uv run paco-evaluate` plays the scenarios (5 times each) and reports each one's pass rate;
-  `--history` compares the evaluations kept, by model and prompts' version.
+  its inversions are quick (the agent is measured, not the models), `--full-inversion` for
+  PAC's effort; `--history` compares the evaluations kept, by model and prompts' version.
 - `uv run paco-replay RUN_ID` makes a run again from its inputs and its log, and checks that the
   records, images and curves come out the same.
 - `uv run paco-call TOOL '{...}'` calls one tool without the model; `--list` names the tools.
@@ -150,12 +151,15 @@ Other commands:
 ## How PACo works
 
 - **The scope of your message.** Before any tool runs, the model reads your message into a
-  form: the stages asked, the profile or run, the positions, the windows, the workers ("use 8
-  workers"). Code refuses calls outside it, and the answer starts with that line, for you to
-  check what PACo read.
-- **Work already there.** Asked to process a profile that has runs, PACo asks whether to make
-  a new run or which run to work on. It goes on from a run's work, and asks before redoing it
-  (the windows without a curve, everything again); the options wait until you choose, and your
+  form: the stages asked, the profile or run, the positions, the windows, the mode, the
+  workers ("use 8 workers"). Code refuses calls outside it, and the answer starts with that
+  line, for you to check what PACo read.
+- **The run.** Code settles it before the model acts: the run you name (or says it does not
+  exist, with the runs there); asked to process a profile that has runs, whether to make a new
+  run or which run to work on; asked only later stages, the run the conversation is on, else
+  which run when the profile has several. The model then gets one plan on that run.
+- **Work already there.** PACo goes on from a run's work, and asks before redoing it (the
+  windows without a curve, everything again); the options wait until you choose, and your
   choice goes on with what you asked.
 - **Your work in PAC.** Curves, runs and models you make in PAC's pages are yours: no gate judges
   or changes them, and PACo asks before replacing one (the old one kept in `by_hand/`).
