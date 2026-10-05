@@ -25,14 +25,13 @@ from mcp.server.mcpserver.exceptions import ToolError
 from mcp.server.transport_security import TransportSecuritySettings
 from mcp.types import ToolAnnotations
 from pydantic import BaseModel, ConfigDict, Field, ValidationError
-from sigpipe.algorithms.picking.dispersion.tracking import PickingParameters
 from sigpipe.masw import presets, profiles, runs
 from sigpipe.masw.inversion import InversionParameters, priors
 from sigpipe.masw.runs import caching
 from sigpipe.masw.runs.writing import run_lock
 from sigpipe.workers import one_thread_each
 
-from paco import choices, inspection, inversion, logs, prompts, qc, stopping
+from paco import choices, ignoring, inspection, inversion, logs, prompts, qc, stopping
 from paco.jobs import JobManager
 from paco.qc import StageResult
 from paco.runs import image_cache
@@ -257,12 +256,15 @@ def run_processing(
     overrides = _asked_window(conversation, overrides)
     overrides, in_metres = qc.in_receivers(overrides, spacing)
     mode = _asked_mode(ctx, mode)
-    _preset(profile, mode)  # a mode the profile cannot take refused first
+    # A mode the profile cannot take refused first; the settings the preset does not have set
+    # aside, said.
+    cleaned = ignoring.preset_overrides(_preset(profile, mode), overrides)
+    overrides, ignored = cleaned.values, cleaned.ignored
     given = {"overrides": overrides} if overrides else {}
     given |= {"mode": mode} if mode else {}
     again = again and conversation.allows("run_processing", "again=true")
     if not again and (asked := choices.processing(profile, conversation, settings, given)):
-        return _chosen(asked)
+        return _chosen(asked, ignored)
     # The mode as an argument, as preset_settings takes it: a model that asked preset_settings
     # for a mode may leave it out of the overrides.
     if mode is not None:
@@ -283,7 +285,9 @@ def run_processing(
     mutes = qc.describe_mutes(muting) if muting is not None else ()
     manifest = runs.load_manifest(result.run_id, settings)
     used = qc.processing_used(manifest, overrides, (*in_metres, *_line_notes(result)))
-    return processed.model_copy(update={"lengths": lengths, "mutes": mutes, "used": used})
+    return processed.model_copy(
+        update={"lengths": lengths, "mutes": mutes, "used": used, "ignored": ignored}
+    )
 
 
 @server.tool(annotations=ADDS)
@@ -312,7 +316,17 @@ def compare(
     table and the best. To optimise, take the metric closest to the request and say it."""
     variants = _compared_variants(_conversation(ctx), variants)
     settings = _settings()
-    return qc.compare_settings(profile, variants, metric, settings, _qc_config(settings))
+    ignored: list[str] = []
+    kept: list[dict[str, Any]] = []
+    for variant in variants:
+        mode = variant.get("mode")
+        cleaned = ignoring.preset_overrides(
+            _preset(profile, mode if isinstance(mode, str) else None), variant
+        )
+        kept.append(cleaned.values or {})
+        ignored += [one for one in cleaned.ignored if one not in ignored]
+    compared = qc.compare_settings(profile, kept, metric, settings, _qc_config(settings))
+    return compared.model_copy(update={"ignored": tuple(ignored)})
 
 
 @server.tool(annotations=REPLACES)
@@ -338,12 +352,13 @@ def pick(
         run_folder = runs.find_run(run_id, settings)
         manifest = runs.load_manifest(run_id, settings)
         positions = _asked_positions(conversation, positions)
-        changes = checked_picking(changes)
+        cleaned = _typos_refused(ignoring.picking_changes(changes))
+        changes, ignored = cleaned.values, cleaned.ignored
         units, read = _positions(run_id, positions, settings)
         given = _given(positions=positions, changes=changes)
         planned = choices.picking(run_folder, manifest, conversation, units, windows, hand, given)
         if isinstance(planned, choices.Choice):
-            return _chosen(planned)
+            return _chosen(planned, ignored)
         trigger = qc.ASKED if planned.units is not None else "initial"
         qc.give(run_folder, "picking", changes)
         report = qc.pick_line(
@@ -353,7 +368,9 @@ def pick(
         picked = _stage_result(
             report, ("G3", "G4"), ("picking",), _after_picking(report), "Picked", read
         )
-        return picked.model_copy(update={"used": _picking_used(run_id, settings, changes)})
+        return picked.model_copy(
+            update={"used": _picking_used(run_id, settings, changes), "ignored": ignored}
+        )
 
 
 @server.tool(annotations=ADDS)
@@ -405,6 +422,8 @@ def invert(
     (values given are checked), G5 and G6 retrying what they can. Follow it with job_status.
     Models already there, or made by hand, give options first."""
     settings = _settings()
+    cleaned = ignoring.inversion_parameters(parameters)
+    parameters, ignored = cleaned.values, cleaned.ignored
     checked = priors.checkable(parameters, priors.PriorRules().n_layers) if parameters else None
     _parse(InversionParameters, checked, "parameters", "inversion_settings")
     with _writing(run_id, "invert"):
@@ -416,7 +435,7 @@ def invert(
         given = _given(parameters=parameters, positions=positions)
         planned = choices.inverting(run_folder, manifest, conversation, units, windows, hand, given)
         if isinstance(planned, choices.Choice):
-            return _chosen(planned)
+            return _chosen(planned, ignored)
         notes = _judged_first(run_id, settings)
         qc.give(run_folder, "inversion", parameters)
         if planned.units is not None:
@@ -425,7 +444,7 @@ def invert(
             if left_out:
                 where = qc.stretches([_xmid(unit) for unit in left_out])
                 said = (*said, f"Left out, without a curve the inversion takes: {where}.")
-            record = qc.submit_inversion(run_id, parameters, settings, units, said)
+            record = qc.submit_inversion(run_id, parameters, settings, units, said, ignored)
             job = functools.partial(
                 qc.run_inversion_job,
                 record,
@@ -437,7 +456,7 @@ def invert(
                 planned.replace_hand,
             )
         else:
-            record = qc.submit_inversion(run_id, parameters, settings, notes=notes)
+            record = qc.submit_inversion(run_id, parameters, settings, notes=notes, ignored=ignored)
             job = functools.partial(qc.run_inversion_job, record, settings)
         choices.worked(conversation, run_id)
         JOBS.submit(record.job_id, stopping.bound(job))
@@ -539,10 +558,20 @@ def redo(
     with _writing(run_id, "redo"):
         units = qc.select_windows(run_id, settings, xmids, flag)
         run_folder = runs.find_run(run_id, settings)
-        work = qc.run_work(run_folder, runs.load_manifest(run_id, settings))
+        manifest = runs.load_manifest(run_id, settings)
+        work = qc.run_work(run_folder, manifest)
+        cleaned = (
+            ignoring.picking_changes(changes)
+            if stage == "picking"
+            else ignoring.inversion_parameters(changes)
+            if stage == "inversion"
+            else ignoring.preset_overrides(manifest.preset, changes)
+        )
+        # A misspelled setting refused before the work: the job would fail on it later.
+        changes, ignored = _typos_refused(cleaned).values, cleaned.ignored
         conversation = _conversation(ctx)
         if asked := choices.redoing(conversation, run_id, stage, units, work, hand, changes):
-            return _chosen(asked)
+            return _chosen(asked, ignored)
         choices.worked(conversation, run_id)
         replace_hand = hand == "replace"
         if stage == "inversion":
@@ -551,7 +580,7 @@ def redo(
             run_folder = runs.find_run(run_id, settings)
             n_windows = len(runs.load_manifest(run_id, settings).windows)
             qc.check_budget(run_id, run_folder, qc.read_qc_config(run_folder), n_windows)
-            record = qc.submit_inversion(run_id, None, settings)
+            record = qc.submit_inversion(run_id, None, settings, ignored=ignored)
             JOBS.submit(
                 record.job_id,
                 stopping.bound(
@@ -572,6 +601,7 @@ def redo(
                 summary=f"Inversion of {len(units)} window(s) started again as job {record.job_id}.",
                 next=f"Follow it with job_status: job_id {record.job_id}.",
                 job_id=record.job_id,
+                ignored=ignored,
             )
         report = qc.redo_stage(run_id, stage, units, changes, settings, replace_hand=replace_hand)
         picking = _picking_used(run_id, settings)
@@ -579,7 +609,7 @@ def redo(
             redone = _stage_result(
                 report, ("G3", "G4"), ("picking",), _after_picking(report), "Picked again"
             )
-            return redone.model_copy(update={"used": picking})
+            return redone.model_copy(update={"used": picking, "ignored": ignored})
         redone = _stage_result(
             report,
             ("G1", "G2", "G3", "G4"),
@@ -590,7 +620,7 @@ def redo(
         processing = qc.processing_used(
             runs.load_manifest(run_id, settings), None, _line_notes(report)
         )
-        return redone.model_copy(update={"used": processing + picking})
+        return redone.model_copy(update={"used": processing + picking, "ignored": ignored})
 
 
 def _images_cache() -> caching.Cache | None:
@@ -926,22 +956,6 @@ def _taken(run_id: str, units: list[str], settings: Settings) -> tuple[list[str]
     return taken, [unit for unit in units if unit not in ready]
 
 
-def checked_picking(changes: dict[str, Any] | None) -> dict[str, Any] | None:
-    """`changes` if every one is a picking setting; refused, with the settings there are,
-    otherwise."""
-    if not changes:
-        return changes
-    known = PickingParameters.model_fields
-    if unknown := [name for name in changes if name not in known]:
-        raise ValueError(
-            f"Not picking settings: {', '.join(unknown)}. The picking settings: "
-            f"{', '.join(known)}. Call pick again without them: it picks M0. PACo picks M0 "
-            "alone: a higher mode is picked by hand in PAC's Dispersion picking page, then "
-            "invert takes it with M0."
-        )
-    return changes
-
-
 def _xmid(unit: str) -> float:
     return float(unit.removeprefix("xmid_"))
 
@@ -951,15 +965,24 @@ def _given(**arguments: Any) -> dict[str, Any]:  # noqa: ANN401
     return {name: value for name, value in arguments.items() if value}
 
 
-def _chosen(asked: choices.Choice) -> StageResult:
+def _typos_refused(cleaned: ignoring.Cleaned) -> ignoring.Cleaned:
+    """`cleaned`, refused when a name misspells a setting: the user's setting, not to lose."""
+    if cleaned.typos:
+        raise ValueError("\n".join(f"- {typo}" for typo in cleaned.typos))
+    return cleaned
+
+
+def _chosen(asked: choices.Choice, ignored: tuple[str, ...] = ()) -> StageResult:
     """A stage tool's result when the user must choose first, or when the run's work goes on:
-    what is there, and the options, each with its call."""
+    what is there, and the options, each with its call; with the settings the call gave that
+    the tool could not take (`ignored`)."""
     return StageResult(
         run_id=asked.run_id,
         status="refused",
         summary=asked.summary,
         next=asked.next,
         options=tuple(qc.Option(label=label, call=made) for label, made in asked.options),
+        ignored=ignored,
     )
 
 

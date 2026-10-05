@@ -236,6 +236,30 @@ def test_inversion_settings_describe_every_parameter() -> None:
 
 
 @pytest.mark.usefixtures("paco_env")
+def test_a_setting_the_tool_does_not_have_is_ignored_and_said() -> None:
+    # As pydantic ignores the fields a model does not expect: the call runs without them, and
+    # says them; a value refused for a setting the tool has would refuse the call.
+    processed = _call(
+        "run_processing",
+        {"profile": "active_p1", "overrides": {**SMALL_WINDOWS, "fk": {"threshold": 0.1}}},
+    )
+    assert not processed.is_error and processed.structured_content is not None
+    assert processed.structured_content["ignored"] == [
+        'fk {"threshold": 0.1}: not a processing stage'
+    ]
+
+    picked = _call("pick", {"run_id": _run_id(processed), "changes": {"mode": "M1"}})
+
+    assert not picked.is_error and picked.structured_content is not None
+    (mode,) = picked.structured_content["ignored"]
+    assert mode.startswith('mode "M1": not a picking setting: PACo picks M0')
+    assert picked.structured_content["summary"].startswith("G4: ")
+    # A wrong value of a setting the picking has refuses the call, with why.
+    refused = _call("pick", {"run_id": _run_id(processed), "changes": {"corridor": -1}})
+    assert refused.is_error and "corridor" in _text(refused)
+
+
+@pytest.mark.usefixtures("paco_env")
 def test_the_workflow_process_pick_redo_invert() -> None:
     progress: list[tuple[float, float | None]] = []
 

@@ -496,6 +496,7 @@ def test_summary_gives_the_range_of_the_models() -> None:
         "changed": (),
         "used": (),
         "notes": (),
+        "ignored": (),
         "did": "",  # the server's, from the run's report, once the job ended
         "left": (),
     }

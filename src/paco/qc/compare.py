@@ -69,6 +69,9 @@ class Comparison(BaseModel):
     best: str | None  # the best variant's label; None when no variant gave a curve
     table: tuple[str, ...]  # one line each, for the agent
     next: str
+    # The settings the call gave that the tool could not take, each with why: set aside, the
+    # call ran without them (paco.ignoring).
+    ignored: tuple[str, ...] = ()
 
 
 def compare_settings(

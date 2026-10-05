@@ -88,7 +88,8 @@ within the scope (`src/paco/agent/scope.py`):
   after "process and invert" processes, picks and inverts; choosing a run to work on picks and
   inverts it);
 - the workers your message asks run every stage of its work, at most the machine's cores, said
-  in the scope's line and the parameters used;
+  in the scope's line and the parameters used, and hold for the conversation until a message
+  asks others;
 - a run your message names is the one its calls change: a call on another run is refused (one
   the turn made aside, or the one an option you chose names), so that a run that does not
   exist is said so, with the runs there, never replaced by one the model picked.
@@ -153,7 +154,15 @@ The loop keeps itself in check (`src/paco/agent/loop.py`):
 
 Tools return their status (`ok`, `partial`, `refused`, `stuck`), what they did in one line and
 the windows they left out; their errors are tagged with their kind (`[bad argument]`,
-`[precondition]`, `[stuck]`, `[retry]`).
+`[precondition]`, `[stuck]`, `[retry]`). A call's settings a tool does not have are ignored, as
+pydantic ignores the fields a model does not expect (`src/paco/ignoring.py`): a stage or a
+setting the processing does not have, a picking or an inversion setting that is no such setting
+(the workers above all, which your message gives), and an argument the tool does not declare
+(the host leaves it out); the call runs without them, and the answer lists them under
+"Ignored". A wrong setting still refuses the call, with why, for the model to correct: a value
+the tool refuses for a setting it has, and a name that misspells a setting (`iterations` for
+`n_iterations`: "Did you mean n_iterations?"), whose value is the user's to keep; what a call
+acts on (a profile, a run, a stage, its windows or positions) is no setting.
 
 The settings you give are locked for the run (events of the run's QC log, `src/paco/qc/given.py`):
 no gate and no check changes them. A window whose gate asks to change one is left out, its line
