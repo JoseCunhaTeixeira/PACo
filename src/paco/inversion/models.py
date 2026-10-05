@@ -67,6 +67,9 @@ class InversionRecord(BaseModel):
     summary: str | None = None  # what the gates found, once the job has ended
     changed: tuple[str, ...] = ()  # the settings the gates and the checks changed, in words
     progress: JobProgress | None = None  # the batch under way, while the job runs
+    # The settings the call gave that the tool could not take, each with why: set aside, the
+    # call ran without them (paco.ignoring).
+    ignored: tuple[str, ...] = ()
     # What was done before it and how the request was read: the curves judged first, the
     # positions asked and the windows they are.
     notes: tuple[str, ...] = ()
@@ -98,6 +101,9 @@ class InversionStatus(BaseModel):
     changed: tuple[str, ...] = ()  # the settings the gates and the checks changed: report them
     used: tuple[str, ...] = ()  # the parameters the windows were inverted with, once ended
     notes: tuple[str, ...] = ()  # done before the job, and how the request was read
+    # The settings the call gave that the tool could not take, each with why: set aside, the
+    # call ran without them (paco.ignoring).
+    ignored: tuple[str, ...] = ()
     # Once ended, for the answer: what the job did in one line, and the windows it left out.
     did: str = ""
     left: tuple[str, ...] = ()

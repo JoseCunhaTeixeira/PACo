@@ -532,6 +532,65 @@ def test_every_call_carries_the_conversation_and_its_turn() -> None:
     assert agent.meta["model"] == "Qwen/Qwen3-14B-FP8"
 
 
+def test_an_argument_the_tool_does_not_declare_is_left_out_and_said() -> None:
+    # The server would ignore it unsaid: the host leaves it out and the answer says it.
+    card: ChatCompletionFunctionToolParam = {
+        "type": "function",
+        "function": {
+            "name": "inspect",
+            "description": "",
+            "parameters": {"type": "object", "properties": {"what": {}, "profile": {}}},
+        },
+    }
+    model = ScriptedModel(
+        _calls(("inspect", {"what": "profiles", "n_workers": 10})),
+        _says("Two profiles."),
+        scopes=(LOOK,),
+    )
+    server_ = MetaServer()
+
+    async def conversation() -> str:
+        agent = Agent(server_, model, [card], None, on_event=lambda _: None)  # pyright: ignore[reportArgumentType]
+        return await agent.answer("Which profiles are there?")
+
+    answer = anyio.run(conversation)
+
+    assert server_.calls == [("inspect", {"what": "profiles"})]
+    assert (
+        "Ignored:\n- n_workers 10: not an argument of inspect: the workers are your message's, "
+        "which PACo gives every stage"
+    ) in answer
+
+
+def test_the_workers_asked_hold_until_a_message_asks_others() -> None:
+    model = ScriptedModel(
+        _calls(("inspect", {"what": "runs"})),
+        _says("One run."),
+        _calls(("inspect", {"what": "runs"})),
+        _says("Still one run."),
+        _calls(("inspect", {"what": "runs"})),
+        _says("Still one."),
+        scopes=(
+            LOOK.model_copy(update={"workers": 10}),
+            LOOK,
+            LOOK.model_copy(update={"workers": 4}),
+        ),
+    )
+    server_ = MetaServer()
+    answers: list[str] = []
+
+    async def conversation() -> None:
+        agent = Agent(server_, model, [], None, on_event=lambda _: None)  # pyright: ignore[reportArgumentType]
+        for question in ("Use 10 workers: which runs are there?", "And now?", "With 4 workers?"):
+            answers.append(await agent.answer(question))
+
+    anyio.run(conversation)
+
+    # The second message names none: the first's hold, said on its scope's line.
+    assert [meta["scope"]["workers"] for meta in server_.metas] == [10, 10, 4]
+    assert "10 workers" in answers[1].splitlines()[0]
+
+
 class OfferServer(MetaServer):
     """Stands in for PACo's server: pick without windows offers two options, doing nothing;
     every other call answers {}."""

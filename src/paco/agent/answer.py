@@ -85,6 +85,8 @@ class Turn:
     used: list[str] = field(default_factory=list)  # the parameters the stages ran with
     changed: list[str] = field(default_factory=list)  # the settings the gates changed
     kept: list[str] = field(default_factory=list)  # the user's settings, kept as given
+    # The settings and arguments the calls gave that their tools do not have: left out, said.
+    ignored: list[str] = field(default_factory=list)
     results: list[str] = field(default_factory=list)  # every result's text, for R1
     # A comparison of settings made: what a message asking to compare them asks of processing.
     compared: bool = False
@@ -119,10 +121,15 @@ class Turn:
             ("used", self.used),
             ("changed", self.changed),
             ("kept", self.kept),
+            ("ignored", self.ignored),
         ):
             items = parsed.get(key)
             if isinstance(items, list):
                 into.extend(str(item) for item in items if str(item) not in into)
+
+    def ignore(self, items: Iterable[str]) -> None:
+        """Take in what the host left out of a call: arguments its tool does not declare."""
+        self.ignored.extend(item for item in items if item not in self.ignored)
 
     @property
     def worked(self) -> bool:
@@ -202,6 +209,9 @@ def render(
         blocks.append("Done:\n" + "\n".join(f"- {line}" for line in turn.done))
     if turn.left:
         blocks.append("Left out:\n" + "\n".join(f"- {line}" for line in turn.left))
+    if turn.ignored:
+        # What the calls gave that their tools do not have: the calls ran without it (U6).
+        blocks.append("Ignored:\n" + "\n".join(f"- {line}" for line in turn.ignored))
     offers = turn.offers or (() if turn.worked else turn.pending)
     asks = bool(offers) or bool(question and (turn.stuck or (not turn.worked and scope.asked)))
     # The stages asked that no tool did, said (U6); when the user must choose, the question

@@ -107,11 +107,13 @@ def submit_inversion(
     settings: Settings,
     units: Sequence[str] | None = None,
     notes: Sequence[str] = (),
+    ignored: Sequence[str] = (),
 ) -> InversionRecord:
     """Record a new inversion job of run `run_id`, queued, and return it: the windows whose
     curves the inversion takes (invertible), or `units` of them, with `given` (the inversion's
-    parameters the user typed) and `notes` (what was done before it). Refuses a run without a
-    curve to invert, values that cannot hold, and a run already being inverted."""
+    parameters the user typed), `notes` (what was done before it) and `ignored` (the settings
+    the call gave that the inversion could not take). Refuses a run without a curve to invert,
+    values that cannot hold, and a run already being inverted."""
     run_folder = find_run(run_id, settings)
     ready = invertible(run_folder, load_manifest(run_id, settings))
     layers = run_qc_config(run_folder, settings.qc_config).priors.n_layers
@@ -135,6 +137,7 @@ def submit_inversion(
         submitted_at=datetime.now(UTC),
         total=len(units) if units is not None else len(ready),
         notes=tuple(notes),
+        ignored=tuple(ignored),
     )
     write_record(run_folder, record)
     return record

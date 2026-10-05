@@ -32,6 +32,8 @@ class ToolStep(BaseModel):
     duration_s: float
     result: str  # what the model read back
     by_host: bool = False  # the host followed a job with it; the model read its last result
+    # The arguments the host left out, which the tool does not declare, each with why.
+    ignored: tuple[str, ...] = ()
 
 
 class ScopeStep(BaseModel):

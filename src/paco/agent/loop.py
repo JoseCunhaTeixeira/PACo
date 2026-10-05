@@ -10,7 +10,7 @@ import uuid
 from collections.abc import Callable, Iterable
 from dataclasses import dataclass
 from datetime import UTC, datetime
-from typing import Any
+from typing import Any, cast
 
 import anyio
 from mcp import Client
@@ -41,6 +41,7 @@ from paco.agent.scope import (
     runs_in,
 )
 from paco.agent.settings import AgentSettings
+from paco.ignoring import undeclared
 
 # The answer a stopped question leaves in the conversation (see Agent.answer).
 STOPPED = "(Stopped on the user's request before the answer was complete.)"
@@ -130,6 +131,12 @@ class Agent:
         self._profile: str | None = None
         self._run_id: str | None = None
         self._made: set[str] = set()  # the runs the conversation made
+        # The workers a message asked, which every later message keeps until one asks others.
+        self._workers: int | None = None
+        # Each tool's arguments, as its card declares them: others are left out, said.
+        self._declared: dict[str, frozenset[str]] = {
+            tool["function"]["name"]: _arguments(tool) for tool in tools
+        }
         self.steps: list[Step] = []
         self.started_at = datetime.now(UTC)
 
@@ -191,6 +198,11 @@ class Agent:
             if self._offered_for is not None:
                 scope = continued(scope, self._offered_for, offer)
             self._offers, self._offered_for = (), None
+        # The workers asked hold for the conversation, until a message asks others.
+        if scope.workers is not None:
+            self._workers = scope.workers
+        elif self._workers is not None:
+            scope = scope.model_copy(update={"workers": self._workers})
         # The run the work is on, settled by code before the model acts; or the user's choice
         # of it, asked first, the model not called.
         settled = await self._settle(scope, offer)
@@ -347,6 +359,7 @@ class Agent:
                 if outside is not None or waiting:
                     blocked.add(key)
                 self.steps.append(step)
+                turn.ignore(step.ignored)
                 result = step.result
                 job_id = (
                     None if step.is_error else host.started_job(call.name, call.arguments, result)
@@ -496,6 +509,12 @@ class Agent:
             )
         if not isinstance(parsed, dict):
             return refused(f"Not called: the arguments of {call.name} must be a JSON object.")
+        # The arguments the tool does not declare, which its server would ignore unsaid: left
+        # out, said in the answer.
+        ignored: tuple[str, ...] = ()
+        if (declared := self._declared.get(call.name)) is not None:
+            cleaned = undeclared(cast(dict[str, Any], parsed), dict.fromkeys(declared), call.name)
+            parsed, ignored = cleaned.values or {}, cleaned.ignored
 
         async def on_progress(progress: float, total: float | None, message: str | None) -> None:
             self._on_event(f"   {call.name}: {message or f'{progress:g} of {total:g}'}")
@@ -521,6 +540,7 @@ class Agent:
                 duration_s=round(time.perf_counter() - start, 3),
                 result=f"[retry] No result in {self._limits.tool_seconds:g} s: the tool's work "
                 "may go on. Say so to the user.",
+                ignored=ignored,
             )
         text = result_for_model(result)
         if result.is_error:
@@ -534,6 +554,7 @@ class Agent:
             is_error=bool(result.is_error),
             duration_s=round(time.perf_counter() - start, 3),
             result=text,
+            ignored=ignored,
         )
 
     def _keep_track(self, call: ToolCall, result: str) -> None:
@@ -701,6 +722,13 @@ def _made_call(offer: Offer | None) -> ToolCall | None:
         return None
     name, arguments = parsed
     return ToolCall("paco_choice", name, json.dumps(arguments))
+
+
+def _arguments(tool: ChatCompletionFunctionToolParam) -> frozenset[str]:
+    """The arguments `tool`'s card declares."""
+    schema = cast(dict[str, Any], tool["function"].get("parameters") or {})
+    properties = schema.get("properties")
+    return frozenset(properties) if isinstance(properties, dict) else frozenset()
 
 
 def _next_line(plan: Plan, turn: Turn, run: str | None) -> str:

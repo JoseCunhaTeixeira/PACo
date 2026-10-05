@@ -41,7 +41,10 @@ touches a setting the user gave is held back whole, its parts going together (G5
 sampling doubles the iterations and the burn-in); the unit's other flags retry. A change of the
 line's settings the line loop did not keep leaves its units as they are, the flag kept as a
 note.
-`redo` is refused once the run's budget is spent.
+`redo` is refused once the run's budget is spent. The settings a call gives that its tool does
+not have (an override stage or setting, a picking or an inversion setting, an argument the tool
+does not declare) are ignored and said, the call running without them (`paco.ignoring`); a
+wrong value of a setting the tool has, or a name misspelling one, refuses the call.
 
 ## What the agent reads
 

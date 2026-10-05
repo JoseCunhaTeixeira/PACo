@@ -588,16 +588,6 @@ def test_with_a_scope_the_positions_are_the_messages(run: tuple[Settings, str, s
     assert any(note.startswith("Positions: 9 m: xmid 8.88, window") for note in status["notes"])
 
 
-def test_picking_changes_are_picking_settings() -> None:
-    with pytest.raises(
-        ValueError, match=r"Not picking settings: mode\. The picking settings: "
-    ) as error:
-        server.checked_picking({"mode": "M1", "threshold": 0.4})
-    # What to do next: pick M0 without them, and where the higher modes are picked.
-    assert "Call pick again without them: it picks M0." in str(error.value)
-    assert server.checked_picking({"threshold": 0.4}) == {"threshold": 0.4}
-
-
 def test_a_run_whose_manifest_does_not_read_is_not_gone_on_from(
     run: tuple[Settings, str, str],
 ) -> None:

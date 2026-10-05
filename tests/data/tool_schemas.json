@@ -181,6 +181,14 @@
       "title": "Did",
       "type": "string"
      },
+     "ignored": {
+      "default": [],
+      "items": {
+       "type": "string"
+      },
+      "title": "Ignored",
+      "type": "array"
+     },
      "metric": {
       "$ref": "#/$defs/CompareMetric"
      },
@@ -489,6 +497,14 @@
         "title": "Errors",
         "type": "array"
        },
+       "ignored": {
+        "default": [],
+        "items": {
+         "type": "string"
+        },
+        "title": "Ignored",
+        "type": "array"
+       },
        "job_id": {
         "title": "Job Id",
         "type": "string"
@@ -646,6 +662,14 @@
         "default": "",
         "title": "Did",
         "type": "string"
+       },
+       "ignored": {
+        "default": [],
+        "items": {
+         "type": "string"
+        },
+        "title": "Ignored",
+        "type": "array"
        },
        "job_id": {
         "anyOf": [
@@ -874,6 +898,14 @@
       "title": "Did",
       "type": "string"
      },
+     "ignored": {
+      "default": [],
+      "items": {
+       "type": "string"
+      },
+      "title": "Ignored",
+      "type": "array"
+     },
      "job_id": {
       "anyOf": [
        {
@@ -1075,6 +1107,14 @@
       "title": "Errors",
       "type": "array"
      },
+     "ignored": {
+      "default": [],
+      "items": {
+       "type": "string"
+      },
+      "title": "Ignored",
+      "type": "array"
+     },
      "job_id": {
       "title": "Job Id",
       "type": "string"
@@ -1270,6 +1310,14 @@
       "default": "",
       "title": "Did",
       "type": "string"
+     },
+     "ignored": {
+      "default": [],
+      "items": {
+       "type": "string"
+      },
+      "title": "Ignored",
+      "type": "array"
      },
      "job_id": {
       "anyOf": [
@@ -1567,6 +1615,14 @@
       "title": "Did",
       "type": "string"
      },
+     "ignored": {
+      "default": [],
+      "items": {
+       "type": "string"
+      },
+      "title": "Ignored",
+      "type": "array"
+     },
      "job_id": {
       "anyOf": [
        {
@@ -1849,6 +1905,14 @@
       "title": "Did",
       "type": "string"
      },
+     "ignored": {
+      "default": [],
+      "items": {
+       "type": "string"
+      },
+      "title": "Ignored",
+      "type": "array"
+     },
      "job_id": {
       "anyOf": [
        {
@@ -2045,6 +2109,14 @@
       "title": "Did",
       "type": "string"
      },
+     "ignored": {
+      "default": [],
+      "items": {
+       "type": "string"
+      },
+      "title": "Ignored",
+      "type": "array"
+     },
      "job_id": {
       "anyOf": [
        {
@@ -2137,5 +2209,5 @@
    }
   }
  },
- "version": "tools-b0b05b7c"
+ "version": "tools-a7403189"
 }

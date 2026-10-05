@@ -111,6 +111,9 @@ class StageResult(BaseModel):
     truncated: bool = False  # the summary cut at SUMMARY_CAP
     # The settings the user gave, kept as given (qc.given): no gate changed them.
     kept: tuple[str, ...] = ()
+    # The settings the call gave that the tool could not take, each with why: set aside, the
+    # call ran without them (paco.ignoring).
+    ignored: tuple[str, ...] = ()
 
 
 def capped(summary: str) -> tuple[str, bool]:

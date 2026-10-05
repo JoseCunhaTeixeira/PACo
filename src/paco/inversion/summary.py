@@ -47,6 +47,7 @@ def summarize_inversion(record: InversionRecord, live: bool) -> InversionStatus:
         summary=record.summary,
         changed=record.changed,
         notes=record.notes,
+        ignored=record.ignored,
     )
 
 
