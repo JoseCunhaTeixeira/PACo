@@ -64,13 +64,15 @@ Before any tool runs, the model reads your message into a form, its scope: the s
 (process, pick, invert, soils; none for a question about what exists, or a request no tool
 makes), the profile or run, the positions in metres, the windows' length and step in the unit
 you give them (receivers or metres), the window lengths a comparison names, whether to do again
-work already there, what it says of your hand work, which option it chooses among those
+work already there (a correction, "no, I asked for a phase-weighted stack", asks its stage
+again), what it says of your hand work, which option it chooses among those
 offered, the processing mode it names and the workers (CPU cores) it asks the work to use. The
 form's JSON schema constrains
 the model's output, thinking off; a form that does not parse goes back once with its error,
 and a second failure ends the answer asking you to say it again. Code then checks what it can
-(a run id PACo never gives, an option never offered, a negative position) and keeps the turn
-within the scope (`src/paco/agent/scope.py`):
+(a run id PACo never gives, an option never offered, a negative position; in a message choosing
+an option, a run id or a window its words do not hold, read from the options' labels) and keeps
+the turn within the scope (`src/paco/agent/scope.py`):
 - a call outside it is refused, unmade, with the reason for the model; an earlier stage stays
   within a scope that asks a later one, the server deciding whether the run needs it;
 - each call carries the scope, and the tools apply the rules below with it; the positions a
@@ -86,7 +88,7 @@ within the scope (`src/paco/agent/scope.py`):
 - a message that chooses an option asks, with it, what the message that got the options asked:
   its stages from the option's on and its positions, windows and workers (choosing "a new run"
   after "process and invert" processes, picks and inverts; choosing a run to work on picks and
-  inverts it);
+  inverts it); a new run has no run yet, and a run to work on is the option's;
 - the workers your message asks run every stage of its work, at most the machine's cores, said
   in the scope's line and the parameters used, and hold for the conversation until a message
   asks others;
@@ -112,7 +114,10 @@ The model then reads one plan after your message: the run (or a new run to make 
 the stages to do on it, in their order, with those the run lacks (its curves before its
 models). A call on another run is refused. After each result the host says what is next; an
 answer before the plan is done, nothing in its way, is sent back once. An option you chose
-among a tool's is made by the host itself, then the plan goes on.
+among a tool's is made by the host itself, then the plan goes on. An option code asked before
+the model read your message (a new run, a run to work on) comes with that message, quoted to
+the model: the new run is the model's call, with the settings the message gives (a stacking,
+a mute), which only it reads; the server makes it a new run whatever the call says.
 
 Every answer is written by code around the model's text (`src/paco/agent/answer.py`):
 - the scope's line;

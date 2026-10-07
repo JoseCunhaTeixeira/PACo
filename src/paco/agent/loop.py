@@ -128,6 +128,9 @@ class Agent:
         # on.
         self._offers: tuple[Offer, ...] = ()
         self._offered_for: Scope | None = None
+        # The message the host's own options wait on (a new run, a run to work on), which the
+        # model has not read yet: its settings go into the calls of the option chosen.
+        self._request: str | None = None
         self._profile: str | None = None
         self._run_id: str | None = None
         self._made: set[str] = set()  # the runs the conversation made
@@ -192,12 +195,14 @@ class Agent:
         self.steps.append(_scope_step(read, time.perf_counter() - start))
         scope = read.scope
         offer = chosen(scope, context)
+        request = None
         if offer is not None:
             # The options answered: the choice goes on with what the message that got them
             # asked.
             if self._offered_for is not None:
                 scope = continued(scope, self._offered_for, offer)
-            self._offers, self._offered_for = (), None
+            request = self._request
+            self._offers, self._offered_for, self._request = (), None, None
         # The workers asked hold for the conversation, until a message asks others.
         if scope.workers is not None:
             self._workers = scope.workers
@@ -216,7 +221,7 @@ class Agent:
             self._profile = plan.profile
         self.meta["scope"] = {**scope.for_server(), "chosen": offer.call if offer else None}
         made = _made_call(offer)  # the option the user chose, a tool's: the host makes it
-        note = plan_note(scope, plan, offer, made is not None)
+        note = plan_note(scope, plan, offer, made is not None, request)
         first = len(self.messages)
         self.messages.append({"role": "user", "content": f"{question}\n\n{note}"})
         try:
@@ -246,6 +251,7 @@ class Agent:
         and the options, which wait for the next message."""
         answer = render(scope, ask.said, ask.question, Turn(offers=ask.offers), (question,))
         self._offers, self._offered_for = ask.offers, scope if ask.offers else None
+        self._request = question if ask.offers else None
         self.meta["scope"] = {**scope.for_server(), "chosen": None}
         self.messages.append({"role": "user", "content": question})
         self.messages.append({"role": "assistant", "content": answer})
@@ -393,9 +399,9 @@ class Agent:
         `scope`, what the message that got them asked; options still waiting stay until a
         stage's work is done."""
         if turn.offers:
-            self._offers, self._offered_for = turn.offers, scope
+            self._offers, self._offered_for, self._request = turn.offers, scope, None
         elif turn.worked:
-            self._offers, self._offered_for = (), None
+            self._offers, self._offered_for, self._request = (), None, None
         return answer
 
     def _cap(self, seconds: float, tokens: int) -> str | None:
@@ -714,8 +720,9 @@ _CALLS: dict[str, str] = {
 
 def _made_call(offer: Offer | None) -> ToolCall | None:
     """The call of a tool's option the user chose, for the host to make; None for a run to
-    work on (no tool), or a call the user must fill (a position)."""
-    if offer is None or offer.run_id is not None:
+    work on (no tool), a call the user must fill (a position), or one the model makes with the
+    request's settings (a new run)."""
+    if offer is None or offer.run_id is not None or offer.with_request:
         return None
     parsed = parse_call(offer.call)
     if parsed is None:

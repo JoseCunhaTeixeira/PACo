@@ -28,6 +28,10 @@
     "form": {"process": true, "pick": true, "profile": "line_b", "mode": "passive-active"}
   },
   {
+    "message": "Process line_b using the active-passive method.",
+    "form": {"process": true, "profile": "line_b", "mode": "passive-active"}
+  },
+  {
     "message": "Process line_b with windows of 12 receivers, every 6 receivers, and pick it.",
     "form": {
       "process": true,

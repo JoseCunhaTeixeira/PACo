@@ -141,13 +141,19 @@ _STEP: dict[Stage, str] = {
 }
 
 
-def plan_note(scope: Scope, plan: Plan, chosen: Offer | None, host_makes: bool) -> str:
+def plan_note(
+    scope: Scope, plan: Plan, chosen: Offer | None, host_makes: bool, request: str | None = None
+) -> str:
     """What the model reads after the message: its scope, the option the user chose, and the
-    plan, the run named once: work on it, and on no other."""
+    plan, the run named once: work on it, and on no other. An option the host asked before
+    the model read `request` (the message that got the options): the request, whose settings
+    go into the plan's calls."""
     note = scope.for_model(None)
     if chosen is not None:
         made = ": PACo makes it below" if host_makes else ""
         note += f" The user chose ({scope.option}) {chosen.label}{made}."
+        if request is not None:
+            note += f' Their request: "{request}"; every setting it gives goes into the calls.'
     steps = ", then ".join(_STEP[stage] for stage in plan.stages if stage != "process")
     if plan.run_id is not None:
         of = f" of {plan.profile}" if plan.profile else ""
@@ -157,19 +163,25 @@ def plan_note(scope: Scope, plan: Plan, chosen: Offer | None, host_makes: bool) 
         arguments: dict[str, object] = {"profile": plan.profile}
         if scope.mode is not None:
             arguments["mode"] = scope.mode
-        first = "PACo makes it below" if host_makes else _call("run_processing", arguments)
+        if chosen is not None and chosen.with_request:
+            first = f"{chosen.call}, with the request's settings"
+        elif host_makes:
+            first = "PACo makes it below"
+        else:
+            first = _call("run_processing", arguments)
         note += f" A new run of {plan.profile} first ({first})"
         return note + (f"; then, on it: {steps}." if steps else ".")
     return note
 
 
 def new_run(profile: str, scope: Scope) -> Offer:
-    """The option of a new run of `profile`, in the mode the message gives."""
+    """The option of a new run of `profile`, in the mode the message gives: the model makes
+    it, with the settings the message gives (a stacking, a mute), which only it reads."""
     arguments: dict[str, object] = {"profile": profile}
     if scope.mode is not None:
         arguments["mode"] = scope.mode
     arguments["again"] = True
-    return Offer("a new run", _call("run_processing", arguments))
+    return Offer("a new run", _call("run_processing", arguments), with_request=True)
 
 
 def work_on(run: RunInfo) -> Offer:

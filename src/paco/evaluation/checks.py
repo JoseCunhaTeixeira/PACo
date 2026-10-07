@@ -436,6 +436,23 @@ def processed_in_mode(mode: str) -> Check:
     return check
 
 
+def newest_run_with(*path: str, value: object) -> Check:
+    """The newest run on disk was made with `value` at `path` of its preset (e.g. "stacking",
+    "nu"): the setting the user gave reached the run, however the agent asked for it."""
+    shown = " ".join(path)
+    name = f"the newest run with {shown} {value}"
+
+    def check(trial: Trial) -> CheckResult:
+        manifest = _latest_manifest(trial)
+        if manifest is None:
+            return CheckResult(name=name, passed=False, detail="no run on disk")
+        found = _at(manifest.preset.model_dump(mode="json"), path)
+        detail = "" if found == value else f"made with {found}"
+        return CheckResult(name=name, passed=found == value, detail=detail)
+
+    return check
+
+
 def no_settings_invented(tool: str) -> Check:
     """Every successful call of `tool` gave no overrides but the window length: with no setting
     from the user, every parameter comes from the data, and the length is the agent's to choose."""

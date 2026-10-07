@@ -254,11 +254,14 @@ _BLANK: dict[str, Any] = {
 @dataclass(frozen=True)
 class Offer:
     """An option given to the user: its words, and the call that makes it; a run to work on
-    (`run_id`), which the host settles, no tool to call."""
+    (`run_id`), which the host settles, no tool to call. A call the host writes before the
+    model has read the request (a new run) lacks the request's settings: the model makes it,
+    with them (`with_request`); the host makes the others."""
 
     label: str
     call: str
     run_id: str | None = None
+    with_request: bool = False
 
 
 @dataclass(frozen=True)
@@ -307,17 +310,37 @@ async def read_scope(model: ChatModel, message: str, context: Context) -> Read:
             messages.append({"role": "assistant", "content": filled.content})
             messages.append({"role": "user", "content": f"Not valid: {said}. Fill the form again."})
             continue
-        return Read(scope=checked(scope, context), fills=tuple(fills))
+        return Read(scope=checked(scope, context, message), fills=tuple(fills))
     raise ScopeError(said)
 
 
-def checked(scope: Scope, context: Context) -> Scope:
+def checked(scope: Scope, context: Context, message: str | None = None) -> Scope:
     """`scope` with what code can tell is not so taken out: a run id PACo never gives, an
-    option never offered, a negative position."""
+    option never offered, a negative position; in `message` choosing an option, a run id or a
+    window its words do not hold, which the form read from the options' ("work on run ...
+    (active, windows of 24 receivers)"): the message that got the options gives them."""
     run_id = scope.run_id if scope.run_id and _RUN_ID.fullmatch(scope.run_id) else None
     option = scope.option if scope.option and 1 <= scope.option <= len(context.offers) else None
     positions = [position for position in scope.positions_m if position >= 0]
-    return scope.model_copy(update={"run_id": run_id, "option": option, "positions_m": positions})
+    update: dict[str, Any] = {"run_id": run_id, "option": option, "positions_m": positions}
+    if option is not None and message is not None:
+        if run_id is not None and run_id[-4:] not in message:
+            update["run_id"] = None
+        for name in _WINDOW_FIELDS:
+            value = getattr(scope, name)
+            if value is not None and not _holds(message, value):
+                update[name] = None
+    return scope.model_copy(update=update)
+
+
+# The form's fields of the windows' length and step.
+_WINDOW_FIELDS = ("length_receivers", "length_m", "step_receivers", "step_m")
+
+
+def _holds(message: str, value: float) -> bool:
+    """Whether `message` writes the number `value` (24, 5.75, or 5,75)."""
+    written = re.escape(f"{value:g}")
+    return re.search(rf"(?<![\d.]){written}(?![\d])", message.replace(",", ".")) is not None
 
 
 def chosen(scope: Scope, context: Context) -> Offer | None:
@@ -328,8 +351,8 @@ def chosen(scope: Scope, context: Context) -> Offer | None:
 def continued(scope: Scope, request: Scope, offer: Offer) -> Scope:
     """`scope`, a message choosing `offer`, with what `request` (the message that got the
     options) asked: its stages from the option's on (the option says how, the request what
-    for), and its positions, windows, hand work, workers and mode where the choice says none; a run to
-    work on, that run, its processing there."""
+    for), and its positions, windows, hand work, workers and mode where the choice says none; a
+    run to work on, that run, its processing there; a new run, no run yet."""
     tool = offer.call.split("(", 1)[0]
     stage = _OPTION_STAGE.get(tool)
     if tool == "redo" and (found := _STAGE_ARGUMENT.search(offer.call)) is not None:
@@ -358,6 +381,9 @@ def continued(scope: Scope, request: Scope, offer: Offer) -> Scope:
         update["mode"] = request.mode
     if offer.run_id is not None:
         update |= {"process": False, "run_id": offer.run_id}
+    elif tool == "run_processing":
+        # A new run: none yet, whatever run the form read (one the options named).
+        update["run_id"] = None
     return scope.model_copy(update=update)
 
 

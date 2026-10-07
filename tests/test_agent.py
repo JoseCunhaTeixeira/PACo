@@ -941,6 +941,43 @@ def test_processing_a_profile_with_runs_asks_a_new_run_or_which() -> None:
     assert [name for name, _ in server_.calls] == ["invert"]
 
 
+def test_a_new_run_chosen_is_made_by_the_model_with_the_request_s_settings() -> None:
+    # The host asks before the model has read the request: its option holds the profile and
+    # the mode, not the stacking, which the model gives, the request quoted to it.
+    server_ = PlanServer()
+    server_.runs = TWO_RUNS
+    request = "Process active_p1 using passive-active method but phase-weighted stack at power 1."
+    processing = {
+        "profile": "active_p1",
+        "mode": "passive-active",
+        "overrides": {"stacking": {"method": "phase_weighted", "nu": 1}},
+        "again": True,
+    }
+    model = ScriptedModel(
+        _calls(("run_processing", processing)),
+        _says("Processed."),
+        scopes=(_on("process", mode="passive-active"), _on("process", option=1)),
+    )
+
+    async def conversation() -> Agent:
+        agent = Agent(server_, model, [], None, on_event=lambda _: None)  # pyright: ignore[reportArgumentType]
+        await agent.answer(request)
+        await agent.answer("1")
+        return agent
+
+    agent = anyio.run(conversation)
+
+    # The model's call, the host's none.
+    assert server_.calls == [("run_processing", processing)]
+    told = str(agent.messages[-4].get("content"))
+    offered = 'run_processing(profile="active_p1", mode="passive-active", again=true)'
+    assert told.endswith(
+        f'The user chose (1) a new run. Their request: "{request}"; every setting it gives goes '
+        f"into the calls. A new run of active_p1 first ({offered}, with the request's settings)."
+    )
+    assert server_.metas[-1]["scope"]["chosen"] == offered
+
+
 def test_later_stages_ask_which_of_several_runs_and_go_on_with_one() -> None:
     several = MetaServer()
     several.runs = TWO_RUNS

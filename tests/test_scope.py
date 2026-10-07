@@ -126,6 +126,21 @@ def test_code_takes_out_what_it_can_tell_is_not_so() -> None:
     assert (kept.run_id, kept.option, kept.positions_m) == (None, None, [9.0])
     run = "20260930-161253-89f5"
     assert checked(_scope(run_id=run), Context()).run_id == run
+    # A choice: the run and the windows its words do not hold were read from the options'.
+    offers = Context(
+        offers=(
+            Offer("a new run", "run_processing()"),
+            Offer(
+                f"work on run {run} (active, windows of 24 receivers, images)",
+                f'pick(run_id="{run}")',
+                run,
+            ),
+        )
+    )
+    copied = _scope(process=True, option=1, run_id=run, length_receivers=24)
+    assert checked(copied, offers, "1") == _scope(process=True, option=1)
+    said = _scope(process=True, option=1, run_id=run, length_receivers=12, step_m=1.5)
+    assert checked(said, offers, "1, on 89f5, windows of 12 receivers every 1,5 m") == said
 
 
 def test_calls_outside_the_scope_are_refused_to_the_model() -> None:
@@ -246,6 +261,9 @@ def test_a_choice_goes_on_with_what_the_message_that_got_the_options_asked() -> 
     # The option says how (a new run), the request what for (its inversion too).
     assert went_on.asked == {"process", "invert"} and went_on.redo and went_on.option == 5
     assert (went_on.positions_m, went_on.workers) == ([30.0], 10)
+    # A new run: no run yet, though the form read one (the run the options named).
+    read_a_run = _scope(process=True, run_id="20261007-104600-c48d", option=1)
+    assert continued(read_a_run, request, again).run_id is None
     # An option of a later stage: the request's stages from it on, none before.
     curves = Offer("pick every window again", 'pick(run_id="r", windows="all")')
     assert continued(_scope(pick=True, option=2), request, curves).asked == {"pick", "invert"}

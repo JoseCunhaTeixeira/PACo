@@ -42,6 +42,8 @@ NOTHING: dict[str, Any] = {
 }
 # What an answer to an offer is scored on: the profile and run come from the conversation.
 ANSWER = ("process", "pick", "invert", "soils", "redo", "replace_hand_work", "option")
+# What a correction is scored on: the stage again; the profile and run, the conversation's.
+CORRECTION = ("process", "pick", "invert", "soils", "redo")
 
 ON_ACTIVE = Context(profile="active_p1", run_id=RUN)
 # pick, on a run whose curves are there.
@@ -155,6 +157,10 @@ CASES: tuple[Case, ...] = (
         {"process": True, "profile": "active_p1", "mode": "active"},
     ),
     Case(
+        "Process active_p1 using active-passive method but phase weighted stack at power 1.",
+        {"process": True, "profile": "active_p1", "mode": "passive-active"},
+    ),
+    Case(
         "Process passive_p1 and give me the soils.",
         {"process": True, "soils": True, "profile": "passive_p1"},
     ),
@@ -234,6 +240,19 @@ CASES: tuple[Case, ...] = (
     Case("Invert run 2026-09-30 of active_p1.", {"invert": True, "profile": "active_p1"}),
     # The conversation's profile and run, and answers to the options offered.
     Case("Invert them.", {"invert": True, "profile": "active_p1", "run_id": RUN}, ON_ACTIVE),
+    # A correction of what was done: the stage its setting is for, again.
+    Case(
+        "no i asked for phase-weighted stack power 1",
+        {"process": True, "redo": True},
+        ON_ACTIVE,
+        CORRECTION,
+    ),
+    Case(
+        "No, I wanted the curves picked with a threshold of 0.4.",
+        {"pick": True, "redo": True},
+        ON_ACTIVE,
+        CORRECTION,
+    ),
     Case("The second one.", {"pick": True, "option": 2}, CURVES_THERE, ANSWER),
     Case("Oui, la première.", {"pick": True, "option": 1}, CURVES_THERE, ANSWER),
     Case("Keep it.", {"pick": True, "option": 1}, HAND_THERE, ANSWER),

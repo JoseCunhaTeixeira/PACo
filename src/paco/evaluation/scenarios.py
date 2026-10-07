@@ -32,6 +32,7 @@ from paco.evaluation.checks import (
     locked_asks,
     models,
     never_called,
+    newest_run_with,
     no_inversion_started,
     no_settings_invented,
     none_outside_the_scope,
@@ -581,6 +582,29 @@ SCENARIOS = (
         rubric="active_p1 has a run with images: the agent asks whether to make a new run or "
         "work on that run; the user chooses a new run, and the agent processes it, picks it and "
         "inverts it.",
+        setup=imaged_run,
+    ),
+    Scenario(
+        name="new_run_settings",
+        kind="work there",
+        # The options come before the model reads the request: the stacking must still reach
+        # the new run.
+        questions=(
+            "Process active_p1 using the active-passive method, windows of 24 receivers every "
+            "24, but phase-weighted stack at power 1.",
+            "1",
+        ),
+        checks=(
+            called("run_processing", again=True),
+            newest_run_with("mode", value="passive-active"),
+            newest_run_with("stacking", "method", value="phase_weighted"),
+            newest_run_with("stacking", "nu", value=1),
+            none_outside_the_scope(),
+            at_most_calls(4),
+        ),
+        rubric="active_p1 has a run with images: the agent asks whether to make a new run or "
+        "work on that run; the user chooses a new run, and the agent processes it in the "
+        "passive-active mode, its images phase-weighted stacked at power 1, as the request asked.",
         setup=imaged_run,
     ),
     Scenario(
