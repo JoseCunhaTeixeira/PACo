@@ -97,3 +97,8 @@ def test_a_name_misspelling_a_setting_is_refused_not_ignored() -> None:
     processing = preset_overrides("active", {"masw": {"lenght": 24}, "fk": {"threshold": 0.1}})
     assert processing.values == {"masw": {"lenght": 24}}
     assert processing.ignored == ('fk {"threshold": 0.1}: not a processing stage',)
+    # An abbreviation of one stage only is its misspelling; of several, none.
+    stacking = {"stack": {"method": "phase_weighted", "nu": 1}, "disp": {}, "mut": {}}
+    abbreviated = preset_overrides("passive-active", stacking)
+    assert abbreviated.values == {"stack": {"method": "phase_weighted", "nu": 1}, "disp": {}}
+    assert abbreviated.ignored == ("mut {}: not a processing stage",)

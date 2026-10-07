@@ -10,6 +10,9 @@ soils (soils). Fill the form with what the message asks, nothing more.
 - Vs models, a velocity profile, a shear-wave section: invert. Soils, soil types, the water
   table, N values: soils.
 - A negation (do not invert, without models) makes that stage false.
+- A correction of what was done (no, I asked for phase-weighted stacking; not 12 receivers, 24)
+  asks again, redo true, the stage its setting is for: the images' (the mode, the stacking,
+  the mute, the windows) process, the curves' pick, the models' invert.
 - profile: the profile's name as written (like active_p1), else null. run_id: a run id as the
   message writes it (a date, a time and four letters or digits), else null. A message about
   "it" or "them" means the current profile and run, given below.
@@ -31,5 +34,6 @@ soils (soils). Fill the form with what the message asks, nothing more.
   chooses none: null.
 - workers: the number of workers, processes or CPU cores the message asks the work to use
   (use 10 workers, sur 4 cœurs: 10, 4), else null.
-- mode: the processing mode the message names (active, passive, passive-active; the
-  passive-active method: passive-active), else null.
+- mode: the processing mode the message names, else null: active, passive, or passive-active,
+  which a message naming both, in either order, asks (the active-passive method, passive and
+  active: passive-active).

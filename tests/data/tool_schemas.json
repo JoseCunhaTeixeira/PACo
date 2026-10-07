@@ -2010,7 +2010,7 @@
     "open_world_hint": false,
     "read_only_hint": false
    },
-   "description": "Process a profile into one dispersion image per window, checked stage by stage: records\n(G1, its fixes applied: trigger delays corrected, bad traces left out), window length and\nband from the data unless given, images (G2, retried when a change can fix them). Takes\nseconds to minutes. Returns the run_id and the gates' summary; a profile with runs gives\noptions first: a new run, or a run to work on.",
+   "description": "Process a profile into one dispersion image per window, checked by stage: records (G1:\ntrigger delays corrected, bad traces left out), window length and band from the data\nunless given, images (G2, retried when a change fixes them). Takes seconds to minutes.\nReturns the run_id and the gates' summary; with runs there, options first: a new run or\none to work on.",
    "input_schema": {
     "properties": {
      "again": {
@@ -2048,7 +2048,7 @@
        }
       ],
       "default": null,
-      "description": "Only the settings the user gave, by stage, e.g. {\"masw\": {\"length\": <receivers>, \"step\": <receivers>}, \"dispersion\": {\"vmax\": <m/s>}, \"muting\": {\"method\": \"mute\", \"vmin\": <m/s>, \"vmax\": <m/s>}}; see preset_settings. Left out, they come from the data.",
+      "description": "Only the settings the user gave, by stage, e.g. {\"masw\": {\"length\": <receivers>, \"step\": <receivers>}, \"dispersion\": {\"vmax\": <m/s>}, \"muting\": {\"method\": \"mute\", \"vmin\": <m/s>, \"vmax\": <m/s>}, \"stacking\": {\"method\": \"phase_weighted\", \"nu\": <power>}}; see preset_settings. Left out: from the data.",
       "title": "Overrides"
      },
      "profile": {
@@ -2209,5 +2209,5 @@
    }
   }
  },
- "version": "tools-a7403189"
+ "version": "tools-c35f48f7"
 }

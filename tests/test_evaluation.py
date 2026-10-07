@@ -1460,7 +1460,7 @@ def test_the_scope_set_scores_each_field_of_each_form(tmp_path: Path) -> None:
 
     report = anyio.run(read_scopes, LabelModel(), "labels", tmp_path, CASES, events.append)
 
-    assert len(report.results) == len(CASES) == 50
+    assert len(report.results) == len(CASES) == 53
     (wrong,) = [result for result in report.results if not result.passed]
     assert (wrong.message, wrong.wrong) == ("invret active_p1", {"soils": (False, True)})
     assert events[CASES.index(next(c for c in CASES if c.message == "invret active_p1"))] == (
@@ -1469,7 +1469,7 @@ def test_the_scope_set_scores_each_field_of_each_form(tmp_path: Path) -> None:
     saved = ScopeReport.model_validate_json((tmp_path / report.eval_id / "scopes.json").read_text())
     assert saved == report
     assert format_scope_report(report).splitlines() == [
-        f"Scopes {report.eval_id} of labels on {report.prompt_version}: 49 of 50 read right.",
+        f"Scopes {report.eval_id} of labels on {report.prompt_version}: 52 of 53 read right.",
         "  invret active_p1",
         "    soils False -> True",
     ]

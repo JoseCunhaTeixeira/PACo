@@ -148,6 +148,26 @@ def test_a_profile_with_a_run_is_processed_again_only_as_the_user_chooses(
     assert goes_on["run_id"] not in (run_id, again["run_id"])
 
 
+def test_a_new_run_chosen_is_made_whatever_the_call_says(
+    run: tuple[Settings, str, str],
+) -> None:
+    # The message chose the new run: processed again, the call's `again` left out (the user
+    # first); a call giving `again` that its message did not ask still gets the question.
+    settings, run_id, new = run
+    chosen = _scope("process", chosen='run_processing(profile="active_p1", again=true)')
+
+    made = _call(
+        "run_processing", {"profile": "active_p1", "overrides": SMALL_WINDOWS}, new, 2, chosen
+    )
+
+    assert made["run_id"] != run_id
+    assert len(list((settings.output_dir / "active_p1").iterdir())) == 2
+    arguments = {"profile": "active_p1", "overrides": SMALL_WINDOWS, "again": True}
+    asked = _call("run_processing", arguments, uuid.uuid4().hex, 1, _scope("process"))
+    assert asked["next"].startswith("Nothing was done.")
+    assert len(list((settings.output_dir / "active_p1").iterdir())) == 2
+
+
 def test_a_profile_asked_with_other_windows_still_offers_its_runs(
     run: tuple[Settings, str, str],
 ) -> None:

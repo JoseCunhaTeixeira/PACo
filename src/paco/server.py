@@ -231,8 +231,9 @@ def run_processing(
             # The windows the message gives come from its scope, in the unit it gives them.
             description="Only the settings the user gave, by stage, e.g. "
             '{"masw": {"length": <receivers>, "step": <receivers>}, "dispersion": {"vmax": '
-            '<m/s>}, "muting": {"method": "mute", "vmin": <m/s>, "vmax": <m/s>}}; see '
-            "preset_settings. Left out, they come from the data."
+            '<m/s>}, "muting": {"method": "mute", "vmin": <m/s>, "vmax": <m/s>}, "stacking": '
+            '{"method": "phase_weighted", "nu": <power>}}; see preset_settings. Left out: from '
+            "the data."
         ),
     ] = None,
     mode: Mode = None,
@@ -240,11 +241,11 @@ def run_processing(
         bool, Field(description="Only if the user asked to process again: a new run.")
     ] = False,
 ) -> StageResult:
-    """Process a profile into one dispersion image per window, checked stage by stage: records
-    (G1, its fixes applied: trigger delays corrected, bad traces left out), window length and
-    band from the data unless given, images (G2, retried when a change can fix them). Takes
-    seconds to minutes. Returns the run_id and the gates' summary; a profile with runs gives
-    options first: a new run, or a run to work on."""
+    """Process a profile into one dispersion image per window, checked by stage: records (G1:
+    trigger delays corrected, bad traces left out), window length and band from the data
+    unless given, images (G2, retried when a change fixes them). Takes seconds to minutes.
+    Returns the run_id and the gates' summary; with runs there, options first: a new run or
+    one to work on."""
 
     def report(done: int, total: int) -> None:
         # The SDK runs this tool in a worker thread: progress goes out through the event loop.
@@ -262,7 +263,10 @@ def run_processing(
     overrides, ignored = cleaned.values, cleaned.ignored
     given = {"overrides": overrides} if overrides else {}
     given |= {"mode": mode} if mode else {}
-    again = again and conversation.allows("run_processing", "again=true")
+    # Processing again as the message asks it (its words, or the new run it chose), whatever the
+    # call says (the user first); from a client that sends no scope, as the call says.
+    request = conversation.asked
+    again = request.chose("run_processing", "again=true") if request is not None else again
     if not again and (asked := choices.processing(profile, conversation, settings, given)):
         return _chosen(asked, ignored)
     # The mode as an argument, as preset_settings takes it: a model that asked preset_settings
