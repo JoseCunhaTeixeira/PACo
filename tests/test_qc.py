@@ -745,6 +745,13 @@ def test_the_picking_values_the_user_gave_are_said_with_those_used() -> None:
         "picking threshold 0.5, corridor 0.3: given (in your request, or chosen by the agent)"
     )
     assert picking_used(PickingParameters()) == said[:1]
+    # The band, by its limits: both, the lowest alone, the highest alone.
+    for band, words in (
+        ({"fmin": 12.0, "fmax": 40.0}, ", 12 to 40 Hz)"),
+        ({"fmin": 12.0}, ", from 12 Hz)"),
+        ({"fmax": 40.0}, ", up to 40 Hz)"),
+    ):
+        assert words in picking_used(PickingParameters.model_validate(band))[0]
 
 
 def test_the_settings_the_gates_changed_are_said_from_and_to(tmp_path: Path) -> None:

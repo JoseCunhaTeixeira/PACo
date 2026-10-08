@@ -79,13 +79,17 @@ def pick_line(
             set_aside(run_folder / unit, "picking")
         picked = None if fresh else latest(attempts, unit, "picking")
         base = picked.parameters if picked is not None else config.picking.model_dump()
+        parameters = deep_merge(base, changes or {})
         g2 = ready[unit]
-        if picked is None and g2 is not None and (wanted := stage_changes(g2, "picking", given)):
-            # G2's advice for the picking, which an older log may hold: two modes (G2 keeps
-            # competing ridges, the fundamental mode picked as the slowest ridge).
-            base = deep_merge(base, wanted[0])
-        parameters = PickingParameters.model_validate(deep_merge(base, changes or {}))
-        jobs[unit] = (parameters, g2.kept.band_hz if g2 is not None else None)
+        mine = {**given, **(changes or {})}
+        if picked is None and g2 is not None and (wanted := stage_changes(g2, "picking", mine)):
+            # G2's advice for the picking (an alias: picked below it; an older log may hold two
+            # modes), within the band the call gives, a limit it narrows, never widens.
+            parameters = deep_merge(parameters, wanted[0])
+        jobs[unit] = (
+            PickingParameters.model_validate(parameters),
+            g2.kept.band_hz if g2 is not None else None,
+        )
     if jobs:
         pick_windows(run_folder, jobs, config, triggered_by, settings.workers)
     # Each window's curve picked on its own; the records and the images are the line's, made

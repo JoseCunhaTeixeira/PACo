@@ -1,11 +1,12 @@
 """The settings the user gave for a run, locked for it (U2, L6): the gates and the rules never
 change them; a gate that needs one changed rejects its window instead, saying the change it
-asks, for the agent to suggest. Kept in the run's QC log, as events (S2): each call's values,
-by family (the processing's overrides, preset paths; the picking's changes; the inversion's
-parameters), the latest value of a setting winning."""
+asks, for the agent to suggest. A limit the user gave (the picking's band) bounds the gates'
+changes instead: they may narrow the range within it, never take it past. Kept in the run's QC
+log, as events (S2): each call's values, by family (the processing's overrides, preset paths;
+the picking's changes; the inversion's parameters), the latest value of a setting winning."""
 
 import json
-from collections.abc import Mapping
+from collections.abc import Callable, Mapping
 from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any, Literal, cast
@@ -27,6 +28,12 @@ FAMILY: dict[Stage, Family] = {
 }
 # What the run's settings are, not values: never locked (the processing's mode).
 _NOT_SETTINGS = frozenset({"mode"})
+# The settings the user gives as a limit, not a value, by family, each with the value a gate's
+# change takes within it: the picking's band (down to fmin, up to fmax), which a gate may
+# narrow (a higher fmin, a lower fmax: an alias, competing ridges), never widen. The image's
+# band (the processing's dispersion fmin and fmax) is what the user asked computed: a value.
+type Limit = Callable[[float, float], float]
+LIMITS: dict[Family, dict[str, Limit]] = {"picking": {"fmin": max, "fmax": min}}
 
 
 def give(run_folder: Path, family: Family, values: Mapping[str, Any] | None) -> None:
@@ -66,10 +73,19 @@ def locked(run_folder: Path, stage: Stage) -> dict[str, Any]:
     return given_of(run_folder).get(family, {}) if family is not None else {}
 
 
+def limits_of(stage: Stage) -> dict[str, Limit]:
+    """The limits among the settings of `stage`'s family (LIMITS)."""
+    family = FAMILY.get(stage)
+    return LIMITS.get(family, {}) if family is not None else {}
+
+
 def unlocked(
-    changes: Mapping[str, Any], given: Mapping[str, Any]
+    changes: Mapping[str, Any],
+    given: Mapping[str, Any],
+    limits: Mapping[str, Limit] | None = None,
 ) -> tuple[dict[str, Any], dict[str, Any]]:
-    """`changes` without the leaves the user gave, and those leaves (the changes held back)."""
+    """`changes` without the leaves the user gave, and those leaves (the changes held back); a
+    change of a limit the user gave (`limits`, the family's own settings) taken within it."""
     free: dict[str, Any] = {}
     held: dict[str, Any] = {}
     for key, value in changes.items():
@@ -82,11 +98,25 @@ def unlocked(
                 free[key] = inner_free
             if inner_held:
                 held[key] = inner_held
+        elif (within := _within(key, value, mine, limits)) is not None:
+            free[key] = within
         elif key in given:
             held[key] = value
         else:
             free[key] = value
     return free, held
+
+
+def beyond(
+    changes: Mapping[str, Any], given: Mapping[str, Any], limits: Mapping[str, Limit]
+) -> dict[str, Any]:
+    """The changes of `changes` past a limit the user gave, as asked (fmax 60 past their 50),
+    which `unlocked` takes within it."""
+    return {
+        key: value
+        for key, value in changes.items()
+        if (within := _within(key, value, given.get(key), limits)) is not None and within != value
+    }
 
 
 def said(held: Mapping[str, Any], given: Mapping[str, Any], path: tuple[str, ...] = ()) -> str:
@@ -123,6 +153,21 @@ def _merged(base: Mapping[str, Any], new: Mapping[str, Any]) -> dict[str, Any]:
         else:
             merged[key] = value
     return merged
+
+
+def _within(
+    key: str,
+    value: Any,  # noqa: ANN401
+    mine: Any,  # noqa: ANN401
+    limits: Mapping[str, Limit] | None,
+) -> float | None:
+    """`value`, a change of `key`, taken within the limit the user gave it (`mine`); None when
+    `key` is no limit they gave, or `value` no frequency (a band removed: held, as given)."""
+    limit = (limits or {}).get(key)
+    numbers = all(
+        isinstance(one, int | float) and not isinstance(one, bool) for one in (value, mine)
+    )
+    return float(limit(value, mine)) if limit is not None and numbers else None
 
 
 def _shown(value: Any) -> str:  # noqa: ANN401

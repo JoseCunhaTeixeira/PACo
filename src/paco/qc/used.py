@@ -118,9 +118,7 @@ def picking_used(
 ) -> tuple[str, ...]:
     """The picker's settings every window started from: PACo's, which G3 changes window by
     window (in the gates' changes); then the values the call gave (`given`), if any."""
-    band = ""
-    if parameters.fmin is not None or parameters.fmax is not None:
-        band = f", {parameters.fmin or 0:g} to {parameters.fmax or 'the image'} Hz"
+    band = _band(parameters.fmin, parameters.fmax)
     return (
         f"picking: M0 tracked along its ridge (threshold {parameters.threshold:g}, corridor "
         f"{parameters.corridor:.0%} of the velocity{band}), points under "
@@ -138,6 +136,16 @@ def picking_used(
             else []
         ),
     )
+
+
+def _band(low: float | None, high: float | None) -> str:
+    """The picking's band in words, after its corridor: ", 12 to 40 Hz", ", from 12 Hz", ", up
+    to 40 Hz"; none: the image's."""
+    if low is not None and high is not None:
+        return f", {low:g} to {high:g} Hz"
+    if low is not None:
+        return f", from {low:g} Hz"
+    return f", up to {high:g} Hz" if high is not None else ""
 
 
 def _shown_given(value: Any) -> str:  # noqa: ANN401

@@ -150,6 +150,7 @@ Constraints: Qwen3-14B in FP8, a 16,384-token context, one tool call per reply, 
   - The window length the agent chooses for depth, and for lateral detail.
   - Stuck: a passive line with no wave (passive_p1's geometry with white noise for records), and windows longer than the line: the agent asks.
   - A setting the user typed that a gate asks to change: it stays as given, the windows that need the change are left out, and the answer says the change asked (`narrow_velocities`, `few_iterations`, `tight_bounds`).
+  - A picking band the user typed: "between 12 and 40 Hz" (`pick_band`) and "down to 12 Hz" (`pick_down_to`), every point of every curve within it (the windows' picks span 9.5 to 42.5 Hz without it).
   - Every scenario where the data decide checks that thresholds were never changed and that no question was asked; `inversion_succeeded` is checked only when G4 passed a curve.
   - PAC's pages: a higher mode asked (the agent picks M0 and names Dispersion picking), a run processed and picked by hand (inverted as it is, after `inspect` finds it), one window inverted by its position; an impossible request (a 3D model).
   - Work there: images and "pick and invert" (done, no question), images and "process" (asked), curves and "invert" (done), curves and "pick and invert" (asked), a curve picked by hand and "pick every window again" (keep or replace asked, the curve kept); curves and "pick and invert", a typo, then "pick every window again" (`typo_then_choice`: the options still offered, the choice picks again and inverts, no call outside the scope); images and "process and invert": the run asked by code, then the run there (`work_on_a_run`: picked and inverted, nothing processed) or a new run (`new_run`: processed again, picked and inverted; `new_run_settings`: the active-passive method and a phase-weighted stack at power 1 asked, the new run made with them); a run that does not exist (`wrong_run`: said by code, with the runs there, nothing inverted).
@@ -270,8 +271,10 @@ Each decision states what the system does and the evidence it rests on; the gate
   no gate and no check changes them. A window whose gate asks to change one is rejected
   (`locked`), its line naming the change asked, for the agent to suggest; an inversion bound
   given that the curve does not fit stays as given, sigpipe's note saying what the check asks
-  (`derive_inversion(..., locked=...)`). A rule kept by the code, not by the prompt: Qwen3 does
-  not keep such a rule.
+  (`derive_inversion(..., locked=...)`). A limit the user typed (the picking's band, `fmin` and
+  `fmax`; `given.LIMITS`) bounds the gates' changes instead: G2's alias and G3's coherent band
+  narrow it within, never past it; a change only past it leaves the window `locked`. A rule kept
+  by the code, not by the prompt: Qwen3 does not keep such a rule.
 - **The host refuses a call identical to one that just failed**, with the failure and "change
   it or answer the user": a model otherwise sends the same wrong call again, or loops and
   invents a result.

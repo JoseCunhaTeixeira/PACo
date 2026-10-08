@@ -173,7 +173,10 @@ The settings you give are locked for the run (events of the run's QC log, `src/p
 no gate and no check changes them. A window whose gate asks to change one is left out, its line
 saying the change asked (`G2 locked, asks dispersion vmax 900 (given: 250)`), for you to choose;
 an inversion bound you gave that the curve does not fit stays as given, its note saying what the
-check asks (`kept as given (the check sets 450 m/s)`).
+check asks (`kept as given (the check sets 450 m/s)`). The picking's band you give ("pick between
+12 and 40 Hz", "down to 12 Hz": `fmin`, "up to 40 Hz": `fmax`) is a limit: the picker searches
+inside it, so no point of a curve lies outside, and a gate may narrow it (an alias, competing
+ridges), never widen it; a window whose gate asks only past it is left out, `locked`.
 
 The prompts are files (`src/paco/prompts/`: the role, the scope's and the answer's forms with
 their examples, the server's instructions); their version is logged with each turn and in the
