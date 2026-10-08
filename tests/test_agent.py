@@ -6,6 +6,7 @@ from typing import Any, cast
 
 import anyio
 import httpx2
+import openai
 import pytest
 from mcp import Client
 from mcp.shared.dispatcher import ProgressFnT
@@ -1185,6 +1186,65 @@ def test_openai_chat_sends_the_conversation_and_reads_tool_calls() -> None:
     )
     # Each call is chosen after the result of the one before.
     assert body["parallel_tool_calls"] is False
+
+
+def test_openai_chat_asks_again_while_the_server_refuses_the_connection() -> None:
+    # The tunnel to the model's server restarting: refused, then there again.
+    answers: list[str] = []
+
+    def vllm(request: httpx2.Request) -> httpx2.Response:
+        answer = answers.pop(0) if answers else "refused"
+        if answer == "refused":
+            raise httpx2.ConnectError("All connection attempts failed", request=request)
+        if answer == "slow":
+            raise httpx2.ReadTimeout("The model took too long", request=request)
+        return httpx2.Response(
+            200,
+            json={
+                "id": "chatcmpl-3",
+                "object": "chat.completion",
+                "created": 0,
+                "model": "Qwen/Qwen3-14B-FP8",
+                "choices": [
+                    {
+                        "index": 0,
+                        "finish_reason": "stop",
+                        "message": {"role": "assistant", "content": '{"pick": true}'},
+                    }
+                ],
+            },
+        )
+
+    client = AsyncOpenAI(
+        base_url="http://vllm.test/v1",
+        api_key="secret",
+        max_retries=0,
+        http_client=httpx2.AsyncClient(transport=httpx2.MockTransport(vllm)),
+    )
+    messages: list[ChatCompletionMessageParam] = [{"role": "user", "content": "Pick it."}]
+    waits: list[float] = []
+
+    async def sleep(seconds: float) -> None:
+        waits.append(seconds)
+
+    async def fill(reconnect_s: float = 30.0) -> Filled:
+        model = OpenAIChat(client, "Qwen/Qwen3-14B-FP8", reconnect_s=reconnect_s, sleep=sleep)
+        return await model.fill(messages, SCHEMA)
+
+    answers[:] = ["refused", "refused", "form"]
+    assert anyio.run(fill).content == '{"pick": true}'
+    assert waits == [1.0, 2.0]
+    # Refused past its budget: the error, the waits doubling up to it.
+    waits.clear()
+    with pytest.raises(openai.APIConnectionError):
+        anyio.run(fill, 10.0)
+    assert waits == [1.0, 2.0, 4.0, 3.0]
+    # A timeout is not asked again: the server was there.
+    waits.clear()
+    answers[:] = ["slow", "form"]
+    with pytest.raises(openai.APITimeoutError):
+        anyio.run(fill)
+    assert waits == []
 
 
 def test_openai_chat_fills_a_form_under_its_schema() -> None:

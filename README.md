@@ -206,7 +206,10 @@ Then `PACO_LLM_BASE_URL=http://127.0.0.1:8001/v1` (`paco-server` takes 8000),
 **On another machine's GPU** (a lab workstation, a GPU server rented in the cloud): the same
 command there, its port reached through SSH from the machine PACo runs on
 (`ssh -N -L 8001:127.0.0.1:8001 user@gpu-machine`), then
-`PACO_LLM_BASE_URL=http://127.0.0.1:8001/v1`. The model stays invisible from the network.
+`PACO_LLM_BASE_URL=http://127.0.0.1:8001/v1`. The model stays invisible from the network. A
+tunnel that restarts (SSH reconnecting, or `gcloud run services proxy` taking a fresh token every
+55 minutes) is waited for: a connection refused or dropped is tried again for up to 30 s before
+the answer fails.
 
 **From an online service** serving Qwen3-14B behind an OpenAI-compatible API: its address,
 `PACO_LLM_MODEL` as the service names the model, and `PACO_LLM_API_KEY`. The service then
