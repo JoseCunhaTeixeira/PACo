@@ -7,6 +7,7 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
+from sigpipe.masw.picks import load_curves
 from sigpipe.masw.runs import RunManifest
 
 from paco.agent.record import ToolStep, Transcript
@@ -667,6 +668,38 @@ def inverted_windows(count: int) -> Check:
             passed=record.total == count and done == count,
             detail=f"{record.total} taken, {done} with a model",
         )
+
+    return check
+
+
+def curves_within(low: float | None, high: float | None) -> Check:
+    """Every point of the latest run's curves lies within the band the user gave (`low` to
+    `high` Hz, None: no limit on that side), and the run has curves."""
+    if low is not None and high is not None:
+        name = f"every curve within {low:g} to {high:g} Hz"
+    elif low is not None:
+        name = f"every curve from {low:g} Hz up"
+    elif high is not None:
+        name = f"every curve up to {high:g} Hz"
+    else:
+        name = "the run has curves"
+
+    def check(trial: Trial) -> CheckResult:
+        manifest = _latest_manifest(trial)
+        if manifest is None:
+            return CheckResult(name=name, passed=False, detail="no run on disk")
+        run_folder = next(trial.output_dir.glob(f"*/{manifest.run_id}"))
+        outside: list[str] = []
+        picked = 0
+        for window in manifest.windows:
+            found = load_curves(run_folder / window.folder)
+            for curve in found.dispersion_curves if found else ():
+                picked += 1
+                fs = [float(f) for f in curve.fs]
+                if (low is not None and min(fs) < low) or (high is not None and max(fs) > high):
+                    outside.append(f"{window.folder} {min(fs):.1f} to {max(fs):.1f} Hz")
+        detail = ", ".join(outside) if outside else ("no curve" if not picked else "")
+        return CheckResult(name=name, passed=picked > 0 and not outside, detail=detail)
 
     return check
 

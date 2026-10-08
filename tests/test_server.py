@@ -7,11 +7,13 @@ from pathlib import Path
 from typing import Any
 
 import anyio
+import numpy as np
 import pytest
 from mcp import Client
 from mcp.types import CallToolResult, RequestParamsMeta, Tool
+from sigpipe.masw.picks import load_curves
 from sigpipe.masw.presets import override_schema
-from sigpipe.masw.runs import caching
+from sigpipe.masw.runs import caching, find_run
 from sigpipe.masw.runs.writing import run_lock
 
 from paco import inspection, server
@@ -349,6 +351,21 @@ def test_the_workflow_process_pick_redo_invert() -> None:
     assert status["depths_m"] and len(status["vs_m_s"]) == len(status["depths_m"])
     # G6 first, when the line reached it.
     assert any(line.startswith("G5: ") for line in status["summary"].splitlines()[:2])
+
+
+def test_a_band_given_bounds_every_pick(paco_env: Settings) -> None:
+    # Picked down to 12 Hz and up to 40 Hz: no point outside, whatever the gates narrow within
+    # (the windows' picks span 9.5 to 42.5 Hz without it).
+    run_id = _run_id(_call("run_processing", {"profile": "active_p1", "overrides": SMALL_WINDOWS}))
+
+    picked = _call("pick", {"run_id": run_id, "changes": {"fmin": 12, "fmax": 40}})
+
+    assert not picked.is_error and picked.structured_content is not None
+    folders = sorted(find_run(run_id, paco_env).glob("xmid_*"))
+    found = [load_curves(folder) for folder in folders]
+    fs = np.concatenate([one.fs for curves in found if curves for one in curves.dispersion_curves])
+    assert fs.size and fs.min() >= 12.0 and fs.max() <= 40.0
+    assert "picking fmin 12, fmax 40: given" in " ".join(picked.structured_content["used"])
 
 
 def test_run_processing_takes_the_mode_as_an_argument(paco_env: Settings) -> None:

@@ -38,7 +38,10 @@ unit asking for a retry it cannot have is rejected with its last flags: its budg
 (`nothing_to_try`), or it asks only to change settings the user gave (`locked`, its reason
 naming the change asked: `locked, asks dispersion vmax 375 (given: 250)`). A flag whose change
 touches a setting the user gave is held back whole, its parts going together (G5's longer
-sampling doubles the iterations and the burn-in); the unit's other flags retry. A change of the
+sampling doubles the iterations and the burn-in); the unit's other flags retry. A limit the
+user gave (the picking's band, `fmin` and `fmax`) takes the change within it instead (G3's
+coherent band 8 to 40 Hz in a band given from 10 to 50 Hz: 10 to 40 Hz); a change only past it
+leaves the attempt's band: `locked, asks fmax 60 (given: 50)`. A change of the
 line's settings the line loop did not keep leaves its units as they are, the flag kept as a
 note.
 `redo` is refused once the run's budget is spent. The settings a call gives that its tool does

@@ -20,6 +20,7 @@ from paco.evaluation.checks import (
     compare_best,
     compared_lengths,
     curves,
+    curves_within,
     excluded,
     in_order,
     inversion_succeeded,
@@ -716,6 +717,37 @@ SCENARIOS = (
             at_most_calls(4),
         ),
         rubric="active_p1 has a run with images: the agent picks them, and inverts nothing.",
+        setup=imaged_run,
+    ),
+    Scenario(
+        name="pick_band",
+        kind="wording",
+        # The windows' picks span 9.5 to 42.5 Hz without a band: two of them reach outside.
+        questions=("Pick active_p1 between 12 and 40 Hz.",),
+        checks=(
+            called("pick", changes={"fmin": 12, "fmax": 40}),
+            curves_within(12, 40),
+            nothing_redone("preprocessing", "phase_shift"),
+            asked_nothing(),
+            at_most_calls(4),
+        ),
+        rubric="active_p1 has a run with images: the agent picks them between 12 and 40 Hz, "
+        "and says the band with the picking's settings.",
+        setup=imaged_run,
+    ),
+    Scenario(
+        name="pick_down_to",
+        kind="wording",
+        questions=("Pick active_p1 down to 12 Hz.",),
+        checks=(
+            called("pick", changes={"fmin": 12}),
+            curves_within(12, None),
+            nothing_redone("preprocessing", "phase_shift"),
+            asked_nothing(),
+            at_most_calls(4),
+        ),
+        rubric="active_p1 has a run with images: the agent picks them with nothing below "
+        "12 Hz, and says the band with the picking's settings.",
         setup=imaged_run,
     ),
     Scenario(

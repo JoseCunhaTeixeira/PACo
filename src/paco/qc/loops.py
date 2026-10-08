@@ -8,7 +8,7 @@ from collections.abc import Iterable, Mapping
 from typing import Any, cast
 
 from paco.qc.budgets import Refusal, run_budget
-from paco.qc.given import said, unlocked
+from paco.qc.given import beyond, limits_of, said, unlocked
 from paco.qc.log import INVERSION_GATES, retries_at_gate, retries_in_run, retries_of_inversion
 from paco.qc.models import Attempt, Budgets, GateResult, Override, Stage
 
@@ -33,14 +33,15 @@ def stage_changes(
 ) -> tuple[dict[str, Any], str] | None:
     """The changes `result`'s flags ask of `stage`, merged, and the first flag asking; None when
     none do. A flag whose change touches a setting the user gave (`given`) is held back whole: its
-    parts go together (G5's longer sampling doubles the iterations and the burn-in)."""
+    parts go together (G5's longer sampling doubles the iterations and the burn-in); a limit they
+    gave (the picking's band) takes the change within it."""
     changes: dict[str, Any] = {}
     first: str | None = None
     for flag in result.flags:
         if isinstance(flag.action, Override) and flag.action.stage == stage:
-            _, held = unlocked(flag.action.overrides, given or {})
-            if not held and flag.action.overrides:
-                changes = deep_merge(changes, flag.action.overrides)
+            free, held = unlocked(flag.action.overrides, given or {}, limits_of(stage))
+            if not held and free:
+                changes = deep_merge(changes, free)
                 first = first or flag.name
     return (changes, first) if first is not None else None
 
@@ -50,8 +51,17 @@ def held_changes(result: GateResult, stage: Stage, given: Mapping[str, Any]) -> 
     held: dict[str, Any] = {}
     for flag in result.flags:
         if isinstance(flag.action, Override) and flag.action.stage == stage:
-            held = deep_merge(held, unlocked(flag.action.overrides, given)[1])
+            held = deep_merge(held, unlocked(flag.action.overrides, given, limits_of(stage))[1])
     return held
+
+
+def past_limits(result: GateResult, stage: Stage, given: Mapping[str, Any]) -> dict[str, Any]:
+    """The changes `result`'s flags ask of `stage` past a limit the user gave, as asked."""
+    found: dict[str, Any] = {}
+    for flag in result.flags:
+        if isinstance(flag.action, Override) and flag.action.stage == stage:
+            found |= beyond(flag.action.overrides, given, limits_of(stage))
+    return found
 
 
 class RetryBudget:
@@ -126,12 +136,17 @@ def refusal(
     given: Mapping[str, Any] | None = None,
 ) -> tuple[Refusal, str]:
     """Why `result`'s unit gets no retry at `stage`, with the changes held back in words: it
-    asks only changes of settings the user gave ("locked"), its changes are the attempt's
+    asks only changes of settings the user gave ("locked"), or past a limit they gave, which
+    leaves the attempt's ("locked" too: fmax 60 (given: 50)); its changes are the attempt's
     already ("unchanged"), or its budget is spent ("budget")."""
     given = given or {}
     if stage_changes(result, stage, given) is None and (held := held_changes(result, stage, given)):
         return "locked", said(held, given)
-    return ("unchanged" if unchanged(result, stage, previous, given) else "budget"), ""
+    if not unchanged(result, stage, previous, given):
+        return "budget", ""
+    if past := past_limits(result, stage, given):
+        return "locked", said(past, given)
+    return "unchanged", ""
 
 
 def spent(result: GateResult, stage: Stage) -> bool:

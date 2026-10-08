@@ -4,6 +4,7 @@ import re
 from collections.abc import Callable
 from datetime import UTC, datetime
 from pathlib import Path
+from types import SimpleNamespace
 from typing import Any, Literal, cast
 
 import anyio
@@ -25,6 +26,7 @@ from paco.evaluation import (
     JudgeScore,
     ScenarioResult,
     Trial,
+    checks,
     cli,
     format_report,
     read_score,
@@ -43,6 +45,7 @@ from paco.evaluation.checks import (
     compare_best,
     compared_lengths,
     curves,
+    curves_within,
     excluded,
     in_order,
     inversion_succeeded,
@@ -53,6 +56,7 @@ from paco.evaluation.checks import (
     loop_retried,
     models,
     never_called,
+    newest_run_with,
     no_inversion_started,
     no_settings_invented,
     none_outside_the_scope,
@@ -677,6 +681,65 @@ def test_the_mode_is_read_from_every_run(tmp_path: Path) -> None:
     result = processed_in_mode("passive-active")(trial)
     assert (result.passed, result.detail) == (False, "runs in active")
     assert not processed_in_mode("passive-active")(_trial([], "", tmp_path / "nothing")).passed
+    # The newest run alone: its mode, and a setting its preset does not have.
+    assert newest_run_with("mode", value="active")(trial).passed
+    newest = newest_run_with("mode", value="passive-active")(trial)
+    assert (newest.passed, newest.detail) == (False, "made with active")
+    assert not newest_run_with("stacking", "nu", value=1)(trial).passed
+
+
+def test_the_curves_are_checked_within_the_band(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    folder = tmp_path / "active_p1" / "20260926-100000-abcd"
+    folder.mkdir(parents=True)
+    manifest = RunManifest.model_validate(
+        {
+            "run_id": folder.name,
+            "profile": {
+                "name": "active_p1",
+                "kind": "active",
+                "n_records": 2,
+                "n_receivers": 96,
+                "receiver_x_range_m": [0.0, 23.75],
+                "receiver_spacing_m": 0.25,
+                "sampling_rate_hz": 2000.0,
+                "nyquist_hz": 1000.0,
+                "record_duration_range_s": [2.0, 2.0],
+                "source_x_range_m": [-0.75, 24.5],
+            },
+            "preset": {"mode": "active"},
+            "versions": {},
+            "started_at": "2026-09-26T10:00:00Z",
+            "finished_at": "2026-09-26T10:00:10Z",
+            "n_positions": 4,
+            "windows": [
+                {"xmid": xmid, "folder": f"xmid_{xmid}", "status": "succeeded"}
+                for xmid in (2.88, 8.88, 14.88)
+            ],
+        }
+    )
+    (folder / "run.json").write_text(manifest.model_dump_json())
+    # Two windows with a curve, one without.
+    spans = {"xmid_2.88": (12.5, 39.0), "xmid_8.88": (11.0, 30.0)}
+
+    def curves_of(window: Path) -> SimpleNamespace | None:
+        span = spans.get(window.name)
+        return SimpleNamespace(dispersion_curves=(SimpleNamespace(fs=span),)) if span else None
+
+    monkeypatch.setattr(checks, "load_curves", curves_of)
+    trial = _trial([], "", tmp_path)
+
+    assert curves_within(11, 40)(trial).passed
+    below = curves_within(12, 40)(trial)
+    assert (below.name, below.passed) == ("every curve within 12 to 40 Hz", False)
+    assert below.detail == "xmid_8.88 11.0 to 30.0 Hz"
+    assert curves_within(None, 39)(trial).name == "every curve up to 39 Hz"
+    assert curves_within(None, 39)(trial).passed
+    assert curves_within(12, None)(trial).name == "every curve from 12 Hz up"
+    assert not curves_within(12, None)(trial).passed
+    spans.clear()
+    assert curves_within(11, 40)(trial).detail == "no curve"
 
 
 def test_the_agent_asks_or_not() -> None:
@@ -1460,7 +1523,7 @@ def test_the_scope_set_scores_each_field_of_each_form(tmp_path: Path) -> None:
 
     report = anyio.run(read_scopes, LabelModel(), "labels", tmp_path, CASES, events.append)
 
-    assert len(report.results) == len(CASES) == 53
+    assert len(report.results) == len(CASES) == 55
     (wrong,) = [result for result in report.results if not result.passed]
     assert (wrong.message, wrong.wrong) == ("invret active_p1", {"soils": (False, True)})
     assert events[CASES.index(next(c for c in CASES if c.message == "invret active_p1"))] == (
@@ -1469,7 +1532,7 @@ def test_the_scope_set_scores_each_field_of_each_form(tmp_path: Path) -> None:
     saved = ScopeReport.model_validate_json((tmp_path / report.eval_id / "scopes.json").read_text())
     assert saved == report
     assert format_scope_report(report).splitlines() == [
-        f"Scopes {report.eval_id} of labels on {report.prompt_version}: 52 of 53 read right.",
+        f"Scopes {report.eval_id} of labels on {report.prompt_version}: 54 of 55 read right.",
         "  invret active_p1",
         "    soils False -> True",
     ]

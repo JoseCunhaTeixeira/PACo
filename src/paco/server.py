@@ -341,15 +341,18 @@ def pick(
     positions: Positions = None,
     changes: Annotated[
         dict[str, Any] | None,
-        Field(description="Only picking settings the user typed; left out otherwise."),
+        # Placeholders, not values: a model copies the values of examples.
+        Field(
+            description="Only picking settings the user typed, e.g. "
+            '{"fmin": <lowest Hz>, "fmax": <highest Hz>}; left out otherwise.'
+        ),
     ] = None,
     windows: Windows = None,
     hand: Hand = None,
 ) -> StageResult:
-    """Pick each window's M0, checked by G3 (picked again when a change can fix it) and by G4
-    over the line (outliers picked again along their neighbours), saved in PAC's layout. G4's
-    verdict on the line decides whether invert can run. Curves already there, or picked by
-    hand, give options first."""
+    """Pick each window's M0, checked by G3 (picked again if a change fixes it) and by G4 over
+    the line (outliers picked again). G4's verdict on the line decides if invert can run.
+    Curves already there, or picked by hand, give options first."""
     settings = _settings()
     with _writing(run_id, "pick"):
         conversation = _conversation(ctx)

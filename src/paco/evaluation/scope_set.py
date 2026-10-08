@@ -175,6 +175,8 @@ CASES: tuple[Case, ...] = (
     ),
     Case("Pick M0 and M1 of active_p1.", {"pick": True, "profile": "active_p1"}),
     Case("Pick active_p1 with a threshold of 0.4.", {"pick": True, "profile": "active_p1"}),
+    Case("Pick active_p1 between 12 and 40 Hz.", {"pick": True, "profile": "active_p1"}),
+    Case("Pick active_p1 down to 12 Hz.", {"pick": True, "profile": "active_p1"}),
     Case(
         "Invert active_p1 with 4 layers and Vs up to 800 m/s.",
         {"invert": True, "profile": "active_p1"},

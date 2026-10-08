@@ -1490,7 +1490,7 @@
     "open_world_hint": false,
     "read_only_hint": false
    },
-   "description": "Pick each window's M0, checked by G3 (picked again when a change can fix it) and by G4\nover the line (outliers picked again along their neighbours), saved in PAC's layout. G4's\nverdict on the line decides whether invert can run. Curves already there, or picked by\nhand, give options first.",
+   "description": "Pick each window's M0, checked by G3 (picked again if a change fixes it) and by G4 over\nthe line (outliers picked again). G4's verdict on the line decides if invert can run.\nCurves already there, or picked by hand, give options first.",
    "input_schema": {
     "properties": {
      "changes": {
@@ -1504,7 +1504,7 @@
        }
       ],
       "default": null,
-      "description": "Only picking settings the user typed; left out otherwise.",
+      "description": "Only picking settings the user typed, e.g. {\"fmin\": <lowest Hz>, \"fmax\": <highest Hz>}; left out otherwise.",
       "title": "Changes"
      },
      "hand": {
@@ -2209,5 +2209,5 @@
    }
   }
  },
- "version": "tools-c35f48f7"
+ "version": "tools-4649391b"
 }

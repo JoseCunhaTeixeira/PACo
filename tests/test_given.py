@@ -7,7 +7,7 @@ from pathlib import Path
 from paco.qc import Budgets, GateResult, QCReport, UnitReport, left_out
 from paco.qc.budgets import budget_spent
 from paco.qc.coherence import cap_band
-from paco.qc.given import give, given_of, leaves, locked, said, unlocked
+from paco.qc.given import give, given_of, leaves, limits_of, locked, said, unlocked
 from paco.qc.log import LOG_FILE, read_attempts
 from paco.qc.loops import RetryBudget, next_try, refusal
 from paco.qc.models import Flag, Override
@@ -112,3 +112,34 @@ def test_a_flag_touching_a_given_setting_is_held_back_whole() -> None:
 
     assert next_try(result, "inversion", budget, {}, given) is None
     assert refusal(result, "inversion", {}, given) == ("locked", "n_iterations 4000 (given: 2000)")
+
+
+def test_a_band_the_user_gave_is_a_limit_the_gates_narrow_within() -> None:
+    # The picking's band: a gate may narrow it (an alias, the coherent band), never widen it.
+    given = {"fmin": 10.0, "fmax": 50.0}
+    limits = limits_of("picking")
+
+    assert unlocked({"fmin": 12.0, "fmax": 40.0}, given, limits) == (
+        {"fmin": 12.0, "fmax": 40.0},
+        {},
+    )
+    assert unlocked({"fmin": 8.0, "fmax": 60.0, "corridor": 0.1}, given, limits) == (
+        {"fmin": 10.0, "fmax": 50.0, "corridor": 0.1},
+        {},
+    )
+    # A band removed is held, as given; the image's band (the processing's) is a value.
+    assert unlocked({"fmax": None}, given, limits) == ({}, {"fmax": None})
+    image = {"dispersion": {"fmax": 50.0}}
+    assert unlocked({"dispersion": {"fmax": 40.0}}, image, limits_of("phase_shift"))[1] == {
+        "dispersion": {"fmax": 40.0}
+    }
+    # G3's coherent band from 8 to 40 Hz, within the user's: 10 to 40 Hz.
+    budget = RetryBudget((), Budgets(), 4)
+    wanted = next_try(
+        _asking("picking", {"fmin": 8.0, "fmax": 40.0}), "picking", budget, given, given
+    )
+    assert wanted is not None and (wanted[0]["fmin"], wanted[0]["fmax"]) == (10.0, 40.0)
+    # A change past the band alone: nothing to try, refused as the user's limit, said.
+    past = _asking("picking", {"fmax": 60.0})
+    assert next_try(past, "picking", budget, given, given) is None
+    assert refusal(past, "picking", given, given) == ("locked", "fmax 60 (given: 50)")
