@@ -244,6 +244,7 @@ AUTONOMOUS_PLAY = [
                 "said": "The 8 windows' models are decided.",
                 "question": None,
                 "interpretation": INTERPRETATION,
+                "tried": None,
             }
         )
     ),

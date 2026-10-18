@@ -528,12 +528,15 @@ class Host:
         """The model's reply without a call, in PACo's answer form: what it says, its question,
         its interpretation; the draft as it is when no form parses."""
         started = time.perf_counter()
+        # After the freeze, the answer may be the report: the experiments, for it to say what was
+        # tried.
+        experiments = answering.tried(self._study) if phase == "P4" else []
         try:
-            written = await answering.write_answer(self._model, self.request, draft)
+            written = await answering.write_answer(self._model, self.request, draft, experiments)
         except AnswerError as error:
             self.steps.append(_answer_step(None, time.perf_counter() - started, 2, str(error)))
             return answering.GeoAnswerForm(
-                said=draft.replace("?", "."), question=None, interpretation=None
+                said=draft.replace("?", "."), question=None, interpretation=None, tried=None
             )
         form = written.form
         self.steps.append(
@@ -571,7 +574,7 @@ class Host:
 
     def _stands(self, said: str) -> str:
         """An answer when the run stops: why, and where the work stands."""
-        form = answering.GeoAnswerForm(said=said, question=None, interpretation=None)
+        form = answering.GeoAnswerForm(said=said, question=None, interpretation=None, tried=None)
         return answering.progress(self._line(), form, self._where())
 
     def _where(self) -> str:

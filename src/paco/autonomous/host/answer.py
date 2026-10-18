@@ -40,13 +40,15 @@ MODES_SAID = {
 }
 STEP = "the plan's rule: one set of settings for the line, a window every receiver"
 INTERPRETED = "Interpretation, by the model (not a measurement)"
+TRIED = "What I tried"
 
 
 class GeoAnswerForm(AnswerForm):
-    """PACo's answer form, with the model's reading of the ground: an interpretation, not a
-    measurement."""
+    """PACo's answer form, with the model's reading of the ground (an interpretation, not a
+    measurement) and, in the report, what it tried, said for a person."""
 
     interpretation: str | None = Field(max_length=600)
+    tried: str | None = Field(max_length=600)
 
 
 # The form's JSON schema, as the model's output is constrained to it.
@@ -61,10 +63,13 @@ class Written:
     fills: tuple[Filled, ...]
 
 
-async def write_answer(model: ChatModel, message: str, draft: str) -> Written:
+async def write_answer(
+    model: ChatModel, message: str, draft: str, experiments: Sequence[str] = ()
+) -> Written:
     """The answer form for the model's `draft` to the user's `message`, strictly parsed; a form
-    that does not parse is sent back once with its error. Raises AnswerError when the second
-    does not parse either."""
+    that does not parse is sent back once with its error. `experiments`, the journal's lines of
+    those that changed a decision, given as data for the model to say what it tried. Raises
+    AnswerError when the second form does not parse either."""
     messages: list[ChatCompletionMessageParam] = [
         {
             "role": "system",
@@ -76,9 +81,16 @@ async def write_answer(model: ChatModel, message: str, draft: str) -> Written:
             {"role": "user", "content": f"Message: {example_message}\nAnswer: {example_draft}"}
         )
         messages.append(
-            {"role": "assistant", "content": json.dumps({**form, "interpretation": None})}
+            {
+                "role": "assistant",
+                "content": json.dumps({**form, "interpretation": None, "tried": None}),
+            }
         )
-    messages.append({"role": "user", "content": f"Message: {message}\nAnswer: {draft}"})
+    asked = f"Message: {message}\nAnswer: {draft}"
+    if experiments:
+        lines = "\n".join(f"- {line}" for line in experiments)
+        asked += f'\n<data from="journal">\nExperiments:\n{lines}\n</data>'
+    messages.append({"role": "user", "content": asked})
     fills: list[Filled] = []
     said = ""
     for _ in range(2):
@@ -115,19 +127,21 @@ def report(
     """The report (P5): the scope, the model's text, what was done and left out, what was tried,
     each window's outcome, the model's interpretation, the parameters used and the settings kept
     as given."""
-    said = f"{form.said} {form.interpretation or ''}"
+    said = f"{form.said} {form.tried or ''} {form.interpretation or ''}"
     held = [*sources, scope_line, *(entry.text for entry in journal.entries(study))]
     blocks = [scope_line, form.said.strip()]
     if unfound := unfound_numbers(said, held):
         blocks.append(f"Numbers not found in the tools' results: {', '.join(unfound)}.")
-    for title, items in (
-        ("Done", done(study)),
-        ("Left out", left_out(study, settings)),
-        ("What I tried", tried(study)),
-        ("Each window's outcome", outcomes(study, settings)),
-    ):
+    for title, items in (("Done", done(study)), ("Left out", left_out(study, settings))):
         if items:
             blocks.append(f"{title}:\n" + "\n".join(f"- {item}" for item in items))
+    # What was tried, as the model says it for a person; the journal's lines when it says nothing.
+    if form.tried:
+        blocks.append(f"{TRIED}: {form.tried.strip()}")
+    elif experiments := tried(study):
+        blocks.append(f"{TRIED}:\n" + "\n".join(f"- {line}" for line in experiments))
+    if windows := outcomes(study, settings):
+        blocks.append("Each window's outcome:\n" + "\n".join(f"- {line}" for line in windows))
     if form.interpretation:
         blocks.append(f"{INTERPRETED}: {form.interpretation.strip()}")
     if form.question:

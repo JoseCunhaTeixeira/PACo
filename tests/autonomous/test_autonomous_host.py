@@ -19,6 +19,7 @@ from mcp import Client
 
 from paco.autonomous import server
 from paco.autonomous.host import budgets
+from paco.autonomous.host.answer import GeoAnswerForm, report
 from paco.autonomous.host.card import card
 from paco.autonomous.host.loop import CARD, DROPPED, PENDING, Host, Limits
 from paco.autonomous.host.phases import phase_of
@@ -35,6 +36,11 @@ REASONS = {"masw length": "the deepest windows E1 tried", "dispersion nv": "a co
 SCOPE = {**BLANK, "invert": True, "profile": PROFILE, "effort": "quick"}
 REQUEST = "Give me the Vs of active_test_profile, quickly."
 INTERPRETATION = "A stiffer layer below 10 m, if the picks are right."
+# What the model tried, as it says it for a person, from the journal's experiments.
+TRIED = (
+    "I compared windows of 78 receivers with the current ones on 3 windows spread along the "
+    "line: 1 of 3 curves passed either way, so I kept the deeper windows."
+)
 # The models of one quick pass, rejected, naming each fixable flag G5 may raise on them: its
 # chains' seeds change with the run's id.
 REJECTED_MODELS = (
@@ -85,8 +91,10 @@ def form(fields: dict[str, Any]) -> tuple[dict[str, Any], dict[str, Any]]:
     return {"role": "assistant", "content": json.dumps(fields)}, usage(800, 30)
 
 
-def answer_form(text: str, question: str | None = None, reading: str | None = None) -> Any:  # noqa: ANN401
-    return form({"said": text, "question": question, "interpretation": reading})
+def answer_form(
+    text: str, question: str | None = None, reading: str | None = None, tried: str | None = None
+) -> Any:  # noqa: ANN401
+    return form({"said": text, "question": question, "interpretation": reading, "tried": tried})
 
 
 # The play, P0 to P5: the objective's form, then the model's calls, then the report's form.
@@ -131,7 +139,9 @@ PLAY = [
         13,
     ),
     said("The 8 curves are frozen and inverted once. " + INTERPRETATION),
-    answer_form("The 8 windows' curves are frozen and inverted once.", reading=INTERPRETATION),
+    answer_form(
+        "The 8 windows' curves are frozen and inverted once.", reading=INTERPRETATION, tried=TRIED
+    ),
 ]
 
 
@@ -255,7 +265,16 @@ def test_the_report_adds_what_was_tried_and_each_windows_outcome(played: Played)
     assert report.startswith(
         "Scope: invert · active_test_profile · balanced, no target depth, quick effort."
     )
-    assert "What I tried:\n- E1 on spread:3: current 1/3; 1 " in report
+    # What was tried, as the model says it, from the journal's experiments given to it as data.
+    assert f"What I tried: {TRIED}" in report
+    assert "E1 on spread:3" not in report
+    asked = [
+        str(message["content"])
+        for body in played.model.bodies
+        for message in body["messages"]
+        if message["role"] == "user" and '<data from="journal">' in str(message["content"])
+    ]
+    assert asked and "Experiments:\n- E1 on spread:3: current 1/3; 1 " in asked[-1]
     assert f"Each window's outcome:\n- curves accepted: {ACCEPTED}" in report
     assert f"Interpretation, by the model (not a measurement): {INTERPRETATION}" in report
     assert (
@@ -268,6 +287,22 @@ def test_the_report_adds_what_was_tried_and_each_windows_outcome(played: Played)
     assert f"- the models at {ACCEPTED}: {REJECTED_MODELS}" in report
     assert "- inversion of 8 windows, the layers chosen by the data" in report
     assert "- 3000 iterations (750 burn-in), 2 chains: the model's effort" in report
+
+
+@pytest.mark.slow
+def test_what_was_tried_falls_back_on_the_journal_and_its_numbers_are_checked(
+    played: Played,
+) -> None:
+    def written(tried: str | None) -> str:
+        form = GeoAnswerForm(said="Done.", question=None, interpretation=None, tried=tried)
+        return report(played.study, played.settings, "Scope: invert.", form)
+
+    # Nothing said of it: the journal's lines.
+    assert "What I tried:\n- E1 on spread:3: current 1/3; 1 " in written(None)
+    # Numbers the journal does not hold, flagged.
+    said = written("Windows of 78 receivers passed 33 of 40.")
+    assert "What I tried: Windows of 78 receivers passed 33 of 40." in said
+    assert "Numbers not found in the tools' results: 33, 40." in said
 
 
 @pytest.mark.slow
