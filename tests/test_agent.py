@@ -1284,7 +1284,7 @@ def test_openai_chat_fills_a_form_under_its_schema() -> None:
     messages: list[ChatCompletionMessageParam] = [{"role": "user", "content": "Pick it."}]
 
     async def fill() -> Filled:
-        return await OpenAIChat(client, "Qwen/Qwen3-14B-FP8", 0.6, 7).fill(messages, SCHEMA)
+        return await OpenAIChat(client, "Qwen/Qwen3-14B-FP8").fill(messages, SCHEMA)
 
     filled = anyio.run(fill)
 

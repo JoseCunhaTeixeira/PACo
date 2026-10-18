@@ -127,7 +127,7 @@ Three steps, the range, the fit and the line (`docs/gates/G7.md`, `G8.md`):
 - Offsets: the nearest shot at least half the trial curves' longest wavelength from the window, against near-field effects, where the window has a farther one; the farthest within the reach G1 found.
 
 ## Agent side
-Constraints: Qwen3-14B in FP8, a 16,384-token context, one tool call per reply, `PACO_MAX_TOOL_CALLS` = 15; the model sees summaries only, and the tool cards have a measured budget.
+Constraints: Qwen3-14B in FP8, a 16,384-token context, one tool call per reply, 15 tool calls per answer; the model sees summaries only, and the tool cards have a measured budget.
 - The agent asks when the request leaves the user's choice open (work already there, work made by hand: below) or when it is stuck: the data cannot decide (no image or no curve left for the line, windows rejected once the retry budget is spent, a request the data do not allow, such as windows longer than the line). It asks one short question with 2 to 4 concrete options, its choice first, and waits. Settings the user did not give are its own to choose, never a reason to ask; otherwise it applies the gates' fixes and goes back a stage by itself, saying what it changed.
 - Settings the user types in the chat are the only exception to "derived": the loop starts from them. If a gate then concludes one must change, the agent changes it and says so in its answer, without asking.
 - The go/no-go before the inversion of the assistant's curves is G4's verdict: `invert` reads G4's record from the QC log; a person's curves are taken as they are, and automatic curves no gate judged are judged first. There is no approval step.
@@ -139,7 +139,7 @@ Constraints: Qwen3-14B in FP8, a 16,384-token context, one tool call per reply, 
 - Gates work on a whole run and return one short summary: counts per verdict, flags grouped by runs of xmids (e.g. "xmid 12-18: ridge at vmax"), with the suggested overrides per group. Never one line per xmid.
 - Retries target a subset for the picking and the inversion: redo them for listed xmids, or for the ones carrying flag X, with overrides. The records and the images are redone for the whole line, with the line's settings changed.
 - Placeholders, not values, in tool descriptions (small models copy example values).
-- Raise `PACO_MAX_TOOL_CALLS` only with evaluation evidence.
+- Raise the cap of 15 tool calls per answer only with evaluation evidence.
 - Evaluation scenarios (`paco.evaluation`), on the demo profiles, synthetic variants of the demo profiles with known defects, and settings the user types:
   - Looking around: the profiles, one profile's geometry, a profile that does not exist.
   - Zero settings: "process active_p1 and give me the Vs models" with nothing else; the agent must not ask a single question, and the run must end with models for the xmids G4 passed and reasons for the rest.

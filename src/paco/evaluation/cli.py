@@ -15,7 +15,7 @@ from paco.evaluation.report import format_history, format_report, read_reports
 from paco.evaluation.running import run_evaluation
 from paco.evaluation.scenarios import SCENARIOS
 from paco.evaluation.scope_set import format_scope_report, read_scopes
-from paco.llm.chat import chat_model, judge_model
+from paco.llm.chat import chat_model
 from paco.llm.settings import NO_MODEL, missing
 
 
@@ -80,26 +80,20 @@ async def evaluate(
         print(f"Unknown scenario(s): {', '.join(sorted(unknown))}. Scenarios: {known}.")
         return
 
-    try:
-        model, judge = chat_model(settings), judge_model(settings)
-    except ValueError as error:  # a cloud's library or credentials missing
-        print(error)
-        return
+    # The model, and another client of it as the judge.
+    model, judge = chat_model(settings), chat_model(settings)
     if scopes:
         read = await read_scopes(model, settings.llm_model, settings.evaluations)
         print()
         print(format_scope_report(read))
         return
-    if judge is None:
-        print("No judge model (PACO_JUDGE_MODEL): rule checks only.")
-
     report = await run_evaluation(
         scenarios,
         model,
         settings.llm_model,
         settings.evaluations,
         judge,
-        settings.judge_model,
+        settings.llm_model,
         repeat,
         full_inversion=full_inversion,
     )

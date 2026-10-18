@@ -1112,25 +1112,25 @@ def transport_security(settings: Settings) -> TransportSecuritySettings | None:
 
 
 def main(argv: Sequence[str] | None = None) -> None:
-    """paco-server [--mode guided|autonomous] [--list]: serve the mode's tools over Streamable HTTP
-    (PACO_AGENT_MODE when not told), where the settings say: PACo's (PACO_HOST, PACO_PORT), or the
-    geophysicist's (PACO_GEO_HOST, PACO_GEO_PORT); with --list, print their names instead."""
+    """paco-server [--mode workflow|autonomous] [--list]: serve the mode's tools over Streamable
+    HTTP (PACO_AGENT_MODE when not told), where the settings say (PACO_HOST, PACO_PORT); with
+    --list, print their names instead."""
     parser = argparse.ArgumentParser(
         prog="paco-server", description="Serve the agent's tools over MCP (Streamable HTTP)."
     )
     parser.add_argument(
         "--mode",
         choices=MODES,
-        help="guided: PACo's workflow tools; autonomous: the geophysicist's (default: "
-        "PACO_AGENT_MODE, else guided)",
+        help="workflow: PACo's workflow tools; autonomous: the autonomous mode's (default: "
+        "PACO_AGENT_MODE, else workflow)",
     )
     parser.add_argument("--list", action="store_true", help="print the tools' names, and stop")
     arguments = parser.parse_args(argv)
     if (arguments.mode or ModeSettings().agent_mode) == "autonomous":
-        # The geophysicist's server (paco.geo), imported only when it is served.
-        from paco.geo import server as geo
+        # The autonomous mode's tools (paco.autonomous), imported only when they are served.
+        from paco.autonomous import server as autonomous
 
-        geo.main(["--list"] if arguments.list else [])
+        autonomous.main(["--list"] if arguments.list else [])
         return
     if arguments.list:
         print("\n".join(tool.name for tool in anyio.run(server.list_tools)))

@@ -23,8 +23,6 @@ COPY --from=build /app/.venv /app/.venv
 ENV PATH=/app/.venv/bin:$PATH \
     PACO_INPUT_DIR=/data/input \
     PACO_OUTPUT_DIR=/data/output \
-    PACO_LOG_DIR=/data/output/agent_logs \
-    PACO_EVALUATION_DIR=/data/output/evaluations \
     PACO_HOST=0.0.0.0 \
     MPLBACKEND=Agg
 USER paco

@@ -40,8 +40,8 @@ from paco.agent.scope import (
     refusal,
     runs_in,
 )
-from paco.agent.settings import AgentSettings
 from paco.ignoring import undeclared
+from paco.llm.settings import LOCAL_CONTEXT, ModelSettings
 
 # The answer a stopped question leaves in the conversation (see Agent.answer).
 STOPPED = "(Stopped on the user's request before the answer was complete.)"
@@ -78,17 +78,12 @@ class Limits:
     seconds: float = 7200.0
     tokens: int = 40_000  # the model's completion tokens over the answer, thinking included
     tool_seconds: float = 3600.0
-    context: int = 12_288
+    context: int = LOCAL_CONTEXT
 
     @classmethod
-    def of(cls, settings: AgentSettings) -> Limits:
-        return cls(
-            tool_calls=settings.max_tool_calls,
-            seconds=settings.max_turn_s,
-            tokens=settings.max_turn_tokens,
-            tool_seconds=settings.tool_timeout_s,
-            context=settings.context(),
-        )
+    def of(cls, settings: ModelSettings) -> Limits:
+        """The caps, the model's context the settings say."""
+        return cls(context=settings.context())
 
 
 class Agent:

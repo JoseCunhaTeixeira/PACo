@@ -1,10 +1,11 @@
-"""The model client (docs/geo_plan.md §3): PACo's ChatModel protocol, which the host calls and
-PACo's own agent too, for a model behind OpenAI's chat API, as OpenAI, Mistral, vLLM or another
-server serves it; with what the geophysicist agent adds: images in the conversation, thinking
-switched on or off per call, the prompt tokens the server took from its cache, and several calls a
-reply when they only read. Anthropic's API has its own client (paco.llm.claude); paco.llm.chat makes
-the one a provider needs."""
+"""The model client (docs/autonomous_plan.md §3): PACo's ChatModel protocol, which the host calls and
+PACo's own agent too, for a model behind OpenAI's chat API, as OpenAI, Google, Mistral or a server
+(vLLM, Ollama, a gateway...) serves it; with what the autonomous mode adds: images in the
+conversation, thinking switched on or off per call, the prompt tokens the server took from its
+cache, and several calls a reply when they only read. Anthropic's API has its own client
+(paco.llm.claude); paco.llm.chat makes the one a provider needs."""
 
+import logging
 from collections.abc import Awaitable, Callable
 from typing import Any, Literal, cast
 
@@ -16,7 +17,6 @@ from openai.types.chat import (
     ChatCompletionFunctionToolParam,
     ChatCompletionMessageParam,
 )
-from openai.types.shared import ReasoningEffort
 
 from paco.llm.protocol import (
     FORM_TOKENS,
@@ -27,24 +27,17 @@ from paco.llm.protocol import (
     without_thinking,
 )
 from paco.llm.reconnecting import reconnecting
-from paco.llm.settings import Effort
 
-# How a server takes what the client sends beside OpenAI's chat API: vLLM's chat-template switch
-# of thinking; OpenAI's reasoning effort and its cap on the completion's tokens, reasoning
-# included (Azure's too); Gemini's reasoning effort, its levels, and the thought signatures its
-# calls carry; nothing more for the others (Mistral, other servers), which refuse what they do not
-# know.
-type Dialect = Literal["vllm", "openai", "gemini", "plain"]
+logger = logging.getLogger(__name__)
+
+# How an API takes what the client sends beside OpenAI's chat API: a server, vLLM's chat-template
+# switch of thinking, which Qwen3's template reads (a server that refuses it, such as a gateway in
+# front of another API, gets none from then on); OpenAI, its cap on the completion's tokens,
+# reasoning included; Gemini, the thought signatures its calls carry; nothing more for Mistral,
+# which refuses what it does not know.
+type Dialect = Literal["server", "openai", "gemini", "plain"]
 # The dialects whose models reason within the completion's tokens: a form leaves them room.
 REASONING: tuple[Dialect, ...] = ("openai", "gemini")
-# Gemini's reasoning efforts (its compatibility layer's): the settings' higher ones are its high.
-GEMINI_EFFORTS: dict[Effort, ReasoningEffort] = {
-    "low": "low",
-    "medium": "medium",
-    "high": "high",
-    "xhigh": "high",
-    "max": "high",
-}
 # The signature Google allows on a call whose own is not known (a resumed study's): Gemini 3 and
 # later refuse a call given back without one.
 SKIP_SIGNATURE = "skip_thought_signature_validator"
@@ -58,31 +51,28 @@ PROBE_TOKENS = 256
 
 
 class OpenAIChat:
-    """A model behind OpenAI's chat API, as PACo's ChatModel: OpenAI's, Mistral's, a vLLM server's
-    or another's, as `dialect` says.
+    """A model behind OpenAI's chat API, as PACo's ChatModel: a server's, OpenAI's, Gemini's or
+    Mistral's, as `dialect` says.
 
     `vision`: whether images may reach the model (PACO_LLM_VISION); a conversation holding one
     is refused without it, before anything is sent. `thinking`: whether the model thinks before
-    its replies (PACO_LLM_THINKING) unless a call says otherwise: on vLLM through its
-    chat-template switch, which Qwen3's template reads and a template without it ignores; on
-    OpenAI, `effort` sent as its reasoning effort when set (a model that does not reason refuses
-    it); elsewhere, as the model does. A form is filled under its schema without thinking: at
-    temperature 0, as in PACo, but on OpenAI, whose reasoning models refuse a temperature. A
-    server that refuses or drops the connection is asked again for up to `reconnect_s`, waiting
-    with `sleep` (paco.llm.reconnecting).
+    its replies unless a call says otherwise: on a server through vLLM's chat-template switch,
+    which Qwen3's template reads and a template without it ignores; elsewhere, as the model does,
+    at its own effort. A
+    form is filled under its schema without thinking: at temperature 0, as in PACo, but on
+    OpenAI, whose reasoning models refuse a temperature. A server that refuses or drops the
+    connection is asked again for up to `reconnect_s`, waiting with `sleep`
+    (paco.llm.reconnecting).
     """
 
     def __init__(
         self,
         client: AsyncOpenAI,
         model: str,
-        temperature: float | None = None,
-        seed: int | None = None,
         *,
         vision: bool = False,
         thinking: bool = True,
-        dialect: Dialect = "vllm",
-        effort: Effort | None = None,
+        dialect: Dialect = "server",
         reconnect_s: float = RECONNECT_S,
         sleep: Callable[[float], Awaitable[None]] = anyio.sleep,
     ) -> None:
@@ -91,16 +81,10 @@ class OpenAIChat:
         self.vision = vision
         self.thinking = thinking
         self.dialect: Dialect = dialect
-        # The conversation's sampling (PACO_LLM_TEMPERATURE, PACO_LLM_SEED), on a server of the
-        # user's: OpenAI's reasoning models refuse a temperature, Gemini's ignore it.
-        self._sampling: dict[str, Any] = {
-            key: value
-            for key, value in (("temperature", temperature), ("seed", seed))
-            if value is not None and dialect in ("vllm", "plain")
-        }
         # Gemini's thought signatures, by the call they came with: given back with it.
         self._signatures: dict[str, Any] = {}
-        self.effort: Effort | None = effort
+        # Whether the server refused vLLM's switch of thinking: none sent from then on.
+        self._switchless = False
         self._reconnect_s = reconnect_s
         self._sleep = sleep
 
@@ -118,21 +102,18 @@ class OpenAIChat:
         the model makes up what a call needs from the one before it."""
         self._refuse_images(messages)
         think = self.thinking if thinking is None else thinking
-        effort = self._reasoning() if think else None
         sent = self._signed(messages) if self.dialect == "gemini" else messages
 
-        async def create() -> ChatCompletion:
+        async def create(switch: dict[str, Any] | None) -> ChatCompletion:
             return await self._client.chat.completions.create(
                 model=self.name,
                 messages=sent,
                 tools=tools or omit,
                 parallel_tool_calls=parallel if tools else omit,
-                reasoning_effort=effort if effort is not None else omit,
-                extra_body=self._switch(think),
-                **self._sampling,
+                extra_body=switch,
             )
 
-        response = await self._reconnecting(create)
+        response = await self._sent(create, think)
         message = response.choices[0].message
         for call in message.tool_calls or ():
             extra = (call.model_extra or {}).get("extra_content")
@@ -158,14 +139,14 @@ class OpenAIChat:
         schema: dict[str, Any],
     ) -> Filled:
         """A form filled under `schema`, as PACo's client fills one: the output constrained to the
-        schema, at temperature 0, without thinking, within PACo's FORM_TOKENS; on OpenAI, at the
-        model's temperature, reasoning little when it reasons, within OPENAI_FORM_TOKENS."""
+        schema, at temperature 0, without thinking, within PACo's FORM_TOKENS; on OpenAI and
+        Gemini, at the model's temperature, within OPENAI_FORM_TOKENS, its reasoning left room."""
         self._refuse_images(messages)
         openai, reasons = self.dialect == "openai", self.dialect in REASONING
         # Gemini's 3 and later always think, its 2.5 at a budget: a low one.
-        low = (openai and self.effort is not None) or self.dialect == "gemini"
+        low = self.dialect == "gemini"
 
-        async def create() -> ChatCompletion:
+        async def create(switch: dict[str, Any] | None) -> ChatCompletion:
             return await self._client.chat.completions.create(
                 model=self.name,
                 messages=self._signed(messages) if self.dialect == "gemini" else messages,
@@ -177,10 +158,10 @@ class OpenAIChat:
                     "type": "json_schema",
                     "json_schema": {"name": "form", "strict": True, "schema": schema},
                 },
-                extra_body=self._switch(False),
+                extra_body=switch,
             )
 
-        response = await self._reconnecting(create)
+        response = await self._sent(create, False)
         prompt, cached, completion = _tokens(response.usage)
         return Filled(
             content=without_thinking(response.choices[0].message.content or ""),
@@ -195,7 +176,7 @@ class OpenAIChat:
         key refused, a model not there."""
         openai = self.dialect == "openai"
 
-        async def create() -> ChatCompletion:
+        async def create(switch: dict[str, Any] | None) -> ChatCompletion:
             return await self._client.chat.completions.create(
                 model=self.name,
                 messages=[
@@ -209,22 +190,14 @@ class OpenAIChat:
                 ],
                 max_tokens=omit if openai else PROBE_TOKENS,
                 max_completion_tokens=PROBE_TOKENS if openai else omit,
-                extra_body=self._switch(False),
+                extra_body=switch,
             )
 
         try:
-            await self._reconnecting(create)
+            await self._sent(create, False)
         except BadRequestError:
             return False
         return True
-
-    def _reasoning(self) -> ReasoningEffort | None:
-        """The reasoning effort sent, where the dialect takes one and the settings give it."""
-        if self.effort is None:
-            return None
-        if self.dialect == "openai":
-            return self.effort
-        return GEMINI_EFFORTS[self.effort] if self.dialect == "gemini" else None
 
     def _signed(
         self, messages: list[ChatCompletionMessageParam]
@@ -247,16 +220,30 @@ class OpenAIChat:
             signed.append(cast(ChatCompletionMessageParam, {**message, "tool_calls": given}))
         return signed
 
+    async def _sent(
+        self,
+        create: Callable[[dict[str, Any] | None], Awaitable[ChatCompletion]],
+        think: bool,
+    ) -> ChatCompletion:
+        """`create`'s completion, sent with vLLM's switch of thinking on a server; a server that
+        refuses the request with it, and takes it without, gets none from then on."""
+        switch = None
+        if self.dialect == "server" and not self._switchless:
+            switch = {"chat_template_kwargs": {"enable_thinking": think}}
+        try:
+            return await self._reconnecting(lambda: create(switch))
+        except BadRequestError:
+            if switch is None:
+                raise
+            response = await self._reconnecting(lambda: create(None))
+        logger.info("%s refuses vLLM's switch of thinking: none is sent from now on", self.name)
+        self._switchless = True
+        return response
+
     async def _reconnecting(
         self, create: Callable[[], Awaitable[ChatCompletion]]
     ) -> ChatCompletion:
         return await reconnecting(create, self._client.base_url, self._reconnect_s, self._sleep)
-
-    def _switch(self, think: bool) -> dict[str, Any] | None:
-        """vLLM's chat-template switch of thinking; nothing for the other servers."""
-        if self.dialect != "vllm":
-            return None
-        return {"chat_template_kwargs": {"enable_thinking": think}}
 
     def _refuse_images(self, messages: list[ChatCompletionMessageParam]) -> None:
         """Refuse `messages` when they hold an image and vision is off: nothing is sent."""

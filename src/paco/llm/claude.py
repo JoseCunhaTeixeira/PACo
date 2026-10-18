@@ -1,9 +1,9 @@
-"""The Anthropic client (docs/geo_plan.md §3): PACo's ChatModel protocol over Anthropic's own API,
-for Claude, beside the client of OpenAI's chat API (paco.llm.model). The host and PACo's agent write
-the conversation in OpenAI's format; this client reads it into Anthropic's: the system prompt apart,
-each call a tool_use block, each result a tool_result block in the user's next message, the figures
-that follow a result inside it (Anthropic's API takes images in a tool's result, OpenAI's in user
-messages only), the state card after the results.
+"""The Anthropic client (docs/autonomous_plan.md §3): PACo's ChatModel protocol over Anthropic's own
+API, for Claude, beside the client of OpenAI's chat API (paco.llm.model). The host and PACo's agent
+write the conversation in OpenAI's format; this client reads it into Anthropic's: the system prompt
+apart, each call a tool_use block, each result a tool_result block in the user's next message, the
+figures that follow a result inside it (Anthropic's API takes images in a tool's result, OpenAI's
+in user messages only), the state card after the results.
 
 What Claude's API adds, used here:
 
@@ -12,14 +12,10 @@ What Claude's API adds, used here:
   beginning the same from call to call (§7.2).
 - Thinking as the model takes it, which the models API says: adaptive where it can, else a budget
   of tokens; its blocks given back unchanged with the calls they led to, as the API asks within a
-  tool loop. The effort (PACO_LLM_EFFORT), where the model takes it.
+  tool loop.
 - A form is the input of a tool the model must call, under the form's schema, without thinking;
   for a model that cannot leave thinking out, its output constrained to the schema; where it
   takes neither, the form's tool offered and its call asked.
-
-The same client speaks to Claude on Google Cloud's Vertex AI, on Amazon Bedrock and on Microsoft
-Foundry, through the SDK's clients for them (paco.llm.chat). Their APIs serve no models API: what
-the model takes is asked once, by requests of a few tokens, a refusal meaning no.
 
 Its errors are raised as the OpenAI SDK's of the same kind, which the host, PACo's runner and the
 evaluation tell apart: a server out of reach loses a play, a refusal fails it."""
@@ -33,11 +29,8 @@ from typing import Any, cast
 import anthropic
 import anyio
 import openai
-from anthropic import AsyncAnthropic, AsyncAnthropicFoundry, Omit, omit, transform_schema
-from anthropic.lib.bedrock import AsyncAnthropicBedrockMantle
-from anthropic.lib.vertex import AsyncAnthropicVertex
+from anthropic import AsyncAnthropic, Omit, omit, transform_schema
 from anthropic.types import (
-    ContentBlockParam,
     Message,
     MessageParam,
     ModelCapabilities,
@@ -53,7 +46,6 @@ from openai.types.chat import ChatCompletionFunctionToolParam, ChatCompletionMes
 from paco.llm.model import images
 from paco.llm.protocol import RECONNECT_S, Filled, Reply, ToolCall
 from paco.llm.reconnecting import reconnecting
-from paco.llm.settings import Effort
 
 logger = logging.getLogger(__name__)
 
@@ -65,23 +57,6 @@ THINKING_TOKENS = 8_000
 FORM_TOKENS = 2_000
 # The tool whose input is a form.
 FORM_TOOL = "form"
-# Claude's API, Anthropic's own or a cloud platform's.
-type Client = (
-    AsyncAnthropic | AsyncAnthropicVertex | AsyncAnthropicBedrockMantle | AsyncAnthropicFoundry
-)
-# A request asking only whether the model takes a parameter: its message and tokens, a budget's
-# tokens beside, and the schema of a probed structured output.
-PROBE = "Reply with OK."
-PROBE_TOKENS = 16
-PROBE_BUDGET = 1_024
-PROBE_SCHEMA: dict[str, Any] = {
-    "type": "object",
-    "properties": {"ok": {"type": "boolean"}},
-    "required": ["ok"],
-    "additionalProperties": False,
-}
-# An image of one pixel, to ask whether the model takes images.
-DOT = "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNkYAAAAAYAAjCB0C8AAAAASUVORK5CYII="
 # What a form's tool, offered without forcing it, is asked with.
 FILL = "Fill the form now: call the tool form, whose fields are your answer."
 CACHED: dict[str, Any] = {"type": "ephemeral"}
@@ -99,19 +74,19 @@ _STATUS: dict[int, type[openai.APIStatusError]] = {
 
 
 class AnthropicChat:
-    """Claude through Anthropic's API, as PACo's ChatModel: `vision`, `thinking` and `effort` as
-    the settings give them (PACO_LLM_*). A conversation holding an image is refused without
-    vision, before anything is sent. A server that refuses or drops the connection is asked
-    again for up to `reconnect_s`, waiting with `sleep`, as the other client does."""
+    """Claude through Anthropic's API, as PACo's ChatModel: `vision` as the settings give it
+    (PACO_LLM_VISION), `thinking` unless a call says otherwise, at the model's own effort. A
+    conversation holding an image is refused without vision, before anything is sent. A server
+    that refuses or drops the connection is asked again for up to `reconnect_s`, waiting with
+    `sleep`, as the other client does."""
 
     def __init__(
         self,
-        client: Client,
+        client: AsyncAnthropic,
         model: str,
         *,
         vision: bool = False,
         thinking: bool = True,
-        effort: Effort | None = None,
         reconnect_s: float = RECONNECT_S,
         sleep: Callable[[float], Awaitable[None]] = anyio.sleep,
     ) -> None:
@@ -119,7 +94,6 @@ class AnthropicChat:
         self.name = model
         self.vision = vision
         self.thinking = thinking
-        self.effort: Effort | None = effort
         self._reconnect_s = reconnect_s
         self._sleep = sleep
         # What the models API says of the model, asked once: None when it did not answer.
@@ -146,7 +120,6 @@ class AnthropicChat:
         offered = _tools(tools)
         choice: ToolChoiceParam = {"type": "auto", "disable_parallel_tool_use": not parallel}
         config = self._thinking(think)
-        effort = self._effort()
         response = await self._create(
             lambda: self._client.messages.create(
                 model=self.name,
@@ -156,7 +129,6 @@ class AnthropicChat:
                 tools=offered or omit,
                 tool_choice=choice if offered else omit,
                 thinking=config if config is not None else omit,
-                output_config={"effort": effort} if effort is not None else omit,
             )
         )
         calls = tuple(
@@ -210,8 +182,8 @@ class AnthropicChat:
             # longest) goes into its description; the form is checked after, as every form.
             output = {"format": {"type": "json_schema", "schema": transform_schema(schema)}}
         else:
-            # Neither (Bedrock's Messages endpoint, for a model that always thinks): the tool
-            # offered, its call asked; a form not called comes back as text, checked as any.
+            # Neither (a model that always thinks, without structured outputs): the tool offered,
+            # its call asked; a form not called comes back as text, checked as any.
             tools, choice = [form], {"type": "auto", "disable_parallel_tool_use": True}
             asked: TextBlockParam = {"type": "text", "text": FILL}
             system = [*system, asked]
@@ -237,26 +209,19 @@ class AnthropicChat:
         )
 
     async def takes_images(self) -> bool:
-        """Whether the model takes images: as the models API says, or as the model answered where
-        its platform has none; a proxy that says nothing: as Claude's models do."""
+        """Whether the model takes images: as the models API says; a proxy that says nothing: as
+        Claude's models do."""
         await self._described()
         return self._capabilities is None or self._capabilities.image_input.supported
 
     async def _described(self) -> None:
         """The model's capabilities and its most tokens, from the models API, asked once; its
-        defaults where the API does not say (a proxy that does not serve it); asked of the model
-        itself where its platform serves no models API."""
+        defaults where the API does not say (a proxy that does not serve it)."""
         if self._asked:
             return
         self._asked = True
-        client = self._client
-        if isinstance(
-            client, AsyncAnthropicVertex | AsyncAnthropicBedrockMantle | AsyncAnthropicFoundry
-        ):
-            self._capabilities = await self._probed()
-            return
         try:
-            info = await client.models.retrieve(self.name)
+            info = await self._client.models.retrieve(self.name)
         except anthropic.APIError as error:
             logger.warning(
                 "Anthropic's models API did not describe %s (%s): its defaults are used",
@@ -266,85 +231,6 @@ class AnthropicChat:
             return
         self._capabilities = info.capabilities
         self._max_tokens = info.max_tokens
-
-    async def _probed(self) -> ModelCapabilities:
-        """What the model takes where no models API says it (Vertex AI, Bedrock, Foundry), asked
-        by requests of a few tokens, a refusal meaning no: thinking adaptive, else with a budget;
-        thinking off; the effort the settings give; structured outputs, which a form needs where
-        thinking cannot be off; images, when vision is on."""
-        adaptive = await self._takes(thinking={"type": "adaptive"})
-        budget: ThinkingConfigParam = {"type": "enabled", "budget_tokens": PROBE_BUDGET}
-        enabled = not adaptive and await self._takes(thinking=budget, tokens=PROBE_BUDGET * 2)
-        disabled = await self._takes(thinking={"type": "disabled"})
-        effort = self.effort is not None and await self._takes(output={"effort": self.effort})
-        schema: OutputConfigParam = {"format": {"type": "json_schema", "schema": PROBE_SCHEMA}}
-        structured = not disabled and await self._takes(output=schema)
-        seen = self.vision and await self._takes(image=True)
-        logger.info(
-            "%s, asked: thinking adaptive %s, budgeted %s, off %s; effort %s %s; structured "
-            "outputs %s; images %s",
-            self.name, adaptive, enabled, disabled, self.effort, effort, structured, seen,
-        )  # fmt: skip
-        no = {"supported": False}
-        return ModelCapabilities.model_validate(
-            {
-                "batch": no,
-                "citations": no,
-                "code_execution": no,
-                "pdf_input": no,
-                "context_management": no,
-                "server_tools": {"supported": False, "code_execution": no, "web_search": no},
-                "effort": {
-                    "supported": effort,
-                    **{
-                        level: {"supported": effort and level == self.effort}
-                        for level in ("low", "medium", "high", "xhigh", "max")
-                    },
-                },
-                "image_input": {"supported": seen},
-                "structured_outputs": {"supported": structured},
-                "thinking": {
-                    "supported": adaptive or enabled,
-                    "types": {
-                        "adaptive": {"supported": adaptive},
-                        "between_tools": no,
-                        "disabled": {"supported": disabled},
-                        "enabled": {"supported": enabled},
-                    },
-                },
-            }
-        )
-
-    async def _takes(
-        self,
-        *,
-        thinking: ThinkingConfigParam | Omit = omit,
-        output: OutputConfigParam | Omit = omit,
-        image: bool = False,
-        tokens: int = PROBE_TOKENS,
-    ) -> bool:
-        """Whether the model takes `thinking`, `output` or an image: a request of a few tokens
-        not refused. Other errors are raised: a key refused, a model not there."""
-        content: list[ContentBlockParam] = [{"type": "text", "text": PROBE}]
-        if image:
-            picture: ContentBlockParam = {
-                "type": "image",
-                "source": {"type": "base64", "media_type": "image/png", "data": DOT},
-            }
-            content.insert(0, picture)
-        try:
-            await self._create(
-                lambda: self._client.messages.create(
-                    model=self.name,
-                    max_tokens=tokens,
-                    messages=[{"role": "user", "content": content}],
-                    thinking=thinking,
-                    output_config=output,
-                )
-            )
-        except openai.BadRequestError:
-            return False
-        return True
 
     def _thinking(self, think: bool) -> ThinkingConfigParam | None:
         """Thinking as the model takes it: adaptive where it can, else a budget; off where it
@@ -363,17 +249,6 @@ class AnthropicChat:
         if not think and kinds.disabled.supported:
             return {"type": "disabled"}
         return None
-
-    def _effort(self) -> Effort | None:
-        """The effort the settings give, where the model takes that level."""
-        capabilities = self._capabilities
-        if self.effort is None or capabilities is None or not capabilities.effort.supported:
-            return None
-        level = getattr(capabilities.effort, self.effort, None)
-        if level is None or not level.supported:
-            logger.warning("%s takes no effort %s: its default is used", self.name, self.effort)
-            return None
-        return self.effort
 
     def _tokens(self, wanted: int) -> int:
         return min(wanted, self._max_tokens) if self._max_tokens else wanted

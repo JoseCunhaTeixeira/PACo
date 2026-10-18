@@ -1,0 +1,184 @@
+"""The autonomous agent's server: the tools it serves, their errors as the model reads them, and its
+command."""
+
+import json
+import os
+import socket
+import subprocess
+import sys
+import time
+from pathlib import Path
+
+import anyio
+import pytest
+from mcp import Client
+from mcp.types import CallToolResult
+
+from paco import server as paco_server
+from paco.autonomous import server
+from paco.autonomous.host import terminal
+from paco.call import shown
+
+# The tools in the plan's order (docs/autonomous_plan.md §6), those built so far; PACo's first.
+PACO_TOOLS = ["inspect", "preset_settings", "inversion_settings"]
+TOOLS = [
+    *PACO_TOOLS,
+    *("survey", "observe", "look", "advise", "try_settings", "commit"),
+    *("pick", "decide", "freeze", "invert", "job_status", "journal"),
+]
+# How long the server's command may take to listen: it loads PACo and sigpipe first.
+STARTUP_S = 60.0
+
+
+def test_the_tools_are_listed_in_the_plans_order() -> None:
+    assert [tool.name for tool in anyio.run(server.server.list_tools)] == TOOLS
+
+
+def test_pacos_read_only_tools_are_served_as_paco_serves_them() -> None:
+    ours = {tool.name: tool for tool in anyio.run(server.server.list_tools)}
+    pacos = {tool.name: tool for tool in anyio.run(paco_server.server.list_tools)}
+
+    for name in PACO_TOOLS:
+        # The same card: name, description, schemas and annotations; preset_settings' card names
+        # this server's tools.
+        card = pacos[name]
+        if name == "preset_settings":
+            assert ours[name].description == server.PRESET_SETTINGS
+            card = card.model_copy(update={"description": server.PRESET_SETTINGS})
+        assert ours[name] == card
+        annotations = ours[name].annotations
+        assert annotations is not None
+        assert annotations.read_only_hint
+
+
+def test_each_tool_says_what_it_changes() -> None:
+    annotations = {tool.name: tool.annotations for tool in anyio.run(server.server.list_tools)}
+
+    assert annotations["observe"] == annotations["look"] == paco_server.READS
+    # The study's own files: its survey, advice and trials.
+    assert annotations["survey"] == annotations["advise"] == paco_server.ADDS
+    assert annotations["try_settings"] == annotations["decide"] == paco_server.ADDS
+    assert annotations["journal"] == annotations["invert"] == paco_server.ADDS
+    assert annotations["job_status"] == paco_server.READS
+    # A curve or a run replaced, the curves frozen for good.
+    assert annotations["commit"] == annotations["pick"] == paco_server.REPLACES
+    assert annotations["freeze"] == paco_server.REPLACES
+
+
+def test_the_list_names_every_tool(capsys: pytest.CaptureFixture[str]) -> None:
+    server.main(["--list"])
+
+    assert capsys.readouterr().out.splitlines() == TOOLS
+
+
+@pytest.mark.usefixtures("paco_env")
+def test_the_tools_read_the_profile() -> None:
+    async def calls() -> list[CallToolResult]:
+        async with Client(server.server) as client:
+            return [
+                await client.call_tool("inspect", {"what": "profiles"}),
+                await client.call_tool("preset_settings", {"profile": "active_p2"}),
+                await client.call_tool("inversion_settings", {}),
+            ]
+
+    profiles, preset, inversion = (shown(result) for result in anyio.run(calls))
+
+    assert profiles.startswith("active_p2: a profile to process, no run yet")
+    assert "masw" in json.loads(preset)["properties"]
+    assert "n_iterations" in json.loads(inversion)["properties"]
+
+
+@pytest.mark.usefixtures("paco_env")
+def test_the_tools_study_the_profile() -> None:
+    # A study from its survey to a committed line, the tools' errors tagged as PACo tags them.
+    first = {"masw": {"length": 90}, "dispersion": {"nv": 250}}
+    reasons = {"masw length": "for a test", "dispersion nv": "a coarse grid, for a test"}
+
+    async def calls() -> list[CallToolResult]:
+        async with Client(server.server) as client:
+            return [
+                await client.call_tool("observe", {"profile": "active_p2", "level": "curves"}),
+                await client.call_tool("survey", {"profile": "active_p2"}),
+                await client.call_tool(
+                    "commit", {"profile": "active_p2", "changes": first, "reasons": {}}
+                ),
+                await client.call_tool(
+                    "commit", {"profile": "active_p2", "changes": first, "reasons": reasons}
+                ),
+                await client.call_tool("observe", {"profile": "active_p2", "level": "curves"}),
+                await client.call_tool(
+                    "look", {"profile": "active_p2", "what": "image", "where": "71"}
+                ),
+                await client.call_tool("advise", {"profile": "active_p2", "topic": "picking"}),
+                await client.call_tool(
+                    "try_settings",
+                    {
+                        "profile": "active_p2",
+                        "variants": [{"picking": {"fmax": 90.0}}],
+                        "windows": "spread:2",
+                    },
+                ),
+            ]
+
+    results = anyio.run(calls)
+
+    assert [result.is_error for result in results] == [
+        True, False, True, False, False, False, False, False,
+    ]  # fmt: skip
+    no_line, surveyed, refused, committed, curves, image, advice, trial = map(shown, results)
+    # The SDK names the tool before the error.
+    assert no_line == (
+        "Error executing tool observe: [precondition] No line committed yet in this study: commit "
+        "one first."
+    )
+    assert surveyed.startswith("active_p2: 96 receivers 1.5 m apart")
+    assert refused.startswith(
+        "Error executing tool commit: [bad argument] Give a one-line reason for each setting"
+    )
+    assert committed.startswith("L1 made run ")
+    assert curves.startswith("G3: ")
+    # Vision is off unless the host says it is on: a ridge table.
+    assert image.startswith("xmid_71.25, its image as a ridge table")
+    # Three of the long windows fail G3: the changes it suggests, none applied.
+    assert advice.startswith("G3's changes of the picking, by window (not applied):")
+    assert trial.startswith("E1: 1 variant on spread:2, against the current settings:")
+
+
+@pytest.mark.usefixtures("paco_env")
+def test_the_command_serves_the_tools_the_chat_lists(
+    free_port: int, tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    # The command as installed, started from a folder without a .env: PACo's folders come from
+    # the environment paco_env set, the port from PACO_PORT.
+    command = Path(sys.executable).with_name("paco-server")
+    environment = {**os.environ, "PACO_PORT": str(free_port)}
+    url = f"http://127.0.0.1:{free_port}/mcp"
+    log = tmp_path / "server.log"
+
+    with log.open("w") as stderr:
+        process = subprocess.Popen(
+            [command, "--mode", "autonomous"], cwd=tmp_path, env=environment, stderr=stderr
+        )
+        try:
+            _wait_until_listening(free_port, process)
+            anyio.run(terminal.chat, url)
+        finally:
+            process.terminate()
+            process.wait(timeout=STARTUP_S)
+
+    assert capsys.readouterr().out.splitlines()[1:-1] == [f"  {name}" for name in TOOLS]
+    assert f"Serving {', '.join(TOOLS)} at {url}" in log.read_text()
+
+
+def _wait_until_listening(port: int, process: subprocess.Popen[bytes]) -> None:
+    """Wait until something listens on `port` of this machine, while `process` runs."""
+    deadline = time.monotonic() + STARTUP_S
+    while time.monotonic() < deadline and process.poll() is None:
+        with socket.socket() as probe:
+            if probe.connect_ex(("127.0.0.1", port)) == 0:
+                return
+        time.sleep(0.2)
+    pytest.fail(
+        f"paco-server --mode autonomous did not listen on port {port} "
+        f"(exit status {process.poll()})"
+    )

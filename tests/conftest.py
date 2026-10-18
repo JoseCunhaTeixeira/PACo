@@ -7,9 +7,8 @@ import pytest
 from local_lines import ACTIVE, PASSIVE, link_active, link_passive, present
 from sigpipe.masw.profiles import Profile, load_profile
 
-from paco.agent.settings import AgentSettings
-from paco.geo.settings import GeoSettings
-from paco.llm.settings import JudgeSettings, ModelSettings
+from paco.agent.settings import AgentSettings, OutputSettings
+from paco.llm.settings import ModelSettings
 from paco.modes import ModeSettings
 from paco.settings import Settings, get_settings
 
@@ -18,8 +17,8 @@ matplotlib.use("Agg")
 
 # The real lines PACo's tests read (local_lines): active_p2 with 7 of its shots, one in 16 from
 # the line's first to its last, 24 m apart, each window stacking a few, as the demo line's 2 shots
-# did; passive_p2 with its first 2 records of noise. The geophysicist's tests read more of them
-# (tests/geo/conftest.py).
+# did; passive_p2 with its first 2 records of noise. The autonomous agent's tests read more of them
+# (tests/autonomous/conftest.py).
 DEMO_PROFILES = (ACTIVE, PASSIVE)
 END_SHOTS = 0
 SHOT_STEP = 16
@@ -37,9 +36,8 @@ def no_env_file(monkeypatch: pytest.MonkeyPatch) -> Iterator[None]:
         Settings,
         AgentSettings,
         ModelSettings,
-        JudgeSettings,
+        OutputSettings,
         ModeSettings,
-        GeoSettings,
     ):
         monkeypatch.setitem(settings.model_config, "env_file", None)
     get_settings.cache_clear()

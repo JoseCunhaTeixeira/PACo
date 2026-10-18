@@ -151,7 +151,7 @@ The loop keeps itself in check (`src/paco/agent/loop.py`):
 - Every tool is declared read-only or changing (MCP's `readOnlyHint`, `destructiveHint`).
 - A call that changes a run leaves a line in the run's `agent_calls.jsonl`: the conversation,
   the message's turn and scope, the prompts' version, the arguments, how it ended and how long
-  it took. The conversation's transcript, in `PACO_LOG_DIR`, names the same conversation.
+  it took. The conversation's transcript, in `<output>/agent_logs`, names the same conversation.
 - `paco-trace show FILE` prints a saved conversation turn by turn; `paco-trace replay FILE`
   plays it again through the current code with its recorded replies and results (no tool
   runs), and says where the answers differ.

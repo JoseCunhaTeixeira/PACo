@@ -26,11 +26,6 @@ dependencies = [
 # The petrophysical inversion (invert_petro): sigpipe's Silex models and santiludo's rock physics,
 # with torch. PAC installs them itself; PACo alone needs this extra.
 petro = ["sigpipe[silex,santiludo] @ git+https://github.com/JoseCunhaTeixeira/sigpipe"]
-# A cloud's credentials, for the model providers that need them (paco.llm.chat): Google's
-# Application Default Credentials for Vertex AI (Claude and Gemini), AWS's for Bedrock without a
-# Bedrock API key.
-vertex = ["anthropic[vertex]>=1.15.0"]
-bedrock = ["anthropic[bedrock]>=1.15.0"]
 
 [project.scripts]
 paco-server = "paco.server:main"
@@ -39,8 +34,8 @@ paco-evaluate = "paco.evaluation.cli:main"
 paco-trace = "paco.agent.trace:main"
 paco-replay = "paco.qc.replay:main"
 paco-call = "paco.call:main"
-# The A/B evaluation of both agents, the guided one and the autonomous geophysicist (paco.geo).
-paco-ab = "paco.geo.evaluation.cli:main"
+# The A/B evaluation of both modes, workflow and autonomous (paco.autonomous).
+paco-ab = "paco.autonomous.evaluation.cli:main"
 
 [dependency-groups]
 dev = ["pytest>=8", "ruff>=0.14", "pyright>=1.1", "pre-commit>=4"]
@@ -57,7 +52,7 @@ where = ["src"]
 
 # The prompts the model reads, in files next to their code.
 [tool.setuptools.package-data]
-paco = ["prompts/*.md", "prompts/*.json", "geo/prompts/*.md", "geo/prompts/*.json"]
+paco = ["prompts/*.md", "prompts/*.json", "autonomous/prompts/*.md", "autonomous/prompts/*.json"]
 
 
 # -------------------------

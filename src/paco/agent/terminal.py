@@ -20,26 +20,25 @@ from paco.modes import MODES, ModeSettings
 
 
 def main(argv: Sequence[str] | None = None) -> None:
-    """paco-agent [--mode guided|autonomous]: the chat with the mode's agent (PACO_AGENT_MODE when
-    not told), in this terminal; its log lines as JSON on stderr, only warnings."""
+    """paco-agent [--mode workflow|autonomous]: the chat, in this terminal, in the mode asked
+    (PACO_AGENT_MODE when not told); its log lines as JSON on stderr, only warnings."""
     parser = argparse.ArgumentParser(
         prog="paco-agent", description="Chat with PACo's agent in this terminal."
     )
     parser.add_argument(
         "--mode",
         choices=MODES,
-        help="guided: PACo's workflow, its server leading the model step by step; autonomous: "
-        "the geophysicist, which chooses and tries its own settings, on a frontier model with a "
-        "long context (default: PACO_AGENT_MODE, else guided)",
+        help="workflow: PACo's workflow, its server leading the model step by step; autonomous: "
+        "the model chooses and tries its own settings, on a frontier model with a long context "
+        "(default: PACO_AGENT_MODE, else workflow)",
     )
     mode = parser.parse_args(argv).mode or ModeSettings().agent_mode
     logs.setup(logging.WARNING)
     if mode == "autonomous":
-        # The geophysicist's chat (paco.geo), imported only when it runs: its own server's tools.
-        from paco.geo.host import terminal
-        from paco.geo.settings import GeoSettings
+        # The autonomous mode's chat (paco.autonomous), imported only when it runs.
+        from paco.autonomous.host import terminal
 
-        anyio.run(terminal.chat, GeoSettings().mcp_url)
+        anyio.run(terminal.chat, ModeSettings().mcp_url)
         return
     anyio.run(chat)
 
@@ -51,11 +50,7 @@ async def chat() -> None:
     except ValidationError as error:
         print(NO_MODEL.format(missing=missing(error)))
         return
-    try:
-        model = chat_model(settings)
-    except ValueError as error:  # a cloud's library or credentials missing
-        print(error)
-        return
+    model = chat_model(settings)
     async with Client(settings.mcp_url) as server:
         agent = await Agent.start(server, model, limits=Limits.of(settings))
         print(f"PACo's agent, with {settings.llm_model}. Type exit to leave.")
