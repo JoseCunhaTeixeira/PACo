@@ -5,6 +5,7 @@ hard; a commit picks each window again with its recipe; nothing is processed or 
 freeze. On active_test_profile in 24-receiver windows (73 windows): the play takes some 40 s."""
 
 import hashlib
+import importlib.util
 import json
 from collections.abc import Iterator
 from dataclasses import dataclass
@@ -230,9 +231,7 @@ def test_a_lasso_guides_the_tracker_inside_its_band(played: Played) -> None:
     parameters = PickingParameters.model_validate(lasso.parameters)
     assert (parameters.fmin, parameters.fmax) == (10, 40)
     assert parameters.guide is not None
-    # Inside the polygon's band; sigpipe's pick_lasso resamples the maxima over wavelength, which
-    # may set a point a few percent past the polygon's edge.
-    assert all(10 <= f <= 40 and 0.95 * 230 <= v <= 1.05 * 420 for f, v in parameters.guide)
+    assert all(10 <= f <= 40 and 230 <= v <= 420 for f, v in parameters.guide)
     # The ridge it holds stands out too little: G3 blocks it.
     assert "- 29.25: reject; prominence (blocking)" in answer(played, 4)
 
@@ -317,3 +316,35 @@ def test_the_windows_a_spec_names(judged_line: JudgedLine) -> None:
 def test_a_recipe_is_refused_saying_why(recipe: dict[str, Any], said: str) -> None:
     with pytest.raises(ValueError, match=said):
         check_recipe(Recipe.model_validate(recipe), PickingParameters())
+
+
+@pytest.mark.slow
+def test_the_soils_come_from_the_frozen_curves(played: Played) -> None:
+    # Last: it writes the run's soil columns. With PACo's petro extra only.
+    if not all(importlib.util.find_spec(name) for name in ("santiludo", "keras", "keras_nlp")):
+        pytest.skip("needs PACo's petro extra")
+    frozen = json.loads((played.study.folder / "curves.json").read_text())
+    accepted = {curve["unit"] for curve in frozen["curves"]}
+
+    async def calls() -> tuple[str, str]:
+        async with Client(server.server) as client:
+            asked = {"profile": "active_test_profile"}
+            models = await client.call_tool("petro_models", asked)
+            soils = await client.call_tool(
+                "invert_petro", {**asked, "model": "grand_est_15-50hz_193-415mps"}
+            )
+            return shown(models), shown(soils)
+
+    models, soils = anyio.run(calls)
+
+    # The frozen curves alone counted, inverted and judged (G7, G8), PAC's sections written.
+    assert f"of the {len(accepted)} curves G4 passed" in models
+    assert soils.startswith(f"Soils of run {played.run.name}, from its frozen curves.")
+    assert "G7: " in soils and "G8: " in soils
+    inverted = {
+        attempt.unit
+        for attempt in read_attempts(played.run)
+        if attempt.stage == "petro_inversion" and attempt.unit != "line"
+    }
+    assert inverted and inverted <= accepted
+    assert list(played.run.glob("PetroInversion_Section_*.png"))

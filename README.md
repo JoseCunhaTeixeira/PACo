@@ -190,7 +190,7 @@ lists the profiles.
 | `advise` | PACo's own choice for a lever (the window length, the mute, a passive line's segments, the picking), not applied |
 | `pick`, `decide`, `freeze` | Picks windows again, accepts or rejects each one with its reason, freezes the curves for the inversion |
 | `invert`, `job_status` | Inverts the frozen curves, in the background |
-| `petro_models`, `invert_petro` | Only when you ask for soils: the petrophysical model that covers the most curves, then soils, N values and the water table (G7, G8); needs the `petro` extra |
+| `petro_models`, `invert_petro` | Only when you ask for soils: the petrophysical model that covers the most frozen curves, then their soils, N values and water table (G7, G8); needs the `petro` extra |
 | `journal` | Reads the journal; writes a hypothesis, a conclusion or a decision |
 
 Code keeps the work honest. The settings you type are never changed. The phases go in order:

@@ -17,6 +17,8 @@ LOCAL_INPUT_DIR = Path(
 )
 ACTIVE = "active_test_profile"
 PASSIVE = "passive_test_profile"
+# The active test profile's 25 shots, 6 m apart: one in four of the real line's 97.
+PROFILE_SHOTS = tuple(f"{shot}.dat" for shot in range(101, 198, 4))
 
 
 def present(*names: str) -> None:

@@ -28,9 +28,10 @@ from mcp.shared.exceptions import MCPError
 from mcp.types import ImageContent, TextContent
 from pydantic import Field
 from sigpipe.masw.runs import RunError, find_run
+from sigpipe.masw.runs.writing import run_lock
 from sigpipe.workers import one_thread_each
 
-from paco import logs, stopping
+from paco import logs, qc, stopping
 from paco import server as paco_server
 from paco.autonomous.tools import advise as advising
 from paco.autonomous.tools import commit as committing
@@ -429,10 +430,40 @@ def job_status(
     return inverter.describe_job(record, JOBS.is_live(job_id), folder)
 
 
-# PACo's petrophysical inversion, as its agent runs it, on the line's run once its models are
-# decided (P4): only when the user asks for soils, N values or the water table.
-server.add_tool(paco_server.petro_models, annotations=paco_server.READS)
-server.add_tool(paco_server.invert_petro, annotations=paco_server.REPLACES)
+@server.tool(annotations=paco_server.READS)
+@_errors
+def petro_models(profile: ProfileName, ctx: Context) -> qc.PetroChoice:
+    """Only if the user asks for soils, N values or the water table, once the curves are frozen:
+    the Silex models of the petrophysical inversion, what each was trained on, and how many of
+    the frozen curves each covers (why not the others). Choose the one covering the most."""
+    made = _frozen(_study(profile, ctx))
+    return qc.petro_models(made.run_id, get_settings(), [curve.unit for curve in made.curves])
+
+
+@server.tool(annotations=paco_server.REPLACES)
+@_errors
+def invert_petro(
+    profile: ProfileName,
+    model: Annotated[str, Field(description="A Silex model name from petro_models.")],
+    ctx: Context,
+) -> str:
+    """Only if the user asks: the frozen curves `model` covers inverted into soils, N values and
+    the water table, checked by G7 per window and G8 along the line; PAC's petrophysical sections
+    written. Says what the models give, and the gates' summary."""
+
+    def report(done: int, total: int) -> None:
+        anyio.from_thread.run(ctx.report_progress, done, total, f"{done} of {total} windows")
+
+    settings = get_settings()
+    made = _frozen(_study(profile, ctx))
+    folder = find_run(made.run_id, settings)
+    holder = "PACo's autonomous agent (invert_petro)"
+    with run_lock(folder, holder, wait_s=paco_server.WRITER_WAIT_S):
+        result, described = qc.invert_petro_line(
+            made.run_id, model, settings, report, [curve.unit for curve in made.curves]
+        )
+    summary, _ = qc.capped(qc.summarize_report(result, ("G7", "G8")))
+    return f"Soils of run {made.run_id}, from its frozen curves. {described}\n{summary}"
 
 
 @server.tool(annotations=paco_server.ADDS)
@@ -497,6 +528,14 @@ def _retries(ctx: Context) -> int | None:
 def _vision(ctx: Context) -> bool:
     meta = ctx.request_context.meta if isinstance(ctx, Context) else None
     return isinstance(meta, dict) and meta.get("vision") is True
+
+
+def _frozen(study: Study) -> freezing.Frozen:
+    """The study's frozen curves; refused before the freeze."""
+    made = freezing.frozen(study)
+    if made is None:
+        raise RunError("The curves are not frozen yet: the soils come from the frozen curves.")
+    return made
 
 
 def _line(study: Study) -> Line:

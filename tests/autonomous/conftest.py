@@ -4,7 +4,7 @@ from pathlib import Path
 
 import pytest
 from autonomous_judged import JudgedLine, make_judged_line
-from local_lines import ACTIVE, PASSIVE, link_active, link_passive, present
+from local_lines import ACTIVE, PASSIVE, PROFILE_SHOTS, link_active, link_passive, present
 
 from paco.agent import AgentSettings
 from paco.agent.settings import OutputSettings
@@ -12,9 +12,8 @@ from paco.llm.settings import ModelSettings
 from paco.modes import ModeSettings
 from paco.settings import Settings, get_settings
 
-# The active test profile's 25 shots, 6 m apart (one in four of the real line's 97); the passive
-# one's first 2 records of noise.
-SHOTS = tuple(f"{shot}.dat" for shot in range(101, 198, 4))
+# The active test profile's 25 shots; the passive one's first 2 records of noise.
+SHOTS = PROFILE_SHOTS
 NOISE_RECORDS = 2
 
 

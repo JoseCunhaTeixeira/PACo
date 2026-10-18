@@ -8,20 +8,24 @@ import subprocess
 import sys
 import time
 from pathlib import Path
+from types import SimpleNamespace
+from typing import Any
 
 import anyio
 import pytest
 from mcp import Client
 from mcp.types import CallToolResult
 
+from paco import qc
 from paco import server as paco_server
 from paco.autonomous import server
 from paco.autonomous.host import terminal
+from paco.autonomous.tools.trials import Study
 from paco.call import shown
 
 # The tools in the plan's order (docs/autonomous_plan.md §6), those built so far; PACo's first.
 PACO_TOOLS = ["inspect", "preset_settings", "inversion_settings"]
-# PACo's petrophysical inversion, served as PACo serves it, after the inversion's tools.
+# PACo's petrophysical inversion on the study's frozen curves, after the inversion's tools.
 PETRO_TOOLS = ["petro_models", "invert_petro"]
 TOOLS = [
     *PACO_TOOLS,
@@ -53,14 +57,49 @@ def test_pacos_read_only_tools_are_served_as_paco_serves_them() -> None:
         assert annotations.read_only_hint
 
 
-def test_pacos_petrophysical_tools_are_served_as_paco_serves_them() -> None:
+def test_the_petrophysical_tools_take_the_profile_and_read_its_frozen_curves() -> None:
     ours = {tool.name: tool for tool in anyio.run(server.server.list_tools)}
-    pacos = {tool.name: tool for tool in anyio.run(paco_server.server.list_tools)}
 
-    for name in PETRO_TOOLS:
-        assert ours[name] == pacos[name]
+    # The profile, as the study's other tools take it, not a run: the frozen curves are the
+    # study's, the windows its model rejected left out.
+    assert ours["petro_models"].input_schema["required"] == ["profile"]
+    assert ours["invert_petro"].input_schema["required"] == ["profile", "model"]
+    assert all("frozen curves" in (ours[name].description or "") for name in PETRO_TOOLS)
     assert ours["petro_models"].annotations == paco_server.READS
     assert ours["invert_petro"].annotations == paco_server.REPLACES
+
+
+@pytest.mark.usefixtures("paco_env")
+def test_the_soils_wait_for_the_freeze_and_take_its_curves(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    def study(*_: object) -> Study:
+        return Study("active_test_profile", tmp_path)
+
+    monkeypatch.setattr(server, "_study", study)
+    for name, arguments in (("petro_models", {}), ("invert_petro", {"model": "a_model"})):
+        refused = _call(name, {"profile": "active_test_profile", **arguments})
+        assert refused.is_error
+        assert "[precondition] The curves are not frozen yet" in shown(refused)
+    frozen = SimpleNamespace(
+        run_id="20261018-120000-abcd",
+        curves=(SimpleNamespace(unit="xmid_74.25"), SimpleNamespace(unit="xmid_75.75")),
+    )
+
+    def frozen_of(_: object) -> object:
+        return frozen
+
+    monkeypatch.setattr(server.freezing, "frozen", frozen_of)
+    asked: list[tuple[str, object]] = []
+
+    def models(run_id: str, _settings: object, units: object) -> qc.PetroChoice:
+        asked.append((run_id, units))
+        return qc.PetroChoice(models=(), next="No model.")
+
+    monkeypatch.setattr(server.qc, "petro_models", models)
+
+    assert not _call("petro_models", {"profile": "active_test_profile"}).is_error
+    assert asked == [("20261018-120000-abcd", ["xmid_74.25", "xmid_75.75"])]
 
 
 def test_each_tool_says_what_it_changes() -> None:
@@ -216,6 +255,14 @@ def test_the_command_serves_the_tools_the_chat_lists(
 
     assert capsys.readouterr().out.splitlines()[1:-1] == [f"  {name}" for name in TOOLS]
     assert f"Serving {', '.join(TOOLS)} at {url}" in log.read_text()
+
+
+def _call(name: str, arguments: dict[str, Any]) -> CallToolResult:
+    async def call() -> CallToolResult:
+        async with Client(server.server) as client:
+            return await client.call_tool(name, arguments)
+
+    return anyio.run(call)
 
 
 def _wait_until_listening(port: int, process: subprocess.Popen[bytes]) -> None:

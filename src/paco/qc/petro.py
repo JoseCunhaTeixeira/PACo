@@ -9,7 +9,7 @@ install); choosing one needs neither."""
 
 import importlib.util
 from collections import Counter, defaultdict
-from collections.abc import Callable, Mapping, Sequence
+from collections.abc import Callable, Collection, Mapping, Sequence
 from datetime import UTC, datetime
 from pathlib import Path
 from typing import TYPE_CHECKING, cast
@@ -91,10 +91,17 @@ class PetroChoice(BaseModel):
     next: str
 
 
-def petro_models(run_id: str, settings: Settings) -> PetroChoice:
-    """Every bundled Silex model, against run `run_id`'s curves that G4 passed."""
+def petro_models(
+    run_id: str, settings: Settings, units: Collection[str] | None = None
+) -> PetroChoice:
+    """Every bundled Silex model, against run `run_id`'s curves that G4 passed (those of `units`
+    alone when given: an autonomous study's frozen curves)."""
     run_folder = find_run(run_id, settings)
-    ready = invertible(run_folder, load_manifest(run_id, settings))
+    ready = {
+        unit: curve
+        for unit, curve in invertible(run_folder, load_manifest(run_id, settings)).items()
+        if units is None or unit in units
+    }
     cards: list[PetroModelCard] = []
     for name in list_bundled_silex_models():
         card = load_silex_card(bundled_silex_model_dir(name))

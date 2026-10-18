@@ -278,6 +278,27 @@ def test_the_windows_a_trial_set_names(windows: list[MASWWindow]) -> None:
         named("failing")
 
 
+@pytest.mark.slow
+def test_a_change_of_shots_remakes_the_windows_whose_shots_it_changes(made: Made) -> None:
+    # Last of the study's trials, the earlier ones reading its sets. A near field of 1 m takes
+    # 105.dat, 0.75 m before 23.25's first receiver; no shot stands that near 21.75's ends (the
+    # one 2.25 m after it, G1 left out): its image comes from the cache.
+    tried = try_settings(
+        made.study,
+        [{"near_field_m": 1.0}],
+        "xmids:[21.75, 23.25]",
+        current=CURRENT,
+        settings=made.settings,
+        config=QCConfig(),
+    )
+
+    near = _run(made.study, tried.tried[1].trial)
+    assert [(result.xmid, result.cached) for result in near.windows] == [
+        (21.75, True),
+        (23.25, False),
+    ]
+
+
 def _run(study: Study, key: str) -> TrialRun:
     return TrialRun.model_validate_json(
         (study.folder / trials.TRIALS / key / trials.RESULT).read_text()

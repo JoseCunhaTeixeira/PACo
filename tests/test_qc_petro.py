@@ -1,7 +1,7 @@
 """The petrophysical inversion the QC way: the range check, G7 on each window, G8 along the line,
-on made-up measures, then the whole flow on the demo line, where the one bundled Silex model
-covers a single curve of seven (they end below the 43 Hz it needs). Needs sigpipe's silex and
-santiludo extras."""
+on made-up measures, then the whole flow on active_test_profile's 25 shots, where the one bundled
+Silex model covers one of the two curves G4 passes (the other starts above the 22 Hz and ends
+below the 43 Hz it needs). Needs sigpipe's silex and santiludo extras."""
 
 import importlib.util
 import shutil
@@ -9,6 +9,7 @@ from pathlib import Path
 
 import numpy as np
 import pytest
+from local_lines import ACTIVE, PROFILE_SHOTS, link_active, present
 from sigpipe.masw.quality.line import Series
 from sigpipe.masw.runs import RunError, find_run, run_processing
 from sigpipe.masw.runs.history import forget
@@ -178,12 +179,15 @@ def test_redoing_the_seismic_inversion_keeps_the_petrophysical_one() -> None:
 
 
 @pytest.fixture(scope="module")
-def judged(
-    demo_input_dir: Path, tmp_path_factory: pytest.TempPathFactory
-) -> tuple[Settings, str, Path]:
-    """active_test_profile in 24-receiver windows every 12, judged up to G4 with no retry."""
+def judged(tmp_path_factory: pytest.TempPathFactory) -> tuple[Settings, str, Path]:
+    """active_test_profile's 25 shots in 24-receiver windows every 12, judged up to G4 with no
+    retry: the 7 shots of the other tests give no curve the model covers."""
+    present(ACTIVE)
     root = tmp_path_factory.mktemp("petro")
-    settings = Settings(input_dir=demo_input_dir, output_dir=root / "outputs", workers=2)
+    inputs = root / "inputs"
+    inputs.mkdir()
+    link_active(inputs, PROFILE_SHOTS)
+    settings = Settings(input_dir=inputs, output_dir=root / "outputs", workers=2)
     with pytest.MonkeyPatch.context() as patch:
         patch.chdir(root)
         windows = {"masw": {"length": 24, "step": 12}}
@@ -200,7 +204,7 @@ def test_a_model_says_how_many_curves_it_covers(judged: tuple[Settings, str, Pat
 
     (card,) = choice.models
     assert (card.name, card.n_covered) == (GRAND_EST, 1)
-    assert card.covers == "1 of the 7 curves G4 passed; 6 end below 43 Hz"
+    assert card.covers == "1 of the 2 curves G4 passed; 1 start above 22 Hz; 1 end below 43 Hz"
     assert card.trained_on == (
         "15-50 Hz, 193-415 m/s; soils clay, loam, silt, sand; up to 4 layers down to 20 m; "
         "water tables 1-10 m"
@@ -221,8 +225,8 @@ def test_the_covered_curves_are_inverted_and_judged(judged: tuple[Settings, str,
     assert (run_folder / window.unit / MEASURES_FILE).exists()
     line = next(unit for unit in report.units if unit.unit == "line")
     assert line.verdicts["G8"] == "reject"  # one model: no section
-    assert described.startswith(f"Silex model {GRAND_EST} covers 1 of the 7 curves G4 passed.")
-    assert "Left out, outside its range: 6 end below 43 Hz." in described
+    assert described.startswith(f"Silex model {GRAND_EST} covers 1 of the 2 curves G4 passed.")
+    assert "Left out, outside its range: 1 start above 22 Hz; 1 end below 43 Hz." in described
     assert "No section: fewer than two models passed." in described
     assert not list(run_folder.glob("PetroInversion_*"))
 
