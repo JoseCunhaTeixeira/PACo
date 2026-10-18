@@ -10,21 +10,13 @@ from paco.qc.models import GateResult, Kept, Metric
 # active_test_profile's four windows: 24 receivers 1.5 m apart, 34.5 m long. By xmid: the shortest and
 # longest wavelengths (m), the share of points beyond 3 window lengths, the share in the aliasing
 # zone, the nearest shot's distance over half the longest wavelength, the median relative
-# uncertainty, and whether the nearest shot is in the near field. The window at 53.25 m holds one
-# point, under twice the receiver spacing.
+# uncertainty, and whether the nearest shot is in the near field (each window has one 0.75 m off
+# an end). The window at 53.25 m holds one point, under twice the receiver spacing.
 LINE = {
-    17.25: (10.0, 22.0, 0.0, 0.0, 0.75 / 11, 0.098, True),
-    53.25: (
-        5 / 3,
-        5 / 3,
-        0.0,
-        1.0,
-        2.25 / 0.83,
-        0.2,
-        False,
-    ),  # half its wavelength, as G3 rounds it
-    89.25: (7.0, 14.0, 0.0, 0.0, 2.25 / 7, 0.063, True),
-    125.25: (52.0, 160.0, 0.523, 0.0, 0.75 / 80, 0.4, True),
+    17.25: (11.0, 15.0, 0.0, 0.0, 0.75 / 7.5, 0.079, True),
+    53.25: (1.72603, 1.72603, 0.0, 1.0, 0.75 / 0.86, 0.119, True),  # half its wavelength, rounded
+    89.25: (8.0, 16.0, 0.0, 0.0, 0.75 / 8, 0.073, True),
+    125.25: (9.0, 13.0, 0.0, 0.0, 0.75 / 6.5, 0.067, True),
 }
 
 
@@ -48,18 +40,18 @@ def test_each_curves_checks_on_the_line(judged_line: JudgedLine) -> None:
 def test_the_lines_checks(judged_line: JudgedLine) -> None:
     checks = [window_checks(judged_line.g3[xmid], judged_line.length_m) for xmid in LINE]
 
-    line = line_checks([check for check in checks if check is not None], target_depth_m=12.0)
+    line = line_checks([check for check in checks if check is not None], target_depth_m=7.0)
 
     assert line.curves == 4
     # Medians of four: halfway between the two middle ones.
-    assert line.reach == pytest.approx((14 + 22) / 2 / 34.5, abs=1e-5)
-    assert (line.beyond_windows, line.beyond) == (1, 0.0)
+    assert line.reach == pytest.approx((13 + 15) / 2 / 34.5, abs=1e-5)
+    assert (line.beyond_windows, line.beyond) == (0, 0.0)
     assert (line.aliased_windows, line.aliased) == (1, 0.0)
-    assert line.near_field_windows == 3
-    assert line.depth_m == pytest.approx((7 + 11) / 2, abs=1e-5)
-    # One curve informs 12 m: half of 160 m.
-    assert line.reaching == 1
-    assert line.uncertainty == pytest.approx((0.098 + 0.2) / 2)
+    assert line.near_field_windows == 4
+    assert line.depth_m == pytest.approx((6.5 + 7.5) / 2, abs=1e-5)
+    # Two curves inform 7 m: half of 15 and 16 m.
+    assert line.reaching == 2
+    assert line.uncertainty == pytest.approx((0.073 + 0.079) / 2)
 
 
 def test_points_in_the_aliasing_zone_and_a_far_nearest_shot() -> None:

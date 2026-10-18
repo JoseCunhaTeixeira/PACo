@@ -52,5 +52,11 @@ note. G6 compares the models along the line at the end: a jump their curves do n
 non-uniqueness, kept with its flag. Your memory here is each window's inversions: the parameters
 changed, G5's measures, the verdict; the processing is behind you.
 
+## Soils and the water table
+
+Only when the user asks for soils, N values or the water table: once every model is decided,
+petro_models says which Silex model covers the most of the line's curves; invert_petro inverts
+them into soils, checked by G7 and G8. Both take the line's run, as the card names it.
+
 When every model is decided, answer the user: the models, the depth they inform, the windows left
 out and why, and your interpretation of the line, which you say is yours, not a measurement.

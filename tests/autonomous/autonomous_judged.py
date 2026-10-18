@@ -1,5 +1,6 @@
-"""A judged line for the tests: active_test_profile (the shots the tests keep) processed in four 24-receiver
-windows, then picked and judged by G1 to G4, as PACo's own tests make theirs (its test_qc.py)."""
+"""A judged line for the tests: active_test_profile (the 7 shots PACo's own tests keep, 24 m apart)
+processed in four 24-receiver windows, then picked and judged by G1 to G4, as PACo's own tests make
+theirs (its test_qc.py)."""
 
 from dataclasses import dataclass
 from pathlib import Path

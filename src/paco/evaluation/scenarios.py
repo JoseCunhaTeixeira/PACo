@@ -6,7 +6,7 @@ agent is stuck and must ask. Every scenario where the data decide checks that th
 nothing, and that the thresholds stayed the configuration's.
 
 The scenarios play on PAC's test profiles, copies of real lines: active_test_profile (96 receivers
-1.5 m apart, 33 shots) and passive_test_profile (2 records of noise). The evaluations kept from
+1.5 m apart, 25 shots) and passive_test_profile (10 records of noise). The evaluations kept from
 before played on PAC's former demo line, then on the whole lines."""
 
 from collections.abc import Callable

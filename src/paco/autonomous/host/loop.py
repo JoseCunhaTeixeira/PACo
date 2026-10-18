@@ -35,6 +35,7 @@ from sigpipe.masw.profiles import ProfileError, load_profile
 from sigpipe.masw.runs import find_run
 from sigpipe.masw.runs.writing import write_atomic
 
+from paco import inspection
 from paco.agent.answer import AnswerError
 from paco.agent.conversion import tools_for_model
 from paco.agent.loop import as_data, from_data
@@ -74,7 +75,8 @@ DROPPED = (
     "[PACo] Older calls were dropped from the conversation to keep it short: the journal (journal "
     "read) and the state card hold what they found."
 )
-NO_PROFILE = "Which profile should I work on? PACo's inspect lists them."
+# What the host says to a message naming no profile, or one that is not there: the profiles.
+NO_PROFILE = "Which profile should I study? The profiles:\n{profiles}"
 NUDGE = (
     "[PACo] The run is not done: the curves are not frozen. Go on with the phase's tools, or ask "
     "the user what you need from them."
@@ -220,6 +222,10 @@ class Host:
         finally:
             self._save()
 
+    def _profiles(self) -> str:
+        """The question to a message naming no profile there is: the profiles, to choose one."""
+        return NO_PROFILE.format(profiles=inspection.profiles_text(self._settings))
+
     async def _objective(self, message: str) -> str | None:
         """P0: the objective read from the user's message, and the study it works on, resumed
         when the profile has one not reported yet. A question when the message names no
@@ -235,11 +241,11 @@ class Host:
             scope = scope.model_copy(update={"effort": self._effort})
         self.steps.append(_scope_step(scope, time.perf_counter() - started))
         if scope.profile is None:
-            return NO_PROFILE
+            return self._profiles()
         try:
             spacing = receiver_spacing(load_profile(scope.profile, self._settings))
         except ProfileError:
-            return f"There is no profile '{scope.profile}'. {NO_PROFILE}"
+            return f"There is no profile '{scope.profile}'. {self._profiles()}"
         study = study_for(scope.profile, self._settings)
         self.study, self.scope, self.request = study, scope, message
         self.meta["study"] = study.id
@@ -679,6 +685,7 @@ def _model_step(reply: Reply, seconds: float) -> ModelStep:
         prompt_tokens=reply.prompt_tokens,
         completion_tokens=reply.completion_tokens,
         tool_calls=len(reply.tool_calls),
+        cached_tokens=reply.cached_tokens,
     )
 
 

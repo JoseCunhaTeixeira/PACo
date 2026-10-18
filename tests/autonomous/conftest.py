@@ -12,14 +12,9 @@ from paco.llm.settings import ModelSettings
 from paco.modes import ModeSettings
 from paco.settings import Settings, get_settings
 
-# The active test profile's shots the tests keep: the seven at each end, which a long window
-# stacks, and one in six between, 28 of the real line's 97 (24 m apart, as the 7 PACo's tests
-# keep); the passive one's 2 records of noise.
-SHOTS = (
-    *(f"{shot}.dat" for shot in range(101, 108)),
-    *(f"{shot}.dat" for shot in range(108, 190, 6)),
-    *(f"{shot}.dat" for shot in range(191, 198)),
-)
+# The active test profile's 25 shots, 6 m apart (one in four of the real line's 97); the passive
+# one's first 2 records of noise.
+SHOTS = tuple(f"{shot}.dat" for shot in range(101, 198, 4))
 NOISE_RECORDS = 2
 
 
@@ -80,7 +75,8 @@ def free_port() -> int:
 
 
 @pytest.fixture(scope="session")
-def judged_line(input_dir: Path, tmp_path_factory: pytest.TempPathFactory) -> JudgedLine:
+def judged_line(demo_input_dir: Path, tmp_path_factory: pytest.TempPathFactory) -> JudgedLine:
     """A line of active_test_profile, processed, picked and judged once for the tests that read real curves
-    and images."""
-    return make_judged_line(input_dir, tmp_path_factory.mktemp("judged_line"))
+    and images: on the 7 shots PACo's own tests keep (tests/conftest.py), the line their test_qc.py
+    judges."""
+    return make_judged_line(demo_input_dir, tmp_path_factory.mktemp("judged_line"))

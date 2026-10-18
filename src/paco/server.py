@@ -25,6 +25,7 @@ from mcp.server import MCPServer
 from mcp.server.mcpserver import Context
 from mcp.server.mcpserver.exceptions import ToolError
 from mcp.server.transport_security import TransportSecuritySettings
+from mcp.shared.exceptions import MCPError
 from mcp.types import ToolAnnotations
 from pydantic import BaseModel, ConfigDict, Field, ValidationError
 from sigpipe.masw import presets, profiles, runs
@@ -109,8 +110,8 @@ def _agent_errors[**P, R](tool: Callable[P, R]) -> Callable[P, R]:
     file busy or the disk full); and a stop (the host's: see paco.stopping), said as such, the
     call's work undone where it had not finished.
 
-    Any other exception is a bug: the SDK hides its message from the model, and logs its
-    traceback in the server's terminal.
+    Any other exception is a bug: its traceback in the server's terminal, and its reason to the
+    model, tagged `[error]` (the SDK would show it only "Error executing tool <name>").
     """
 
     @functools.wraps(tool)
@@ -144,6 +145,12 @@ def _agent_errors[**P, R](tool: Callable[P, R]) -> Callable[P, R]:
         except OSError as error:
             outcome = "[retry]"
             raise ToolError(f"[retry] {type(error).__name__}: {error}") from error
+        except MCPError:
+            raise
+        except Exception as error:
+            outcome = "[error]"
+            logger.exception("Tool %s failed", tool.__name__)
+            raise ToolError(f"[error] {type(error).__name__}: {error}") from error
         finally:
             _traced(tool.__name__, dict(kwargs), run_id, outcome, time.monotonic() - began)
             for variable, token in tokens:

@@ -12,7 +12,7 @@ from paco import qc
 from paco.settings import Settings
 
 # Four 24-receiver windows along active_test_profile (xmid 17.25 to 125.25 m): minutes to process
-# its 33 shots, seconds the tests' few.
+# its 25 shots, seconds the tests' few.
 SMALL_WINDOWS = {"masw": {"length": 24, "step": 24}}
 # The window whose curve hand_curve_run picks by hand.
 HAND_WINDOW = "xmid_53.25"

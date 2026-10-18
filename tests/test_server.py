@@ -86,6 +86,24 @@ def _text(result: CallToolResult) -> str:
     return content.text
 
 
+@pytest.mark.usefixtures("paco_env")
+def test_an_unforeseen_failure_reaches_the_model_with_its_reason(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    def broken(*_: object) -> str:
+        raise RuntimeError("the disk is on fire")
+
+    monkeypatch.setattr(inspection, "profiles_text", broken)
+
+    result = _call("inspect", {"what": "profiles"})
+
+    # Not only "Error executing tool inspect": the reason, tagged, its traceback logged.
+    assert result.is_error
+    assert (
+        _text(result) == "Error executing tool inspect: [error] RuntimeError: the disk is on fire"
+    )
+
+
 def _card(tool: Tool) -> str:
     """The tool as a host sends it to the model."""
     return json.dumps(
@@ -645,16 +663,3 @@ def test_pacos_errors_reach_the_model(name: str, arguments: dict[str, Any], mess
 
     assert result.is_error
     assert message in _text(result)
-
-
-@pytest.mark.usefixtures("paco_env")
-def test_a_bug_stays_hidden_from_the_model(monkeypatch: pytest.MonkeyPatch) -> None:
-    def broken(_settings: Settings) -> list[str]:
-        raise KeyError("internal detail")
-
-    monkeypatch.setattr(inspection, "list_profiles", broken)
-
-    result = _call("inspect", {"what": "profiles"})
-
-    assert result.is_error
-    assert "internal detail" not in _text(result)

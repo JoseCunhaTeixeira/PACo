@@ -20,8 +20,8 @@ PNG = b"\x89PNG"
 def test_observe_summarizes_a_gate(judged_line: JudgedLine) -> None:
     text = observe(judged_line.folder, "curves", QCConfig())
 
-    assert text.splitlines()[0] == "G3: 2 pass, 2 retry"
-    assert "G3 near_field, xmid 17.25 (1), 89.25-125.25 (2)" in text
+    assert text.splitlines()[0] == "G3: 3 pass, 1 reject"
+    assert "G3 near_field, xmid 17.25-125.25 (4)" in text
 
 
 @pytest.mark.slow
@@ -32,7 +32,7 @@ def test_observe_gives_the_rows_where_asked(judged_line: JudgedLine) -> None:
 
     assert lines[0] == "G3 where flag:near_field+xmids:80-130: 2 units, page 1 of 1."
     assert [line.split(":")[0] for line in lines[1:]] == ["89.25", "125.25"]
-    assert lines[1].startswith("89.25: pass; near_field; λ 7-14 m;")
+    assert lines[1].startswith("89.25: pass; near_field; λ 8-16 m;")
 
 
 @pytest.mark.slow
@@ -41,8 +41,11 @@ def test_observe_the_line_with_its_pseudo_section(judged_line: JudgedLine) -> No
 
     rows = section.splitlines()[2:]
     assert [row.split()[0] for row in rows] == ["17.25", "53.25", "89.25", "125.25"]
-    # The curve at 17.25 m reaches a wavelength of 20 m, none of the others the table gives.
-    assert rows[0].split()[1:] == ["-", "-", "-", "311", "-"]
+    # The curves at 89.25 and 125.25 m reach a wavelength of 10 m, none the table's others.
+    assert [row.split()[1:] for row in rows[2:]] == [
+        ["-", "-", "248", "-", "-"],
+        ["-", "-", "283", "-", "-"],
+    ]
 
 
 @pytest.mark.slow
@@ -82,7 +85,7 @@ def test_without_vision_a_ridge_table_and_g1s_measures(judged_line: JudgedLine) 
 @pytest.mark.slow
 def test_look_at_records_and_a_sheet(judged_line: JudgedLine) -> None:
     assert look(judged_line.folder, "gather", "101.dat", vision=True).figures[0].startswith(PNG)
-    assert look(judged_line.folder, "spectra", "103.dat", vision=True).figures[0].startswith(PNG)
+    assert look(judged_line.folder, "spectra", "117.dat", vision=True).figures[0].startswith(PNG)
     sheet = look(judged_line.folder, "sheet", "0-150", vision=True)
     assert sheet.text == "4 of the 4 windows from 0 to 150 m."
     with pytest.raises(ValueError, match="No record"):
@@ -97,7 +100,7 @@ def test_advise_reads_the_committed_lines_gates(judged_line: JudgedLine, tmp_pat
     def said(topic: str, run_folder: Path | None = judged_line.folder) -> str:
         return advise(study, topic, {}, settings, QCConfig(), run_folder)  # pyright: ignore[reportArgumentType]
 
-    # Two curves fail G3, which asks changes of their picking; the line loop asks none.
+    # One curve fails G3, which asks changes of its picking; the line loop asks none.
     assert said("picking").startswith("G3's changes of the picking, by window (not applied):\n")
     assert "- too_few_points on xmid 53.25 (1): picking" in said("picking")
     assert said("line_changes") == (

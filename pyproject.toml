@@ -25,7 +25,11 @@ dependencies = [
 [project.optional-dependencies]
 # The petrophysical inversion (invert_petro): sigpipe's Silex models and santiludo's rock physics,
 # with torch. PAC installs them itself; PACo alone needs this extra.
-petro = ["sigpipe[silex,santiludo] @ git+https://github.com/JoseCunhaTeixeira/sigpipe"]
+petro = [
+    "sigpipe[silex,santiludo] @ git+https://github.com/JoseCunhaTeixeira/sigpipe",
+    # Named here only to take its CPU build (tool.uv.sources): sigpipe's Silex model runs on it.
+    "torch",
+]
 
 [project.scripts]
 paco-server = "paco.server:main"
@@ -39,6 +43,17 @@ paco-ab = "paco.autonomous.evaluation.cli:main"
 
 [dependency-groups]
 dev = ["pytest>=8", "ruff>=0.14", "pyright>=1.1", "pre-commit>=4"]
+
+[tool.uv.sources]
+# torch on the CPU, on Linux, where PyPI's is the CUDA build: sigpipe's petrophysical model runs
+# on the CPU (its default, KERAS_TORCH_DEVICE=cpu), and CUDA's 4 GB of libraries go unused.
+# Elsewhere PyPI's torch is the CPU build already.
+torch = [{ index = "pytorch-cpu", marker = "sys_platform == 'linux'" }]
+
+[[tool.uv.index]]
+name = "pytorch-cpu"
+url = "https://download.pytorch.org/whl/cpu"
+explicit = true
 
 [build-system]
 requires = ["setuptools>=61"]

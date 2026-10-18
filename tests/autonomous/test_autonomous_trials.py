@@ -83,9 +83,9 @@ def test_the_current_settings_and_three_variants_are_scored(made: Made) -> None:
     assert [one.label for one in first.tried] == ["current", "1", "2", "3"]
     assert [one.changes for one in first.tried] == [{}, *VARIANTS]
     current = first.tried[0]
-    # Three windows spread along the line, its ends included; the first curve passes G3.
+    # Three windows spread along the line, its ends included; the first two curves pass G3.
     assert first.xmids == current.scorecard.windows == (17.25, 71.25, 125.25)
-    assert current.scorecard.covered == (17.25,)
+    assert current.scorecard.covered == (17.25, 71.25)
     assert current.scorecard.depth_m is not None
     assert current.against is None
     assert all(one.against is not None for one in first.tried[1:])
@@ -102,10 +102,9 @@ def test_each_change_remakes_what_it_changes(made: Made) -> None:
     # Windows of 32 receivers: other windows, their own images.
     assert (runs["1"].length, runs["1"].length_m) == (32, 46.5)
     assert [result.xmid for result in runs["1"].windows] == [23.25, 71.25, 119.25]
-    # A near field of 1 m takes the shot 0.75 m after the line from the last window (the one
-    # 0.75 m before it is out already, G1 rejected its record): the others keep their shots, and
-    # their images come from the cache.
-    assert [result.cached for result in runs["2"].windows] == [True, True, False]
+    # A near field of 1 m takes the shots 0.75 m off each window's ends (the shots are 6 m apart:
+    # one at each end of these three, but 101.dat, which G1 rejected): every image made again.
+    assert [result.cached for result in runs["2"].windows] == [False, False, False]
     # The pick alone: every image from the cache.
     assert all(result.cached for result in runs["3"].windows)
     assert runs["3"].seconds["images"] == 0
@@ -163,7 +162,7 @@ def test_a_trials_images_come_back_when_the_line_is_imaged_with_its_settings(
     tried = {
         f"xmid_{result.xmid:.2f}" for result in _run(made.study, made.first.tried[2].trial).windows
     }
-    chosen = [window for window in line if f"xmid_{window.xmid:.2f}" in tried] + [line[1]]
+    chosen = [window for window in line if f"xmid_{window.xmid:.2f}" in tried] + [line[2]]
 
     outcomes = trials.image(chosen, trial.preset, records, tmp_path, exclusions, made.settings)
 
@@ -172,7 +171,7 @@ def test_a_trials_images_come_back_when_the_line_is_imaged_with_its_settings(
         "xmid_17.25": True,
         "xmid_71.25": True,
         "xmid_125.25": True,
-        "xmid_18.75": False,  # never tried
+        "xmid_20.25": False,  # never imaged
     }
 
 
@@ -184,9 +183,9 @@ def test_g1_is_made_once_for_the_trials_that_preprocess_alike(made: Made) -> Non
     kept = trials.Settled.model_validate_json((entry / trials.SETTLED).read_text())
 
     assert [_run(made.study, one.trial).g1 for one in made.first.tried] == [kept.results] * 4
-    assert kept.exclusions.records == ("101.dat", "144.dat")
+    assert kept.exclusions.records == ("101.dat", "129.dat")
     # Each record's spectra kept, for a run whose records are its own.
-    assert len(list(entry.glob("records/*/Spectrum_0000.png"))) == 28
+    assert len(list(entry.glob("records/*/Spectrum_0000.png"))) == 25
 
 
 @pytest.mark.slow
@@ -201,12 +200,15 @@ def test_the_experiment_as_the_model_reads_it(made: Made) -> None:
     lines = describe(made.first).splitlines()
 
     assert lines[0] == "E1: 3 variants on spread:3, against the current settings:"
-    assert lines[1].startswith("- current: 1 of 3 windows pass G3; depth ")
-    # 32 receivers: no curve passes G3, and the current settings dominate.
+    assert lines[1].startswith("- current: 2 of 3 windows pass G3; depth ")
+    # 32 receivers: the same two curves pass G3, shallower but surer: neither dominates. A pick up
+    # to 30 Hz: as deep, less sure: the current settings dominate.
     assert lines[2].startswith(
-        '- 1 {"masw": {"length": 32}}: 0 of 3 windows pass G3 (+0, -0); no curve to score; '
+        '- 1 {"masw": {"length": 32}}: 2 of 3 windows pass G3 (+0, -0); depth 8 m (P10 7.6 m), '
     )
-    assert lines[2].endswith("; dominated by current")
+    assert "dominated" not in lines[2]
+    assert lines[4].startswith('- 3 {"picking": {"fmax": 30.0}}: 2 of 3 windows pass G3 (+0, -0); ')
+    assert lines[4].endswith("; dominated by current")
 
 
 @pytest.mark.slow

@@ -183,7 +183,7 @@ def test_g1_is_made_once_for_each_preprocessing(commits: Commits) -> None:
     )
     assert third_line.exclusions == second_line.exclusions
     # Its records' spectra copied beside them, as PAC's pages show them.
-    assert len(list(third.glob("records/*/Spectrum_0000.png"))) == 28
+    assert len(list(third.glob("records/*/Spectrum_0000.png"))) == 25
 
 
 @pytest.mark.slow

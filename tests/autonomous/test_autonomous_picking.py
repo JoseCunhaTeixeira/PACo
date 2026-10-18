@@ -36,7 +36,7 @@ L1_REASONS = {
 }
 # G3's own suggestion for the curves too narrow.
 FIXES = {"min_relative_coherence": 0.3}
-# A ridge's band, around the line's surface waves (its curves: 240 to 550 m/s).
+# A ridge's band, around the line's surface waves.
 LASSO = [[10, 230], [10, 420], [40, 400], [40, 230]]
 # The air wave, a corridor of 2 % around 338 m/s and loose rules: a pick G3 blocks.
 AIR_WAVE = {
@@ -79,8 +79,7 @@ PLAY: list[tuple[str, dict[str, Any], bool]] = [
     ),
     ("decide", {"windows": "status:pending", "status": "rejected", "reason": "no ridge"}, True),
     ("pick", {"windows": "xmids:[125.25]", "how": "guide", "guide": "neighbours"}, False),
-    # The window whose farther records G1 left out keeps its near shot, and its image: rejected
-    # only once it was tried hard, its neighbours' guide first.
+    # A window accepted, rejected only once it was tried hard: its neighbours' guide first.
     ("decide", {"windows": "xmids:[24.75]", "status": "rejected", "reason": "no ridge"}, True),
     ("pick", {"windows": "status:pending", "how": "guide", "guide": "neighbours"}, False),
     (
@@ -152,10 +151,10 @@ def test_the_scripted_agent_decides_every_window_and_freezes(played: Played) -> 
     assert played.refused == [refused for _, _, refused in PLAY], played.answers
     frozen = json.loads((played.study.folder / "curves.json").read_text())
     assert len(frozen["curves"]) + len(frozen["rejected"]) == 73
-    assert [one["unit"] for one in frozen["rejected"]][:2] == ["xmid_17.25", "xmid_26.25"]
+    assert [one["unit"] for one in frozen["rejected"]][:2] == ["xmid_18.75", "xmid_26.25"]
     assert answer(played, 18).startswith(
-        f"Frozen, from L2 (run {played.run.name}): 55 curves accepted of the line's 73 windows, "
-        "18 rejected."
+        f"Frozen, from L2 (run {played.run.name}): 51 curves accepted of the line's 73 windows, "
+        "22 rejected."
     )
 
 
@@ -164,7 +163,8 @@ def test_decide_refuses_a_blocking_flag(played: Played) -> None:
     assert answer(played, 7).splitlines()[1].startswith("- 66.75: reject;")
     assert "air_wave (blocking)" in answer(played, 7)
     assert answer(played, 8).endswith(
-        "- 66.75: blocking flag air_wave: it cannot be accepted until a later pick clears it"
+        "- 66.75: blocking flag sharpness, air_wave: it cannot be accepted until a later pick "
+        "clears it"
     )
 
 
@@ -184,24 +184,21 @@ def test_decide_refuses_a_rejection_before_the_window_was_tried_hard(played: Pla
     rows = answer(played, 12).splitlines()[1:]
 
     assert rows[0] == (
-        "- 17.25: not tried hard yet: owes a pick after its fixable too_few_points, narrow_span, "
+        "- 18.75: not tried hard yet: owes a pick after its fixable too_few_points, narrow_span, "
         "or the reason naming them: why none applies"
     )
-    assert any(
-        row.startswith("- 86.25: ")
-        and row.endswith(
-            "a pick guided by its neighbours (how=guide, guide=neighbours): 2 on one side pass G3"
-        )
-        for row in rows
+    assert rows[-1] == (
+        "- 125.25: not tried hard yet: owes a pick guided by its neighbours (how=guide, "
+        "guide=neighbours): 2 on one side pass G3"
     )
-    # The window whose farther records G1 left out has its image: its rejection owes a pick.
+    # An accepted window: its rejection owes the same tries.
     assert answer(played, 14).endswith(
         "- 24.75: not tried hard yet: owes a pick guided by its neighbours (how=guide, "
         "guide=neighbours): 2 on one side pass G3"
     )
     # Rejected once the reason names the flags none of its picks fixed; its picks listed.
     assert answer(played, 17).splitlines()[1] == (
-        "- 17.25 had: line (retry), auto (retry), guide (neighbours) (retry), guide (neighbours) "
+        "- 18.75 had: line (retry), auto (retry), guide (neighbours) (retry), guide (neighbours) "
         "(retry), guide (neighbours) (retry)."
     )
 
@@ -210,24 +207,34 @@ def test_decide_refuses_a_rejection_before_the_window_was_tried_hard(played: Pla
 def test_a_commit_picks_each_window_again_with_its_recipe(played: Played) -> None:
     assert answer(played, 6).startswith(
         f"L2 changed the line's settings in run {played.run.name}. The windows' own recipes, "
-        "picked again: 28 (guide 23, lasso 2, auto 2, delete 1)."
+        "picked again: 37 (guide 28, lasso 2, auto 6, delete 1)."
     )
     again = [one for one in picks_of(played.study, played.run.name) if one.reapplied]
-    assert len({one.unit for one in again}) == 28
+    assert len({one.unit for one in again}) == 37
     assert {"xmid_29.25", "xmid_30.75", "xmid_125.25"} <= {one.unit for one in again}
 
 
 @pytest.mark.slow
 def test_a_lasso_guides_the_tracker_inside_its_band(played: Played) -> None:
     attempt = latest(read_attempts(played.run), "xmid_29.25", "picking")
+    # The lasso's pick, as the study keeps it: the window was picked again after it.
+    lasso = next(
+        one
+        for one in picks_of(played.study, played.run.name)
+        if one.unit == "xmid_29.25" and one.recipe.how == "lasso"
+    )
 
     assert attempt is not None
     assert attempt.triggered_by == "backtrack"
-    parameters = PickingParameters.model_validate(attempt.parameters)
+    assert lasso.parameters is not None
+    parameters = PickingParameters.model_validate(lasso.parameters)
     assert (parameters.fmin, parameters.fmax) == (10, 40)
     assert parameters.guide is not None
-    assert all(10 <= f <= 40 and 230 <= v <= 420 for f, v in parameters.guide)
-    assert "- 29.25: pass; near_field (note)" in answer(played, 4)
+    # Inside the polygon's band; sigpipe's pick_lasso resamples the maxima over wavelength, which
+    # may set a point a few percent past the polygon's edge.
+    assert all(10 <= f <= 40 and 0.95 * 230 <= v <= 1.05 * 420 for f, v in parameters.guide)
+    # The ridge it holds stands out too little: G3 blocks it.
+    assert "- 29.25: reject; prominence (blocking)" in answer(played, 4)
 
 
 @pytest.mark.slow
@@ -235,7 +242,7 @@ def test_the_frozen_curves_hold_what_the_inversion_needs(played: Played) -> None
     frozen = json.loads((played.study.folder / "curves.json").read_text())
 
     assert (frozen["run_id"], frozen["commit"], frozen["length"]) == (played.run.name, 2, 24)
-    assert (frozen["dx_m"], frozen["length_m"], frozen["reach_m"]) == (1.5, 34.5, 66.0)
+    assert (frozen["dx_m"], frozen["length_m"], frozen["reach_m"]) == (1.5, 34.5, 66.64)
     assert frozen["settings"] == {**L1, "picking": {"fmax": 90}}
     for curve in frozen["curves"]:
         path = played.run / curve["curve"]
@@ -243,7 +250,7 @@ def test_the_frozen_curves_hold_what_the_inversion_needs(played: Played) -> None
         assert hashlib.sha256(path.read_bytes()).hexdigest() == curve["sha256"]
         assert curve["points"] >= 2
     assert frozen["rejected"][:2] == [
-        {"unit": "xmid_17.25", "xmid": 17.25, "reason": REJECTED},
+        {"unit": "xmid_18.75", "xmid": 18.75, "reason": REJECTED},
         {"unit": "xmid_26.25", "xmid": 26.25, "reason": REJECTED},
     ]
 
@@ -252,11 +259,11 @@ def test_the_frozen_curves_hold_what_the_inversion_needs(played: Played) -> None
 def test_nothing_is_processed_or_picked_after_the_freeze(played: Played) -> None:
     for step in (19, 21):
         assert "[precondition] The curves are frozen" in answer(played, step)
-    # decide goes on, on the models of the frozen curves (17.25 was rejected before): none is
+    # decide goes on, on the models of the frozen curves (18.75 was rejected before): none is
     # there to accept before an inversion.
     assert answer(played, 20).startswith(
-        "Error executing tool decide: [bad argument] Nothing decided, 55 of the models cannot be "
-        "accepted:\n- 18.75: it has no model: invert it, or reject it\n"
+        "Error executing tool decide: [bad argument] Nothing decided, 51 of the models cannot be "
+        "accepted:\n- 17.25: it has no model: invert it, or reject it\n"
     )
 
 
@@ -285,8 +292,8 @@ def test_the_windows_a_spec_names(judged_line: JudgedLine) -> None:
     assert named("status:pending", {"xmid_53.25": "accepted"}) == ["17.25", "89.25", "125.25"]
     with pytest.raises(ValueError, match="No window at 300 m"):
         named("xmids:[300]")
-    with pytest.raises(ValueError, match="No window where verdict:reject"):
-        named("verdict:reject")
+    with pytest.raises(ValueError, match="No window where verdict:retry"):
+        named("verdict:retry")
     with pytest.raises(ValueError, match="Unknown windows 'everything'"):
         named("everything")
     # One position needs no list; a + keeps what every part names, and says how to list them.

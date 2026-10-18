@@ -114,19 +114,22 @@ A session looks like this (an illustration: the answer's wording depends on the 
 you> Process active_test_profile with windows of 24 receivers, every 24 receivers, and pick the curves.
 -> run_processing({"profile": "active_test_profile", "overrides": {"masw": {"length": 24, "step": 24}}})
    run_processing: 4 of 4 windows
--> pick({"run_id": "20261018-125618-6e05"})
+-> pick({"run_id": "20261018-144613-9de0"})
 
-paco> The 4 curves passed G3 and G4. G1 left out 5 shots, and a mute of the surface waves'
-cone made the images cleaner.
+paco> 3 of the 4 windows have a curve that passed G3 and G4. At xmid 89.25 m, competing ridges
+left no curve to pick. G1 left out 3 shots, and a mute made the images cleaner.
+
+Left out:
+- xmid 89.25 (1): G3 nothing_to_try, on_data
 
 Parameters used:
 - mode active: the profile's kind
-- MASW windows of 24 receivers (34.5 m), 4 windows, xmid 17.25 to 125.25 m: given (in your request, or chosen by the agent); its trial windows: 22/27 at 24 receivers (picks 7%)
-- muting 130.2 to 293 m/s: the mute trial (the gathers' surface waves 63.9 to 261.6 m/s, median 195.3): the tight cone 130.2 to 293 m/s, 15 of 15 trial windows of 24 receivers (34.5 m) passing G3, against 12 without a mute
+- MASW windows of 24 receivers (34.5 m), 4 windows, xmid 17.25 to 125.25 m: given (in your request, or chosen by the agent); its trial windows: 21/27 at 24 receivers (picks 7%)
+- muting 80 to 1500 m/s: the mute trial (the gathers' surface waves 125.3 to 332.2 m/s, median 202.5): the standard mute 80 to 1500 m/s, 14 of 15 trial windows of 24 receivers (34.5 m) passing G3, against 11 without a mute
 - ...
 
 Settings the gates changed:
-- 101.dat, 133.dat, 144.dat, 165.dat, 174.dat: left out of every window
+- 101.dat, 129.dat, 133.dat: left out of every window
 - ...
 ```
 
@@ -175,7 +178,8 @@ In this mode, PACo's server leads the model through these tools:
 In this mode, the tools work on a profile's **study**: a folder in `<output>/<profile>/studies/`
 that keeps everything (the survey, each experiment and its trials, the line committed as a run PAC
 opens, the journal, the decisions, the frozen curves and the inversions). If a conversation stops,
-the next one on the profile resumes the study.
+the next one on the profile resumes the study. A message names its profile; without one, PACo
+lists the profiles.
 
 | Tool | What it does |
 |---|---|
@@ -186,6 +190,7 @@ the next one on the profile resumes the study.
 | `advise` | PACo's own choice for a lever (the window length, the mute, a passive line's segments, the picking), not applied |
 | `pick`, `decide`, `freeze` | Picks windows again, accepts or rejects each one with its reason, freezes the curves for the inversion |
 | `invert`, `job_status` | Inverts the frozen curves, in the background |
+| `petro_models`, `invert_petro` | Only when you ask for soils: the petrophysical model that covers the most curves, then soils, N values and the water table (G7, G8); needs the `petro` extra |
 | `journal` | Reads the journal; writes a hypothesis, a conclusion or a decision |
 
 Code keeps the work honest. The settings you type are never changed. The phases go in order:

@@ -312,6 +312,7 @@ class Agent:
                         prompt_tokens=reply.prompt_tokens,
                         completion_tokens=reply.completion_tokens,
                         tool_calls=len(reply.tool_calls),
+                        cached_tokens=reply.cached_tokens,
                     )
                 )
             self.messages.append(_assistant_message(reply))

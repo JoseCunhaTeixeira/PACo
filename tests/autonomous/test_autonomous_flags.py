@@ -59,7 +59,7 @@ def test_the_lines_flags_take_the_classes_the_table_gives(judged_line: JudgedLin
         for flag in result.flags
     ]
 
-    assert {flag.name for _, flag in raised} >= {"near_field", "beyond_reach"}
+    assert {flag.name for _, flag in raised} >= {"near_field", "outlier"}
     for gate, flag in raised:
         assert flag_class(flag) in FLAGS[(gate, flag.name)], (gate, flag.name)
 

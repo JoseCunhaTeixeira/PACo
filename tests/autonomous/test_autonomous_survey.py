@@ -37,15 +37,15 @@ def test_the_lines_geometry_and_the_limits_it_sets(surveyed: Surveyed) -> None:
     found = surveyed.found
 
     assert (found.receivers, found.spacing_m, found.line_m) == (96, 1.5, 142.5)
-    # The shots the tests keep: one 0.75 m before the line, one 0.75 m after, the others on it,
+    # The 25 shots: one 0.75 m before the line, one 0.75 m after, the others on it, 6 m apart,
     # each file stating a trigger of 20 ms.
     shots = [
         (shot.record, shot.x_m, shot.side, shot.offset_m, shot.trigger_s) for shot in found.shots
     ]
-    assert len(shots) == 28
+    assert len(shots) == 25
     assert shots[:2] == [
         ("101.dat", -0.75, "before the line", 0.75, 0.02),
-        ("102.dat", 0.75, "on the line", 0.0, 0.02),
+        ("105.dat", 5.25, "on the line", 0.0, 0.02),
     ]
     assert shots[-1] == ("197.dat", 143.25, "after the line", 0.75, 0.02)
     assert (found.sampling_hz, found.nyquist_hz) == (2000, 1000)
@@ -58,13 +58,13 @@ def test_the_lines_geometry_and_the_limits_it_sets(surveyed: Surveyed) -> None:
 def test_the_raw_records_as_g1_measures_them(surveyed: Surveyed) -> None:
     found = surveyed.found
 
-    assert found.reach_m == pytest.approx(66.0, abs=0.01)
-    assert found.cone_m_s == pytest.approx((106.8, 203.4, 762.8), abs=0.1)
-    assert found.cone_traces == 1088
+    assert found.reach_m == pytest.approx(66.64, abs=0.01)
+    assert found.cone_m_s == pytest.approx((125.3, 202.5, 332.2), abs=0.1)
+    assert found.cone_traces == 1086
     # Two records under G1's SNR, left out of every window.
     assert {unit for unit, result in found.g1.items() if result.verdict != "pass"} == {
         "101.dat",
-        "144.dat",
+        "129.dat",
     }
     assert found.g1["line"].verdict == "pass"
 
@@ -75,18 +75,18 @@ def test_the_survey_as_the_model_reads_it_made_once(surveyed: Surveyed) -> None:
 
     # Many shots, and many records, summed up.
     assert lines[0] == (
-        "active_test_profile: 96 receivers 1.5 m apart, 142.5 m long; 28 shots: 1 before the line (at "
-        "-0.75 m), 26 on the line (from 0.75 to 141.75 m), 1 after the line (at 143.25 m), their "
-        "files' trigger 0.02 s."
+        "active_test_profile: 96 receivers 1.5 m apart, 142.5 m long; 25 shots: 1 before the line (at "
+        "-0.75 m), 23 on the line (from 5.25 to 137.25 m every 6 m), 1 after the line (at 143.25 m), "
+        "their files' trigger 0.02 s."
     )
     assert lines[2].endswith(
         "windows of 5 to 48 receivers, N_r - N + 1 of them at step 1 (92 at 5, 71 at 26, 49 at 48)."
     )
-    assert lines[4].startswith("Surface waves' cone: 107 to 763 m/s, median 203")
+    assert lines[4].startswith("Surface waves' cone: 125 to 332 m/s, median 202.5")
     assert lines[-4].startswith("- 101.dat: reject; low_snr; ")
     assert lines[-2:] == [
-        "- the line: pass; no flag; off_decay_receivers 0, spectral_receivers 0",
-        "- 26 records: pass, no flag",
+        "- the line: pass; off_decay_receivers; off_decay_receivers 1, spectral_receivers 0",
+        "- 23 records: pass, no flag",
     ]
     assert survey(surveyed.study, surveyed.settings, QCConfig()) == surveyed.found
 

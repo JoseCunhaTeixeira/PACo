@@ -1,8 +1,8 @@
 """The lines the tests read: PAC's test profiles, in PAC's data folder (../PAC/data/input), or the
-folder PACO_TEST_INPUT_DIR names. active_test_profile: 96 receivers 1.5 m apart and 33 shots of
-3 s; passive_test_profile: 2 records of ambient noise, 120 s long, on the same receivers. Each
-suite links the shots and records it reads into a folder of its own, by name: the same data from a
-folder holding the whole lines."""
+folder PACO_TEST_INPUT_DIR names. active_test_profile: 96 receivers 1.5 m apart and 25 shots of
+3 s, 6 m apart; passive_test_profile: 10 records of ambient noise, 120 s long, on the same
+receivers. Each suite links the shots and records it reads into a folder of its own, by name: the
+same data from a folder holding the whole lines."""
 
 import os
 from collections.abc import Sequence

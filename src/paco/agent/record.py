@@ -16,6 +16,8 @@ class ModelStep(BaseModel):
     prompt_tokens: int | None  # the context it read: the number to watch in an 8k window
     completion_tokens: int | None
     tool_calls: int  # how many it asked for; 0 when it answered the user
+    # Of the prompt's tokens, those the server read from its cache (none in older transcripts).
+    cached_tokens: int | None = None
 
 
 class ToolStep(BaseModel):

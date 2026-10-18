@@ -41,7 +41,19 @@ TOOLS: dict[Phase, frozenset[str]] = {
             "freeze",
         }
     ),
-    "P4": frozenset({*ALWAYS, "observe", "look", "advise", "invert", "job_status", "decide"}),
+    "P4": frozenset(
+        {
+            *ALWAYS,
+            "observe",
+            "look",
+            "advise",
+            "invert",
+            "job_status",
+            "decide",
+            "petro_models",
+            "invert_petro",
+        }
+    ),
 }
 # Each phase's manual (paco.autonomous/prompts), which loads only in it.
 MANUALS: dict[Phase, str] = {

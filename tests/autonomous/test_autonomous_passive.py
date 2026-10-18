@@ -3,8 +3,8 @@ records of noise, its levers tried (the segments, the FK selection) with G2 on t
 committed, read on the card and in the report, looked at, and decided without G3's near-field note
 (its windows' virtual source is their first receiver); PACo's segment trial as advice; and the
 passive-active mode of an active line, a mode change a new run, the user's mode kept. On PAC's test
-profiles: the passive one's 2 records of 120 s on the active one's 96 receivers, and 28 of its
-shots."""
+profiles: the first 2 of the passive one's records of 120 s, on the active one's 96 receivers, and
+the active one's 25 shots."""
 
 import re
 from collections.abc import Iterator

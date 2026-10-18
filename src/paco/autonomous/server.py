@@ -24,6 +24,7 @@ import anyio
 from mcp.server import MCPServer
 from mcp.server.mcpserver import Context
 from mcp.server.mcpserver.exceptions import ToolError
+from mcp.shared.exceptions import MCPError
 from mcp.types import ImageContent, TextContent
 from pydantic import Field
 from sigpipe.masw.runs import RunError, find_run
@@ -89,8 +90,9 @@ LineSettings = Annotated[
 def _errors[**P, R](tool: Callable[P, R]) -> Callable[P, R]:
     """The package's errors to the model, each tagged with its kind as PACo tags them:
     `[bad argument]` (a value the tool does not take), `[precondition]` (a run or a stage
-    missing); a stop said as such. Any other exception is a bug, hidden from the model by the
-    SDK and logged in the server's terminal."""
+    missing), `[retry]` (the machine's: a file busy or the disk full); a stop said as such. Any
+    other exception is a bug: its traceback in the server's terminal, and its reason to the
+    model, tagged `[error]` (the SDK would show it only "Error executing tool <name>")."""
 
     @functools.wraps(tool)
     def wrapped(*args: P.args, **kwargs: P.kwargs) -> R:
@@ -103,6 +105,13 @@ def _errors[**P, R](tool: Callable[P, R]) -> Callable[P, R]:
             raise ToolError(f"[precondition] {error}") from error
         except ValueError as error:
             raise ToolError(f"[bad argument] {error}") from error
+        except OSError as error:
+            raise ToolError(f"[retry] {type(error).__name__}: {error}") from error
+        except MCPError:
+            raise
+        except Exception as error:
+            logger.exception("Tool %s failed", tool.__name__)
+            raise ToolError(f"[error] {type(error).__name__}: {error}") from error
 
     return wrapped
 
@@ -418,6 +427,12 @@ def job_status(
         JOBS.wait(job_id, left)
     folder, record = find_job(job_id, settings)
     return inverter.describe_job(record, JOBS.is_live(job_id), folder)
+
+
+# PACo's petrophysical inversion, as its agent runs it, on the line's run once its models are
+# decided (P4): only when the user asks for soils, N values or the water table.
+server.add_tool(paco_server.petro_models, annotations=paco_server.READS)
+server.add_tool(paco_server.invert_petro, annotations=paco_server.REPLACES)
 
 
 @server.tool(annotations=paco_server.ADDS)

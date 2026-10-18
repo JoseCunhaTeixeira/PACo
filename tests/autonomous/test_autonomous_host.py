@@ -1,8 +1,9 @@
 """The host (docs/autonomous_plan.md §13 M6): a scripted conversation runs P0 to P5 on active_test_profile through
 the autonomous agent's tools; the context stays under the set size; the budgets stop the run as
 designed; a run stopped in P2 resumes from the journal with the same phase, budgets and state card.
-The model is scripted (tests/scripted.py); the line, 90-receiver windows on a coarse grid (7
-windows, three of them picked again along their neighbours, one rejected), a commit in seconds."""
+The model is scripted (tests/scripted.py); the line, 78-receiver windows on a coarse grid (19
+windows: the 8 whose curves pass accepted, the others rejected once those beside them were picked
+again along their neighbours), a commit in seconds."""
 
 import json
 from collections.abc import Iterator
@@ -29,7 +30,7 @@ from paco.llm.model import OpenAIChat
 from paco.settings import Settings, get_settings
 
 PROFILE = "active_test_profile"
-LINE = {"masw": {"length": 90}, "dispersion": {"nv": 250}}
+LINE = {"masw": {"length": 78}, "dispersion": {"nv": 250}}
 REASONS = {"masw length": "the deepest windows E1 tried", "dispersion nv": "a coarse grid"}
 SCOPE = {**BLANK, "invert": True, "profile": PROFILE, "effort": "quick"}
 REQUEST = "Give me the Vs of active_test_profile, quickly."
@@ -40,10 +41,14 @@ REJECTED_MODELS = (
     "a quick pass only, a first look: not_converged, at_bound, thin_layer, alike_layers, "
     "too_deep or underfit left to a full one"
 )
-# The window whose curve fails G3 after a pick along its neighbours: its flag named.
-NARROW = "narrow_span remains after a guide from the neighbours"
-# The curves accepted, then their models inverted and rejected: all but 69.75's.
-ACCEPTED = "xmid 66.75-68.25 (2), 71.25-75.75 (4)"
+# The windows whose curves fail G3, those beside the passing ones after a pick along their
+# neighbours: their flags named.
+REJECTED_CURVES = (
+    "no_ridge, on_data, narrow_span and prominence remain after the line's pick and a guide from "
+    "the neighbours"
+)
+# The curves accepted, then their models inverted and rejected: the 8 from 74.25 m on.
+ACCEPTED = "xmid 74.25-84.75 (8)"
 # A small context, for the oldest calls to drop out (§7.3): P2's tools, role and manual take
 # about 6,500 tokens of it, past its 60 %.
 CONTEXT = 9_000
@@ -93,7 +98,7 @@ PLAY = [
         {
             "action": "write",
             "kind": "hypothesis",
-            "text": "Windows of 90 receivers reach deepest.",
+            "text": "Windows of 78 receivers reach deepest.",
             "expect": "more trial windows pass",
         },
         2,
@@ -101,7 +106,7 @@ PLAY = [
     call("try_settings", {"variants": [LINE], "windows": "spread:3", "hypothesis": "H1"}, 3),
     call(
         "journal",
-        {"action": "write", "kind": "conclusion", "text": "2 of 3 pass, none now.", "of": ["E1"]},
+        {"action": "write", "kind": "conclusion", "text": "1 of 3 pass, as now.", "of": ["E1"]},
         4,
     ),
     call("commit", {"changes": LINE, "reasons": REASONS, "experiment": "E1"}, 5),
@@ -113,7 +118,11 @@ PLAY = [
         {"windows": "verdict:pass", "status": "accepted", "reason": "the near field noted"},
         9,
     ),
-    call("decide", {"windows": "verdict:retry", "status": "rejected", "reason": NARROW}, 10),
+    call(
+        "decide",
+        {"windows": "status:pending", "status": "rejected", "reason": REJECTED_CURVES},
+        10,
+    ),
     call("freeze", {}, 11),
     call("invert", {"groups": [{"windows": "all"}], "effort": "quick"}, 12),
     call(
@@ -121,8 +130,8 @@ PLAY = [
         {"windows": "status:pending", "status": "rejected", "reason": REJECTED_MODELS},
         13,
     ),
-    said("The 6 curves are frozen and inverted once. " + INTERPRETATION),
-    answer_form("The 6 windows' curves are frozen, down to 20 m.", reading=INTERPRETATION),
+    said("The 8 curves are frozen and inverted once. " + INTERPRETATION),
+    answer_form("The 8 windows' curves are frozen and inverted once.", reading=INTERPRETATION),
 ]
 
 
@@ -246,18 +255,18 @@ def test_the_report_adds_what_was_tried_and_each_windows_outcome(played: Played)
     assert report.startswith(
         "Scope: invert · active_test_profile · balanced, no target depth, quick effort."
     )
-    assert "What I tried:\n- E1 on spread:3: current 0/3; 1 " in report
+    assert "What I tried:\n- E1 on spread:3: current 1/3; 1 " in report
     assert f"Each window's outcome:\n- curves accepted: {ACCEPTED}" in report
     assert f"Interpretation, by the model (not a measurement): {INTERPRETATION}" in report
     assert (
-        "- MASW windows of 90 receivers (133.5 m), 7 windows, xmid 66.75 to 75.75 m: model: the "
+        "- MASW windows of 78 receivers (115.5 m), 19 windows, xmid 57.75 to 84.75 m: model: the "
         "deepest windows E1 tried (L1, E1)"
     ) in report
     assert "- windows every receiver (1.5 m): the plan's rule" in report
     # P4: the models of one quick pass, decided and reported.
     assert f"- models rejected: {ACCEPTED}" in report
     assert f"- the models at {ACCEPTED}: {REJECTED_MODELS}" in report
-    assert "- inversion of 6 windows, the layers chosen by the data" in report
+    assert "- inversion of 8 windows, the layers chosen by the data" in report
     assert "- 3000 iterations (750 burn-in), 2 chains: the model's effort" in report
 
 
@@ -325,6 +334,31 @@ def test_the_commits_budget_refuses_a_third_commit() -> None:
     )
     assert played.answer.splitlines()[-1].startswith("Where the work stands: Phase: P2")
     assert "Which band should I keep?" in played.answer
+
+
+@pytest.mark.usefixtures("folders")
+def test_a_message_naming_no_profile_there_is_answered_with_the_profiles() -> None:
+    model = ScriptedServer(form(BLANK), form({**BLANK, "profile": "no_such_line"}))
+
+    async def run() -> list[str]:
+        async with Client(server.server) as client:
+            host = await Host.start(
+                client, OpenAIChat(model.client, "scripted"), get_settings(), on_event=print
+            )
+            return [
+                await host.answer("Which profiles can I study?"),
+                await host.answer("Study no_such_line."),
+            ]
+
+    listed, unknown = anyio.run(run)
+
+    assert listed.startswith(
+        "Which profile should I study? The profiles:\nactive_test_profile: a profile to process"
+    )
+    assert unknown.startswith("There is no profile 'no_such_line'. Which profile should I study?")
+    # The objective's forms alone: no call to the model, no study.
+    assert len(model.bodies) == 2
+    assert not (get_settings().output_dir / "no_such_line").exists()
 
 
 @pytest.mark.usefixtures("folders")
@@ -400,7 +434,7 @@ def test_the_settings_typed_are_kept_and_a_later_message_changes_them() -> None:
 @pytest.mark.usefixtures("folders")
 def test_a_report_with_models_not_decided_sends_the_model_back_once() -> None:
     # The play to the first inversion; then a report before any model is decided.
-    early = [said("The 6 windows are inverted."), answer_form("The 6 windows are inverted.")]
+    early = [said("The 8 windows are inverted."), answer_form("The 8 windows are inverted.")]
     played = play([*PLAY[:13], *early, *PLAY[13:]], [REQUEST])
 
     sent_back = [
@@ -409,7 +443,7 @@ def test_a_report_with_models_not_decided_sends_the_model_back_once() -> None:
         for message in body["messages"]
         if message["role"] == "user" and str(message["content"]).startswith("[PACo] The run is")
     ]
-    assert sent_back[0] == PENDING.format(count=6, where=ACCEPTED)
+    assert sent_back[0] == PENDING.format(count=8, where=ACCEPTED)
     # Then the models decided, and the report.
     assert phase_of(played.study) == "P5"
     assert f"- models rejected: {ACCEPTED}" in played.answer

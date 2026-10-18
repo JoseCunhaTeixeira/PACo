@@ -12,20 +12,21 @@ from paco.qc.line_loop import LineRules
 def test_the_lines_scorecard(judged_line: JudgedLine) -> None:
     card = scorecard(dict(judged_line.g3), judged_line.length_m, g4=judged_line.g4.values())
 
-    # Two curves pass G3, at 17.25 and 89.25 m; the window between them fails.
+    # Three curves pass G3, at 17.25, 89.25 and 125.25 m; the window at 53.25 m fails.
     assert card.windows == (17.25, 53.25, 89.25, 125.25)
-    assert card.covered == (17.25, 89.25)
-    assert (card.coverage, card.longest_gap) == (0.5, (53.25,))
-    # Half the longest wavelengths, 22 and 14 m; their 10th percentile, interpolated.
-    assert card.depth_m == pytest.approx((11 + 7) / 2, abs=1e-5)
-    assert card.depth_p10_m == pytest.approx(7 + 0.1 * (11 - 7), abs=1e-5)
-    assert card.shallowest_m == pytest.approx((10 + 7) / 2, abs=1e-5)
-    # Spans of 2.2 and 2.
-    assert card.span == pytest.approx((2.2 + 2) / 2, abs=1e-5)
-    assert card.precision == pytest.approx((0.098 + 0.063) / 2)
+    assert card.covered == (17.25, 89.25, 125.25)
+    assert (card.coverage, card.longest_gap) == (0.75, (53.25,))
+    # Half the longest wavelengths, 15, 16 and 13 m; their 10th percentile, interpolated.
+    assert card.depth_m == pytest.approx(7.5, abs=1e-5)
+    assert card.depth_p10_m == pytest.approx(6.5 + 0.2 * (7.5 - 6.5), abs=1e-5)
+    # The shortest wavelengths, 11, 8 and 9 m.
+    assert card.shallowest_m == pytest.approx(9, abs=1e-5)
+    # Spans of 1.36, 2 and 1.44.
+    assert card.span == pytest.approx(13 / 9, abs=1e-5)
+    assert card.precision == pytest.approx(0.073)
     assert (card.near_field, card.aliased, card.beyond) == (1.0, 0.0, 0.0)
-    # G4: no outlier; misfits of 0.199 and 0.172.
-    assert (card.outliers, card.misfit) == (0, pytest.approx((0.199 + 0.172) / 2))
+    # G4: one outlier, 17.25's; misfits of 0.231, 0.212 and 0.095.
+    assert (card.outliers, card.misfit) == (1, pytest.approx(0.212))
     assert card.cpu_s is None
 
 
@@ -38,7 +39,7 @@ def test_coverage_counts_the_windows_that_count(judged_line: JudgedLine) -> None
 
     assert card.coverage == pytest.approx(2 / 5)
     assert card.longest_gap == (125.25, 161.25)
-    assert card.depth_m == pytest.approx((5 / 6 + 7) / 2, abs=1e-5)
+    assert card.depth_m == pytest.approx((1.72603 / 2 + 8) / 2, abs=1e-5)
     # Trial windows: no G4.
     assert (card.outliers, card.misfit, card.cpu_s) == (None, None, 12.5)
 

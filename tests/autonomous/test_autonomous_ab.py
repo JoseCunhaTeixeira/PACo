@@ -115,7 +115,7 @@ def test_the_scenarios_are_chosen_among_the_lines_there_are() -> None:
 
 @pytest.mark.slow
 def test_a_truths_curve_stands_on_a_picked_window(judged_line: JudgedLine) -> None:
-    # A window whose pick passed G3, as the known-truth set takes them: 17.25's, 13 to 31 Hz.
+    # A window whose pick passed G3, as the known-truth set takes them: 17.25's, 22 to 29 Hz.
     xmid = min(x for x, g3 in judged_line.g3.items() if g3.verdict == "pass")
     picked = saved_m0(judged_line.folder / f"xmid_{xmid:.2f}" / CURVES_FILE)
     assert picked is not None
@@ -154,7 +154,7 @@ class WorkflowPolicy:
             for call in message.get("tool_calls") or ()
         ]
         if "invert" in called:
-            return Reply(content="The 4 windows are inverted.", tool_calls=())
+            return Reply(content="The 8 windows are inverted.", tool_calls=())
         note = next(str(m["content"]) for m in reversed(messages) if m["role"] == "user")
         found = RUN_ID.search(note)
         assert found is not None, note
@@ -168,7 +168,7 @@ class WorkflowPolicy:
     ) -> Filled:
         if schema == ANSWER_SCHEMA:
             return Filled(
-                content=json.dumps({"said": "The 4 windows are inverted.", "question": None})
+                content=json.dumps({"said": "The 8 windows are inverted.", "question": None})
             )
         scope = {
             **dict.fromkeys(("process", "pick", "soils", "redo", "replace_hand_work"), False),
@@ -241,7 +241,7 @@ AUTONOMOUS_PLAY = [
     _said(
         json.dumps(
             {
-                "said": "The 4 windows' models are decided.",
+                "said": "The 8 windows' models are decided.",
                 "question": None,
                 "interpretation": INTERPRETATION,
             }
@@ -317,9 +317,9 @@ def test_each_play_is_measured_from_what_it_left(evaluated: tuple[ABReport, Path
     workflow, autonomous = report.plays
 
     for play in (workflow, autonomous):
-        # The line's 7 windows: the 4 whose pick passed G3 and G4 frozen with the truth's curves,
+        # The line's 19 windows: the 8 whose pick passed G3 and G4 frozen with the truth's curves,
         # each inverted; the others rejected (known_truth.REJECTED).
-        assert (play.measures.windows, play.measures.accepted, play.measures.models) == (7, 4, 4)
+        assert (play.measures.windows, play.measures.accepted, play.measures.models) == (19, 8, 8)
         # The workers' time counted: the inversion ran on 8 of them.
         assert play.measures.cpu_s > play.measures.wall_s > 0
         assert play.measures.depth_informed_m is not None
@@ -363,7 +363,7 @@ def test_the_kept_models_are_scored_against_the_truth(evaluated: tuple[ABReport,
     assert workflow.truth.windows == len(known_truth.kept(workflow_run, None))
     # Every window inverted, scored: the median Vs's error and the truth's share within P10-P90.
     assert TRUTH.truth is not None
-    every = known_truth.score(TRUTH.truth, run_folder, ["xmid_71.25", "xmid_75.75"])
+    every = known_truth.score(TRUTH.truth, run_folder, ["xmid_74.25", "xmid_75.75"])
     assert every.windows == 2
     assert every.error is not None and 0 <= every.error < 1
     assert every.in_band is not None and 0 <= every.in_band <= 1
@@ -386,7 +386,7 @@ def test_the_report_compares_the_agents(evaluated: tuple[ABReport, Path]) -> Non
     rows = {line[:30].strip(): line[30:].split() for line in lines if line.startswith("  ")}
     assert rows["plays passed"] == ["1/1", "1/1"]
     assert rows["judge: the reasoning (1-5)"] == ["-", "4.0"]
-    assert rows["windows accepted"] == ["4/7", "4/7"]
+    assert rows["windows accepted"] == ["8/19", "8/19"]
     # advise refused, the variant without it; the accept of the models G5 passed fails when the
     # quick pass passed none (its seeds come from the run's id).
     assert rows["calls refused/failed"][1] in ("1/0", "1/1")

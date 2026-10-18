@@ -85,9 +85,9 @@ def test_the_strongest_ridge_is_the_picked_curve(judged_line: JudgedLine) -> Non
     assert curve is not None
     order = np.argsort(curve.fs)
 
-    # Within the curve's band, 19.3 to 35.2 Hz, where its ridge stands alone and narrow: at 20 Hz
-    # it is 400 m/s wide, its maximum loose; at 35 Hz a second ridge is as strong.
-    table = ridge_table(load_image(folder), band=(22.0, 33.0))
+    # Within the curve's band, 16.7 to 30 Hz, where its ridge stands out: at 17 Hz a second ridge,
+    # at 665 m/s, is nearly as strong.
+    table = ridge_table(load_image(folder), band=(20.0, 30.0))
 
     assert len(table.rows) == 5
     for row in table.rows:

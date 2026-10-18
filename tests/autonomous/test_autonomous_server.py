@@ -21,10 +21,12 @@ from paco.call import shown
 
 # The tools in the plan's order (docs/autonomous_plan.md §6), those built so far; PACo's first.
 PACO_TOOLS = ["inspect", "preset_settings", "inversion_settings"]
+# PACo's petrophysical inversion, served as PACo serves it, after the inversion's tools.
+PETRO_TOOLS = ["petro_models", "invert_petro"]
 TOOLS = [
     *PACO_TOOLS,
     *("survey", "observe", "look", "advise", "try_settings", "commit"),
-    *("pick", "decide", "freeze", "invert", "job_status", "journal"),
+    *("pick", "decide", "freeze", "invert", "job_status", *PETRO_TOOLS, "journal"),
 ]
 # How long the server's command may take to listen: it loads PACo and sigpipe first.
 STARTUP_S = 60.0
@@ -49,6 +51,16 @@ def test_pacos_read_only_tools_are_served_as_paco_serves_them() -> None:
         annotations = ours[name].annotations
         assert annotations is not None
         assert annotations.read_only_hint
+
+
+def test_pacos_petrophysical_tools_are_served_as_paco_serves_them() -> None:
+    ours = {tool.name: tool for tool in anyio.run(server.server.list_tools)}
+    pacos = {tool.name: tool for tool in anyio.run(paco_server.server.list_tools)}
+
+    for name in PETRO_TOOLS:
+        assert ours[name] == pacos[name]
+    assert ours["petro_models"].annotations == paco_server.READS
+    assert ours["invert_petro"].annotations == paco_server.REPLACES
 
 
 def test_each_tool_says_what_it_changes() -> None:
@@ -86,6 +98,34 @@ def test_the_tools_read_the_profile() -> None:
     assert profiles.startswith("active_test_profile: a profile to process, no run yet")
     assert "masw" in json.loads(preset)["properties"]
     assert "n_iterations" in json.loads(inversion)["properties"]
+
+
+@pytest.mark.usefixtures("paco_env")
+def test_an_unforeseen_failure_reaches_the_model_with_its_reason(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    def broken(*_: object) -> object:
+        raise RuntimeError("the disk is on fire")
+
+    def busy(*_: object) -> object:
+        raise BlockingIOError("the study is being written")
+
+    async def call() -> CallToolResult:
+        async with Client(server.server) as client:
+            return await client.call_tool("survey", {"profile": "active_test_profile"})
+
+    monkeypatch.setattr(server, "_study", broken)
+    crashed = anyio.run(call)
+    monkeypatch.setattr(server, "_study", busy)
+    retried = anyio.run(call)
+
+    # Not only "Error executing tool survey": the reason, tagged as PACo tags it.
+    assert crashed.is_error and shown(crashed) == (
+        "Error executing tool survey: [error] RuntimeError: the disk is on fire"
+    )
+    assert retried.is_error and shown(retried) == (
+        "Error executing tool survey: [retry] BlockingIOError: the study is being written"
+    )
 
 
 @pytest.mark.slow
