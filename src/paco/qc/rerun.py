@@ -2,7 +2,7 @@
 on move to attempts/, the stage runs with the run's parameters plus the overrides given, and the
 QC log records the attempt. The other windows keep their results."""
 
-from collections.abc import Mapping, Sequence
+from collections.abc import Collection, Mapping, Sequence
 from datetime import UTC, datetime
 from pathlib import Path
 from typing import cast
@@ -54,7 +54,7 @@ def rerun_phase_shift(
     manifest = load_manifest(run_id, settings)
     profile = load_profile(manifest.profile.name, settings)
     preset = resolve_preset(apply_overrides(manifest.preset, overrides), profile)
-    by_folder = line_windows(run_folder, profile, preset)
+    by_folder = line_windows(run_folder, profile, preset, manifest.exclusions.records)
     if unknown := [unit for unit in units if unit not in by_folder]:
         raise RunError(
             f"Run '{run_id}' has no window {', '.join(unknown)}. Its windows: "
@@ -110,16 +110,19 @@ def rerun_phase_shift(
 
 
 def line_windows(
-    run_folder: Path, profile: Profile, preset: ActivePreset | PassivePreset
+    run_folder: Path,
+    profile: Profile,
+    preset: ActivePreset | PassivePreset,
+    excluded: Collection[str] = (),
 ) -> dict[str, MASWWindow]:
     """The run's windows as `preset` builds them, by folder (xmid_<x>), the shots out of the near
-    field as the line kept them: what the phase shift stacks, before the traces and records G1
-    left out."""
+    field as the line kept them, given the records G1 left out (`excluded`): what the phase shift
+    stacks, before the traces and records G1 left out."""
     windows = build_windows(profile, preset.masw)
     line = latest(read_attempts(run_folder), LINE, "phase_shift")
     near = line.parameters.get("near_field", {}) if line is not None else {}
     if isinstance(near, Mapping) and isinstance(distance := near.get("distance_m"), int | float):
-        windows, _ = near_field_windows(windows, float(distance))
+        windows, _ = near_field_windows(windows, float(distance), excluded)
     return {f"xmid_{window.xmid:.2f}": window for window in windows}
 
 

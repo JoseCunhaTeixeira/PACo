@@ -65,7 +65,7 @@ class Server:
 
     async def call_tool(self, name: str, *_: object, **__: object) -> CallToolResult:
         assert name == "inspect"
-        return CallToolResult(content=[TextContent(type="text", text="Run r: active_p1.")])
+        return CallToolResult(content=[TextContent(type="text", text="Run r: active_p2.")])
 
 
 def _recorded() -> Transcript:
@@ -85,7 +85,7 @@ def test_a_conversation_is_printed_turn_by_turn() -> None:
     assert questions(transcript) == ["Which runs are there?"]
     assert "you> Which runs are there?" in shown
     assert '-> inspect({"what": "runs"})' in shown
-    assert "   Run r: active_p1." in shown
+    assert "   Run r: active_p2." in shown
     assert shown.endswith("Scope: look only.\n\nOne run: r.")
     assert transcript.conversation is not None and transcript.prompt_version is not None
 

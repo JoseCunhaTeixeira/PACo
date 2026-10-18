@@ -6,7 +6,7 @@ length for the whole line, the shortest at which most trial windows give a curve
 import json
 import math
 import shutil
-from collections.abc import Mapping, Sequence
+from collections.abc import Collection, Mapping, Sequence
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any, cast
@@ -604,11 +604,12 @@ def near_field(
 
 
 def near_field_windows(
-    windows: Sequence[MASWWindow], distance_m: float
+    windows: Sequence[MASWWindow], distance_m: float, excluded: Collection[str] = ()
 ) -> tuple[list[MASWWindow], int]:
     """`windows` without their shots nearer than `distance_m` to their nearest receiver, where
-    they keep a farther one: a window with near shots only keeps them (G3 flags its near
-    field). Returns the windows, and how many kept near shots only."""
+    they keep a farther one whose record G1 keeps (`excluded`: the records it leaves out of every
+    window): a window with near shots only keeps them (G3 flags its near field). Returns the
+    windows, and how many kept near shots only."""
     found: list[MASWWindow] = []
     near_only = 0
     for window in windows:
@@ -619,7 +620,7 @@ def near_field_windows(
             for index, acquisition in enumerate(window.acquisitions)
             if max(first - acquisition.source.x, acquisition.source.x - last) >= distance_m
         ]
-        if not far:
+        if all(window.selected_files[index].name in excluded for index in far):
             near_only += 1
             found.append(window)
             continue
@@ -636,14 +637,15 @@ def near_field_windows(
 
 def near_note(distance_m: float, longest: float, near_only: int) -> str:
     """The near-field rule, as the line's note says it."""
+    kept = (
+        "; 1 window with near shots only keeps them (G3 flags its near field)"
+        if near_only == 1
+        else f"; {near_only} windows with near shots only keep them (G3 flags their near field)"
+        if near_only
+        else ""
+    )
     return (
         f"near_field distance_m {distance_m:g} m: a window stacks no shot nearer than that to its "
         f"nearest receiver, half the longest wavelength its trial curves reached ({longest:g} m), "
-        "where it has a farther one"
-        + (
-            f"; {near_only} windows with near shots only keep them (G3 flags their near field)"
-            if near_only
-            else ""
-        )
-        + "."
+        f"where it has a farther one G1 keeps{kept}."
     )

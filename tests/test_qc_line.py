@@ -27,10 +27,8 @@ from paco.qc.coherence import (
     length_hint,
     trial_indices,
 )
-from paco.qc.g1_signal import SignalThresholds
 from paco.qc.g3_curve import CurveThresholds
 from paco.qc.line import process_line
-from paco.qc.models import Budgets
 from paco.qc.report import QCReport
 from paco.settings import Settings
 
@@ -93,7 +91,7 @@ def _line(
     settings = Settings(input_dir=demo_input_dir, output_dir=root / "outputs", workers=2)
     with pytest.MonkeyPatch.context() as patch:
         patch.chdir(root)
-        report = process_line("active_p1", overrides, settings, config)
+        report = process_line("active_p2", overrides, settings, config)
     return find_run(report.run_id, settings), report
 
 
@@ -104,19 +102,19 @@ def test_the_ladder_keeps_the_most_precise_length_that_passes(
     run_folder, report = _line(demo_input_dir, tmp_path, {"masw": {"step": 24}}, QUICK)
 
     choice = json.loads((run_folder / COHERENCE_FILE).read_text())
-    # At 5 receivers the trial windows at the line's ends keep too few points: 1 of 3 passes.
-    # 24 passes 3 of 3, none of the lengths with picks within 20 % (40 % at 24, their longest
-    # wavelengths the least precise): 24, the most precise that passed, is kept; 32 is tried too,
-    # for the agent to compare the depth it would reach.
+    # At 5 receivers (6 m) the trial windows keep too few points: none of the 3 passes. 24
+    # passes 2 of 3, the share asked, with picks within 8 %, under the 20 % at which the climb
+    # stops: 24, the most precise length that passed and the first within 20 %, is kept; 32 is
+    # tried too, for the agent to compare the depth it would reach.
     assert [trial["length"] for trial in choice["trials"]] == [5, 24, 32]
     assert [trial["compared"] for trial in choice["trials"]] == [False, False, True]
     five, twenty_four, _ = choice["trials"]
-    assert (five["passed"], len(five["xmids"])) == (1, 3)
-    assert (twenty_four["passed"], twenty_four["uncertainty"]) == (3, pytest.approx(0.4))
+    assert (five["passed"], len(five["xmids"])) == (0, 3)
+    assert (twenty_four["passed"], twenty_four["uncertainty"]) == (2, pytest.approx(0.076))
     assert choice["length"] == 24
     # What the agent reads to choose another length: the line, then each length tried.
-    assert choice["receivers"] == 96 and choice["spacing_m"] == 0.25
-    assert (five["metres"], twenty_four["metres"]) == (1.0, 5.75)
+    assert choice["receivers"] == 96 and choice["spacing_m"] == 1.5
+    assert (five["metres"], twenty_four["metres"]) == (6.0, 34.5)
     assert (five["windows"], twenty_four["windows"]) == (4, 4)  # at the run's step of 24
     assert twenty_four["wavelengths_m"] is not None
     # The line is processed with it, and the rules' change is logged with its reason.
@@ -126,53 +124,59 @@ def test_the_ladder_keeps_the_most_precise_length_that_passes(
     assert len(manifest.windows) == 4
     line = latest(read_attempts(run_folder), "line", "phase_shift")
     # The farthest shot a window stacks, from the line's reach at 2 dB (G1, its windows from
-    # each record's shot, 20 ms in): the demo's far shot, 21.6 m from the end windows, stays in
-    # their stack.
+    # each record's shot, 20 ms in): xmid 17.25 stacks 149.dat, 54 m away, not 165.dat, 78 m
+    # away. The mute trial at the line's length keeps the tight cone (test_qc_muting.py).
     assert line is not None
     assert line.parameters == {
-        "masw": {"distance_max": 24.29, "length": 24},
-        "near_field": {"distance_m": 17.0},
+        "masw": {"distance_max": 57.79, "length": 24},
+        "muting": {"method": "mute", "vmin": 134.5, "vmax": 302.7, "width": 0.05, "taper": 20},
+        "near_field": {"distance_m": 8.5},
     }
-    far, note, near = line.notes
+    # The line loop's tries after the processing's rules.
+    far, note, muted, near = [one for one in line.notes if not one.startswith("Tried for the line")]
     assert far == (
-        "masw distance_max 24.29 m: beyond it from the shot, the traces' median SNR falls under "
+        "masw distance_max 57.79 m: beyond it from the shot, the traces' median SNR falls under "
         "2 dB (G1), so the windows stack no farther shot."
     )
     assert note.startswith(
-        "masw length 24 for the whole line, the most precise that passed (none within 20%): "
-        "trial windows G3 passed 1/3 at 5 (picks "
+        "masw length 24 for the whole line, the first that passed with picks within 20%: "
+        "trial windows G3 passed 0/3 at 5, 2/3 at 24 (picks "
     )
-    assert note.endswith("0/3 at 32 (compared).")  # none passed: no picks to say
+    assert note.endswith("1/3 at 32 (picks 5%; compared).")
+    assert muted.startswith("muting mute 134.5 to 302.7 m/s: the mute trial ")
     # Out of the near field: half the longest wavelength of the trial curves from a window's
-    # nearest receiver, where it has a farther shot.
-    assert near.startswith("near_field distance_m 17 m: a window stacks no shot nearer than")
+    # nearest receiver, where it has a farther shot whose record G1 keeps. xmid 53.25 has none
+    # (101.dat, 117.dat and 165.dat left out): it keeps its near shot, 149.dat.
+    assert near.startswith("near_field distance_m 8.5 m: a window stacks no shot nearer than")
+    assert near.endswith("; 1 window with near shots only keeps them (G3 flags its near field).")
     # The gates of the processing ran on it (the picking's are pick's), and the summary gives
     # the change.
     assert set(report.counts) == {"G1", "G2"}
     summary = summarize_report(report)
-    assert "Changes at phase_shift, line: masw distance_max 24.29 m" in summary
+    assert "Changes at phase_shift, line: masw distance_max 57.79 m" in summary
     assert "masw length 24 for the whole line" in summary
 
 
 def test_a_given_length_is_kept_as_it_is(demo_input_dir: Path, tmp_path: Path) -> None:
     # Given, the length stays whatever its trial windows give (the ladder proposes, a length
-    # given decides), with nothing to compare.
+    # given decides), with nothing to compare: 32 receivers, where 1 trial window of the 3 the
+    # rules ask passes, a length the ladder never tries.
     strict = QCConfig(coherence=CoherenceRules(lengths=(5, 24), trials=3, min_pass_share=1.0))
     run_folder, report = _line(
-        demo_input_dir, tmp_path, {"masw": {"length": 5, "step": 24}}, strict
+        demo_input_dir, tmp_path, {"masw": {"length": 32, "step": 24}}, strict
     )
 
     choice = json.loads((run_folder / COHERENCE_FILE).read_text())
-    assert [(trial["length"], trial["passed"]) for trial in choice["trials"]] == [(5, 1)]
-    assert choice["length"] == 5
+    assert [(trial["length"], trial["passed"]) for trial in choice["trials"]] == [(32, 1)]
+    assert choice["length"] == 32
     settings = Settings(input_dir=demo_input_dir, output_dir=run_folder.parents[1])
-    assert load_manifest(report.run_id, settings).preset.masw.length == 5
+    assert load_manifest(report.run_id, settings).preset.masw.length == 32
     line = latest(read_attempts(run_folder), "line", "phase_shift")
     assert line is not None
     assert line.notes[1].startswith(
-        "masw length 5 for the whole line, as given: trial windows G3 passed 1/3 at 5 (picks "
+        "masw length 32 for the whole line, as given: trial windows G3 passed 1/3 at 32 (picks "
     )
-    # At 5 receivers, the mute trial keeps a mute (its note after the length's); the near field
+    # At 32 receivers, the mute trial keeps a mute (its note after the length's); the near field
     # last of the processing's rules, the line loop's tries after them.
     assert line.notes[2].startswith("muting mute ")
     rules = [note for note in line.notes if not note.startswith("Tried for the line")]
@@ -180,23 +184,25 @@ def test_a_given_length_is_kept_as_it_is(demo_input_dir: Path, tmp_path: Path) -
 
 
 def test_a_record_g1_rejects_goes_into_no_window(demo_input_dir: Path, tmp_path: Path) -> None:
-    # 2.dat's median SNR is 9.8 dB: under a limit of 10 dB, the filter G1 asks does not raise
-    # it, and once its retry is spent the record is rejected and left out of every window.
-    strict = QUICK.model_copy(
-        update={
-            "signal": SignalThresholds(min_snr_db=10.0),
-            "budgets": Budgets(per_gate_and_unit=1),
-        }
-    )
+    # 101.dat's median SNR is 4.6 dB, under G1's 6 dB; the traces of 117.dat, and of 133.dat and
+    # 165.dat once muted, correlate under its 0.5: a filter or a mute would measure the same, so
+    # each record is rejected at once and left out of every window.
     run_folder, report = _line(
-        demo_input_dir, tmp_path, {"masw": {"length": 24, "step": 24}}, strict
+        demo_input_dir, tmp_path, {"masw": {"length": 24, "step": 24}}, QUICK
     )
 
     # The line's own G1 result (its receivers) passes too.
-    assert report.counts["G1"] == {"pass": 2, "reject": 1}
+    assert report.counts["G1"] == {"pass": 4, "reject": 4}
     settings = Settings(input_dir=demo_input_dir, output_dir=run_folder.parents[1])
-    assert load_manifest(report.run_id, settings).exclusions.records == ("2.dat",)
-    assert "Changes at preprocessing, 2.dat: left out of every window" in (summarize_report(report))
+    assert load_manifest(report.run_id, settings).exclusions.records == (
+        "101.dat",
+        "117.dat",
+        "133.dat",
+        "165.dat",
+    )
+    assert (
+        "Changes at preprocessing, 101.dat, 117.dat, 133.dat, 165.dat: left out of every window\n"
+    ) in summarize_report(report)
 
 
 def test_an_active_profile_is_processed_passive_active(
@@ -212,7 +218,9 @@ def test_an_active_profile_is_processed_passive_active(
         QUICK,
     )
 
-    assert report.counts["G1"] == {"pass": 3}  # the two records and the line's receivers
+    # The records judged as in active mode: 3 kept, and the line's receivers; 101.dat, 117.dat,
+    # 133.dat and 165.dat left out (test_a_record_g1_rejects_goes_into_no_window).
+    assert report.counts["G1"] == {"pass": 4, "reject": 4}
     settings = Settings(input_dir=demo_input_dir, output_dir=run_folder.parents[1])
     manifest = load_manifest(report.run_id, settings)
     assert manifest.preset.mode == "passive-active"

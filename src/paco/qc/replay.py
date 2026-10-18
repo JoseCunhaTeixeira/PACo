@@ -207,7 +207,7 @@ def _windows(
     line = latest(attempts, LINE, "phase_shift")
     near = line.parameters.get("near_field", {}) if line is not None else {}
     if isinstance(near, Mapping) and isinstance(distance := near.get("distance_m"), int | float):
-        windows, _ = near_field_windows(windows, float(distance))
+        windows, _ = near_field_windows(windows, float(distance), manifest.exclusions.records)
     by_folder = {f"xmid_{window.xmid:.2f}": window for window in windows}
     kept: list[MASWWindow] = []
     skipped: list[Skipped] = []

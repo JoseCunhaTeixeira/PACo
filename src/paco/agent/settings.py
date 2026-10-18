@@ -1,13 +1,42 @@
-"""How the agent reaches the model and PACo's server: PACO_LLM_* and PACO_MCP_URL, from the
-environment or .env."""
+"""How PACo's agents reach their model and their server: the model, PACO_LLM_*, and the
+evaluations' judge, PACO_JUDGE_* (paco.llm.settings: any provider), PACo's server, PACO_MCP_URL,
+the caps on an answer, and where the agents write, from the environment or .env."""
 
 from pathlib import Path
 
-from pydantic import Field, SecretStr
+from pydantic import Field
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
+from paco.llm.settings import JudgeSettings, ModelSettings
 
-class AgentSettings(BaseSettings):
+
+class OutputSettings(BaseSettings):
+    """Where the agents write: PACo's output folder (PACO_OUTPUT_DIR, the server's own), and the
+    folders set apart from it."""
+
+    model_config = SettingsConfigDict(
+        env_prefix="PACO_",
+        env_file=".env",
+        extra="ignore",
+        frozen=True,
+    )
+
+    output_dir: Path = Path("/data/output")
+    # Where the chat saves its conversations, one JSON file each: <output>/agent_logs unless set.
+    log_dir: Path | None = None
+    # Where evaluations write their report, transcripts and runs: <output>/evaluations unless set.
+    evaluation_dir: Path | None = None
+
+    @property
+    def logs(self) -> Path:
+        return self.log_dir or self.output_dir / "agent_logs"
+
+    @property
+    def evaluations(self) -> Path:
+        return self.evaluation_dir or self.output_dir / "evaluations"
+
+
+class AgentSettings(ModelSettings, JudgeSettings, OutputSettings):
     model_config = SettingsConfigDict(
         env_prefix="PACO_",
         env_file=".env",
@@ -15,18 +44,6 @@ class AgentSettings(BaseSettings):
         extra="ignore",
         frozen=True,
     )
-
-    # The model, behind an OpenAI-compatible API such as vLLM's: no default, so that a missing
-    # setting fails here, with its name.
-    llm_base_url: str = Field(description="e.g. http://gpu-host:8001/v1")
-    llm_model: str = Field(min_length=1, description="The name vLLM serves the model under.")
-    # vLLM started without --api-key accepts any key.
-    llm_api_key: SecretStr = SecretStr("EMPTY")
-    # The conversation's sampling; None keeps the model server's own (Qwen3's: 0.6, as its
-    # makers advise when it thinks: a low temperature makes it repeat itself). A form is filled
-    # at temperature 0.
-    llm_temperature: float | None = None
-    llm_seed: int | None = None
 
     mcp_url: str = "http://127.0.0.1:8000/mcp"  # PACo's server (python -m paco.server)
     # Tool calls the model may make to answer one message, before the loop stops it.
@@ -36,15 +53,3 @@ class AgentSettings(BaseSettings):
     max_turn_s: float = Field(default=7200.0, gt=0)
     max_turn_tokens: int = Field(default=40_000, ge=1)
     tool_timeout_s: float = Field(default=3600.0, gt=0)
-    # The model's context, in tokens, as its server serves it: the loop warns near it.
-    llm_context: int = Field(default=12_288, ge=1)
-    # Where the chat saves its conversations, one JSON file each.
-    log_dir: Path = Path("data/output/agent_logs")
-
-    # The evaluation's judge model (python -m paco.evaluation): optional; without it, only the
-    # rule checks score the scenarios. Better another model than the one judged.
-    judge_base_url: str | None = None
-    judge_model: str | None = None
-    judge_api_key: SecretStr = SecretStr("EMPTY")
-    # Where evaluations write their report, transcripts and runs.
-    evaluation_dir: Path = Path("data/output/evaluations")

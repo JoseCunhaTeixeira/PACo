@@ -1,10 +1,6 @@
-data/input/*
-!data/input/.gitkeep
-!data/input/active_p1
-!data/input/passive_p1
-
-data/output/*
-!data/output/.gitkeep
+# No data in the repository: the lines and the results live in a folder of the user's (PAC's
+# data folder, or /data in PACo's image); a local data/ folder stays out of git.
+data/
 
 logs/
 

@@ -3,19 +3,20 @@ model in .env, and print the report; paco-evaluate --scopes: score the model's r
 labelled messages (paco.evaluation.scope_set)."""
 
 import argparse
-import contextlib
 import logging
 
 import anyio
-from openai import AsyncOpenAI
 from pydantic import ValidationError
 
 from paco import logs
-from paco.agent import AgentSettings, ChatModel, OpenAIChat
+from paco.agent import AgentSettings
+from paco.agent.settings import OutputSettings
 from paco.evaluation.report import format_history, format_report, read_reports
 from paco.evaluation.running import run_evaluation
 from paco.evaluation.scenarios import SCENARIOS
 from paco.evaluation.scope_set import format_scope_report, read_scopes
+from paco.llm.chat import chat_model, judge_model
+from paco.llm.settings import NO_MODEL, missing
 
 
 def main() -> None:
@@ -55,10 +56,7 @@ def main() -> None:
     if arguments.repeat < 1:
         parser.error("--repeat must be at least 1")
     if arguments.history:
-        root = AgentSettings.model_fields["evaluation_dir"].default
-        with contextlib.suppress(ValidationError):  # the model's settings missing: the default
-            root = AgentSettings().evaluation_dir  # pyright: ignore[reportCallIssue]
-        print(format_history(read_reports(root), arguments.model))
+        print(format_history(read_reports(OutputSettings().evaluations), arguments.model))
         return
     # PACo's server runs in this process, and its SDK logs every request at INFO level: the
     # scenarios' own lines (calls, failures, progress) say what matters.
@@ -74,8 +72,7 @@ async def evaluate(
     try:
         settings = AgentSettings()  # pyright: ignore[reportCallIssue]  # fields come from .env
     except ValidationError as error:
-        missing = ", ".join(f"PACO_{problem['loc'][0]}".upper() for problem in error.errors())
-        print(f"Set {missing} in .env (vLLM's address and model name).")
+        print(NO_MODEL.format(missing=missing(error)))
         return
     scenarios = [scenario for scenario in SCENARIOS if not names or scenario.name in names]
     if unknown := set(names) - {scenario.name for scenario in SCENARIOS}:
@@ -83,38 +80,29 @@ async def evaluate(
         print(f"Unknown scenario(s): {', '.join(sorted(unknown))}. Scenarios: {known}.")
         return
 
-    model = OpenAIChat(
-        AsyncOpenAI(
-            base_url=settings.llm_base_url, api_key=settings.llm_api_key.get_secret_value()
-        ),
-        settings.llm_model,
-        settings.llm_temperature,
-        settings.llm_seed,
-    )
+    try:
+        model, judge = chat_model(settings), judge_model(settings)
+    except ValueError as error:  # a cloud's library or credentials missing
+        print(error)
+        return
     if scopes:
-        read = await read_scopes(model, settings.llm_model, settings.evaluation_dir)
+        read = await read_scopes(model, settings.llm_model, settings.evaluations)
         print()
         print(format_scope_report(read))
         return
-    judge_model: ChatModel | None = None
-    if settings.judge_base_url and settings.judge_model:
-        client = AsyncOpenAI(
-            base_url=settings.judge_base_url, api_key=settings.judge_api_key.get_secret_value()
-        )
-        judge_model = OpenAIChat(client, settings.judge_model)
-    else:
-        print("No judge model (PACO_JUDGE_BASE_URL, PACO_JUDGE_MODEL): rule checks only.")
+    if judge is None:
+        print("No judge model (PACO_JUDGE_MODEL): rule checks only.")
 
     report = await run_evaluation(
         scenarios,
         model,
         settings.llm_model,
-        settings.evaluation_dir,
-        judge_model,
+        settings.evaluations,
+        judge,
         settings.judge_model,
         repeat,
         full_inversion=full_inversion,
     )
     print()
     print(format_report(report))
-    print(f"\nReport and transcripts in {settings.evaluation_dir / report.eval_id}")
+    print(f"\nReport and transcripts in {settings.evaluations / report.eval_id}")

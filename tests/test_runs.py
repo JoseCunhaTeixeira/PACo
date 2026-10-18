@@ -88,19 +88,19 @@ def _run(
 @pytest.fixture(scope="module")
 def active_run(demo_input_dir: Path, tmp_path_factory: pytest.TempPathFactory) -> Run:
     root = tmp_path_factory.mktemp("active")
-    return _run(demo_input_dir, root, "active_p1", "active", SMALL_WINDOWS)
+    return _run(demo_input_dir, root, "active_p2", "active", SMALL_WINDOWS)
 
 
 @pytest.fixture(scope="module")
 def passive_run(demo_input_dir: Path, tmp_path_factory: pytest.TempPathFactory) -> Run:
     root = tmp_path_factory.mktemp("passive")
-    return _run(demo_input_dir, root, "passive_p1", "passive", SMALL_WINDOWS)
+    return _run(demo_input_dir, root, "passive_p2", "passive", SMALL_WINDOWS)
 
 
 @pytest.fixture(scope="module")
 def failing_run(demo_input_dir: Path, tmp_path_factory: pytest.TempPathFactory) -> Run:
     root = tmp_path_factory.mktemp("failing")
-    return _run(demo_input_dir, root, "active_p1", "active", FAILING)
+    return _run(demo_input_dir, root, "active_p2", "active", FAILING)
 
 
 # ---------------------------------------------------------------- successful runs
@@ -111,9 +111,9 @@ def test_summary_counts_the_windows(active_run: Run) -> None:
 
     assert re.fullmatch(r"\d{8}-\d{6}-[0-9a-f]{4}", summary.run_id)
     assert summary.model_dump(exclude={"run_id", "duration_s"}) == {
-        "profile": "active_p1",
+        "profile": "active_p2",
         "preset": "active",
-        "path": f"active_p1/{summary.run_id}",
+        "path": f"active_p2/{summary.run_id}",
         "n_windows": 4,
         "n_processed": 4,
         "n_failed": 0,
@@ -146,7 +146,7 @@ def test_sigpipe_logs_stay_inside_the_run(active_run: Run) -> None:
 
 def test_manifest_records_what_the_run_used(active_run: Run, profiles: dict[str, Profile]) -> None:
     manifest = active_run.manifest
-    profile = profiles["active_p1"]
+    profile = profiles["active_p2"]
 
     assert manifest.run_id == active_run.summary.run_id
     assert manifest.profile == summarize(profile)
@@ -164,7 +164,7 @@ def test_manifest_records_what_the_run_used(active_run: Run, profiles: dict[str,
 
 
 def test_window_json_is_the_window_processed(active_run: Run, profiles: dict[str, Profile]) -> None:
-    expected = build_windows(profiles["active_p1"], active_run.manifest.preset.masw)
+    expected = build_windows(profiles["active_p2"], active_run.manifest.preset.masw)
     saved = [
         MASWWindow.model_validate_json(
             (active_run.folder / window.folder / "window.json").read_text()
@@ -219,11 +219,11 @@ def test_failed_windows_keep_their_traceback(failing_run: Run) -> None:
 
 
 def test_no_valid_shot_is_refused_before_writing(demo_settings: Settings) -> None:
-    overrides = {"masw": {"distance_min": 50, "distance_max": 60}}
+    overrides = {"masw": {"distance_min": 300, "distance_max": 360}}
 
     # 92 positions of 5 receivers along the 96.
     with pytest.raises(RunError, match=r"all 92 positions were skipped\. Widen masw\.distance_min"):
-        run_processing("active_p1", "active", overrides, demo_settings)
+        run_processing("active_p2", "active", overrides, demo_settings)
     assert not demo_settings.output_dir.exists()
 
 
@@ -231,11 +231,11 @@ def test_no_valid_shot_is_refused_before_writing(demo_settings: Settings) -> Non
     ("profile", "preset", "overrides", "error", "message"),
     [
         ("nope", "active", {}, ProfileError, "Unknown profile 'nope'"),
-        ("active_p1", "activ", {}, PresetError, "Unknown preset 'activ'"),
-        ("passive_p1", "active", {}, PresetError, "does not fit passive profile"),
-        ("active_p1", "active", {"masw": {"lenght": 24}}, PresetError, r"masw\.lenght: unknown"),
+        ("active_p2", "activ", {}, PresetError, "Unknown preset 'activ'"),
+        ("passive_p2", "active", {}, PresetError, "does not fit passive profile"),
+        ("active_p2", "active", {"masw": {"lenght": 24}}, PresetError, r"masw\.lenght: unknown"),
         (
-            "active_p1",
+            "active_p2",
             "active",
             {"masw": {"length": 97}},
             PresetError,
@@ -281,8 +281,8 @@ def test_run_ids_stay_unique_within_one_second(
     # A single 3-receiver window, with a dispersion band that makes it fail: cheap to run.
     overrides = {"masw": {"length": 3, "step": 94}, "dispersion": {"fmin": 10.1, "fmax": 10.2}}
 
-    first = run_processing("active_p1", "active", overrides, demo_settings)
-    second = run_processing("active_p1", "active", overrides, demo_settings)
+    first = run_processing("active_p2", "active", overrides, demo_settings)
+    second = run_processing("active_p2", "active", overrides, demo_settings)
 
     assert (first.run_id, second.run_id) == ("20260923-100000-abcd", "20260923-100000-ef01")
 
@@ -298,7 +298,7 @@ def test_summary_reports_a_few_distinct_errors(profiles: dict[str, Profile]) -> 
     started_at = datetime(2026, 9, 23, 10, 0, 0, tzinfo=UTC)
     manifest = RunManifest(
         run_id="20260923-100000-abcd",
-        profile=summarize(profiles["active_p1"]),
+        profile=summarize(profiles["active_p2"]),
         preset=make_preset("active"),
         versions={"paco": "1.0.0", "sigpipe": "1.0.0"},
         started_at=started_at,
@@ -339,25 +339,25 @@ def _fake_run(settings: Settings, profile: str, run_id: str) -> Path:
 
 
 def test_find_run_returns_the_run_folder(settings: Settings) -> None:
-    folder = _fake_run(settings, "passive_p1", "20260923-100000-abcd")
+    folder = _fake_run(settings, "passive_p2", "20260923-100000-abcd")
 
     assert find_run("20260923-100000-abcd", settings) == folder
 
 
 def test_an_unknown_run_lists_the_five_latest(settings: Settings) -> None:
     for second in range(7):
-        profile = ("active_p1", "passive_p1")[second % 2]
+        profile = ("active_p2", "passive_p2")[second % 2]
         _fake_run(settings, profile, f"20260923-10000{second}-abcd")
     # An interrupted run: its folder has no run.json.
-    (settings.output_dir / "active_p1" / "20260923-100009-abcd").mkdir()
+    (settings.output_dir / "active_p2" / "20260923-100009-abcd").mkdir()
 
     with pytest.raises(RunError) as error:
         find_run("20260923-100009-abcd", settings)
 
     assert str(error.value) == (
-        "Unknown run '20260923-100009-abcd'. Latest runs: 20260923-100006-abcd (active_p1), "
-        "20260923-100005-abcd (passive_p1), 20260923-100004-abcd (active_p1), "
-        "20260923-100003-abcd (passive_p1), 20260923-100002-abcd (active_p1)."
+        "Unknown run '20260923-100009-abcd'. Latest runs: 20260923-100006-abcd (active_p2), "
+        "20260923-100005-abcd (passive_p2), 20260923-100004-abcd (active_p2), "
+        "20260923-100003-abcd (passive_p2), 20260923-100002-abcd (active_p2)."
     )
 
 
@@ -369,11 +369,11 @@ def test_an_unknown_run_without_any_run(settings: Settings) -> None:
 
 
 @pytest.mark.parametrize(
-    "run_id", ["*", "2026*", "../passive_p1/20260923-100000-abcd", "20260923-100000-abcd/.."]
+    "run_id", ["*", "2026*", "../passive_p2/20260923-100000-abcd", "20260923-100000-abcd/.."]
 )
 def test_only_run_ids_are_looked_up(settings: Settings, run_id: str) -> None:
     # A run exists, but a pattern or a path must not reach it, nor anything outside the outputs.
-    _fake_run(settings, "passive_p1", "20260923-100000-abcd")
+    _fake_run(settings, "passive_p2", "20260923-100000-abcd")
 
     with pytest.raises(RunError, match=r"^Unknown run"):
         find_run(run_id, settings)
@@ -393,7 +393,7 @@ def test_every_record_is_preprocessed_once(
     request: pytest.FixtureRequest, profiles: dict[str, Profile], kind: str
 ) -> None:
     run: Run = request.getfixturevalue(f"{kind}_run")
-    profile = profiles[f"{kind}_p1"]
+    profile = profiles[f"{kind}_p2"]
 
     assert [record.name for record in run.manifest.records] == [
         record.path.name for record in profile.records
@@ -410,10 +410,10 @@ def test_a_record_that_fails_preprocessing_fails_its_windows(
     profiles: dict[str, Profile], tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     monkeypatch.chdir(tmp_path)
-    profile = profiles["active_p1"]
+    profile = profiles["active_p2"]
     # load_profile reads every record, so a broken file never reaches a run: a record that
-    # disappears between the two does.
-    missing = profile.records[1].model_copy(update={"path": profile.folder / "missing.dat"})
+    # disappears between the two does. The shots off the line's two ends: every window stacks both.
+    missing = profile.records[-1].model_copy(update={"path": profile.folder / "missing.dat"})
     broken = profile.model_copy(update={"records": (profile.records[0], missing)})
     preset = resolve_preset(make_preset("active", SMALL_WINDOWS), broken)
     windows = build_windows(broken, preset.masw)
@@ -424,12 +424,12 @@ def test_a_record_that_fails_preprocessing_fails_its_windows(
     outcomes = processing.process_windows(preset, windows, records, run_folder, workers=2)
 
     assert [(record.name, record.status) for record in records] == [
-        ("1.dat", "succeeded"),
+        ("101.dat", "succeeded"),
         ("missing.dat", "failed"),
     ]
     assert records[1].error is not None
     assert (run_folder / "records" / "missing" / "error.log").exists()
-    # Every window of active_p1 uses both records: none can run.
+    # Every window uses both records: none can run.
     assert len(outcomes) == 4
     for outcome in outcomes:
         assert outcome.status == "failed"

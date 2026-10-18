@@ -1,8 +1,7 @@
-"""The agent: the host between the model (Qwen, served by vLLM) and PACo's MCP server.
-
-The only package that imports openai. The model sees the server's tool cards and instructions,
-asks for tool calls, and reads compact results.
-"""
+"""The guided agent: the host between the model (any provider, paco.llm; first Qwen, served by
+vLLM) and PACo's MCP server, which leads it through PACo's workflow. The model sees the server's
+tool cards and instructions, asks for tool calls, and reads compact results. The autonomous
+geophysicist agent is paco.geo's."""
 
 from .conversion import result_for_model, tools_for_model
 from .loop import Agent, Limits

@@ -2,48 +2,63 @@
 
 PACo lets a language model process MASW seismic profiles the way
 [PAC](https://github.com/JoseCunhaTeixeira/PAC) does, from raw records to dispersion curves and
-shear-wave velocity models, at your request in plain words. The model chooses the steps; the
-science is [sigpipe](https://github.com/JoseCunhaTeixeira/sigpipe)'s, shared with PAC, and the
-results are written in PAC's layout, so PAC opens them. A quality gate checks each stage and
-fixes what it can; the model never sees the data, only the gates' short summaries.
+shear-wave velocity models, at your request in plain words. The science is
+[sigpipe](https://github.com/JoseCunhaTeixeira/sigpipe)'s, shared with PAC, and the results are
+written in PAC's layout, so PAC opens them. A quality gate checks each stage and fixes what it can.
+
+PACo has two agents, on one model setup (`PACO_LLM_*`, any provider):
+
+- **The guided workflow** (`guided`, the default): PACo's server leads the model step by step
+  through its tools, and the model never sees the data, only the gates' short summaries. Made for
+  a small model on your own GPU (Qwen3-14B served by vLLM).
+- **The autonomous geophysicist** (`autonomous`, `paco.geo`): the model surveys the line, chooses
+  the windows, the shots and the images, runs its own experiments and judges them with the gates,
+  decides every window, freezes the curves and inverts, keeping a journal of its hypotheses,
+  experiments and decisions. Made for a frontier model with a long context (128k tokens), at many
+  more tokens a line. See [The autonomous geophysicist](#the-autonomous-geophysicist).
 
 ```
-you  <-->  paco-agent  <-- OpenAI API -->  the model (vLLM)
+you  <-->  paco-agent  <-- the model's API -->  the model (vLLM, or any provider)
                |
                | MCP
                v
-          paco-server  -->  sigpipe  -->  data/output (PAC's layout)
+          paco-server  -->  sigpipe  -->  PACO_OUTPUT_DIR (PAC's layout)
 ```
 
-- **paco-server**: an [MCP](https://modelcontextprotocol.io) server exposing PACo's tools.
-- **paco-agent**: the chat in your terminal.
-- **paco-evaluate**: plays a suite of scenarios with the model and scores it.
+- **paco-server**: an [MCP](https://modelcontextprotocol.io) server exposing the agent's tools
+  (`--mode autonomous`: the geophysicist's).
+- **paco-agent**: the chat in your terminal (`--mode autonomous`: with the geophysicist).
+- **paco-evaluate**: plays a suite of scenarios with the guided agent and scores it; **paco-ab**
+  plays both agents on the same scenarios and compares them.
 - **paco-replay**: makes a run again from its inputs and its log, and compares the two.
 - **paco-call**: calls one tool without the model.
 
-In PAC, the Assistant page runs the same agent on PAC's folders: [PAC's
+In PAC, the AI assistant page runs the same agents on PAC's folders, its settings page choosing
+the agent, the model and vision: [PAC's
 README](https://github.com/JoseCunhaTeixeira/PAC#the-assistant-optional) says how to install it.
 
 ## Install
 
-PACo needs Python 3.14 and [uv](https://docs.astral.sh/uv/), and a model behind an
-OpenAI-compatible API (see [The model](#the-model)).
+PACo needs Python 3.14 and [uv](https://docs.astral.sh/uv/), and a model: your own, behind an
+OpenAI-compatible API such as vLLM's, or any provider's (see [The model](#the-model)).
 
 ```sh
 git clone https://github.com/JoseCunhaTeixeira/PACo.git
 cd PACo
 uv sync                  # or: uv sync --extra petro, for the petrophysical inversion
+                         # --extra vertex, --extra bedrock: Vertex AI's, Bedrock's credentials
 ```
 
 ## Data
 
-Each profile is a folder of `PACO_INPUT_DIR`; the demo profiles `active_p1` and `passive_p1`
-come with the repository.
+PACo's repository holds no data. Each profile is a folder of `PACO_INPUT_DIR`, PAC's own input
+folder for one (its demo profiles `active_p1` and `passive_p1` among them), and the results go to
+`PACO_OUTPUT_DIR`, PAC's output folder for PAC to open them:
 
 ```
-data/input/
-  active_p1/
-    1.dat, 2.dat                 # the records, in any format ObsPy reads (SEG-2 here)
+PAC/data/input/
+  active_p2/
+    101.dat, 102.dat, ...        # the records, in any format ObsPy reads (SEG-2 here)
     receiver_positions.yaml
     source_positions.yaml        # active profiles only
 ```
@@ -58,7 +73,8 @@ a stage done again replaces go to the window's `replaced/` folder.
 Settings come from environment variables or a `.env` file in the folder you start PACo from:
 
 ```sh
-PACO_INPUT_DIR=data/input
+PACO_INPUT_DIR=../PAC/data/input
+PACO_OUTPUT_DIR=../PAC/data/output
 PACO_LLM_BASE_URL=http://gpu-host:8001/v1
 PACO_LLM_MODEL=Qwen/Qwen3-14B-FP8
 PACO_LLM_CONTEXT=16384
@@ -66,11 +82,17 @@ PACO_LLM_CONTEXT=16384
 
 | Setting | Default | What it sets |
 |---|---|---|
-| `PACO_INPUT_DIR`, `PACO_OUTPUT_DIR` | `/data/input`, `data/output` | Where the profiles are, and where results go |
-| `PACO_LLM_BASE_URL`, `PACO_LLM_MODEL` | required | The model's API (e.g. `http://gpu-host:8001/v1`) and its name |
-| `PACO_LLM_API_KEY` | `EMPTY` | The model server's key, if it asks for one |
-| `PACO_LLM_CONTEXT` | `12288` | The model's context, as its server serves it (vLLM's `--max-model-len`) |
-| `PACO_LLM_TEMPERATURE`, `PACO_LLM_SEED` | the server's | The conversation's sampling |
+| `PACO_INPUT_DIR`, `PACO_OUTPUT_DIR` | `/data/input`, `/data/output` | Where the profiles are, and where results go |
+| `PACO_AGENT_MODE` | `guided` | The agent `paco-agent`, `paco-server` and PAC's chat run: `guided` or `autonomous` |
+| `PACO_LLM_PROVIDER` | `vllm` | Who serves the model (see [The model](#the-model)) |
+| `PACO_LLM_MODEL` | required | The model's name, as its provider serves it |
+| `PACO_LLM_BASE_URL` | the provider's | The model's API (e.g. `http://gpu-host:8001/v1`); required for `vllm`, `openai-compatible`, `azure-openai` and `anthropic-foundry` |
+| `PACO_LLM_API_KEY` | `EMPTY` | Your key at the provider, or your server's if it asks for one |
+| `PACO_LLM_REGION`, `PACO_LLM_PROJECT` | none | The cloud region (Vertex AI, Bedrock) and Google Cloud project (Vertex AI) |
+| `PACO_LLM_CONTEXT` | `12288` on a server of yours, `131072` on a provider's API | The model's context, as its server serves it (vLLM's `--max-model-len`) |
+| `PACO_LLM_VISION` | `false` | Whether figures may reach the model (the geophysicist's `look`) |
+| `PACO_LLM_THINKING`, `PACO_LLM_EFFORT` | on, the model's | Whether the model thinks before its replies, and how hard |
+| `PACO_LLM_TEMPERATURE`, `PACO_LLM_SEED` | the server's | The conversation's sampling, on a server of yours |
 | `PACO_WORKERS` | `1` | Worker processes for processing and inversion |
 | `PACO_HOST`, `PACO_PORT` | `127.0.0.1`, `8000` | Where `paco-server` listens |
 | `PACO_ALLOWED_HOSTS` | none | Host names the server accepts, when it listens beyond 127.0.0.1 |
@@ -81,9 +103,10 @@ PACO_LLM_CONTEXT=16384
 | `PACO_QC_CONFIG` | PACo's defaults | A JSON file of the gates' thresholds and retry budgets |
 | `PACO_CACHE_DIR`, `PACO_CACHE_GB` | `<output>/.cache`, `2` | The cache of the windows' images, and its size (`0`: none) |
 | `PACO_REPLAY_TOLERANCE` | `1e-5` | The difference `paco-replay` allows, relative to the run's largest value |
-| `PACO_LOG_DIR` | `data/output/agent_logs` | Where the chat saves its conversations |
-| `PACO_EVALUATION_DIR` | `data/output/evaluations` | Where evaluations write their reports |
-| `PACO_JUDGE_BASE_URL`, `PACO_JUDGE_MODEL`, `PACO_JUDGE_API_KEY` | none | An optional judge model for the evaluation |
+| `PACO_LOG_DIR` | `<output>/agent_logs` | Where the chat saves its conversations |
+| `PACO_EVALUATION_DIR` | `<output>/evaluations` | Where evaluations write their reports |
+| `PACO_JUDGE_MODEL`, `PACO_JUDGE_PROVIDER`, `PACO_JUDGE_BASE_URL`, `PACO_JUDGE_API_KEY`... | none | An optional judge model for the evaluations, any provider as the agents' model |
+| `PACO_GEO_HOST`, `PACO_GEO_PORT`, `PACO_GEO_MCP_URL` | `127.0.0.1`, `8010` | Where the geophysicist's server listens, and where its chat finds it |
 
 ## Run
 
@@ -93,6 +116,9 @@ Start the server, then chat in another terminal:
 uv run paco-server
 uv run paco-agent
 ```
+
+With the autonomous geophysicist, on a frontier model: `uv run paco-server --mode autonomous`,
+then `uv run paco-agent --mode autonomous` (or `PACO_AGENT_MODE=autonomous` in `.env` for both).
 
 A session looks like this (an illustration: the answer's wording depends on the model):
 
@@ -123,6 +149,8 @@ which PACo changes for the whole line when more windows then give a curve that p
 window's curve is picked on its own, and each curve inverted with settings of its own.
 
 Other commands:
+- `uv run paco-ab` plays both agents on the same scenarios, on the model of `.env`, and compares
+  them (`--list` names the scenarios, `--smoke` tests the model's client in a few calls).
 - `uv run paco-evaluate` plays the scenarios (5 times each) and reports each one's pass rate;
   its inversions are quick (the agent is measured, not the models), `--full-inversion` for
   PAC's effort; `--history` compares the evaluations kept, by model and prompts' version.
@@ -148,6 +176,29 @@ Other commands:
 | `petro_models` | The petrophysical models, and how many of the run's curves each covers (only when you ask for soils) |
 | `invert_petro` | Inverts the covered curves into soils, N values and the water table (G7, G8); needs the `petro` extra |
 | `redo` | Redoes a stage for some windows, with a gate's suggested change, and what follows |
+
+## The autonomous geophysicist
+
+The geophysicist's tools (`paco-server --mode autonomous`) work on a profile's **study**, a folder
+of `<output>/<profile>/studies/` that keeps everything: the survey, each experiment and its
+trials, the line committed (a run in PAC's layout), the journal, the decisions, the frozen curves
+and the inversions. Stopped, the next conversation on the profile resumes it.
+
+| Tool | What it does |
+|---|---|
+| `survey` | The line before any setting: its geometry, its records as G1 measures them, the reach, the usable band, the surface waves' cone, the modes it takes |
+| `try_settings` | Tries variants of the line's settings on chosen windows, judged by the gates, against the current settings |
+| `commit` | Applies settings to the whole line, with their reasons: a run that PAC opens |
+| `observe`, `look` | Reads the checks of the line committed; looks at a window's records, image, curve or model (a figure with vision on, tables and measures otherwise) |
+| `advise` | PACo's own choice for a lever (the window length, the mute, a passive line's segments, the picking), not applied |
+| `pick`, `decide`, `freeze` | Picks windows again, accepts or rejects each one with its reason, freezes the curves for the inversion |
+| `invert`, `job_status` | Inverts the frozen curves, in the background |
+| `journal` | Reads the journal; writes a hypothesis, a conclusion or a decision |
+
+Code keeps the work honest: settings you type are kept and never changed, the phases go in order
+(the survey, the curves, the inversion, the report), a window is rejected only once tried hard,
+and the budgets stop a run that spends too much. The figures reach the model only with
+`PACO_LLM_VISION=true`. Its plan is `docs/geo_plan.md`.
 
 ## How PACo works
 
@@ -189,7 +240,20 @@ gate in `docs/gates/`.
 
 ## The model
 
-PACo runs with **`Qwen/Qwen3-14B-FP8`**, which needs a GPU with 24 GB of memory.
+Both agents talk to the model `PACO_LLM_*` names, through its provider's own API:
+
+| `PACO_LLM_PROVIDER` | The model | Credentials |
+|---|---|---|
+| `vllm` (default), `openai-compatible` | Your own server, at `PACO_LLM_BASE_URL` | Its key, if it asks for one |
+| `anthropic` | Claude, on Anthropic's API | `PACO_LLM_API_KEY` |
+| `anthropic-vertex`, `gemini-vertex` | Claude, Gemini, on Google Cloud's Vertex AI | The machine's Google credentials (`gcloud auth application-default login`; `--extra vertex`), `PACO_LLM_REGION`, `PACO_LLM_PROJECT` |
+| `anthropic-bedrock` | Claude, on Amazon Bedrock | A Bedrock API key, or AWS's credentials (`--extra bedrock`); `PACO_LLM_REGION` |
+| `anthropic-foundry`, `azure-openai` | Claude, OpenAI's models, on Microsoft's clouds | `PACO_LLM_API_KEY`; the resource's endpoint as `PACO_LLM_BASE_URL` |
+| `openai`, `gemini`, `mistral` | OpenAI's, Google's, Mistral's models, on their APIs | `PACO_LLM_API_KEY` |
+
+The guided workflow runs with **`Qwen/Qwen3-14B-FP8`**, which needs a GPU with 24 GB of memory;
+the autonomous geophysicist needs a frontier model (Claude, GPT, Gemini) with 128k tokens of
+context.
 
 **On a GPU, with vLLM.** Qwen3 calls tools through vLLM's Hermes parser, and its thinking is kept
 out of the answers by the Qwen3 reasoning parser:
@@ -216,11 +280,12 @@ the answer fails.
 receives your messages, the tools' descriptions and the gates' summaries, never the records,
 images or models.
 
-**Another model.** PACo works with any model served behind an OpenAI-compatible chat API with
-tool calling and JSON-schema output: set `PACO_LLM_BASE_URL`, `PACO_LLM_MODEL` and
-`PACO_LLM_CONTEXT`. In vLLM, a model of another family needs its own tool-call parser in place
+**Another model.** The guided workflow works with any model with tool calling and JSON-schema
+output, on a provider above or behind an OpenAI-compatible chat API: on your own server, set
+`PACO_LLM_BASE_URL`, `PACO_LLM_MODEL` and `PACO_LLM_CONTEXT`. In vLLM, a model of another family needs its own tool-call parser in place
 of `hermes`, and no Qwen3 reasoning parser. PACo's tests are 15 scenarios of the assistant's
-rules, played 5 times each (`uv run paco-evaluate`):
+rules, played 5 times each (`uv run paco-evaluate`), on active_p1 when these were measured; the
+suite now plays on active_p2:
 
 | Model | GPU memory | PACo's tests (75 plays) |
 |---|---|---|
@@ -233,7 +298,8 @@ rules, played 5 times each (`uv run paco-evaluate`):
 ## Docker
 
 On a GPU machine with Docker and NVIDIA's container toolkit, `compose.yaml` runs the whole stack:
-vLLM, `paco-server`, and the agent. `./data` is mounted as `/data`.
+vLLM, `paco-server`, and the agent. `PACO_DATA_DIR` (PAC's data folder by default, `../PAC/data`)
+is mounted as `/data`.
 
 ```sh
 docker compose up -d vllm paco-server   # the first start downloads the model
@@ -262,11 +328,15 @@ With vLLM in Docker and PACo run with uv, point the agent at the container:
 ```sh
 uv run ruff check && uv run ruff format --check   # lint and format
 uv run pyright src tests                          # types
-uv run pytest                                     # tests, on the demo profiles
+uv run pytest                                     # tests, on PAC's local active_p2 and passive_p2
 uv run pre-commit install                         # lint, format, types and fast tests on commit
 ```
 
-The tools' schemas are kept in `tests/data/tool_schemas.json`: a change fails
+The tests read PAC's local lines `active_p2` and `passive_p2` (`../PAC/data/input`, or the
+folder `PACO_TEST_INPUT_DIR` names), kept in no repository; without them, the tests that read
+them are skipped.
+
+The tools' schemas are kept in `tests/snapshots/tool_schemas.json`: a change fails
 `tests/test_server.py` until it is reviewed and written again with
 `PACO_SNAPSHOT_UPDATE=1 uv run pytest tests/test_server.py -k snapshot`.
 

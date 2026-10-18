@@ -14,10 +14,10 @@ def test_a_tool_is_called_and_what_it_returns_printed(capsys: pytest.CaptureFixt
     call.main(["inspect", '{"what": "profiles"}'])
     listed = capsys.readouterr().out
 
-    call.main(["preset_settings", '{"profile": "active_p1"}'])
+    call.main(["preset_settings", '{"profile": "active_p2"}'])
     schema = json.loads(capsys.readouterr().out)
 
-    assert listed.startswith("active_p1: a profile to process, no run yet")
+    assert listed.startswith("active_p2: a profile to process, no run yet")
     assert "masw" in schema["properties"]
 
 
@@ -26,7 +26,7 @@ def test_a_run_changed_from_the_command_line_says_so_in_its_trace(
 ) -> None:
     # The muting given: no mute trial, the test's run short.
     overrides = {"masw": {"length": 24, "step": 24}, "muting": {"method": "none"}}
-    arguments = {"profile": "active_p1", "overrides": overrides}
+    arguments = {"profile": "active_p2", "overrides": overrides}
 
     call.main(["run_processing", json.dumps(arguments)])
 

@@ -87,7 +87,7 @@ class Limits:
             seconds=settings.max_turn_s,
             tokens=settings.max_turn_tokens,
             tool_seconds=settings.tool_timeout_s,
-            context=settings.llm_context,
+            context=settings.context(),
         )
 
 

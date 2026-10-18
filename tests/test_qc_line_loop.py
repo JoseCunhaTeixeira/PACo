@@ -166,7 +166,7 @@ def test_an_ask_the_line_did_not_keep_is_kept_as_a_note() -> None:
 def test_a_mute_tried_for_the_line_is_made_as_the_mute_trials(profiles: dict[str, Profile]) -> None:
     # G2 asks a mute without its width and taper: the line's pulse (no record measured one: the
     # configuration's), and the mute trial's taper, one mute for every record.
-    profile = profiles["active_p1"]
+    profile = profiles["active_p2"]
     asked = Candidate(
         stage="preprocessing",
         overrides=MUTE,
@@ -197,7 +197,7 @@ def test_a_change_kept_is_made_on_the_whole_line(
         stage="phase_shift",
         overrides={"dispersion": {"vmax": 900.0}},
         flag="G2:ridge_at_vmax",
-        windows=("xmid_2.88",),
+        windows=("xmid_17.25",),
         failing=1,
     )
     calls: list[int] = []
@@ -213,7 +213,7 @@ def test_a_change_kept_is_made_on_the_whole_line(
             change="dispersion vmax",
             flag=candidate.flag,
             asked_by=1,
-            xmids=(2.88,),
+            xmids=(17.25,),
             before=0,
             after=2,
             kept=True,
@@ -225,7 +225,7 @@ def test_a_change_kept_is_made_on_the_whole_line(
     monkeypatch.chdir(tmp_path)
     settings = _demo(demo_input_dir, tmp_path)
 
-    report = process_line("active_p1", {"masw": {"length": 24, "step": 24}}, settings, QCConfig())
+    report = process_line("active_p2", {"masw": {"length": 24, "step": 24}}, settings, QCConfig())
 
     run_folder = find_run(report.run_id, settings)
     manifest = load_manifest(report.run_id, settings)
@@ -262,7 +262,7 @@ def test_the_loop_keeps_at_most_its_changes(
         stage="phase_shift",
         overrides={"dispersion": {"vmax": 900.0}},
         flag="G2:ridge_at_vmax",
-        windows=("xmid_2.88",),
+        windows=("xmid_17.25",),
         failing=1,
     )
     asks = iter(range(10))
@@ -278,7 +278,7 @@ def test_the_loop_keeps_at_most_its_changes(
             change="dispersion vmax",
             flag=candidate.flag,
             asked_by=1,
-            xmids=(2.88,),
+            xmids=(17.25,),
             before=0,
             after=2,
             kept=True,
@@ -291,7 +291,7 @@ def test_the_loop_keeps_at_most_its_changes(
     settings = _demo(demo_input_dir, tmp_path)
     config = QCConfig(line=LineRules(max_changes=2))
 
-    report = process_line("active_p1", {"masw": {"length": 24, "step": 24}}, settings, config)
+    report = process_line("active_p2", {"masw": {"length": 24, "step": 24}}, settings, config)
 
     assert load_manifest(report.run_id, settings).preset.model_dump()["dispersion"]["vmax"] == 1000
     trials = json.loads((find_run(report.run_id, settings) / LINE_LOOP_FILE).read_text())
@@ -307,7 +307,7 @@ def test_an_ask_of_a_setting_the_user_gave_rejects_its_window(
     settings = _demo(demo_input_dir, tmp_path)
     overrides = {"masw": {"length": 24, "step": 24}, "dispersion": {"vmax": 250}}
 
-    report = process_line("active_p1", overrides, settings, QCConfig())
+    report = process_line("active_p2", overrides, settings, QCConfig())
 
     manifest = load_manifest(report.run_id, settings)
     assert manifest.preset.model_dump()["dispersion"]["vmax"] == 250

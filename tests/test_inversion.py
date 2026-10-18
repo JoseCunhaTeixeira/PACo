@@ -42,16 +42,16 @@ from paco.qc.curves import pick_line
 from paco.qc.line import process_line
 from paco.settings import Settings
 
-# Four 24-receiver windows along the active demo line, as in test_runs.py; G3 and G4 pass the
+# Four 24-receiver windows along active_p2, as in test_runs.py; G3 and G4 pass three of the
 # four curves (each pick stops where its ridge breaks).
 SMALL_WINDOWS = {"masw": {"length": 24, "step": 24}}
 # A short sampler: every step of an inversion, in about a second per window; far too short for
 # G5, whose retries (twice the iterations, twice) are then spent.
 SHORT = {"n_iterations": 500, "n_burnin_iterations": 50, "n_chains": 2}  # two at least
-# xmid 2.88 has no curve: 2 points once G1 leaves trace 13 out of its image (the decay fitted
-# within the reach).
-# The windows G4 passes on the demo.
-PICKED = ("xmid_8.88", "xmid_14.88", "xmid_20.88")
+# xmid 125.25 has no curve: G3 rejects its pick, a single point in the aliasing zone, its
+# retries spent.
+# The windows G4 passes on active_p2.
+PICKED = ("xmid_17.25", "xmid_53.25", "xmid_89.25")
 # The files PAC's invert_position writes in a window folder.
 PAC_FILES = {
     "SeismicInversion_DensityCurves_0000.png",
@@ -93,9 +93,9 @@ def picked(demo_input_dir: Path, tmp_path_factory: pytest.TempPathFactory) -> Pi
     settings = Settings(input_dir=demo_input_dir, output_dir=root / "outputs", workers=2)
     with pytest.MonkeyPatch.context() as patch:
         patch.chdir(root)
-        run_id = process_line("active_p1", SMALL_WINDOWS, settings, QCConfig()).run_id
+        run_id = process_line("active_p2", SMALL_WINDOWS, settings, QCConfig()).run_id
         pick_line(run_id, settings)
-    return Picked(settings, run_id, settings.output_dir / "active_p1" / run_id)
+    return Picked(settings, run_id, settings.output_dir / "active_p2" / run_id)
 
 
 @pytest.fixture(scope="module")
@@ -112,7 +112,7 @@ def inverted(picked: Picked, tmp_path_factory: pytest.TempPathFactory) -> Invert
 def _copy(picked: Picked, root: Path) -> tuple[Settings, Path]:
     """A copy of the picked run, to change."""
     settings = picked.settings.model_copy(update={"output_dir": root})
-    folder = shutil.copytree(picked.folder, root / "active_p1" / picked.run_id)
+    folder = shutil.copytree(picked.folder, root / "active_p2" / picked.run_id)
     return settings, folder
 
 
@@ -374,19 +374,19 @@ def test_windows_get_pacs_files(inverted: Inverted) -> None:
 
 def test_a_window_whose_curve_is_gone_is_left_out(picked: Picked, tmp_path: Path) -> None:
     settings, folder = _copy(picked, tmp_path)
-    (folder / "xmid_8.88" / "DispersionCurves_0000.csv").unlink()
+    (folder / "xmid_17.25" / "DispersionCurves_0000.csv").unlink()
 
     record = run_inversion_job(submit_inversion(picked.run_id, SHORT, settings), settings)
 
     assert record.state == "succeeded"
-    assert [window.folder for window in record.windows] == ["xmid_14.88", "xmid_20.88"]
+    assert [window.folder for window in record.windows] == ["xmid_53.25", "xmid_89.25"]
 
 
 def test_a_window_whose_curve_gives_no_model_is_left_out_with_why(
     picked: Picked, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    # A curve too narrow in wavelength for a layered model (on p2, one spans 9.2 to 11.2 m) is
-    # left out, with why, and the line's other windows are inverted.
+    # A curve too narrow in wavelength for a layered model (the second one, made so here) is left
+    # out, with why, and the line's other windows are inverted.
     from paco.qc import inverting
 
     derive = inverting.derive_inversion

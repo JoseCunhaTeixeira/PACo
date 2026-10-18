@@ -21,7 +21,7 @@ type Kind = Literal[
 class CheckResult(BaseModel):
     model_config = ConfigDict(frozen=True)
 
-    name: str  # what was checked, e.g. "called inspect(what=profile, profile=active_p1)"
+    name: str  # what was checked, e.g. "called inspect(what=profile, profile=active_p2)"
     passed: bool
     detail: str = ""  # why it failed
 

@@ -61,12 +61,12 @@ def stopped() -> Iterator[threading.Event]:
 def processed(
     demo_input_dir: Path, tmp_path_factory: pytest.TempPathFactory
 ) -> tuple[Settings, str]:
-    """active_p1 processed once, in four 24-receiver windows."""
+    """active_p2 processed once, in four 24-receiver windows."""
     root = tmp_path_factory.mktemp("stopping")
     settings = Settings(input_dir=demo_input_dir, output_dir=root / "outputs", workers=2)
     with pytest.MonkeyPatch.context() as patch:
         patch.chdir(root)
-        manifest = run_processing("active_p1", "active", SMALL_WINDOWS, settings)
+        manifest = run_processing("active_p2", "active", SMALL_WINDOWS, settings)
     return settings, manifest.run_id
 
 
@@ -125,10 +125,10 @@ def test_a_run_stopped_is_removed_whole(
     settings = Settings(input_dir=demo_input_dir, output_dir=tmp_path / "outputs", workers=2)
 
     with pytest.raises(Stopped):
-        process_line("active_p1", SMALL_WINDOWS, settings, QCConfig())
+        process_line("active_p2", SMALL_WINDOWS, settings, QCConfig())
 
     assert stopped.is_set()
-    assert not list((tmp_path / "outputs").glob("active_p1/*"))
+    assert not list((tmp_path / "outputs").glob("active_p2/*"))
 
 
 def test_a_redo_stopped_gives_each_window_back_what_it_had(
@@ -140,7 +140,7 @@ def test_a_redo_stopped_gives_each_window_back_what_it_had(
     monkeypatch.chdir(tmp_path)
     settings, run_id = processed
     run_folder = find_run(run_id, settings)
-    windows = ["xmid_2.88", "xmid_8.88"]
+    windows = ["xmid_17.25", "xmid_53.25"]
     files = {unit: sorted(path.name for path in (run_folder / unit).iterdir()) for unit in windows}
     images = {
         unit: (run_folder / unit / "DispersionImage_0000.hdf5").read_bytes() for unit in windows

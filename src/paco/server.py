@@ -5,18 +5,20 @@ The only module that imports mcp. Settings come from the server's environment (P
 http://<PACO_HOST>:<PACO_PORT>/mcp, by default http://127.0.0.1:8000/mcp, this machine only.
 """
 
+import argparse
 import functools
 import json
 import logging
 import os
 import time
-from collections.abc import Callable
+from collections.abc import Callable, Sequence
 from contextlib import AbstractContextManager
 from contextvars import ContextVar, Token
 from dataclasses import dataclass
 from datetime import UTC, datetime
 from typing import Annotated, Any, Literal, cast
 
+import anyio
 import anyio.from_thread
 import matplotlib
 from mcp.server import MCPServer
@@ -33,6 +35,7 @@ from sigpipe.workers import one_thread_each
 
 from paco import choices, ignoring, inspection, inversion, logs, prompts, qc, stopping
 from paco.jobs import JobManager
+from paco.modes import MODES, ModeSettings
 from paco.qc import StageResult
 from paco.runs import image_cache
 from paco.settings import Settings, get_settings
@@ -1108,8 +1111,30 @@ def transport_security(settings: Settings) -> TransportSecuritySettings | None:
     )
 
 
-def main() -> None:
-    """paco-server: serve PACo's tools over Streamable HTTP, where the settings say."""
+def main(argv: Sequence[str] | None = None) -> None:
+    """paco-server [--mode guided|autonomous] [--list]: serve the mode's tools over Streamable HTTP
+    (PACO_AGENT_MODE when not told), where the settings say: PACo's (PACO_HOST, PACO_PORT), or the
+    geophysicist's (PACO_GEO_HOST, PACO_GEO_PORT); with --list, print their names instead."""
+    parser = argparse.ArgumentParser(
+        prog="paco-server", description="Serve the agent's tools over MCP (Streamable HTTP)."
+    )
+    parser.add_argument(
+        "--mode",
+        choices=MODES,
+        help="guided: PACo's workflow tools; autonomous: the geophysicist's (default: "
+        "PACO_AGENT_MODE, else guided)",
+    )
+    parser.add_argument("--list", action="store_true", help="print the tools' names, and stop")
+    arguments = parser.parse_args(argv)
+    if (arguments.mode or ModeSettings().agent_mode) == "autonomous":
+        # The geophysicist's server (paco.geo), imported only when it is served.
+        from paco.geo import server as geo
+
+        geo.main(["--list"] if arguments.list else [])
+        return
+    if arguments.list:
+        print("\n".join(tool.name for tool in anyio.run(server.list_tools)))
+        return
     # A wrong setting stops the server here, instead of failing every tool call.
     settings = get_settings()
     logs.setup()

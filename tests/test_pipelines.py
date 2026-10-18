@@ -84,7 +84,7 @@ PASSIVE_ON = {
 }
 
 BOTH_MODES = pytest.mark.parametrize(
-    ("profile", "name"), [("active_p1", "active"), ("passive_p1", "passive")]
+    ("profile", "name"), [("active_p2", "active"), ("passive_p2", "passive")]
 )
 # Windows of 24 receivers, as in test_runs.py: see test_default_windows_agree_within_rounding
 # for the default of 5.
@@ -92,14 +92,14 @@ SMALL_WINDOWS = {"masw": {"length": 24, "step": 24}}
 DEMO_CASES = pytest.mark.parametrize(
     ("profile", "name", "overrides"),
     [
-        pytest.param("active_p1", "active", SMALL_WINDOWS, id="active-defaults"),
-        pytest.param("active_p1", "active", {**SMALL_WINDOWS, **ACTIVE_ON}, id="active-stages-on"),
-        pytest.param("passive_p1", "passive", SMALL_WINDOWS, id="passive-defaults"),
+        pytest.param("active_p2", "active", SMALL_WINDOWS, id="active-defaults"),
+        pytest.param("active_p2", "active", {**SMALL_WINDOWS, **ACTIVE_ON}, id="active-stages-on"),
+        pytest.param("passive_p2", "passive", SMALL_WINDOWS, id="passive-defaults"),
         pytest.param(
-            "passive_p1", "passive", {**SMALL_WINDOWS, **PASSIVE_ON}, id="passive-stages-on"
+            "passive_p2", "passive", {**SMALL_WINDOWS, **PASSIVE_ON}, id="passive-stages-on"
         ),
         pytest.param(
-            "passive_p1",
+            "passive_p2",
             "passive",
             {
                 **SMALL_WINDOWS,
@@ -226,9 +226,9 @@ def _datasets(path: Path) -> dict[str, np.ndarray]:
 @pytest.mark.parametrize(
     ("profile", "name", "chain"),
     [
-        ("active_p1", "active", ACTIVE_CHAIN),
-        ("passive_p1", "passive", PASSIVE_CHAIN),
-        ("active_p1", "passive-active", PASSIVE_ACTIVE_CHAIN),
+        ("active_p2", "active", ACTIVE_CHAIN),
+        ("passive_p2", "passive", PASSIVE_CHAIN),
+        ("active_p2", "passive-active", PASSIVE_ACTIVE_CHAIN),
     ],
 )
 def test_steps_are_pacs(
@@ -253,7 +253,7 @@ def test_each_preset_mode_has_its_builder() -> None:
 def test_pacs_fixed_steps_of_the_passive_active_pipeline(
     profiles: dict[str, Profile], tmp_path: Path
 ) -> None:
-    built = _build(profiles["active_p1"], "passive-active", {}, tmp_path)
+    built = _build(profiles["active_p2"], "passive-active", {}, tmp_path)
 
     assert vars(_only(built.image, Apodize)) == {"method": "hanning", "params": {"frac": 0.1}}
     assert _only(built.image, ActiveShotCorrelation).method == "cross"
@@ -331,7 +331,7 @@ def test_pacs_fixed_steps(
 def test_pacs_fixed_steps_of_the_active_pipeline(
     profiles: dict[str, Profile], tmp_path: Path
 ) -> None:
-    built = _build(profiles["active_p1"], "active", {}, tmp_path)
+    built = _build(profiles["active_p2"], "active", {}, tmp_path)
 
     # One dispersion image per shot, stacked linearly.
     assert vars(_only(built.image, Stack)) == {"method": "linear", "params": {}}
@@ -340,7 +340,7 @@ def test_pacs_fixed_steps_of_the_active_pipeline(
 def test_pacs_fixed_steps_of_the_passive_pipeline(
     profiles: dict[str, Profile], tmp_path: Path
 ) -> None:
-    built = _build(profiles["passive_p1"], "passive", {}, tmp_path)
+    built = _build(profiles["passive_p2"], "passive", {}, tmp_path)
 
     assert vars(_only(built.image, Apodize)) == {"method": "hanning", "params": {"frac": 0.1}}
     assert vars(_only(built.image, Correlate)) == {
@@ -364,7 +364,7 @@ def test_pacs_fixed_steps_of_the_passive_pipeline(
 def test_active_preset_values_reach_the_transformers(
     profiles: dict[str, Profile], tmp_path: Path
 ) -> None:
-    built = _build(profiles["active_p1"], "active", ACTIVE_ON, tmp_path)
+    built = _build(profiles["active_p2"], "active", ACTIVE_ON, tmp_path)
 
     assert vars(_only(built.preprocessing, Mute)) == {
         "method": "mute",
@@ -391,7 +391,7 @@ def test_active_preset_values_reach_the_transformers(
 def test_passive_preset_values_reach_the_transformers(
     profiles: dict[str, Profile], tmp_path: Path
 ) -> None:
-    built = _build(profiles["passive_p1"], "passive", PASSIVE_ON, tmp_path)
+    built = _build(profiles["passive_p2"], "passive", PASSIVE_ON, tmp_path)
 
     # No muting on a passive line: the record passed through.
     assert vars(_only(built.preprocessing, Mute)) == {"method": "none", "params": {}}
@@ -423,9 +423,9 @@ def test_passive_preset_values_reach_the_transformers(
 @pytest.mark.parametrize(
     ("profile", "name", "overrides", "missing"),
     [
-        ("active_p1", "active", {"muting": {"method": "mute"}}, "muting.width"),
-        ("passive_p1", "passive", {"filtering": {"method": "iir"}}, "filtering.fmax"),
-        ("passive_p1", "passive", {"whitening": {"method": "onebit_apod"}}, "whitening.fmax"),
+        ("active_p2", "active", {"muting": {"method": "mute"}}, "muting.width"),
+        ("passive_p2", "passive", {"filtering": {"method": "iir"}}, "filtering.fmax"),
+        ("passive_p2", "passive", {"whitening": {"method": "onebit_apod"}}, "whitening.fmax"),
     ],
 )
 def test_an_unresolved_preset_is_refused(
@@ -522,7 +522,7 @@ def test_default_windows_agree_within_rounding(
     the same). With the default windows of 5 receivers, the images agree to 1e-6, except at
     0 Hz: a sum of the signs of near-zero DC terms after detrending, which flips with that bit."""
     monkeypatch.chdir(tmp_path)
-    built = _build(profiles["active_p1"], "active", {}, tmp_path / "split")
+    built = _build(profiles["active_p2"], "active", {}, tmp_path / "split")
     _run(built)
     reference = tmp_path / "reference"
     reference.mkdir()

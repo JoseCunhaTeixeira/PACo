@@ -50,14 +50,14 @@ M0, M1 = Mode("M", 0), Mode("M", 1)
 
 @pytest.fixture(scope="module")
 def made(demo_input_dir: Path, tmp_path_factory: pytest.TempPathFactory) -> tuple[Path, str, str]:
-    """active_p1 processed in four 24-receiver windows twice: as PAC's pages leave a run (no
+    """active_p2 processed in four 24-receiver windows twice: as PAC's pages leave a run (no
     check), and judged by the assistant (G1 to G4, its picks). Their outputs, and each run."""
     root = tmp_path_factory.mktemp("hand")
     settings = Settings(input_dir=demo_input_dir, output_dir=root / "outputs", workers=2)
     with pytest.MonkeyPatch.context() as patch:
         patch.chdir(root)
-        pac = run_processing("active_p1", "active", SMALL_WINDOWS, settings).run_id
-        judged = run_processing("active_p1", "active", SMALL_WINDOWS, settings).run_id
+        pac = run_processing("active_p2", "active", SMALL_WINDOWS, settings).run_id
+        judged = run_processing("active_p2", "active", SMALL_WINDOWS, settings).run_id
         judge_run(judged, settings, QCConfig())
     return root / "outputs", pac, judged
 
@@ -116,7 +116,7 @@ def test_a_run_made_in_pac_is_inverted_as_the_user_picked_it(
     assert record.total == len(manifest.windows)
     summary = summarize_report(build_report(run_id, run_folder, QCConfig().budgets, 4))
     assert "Made by hand in PAC, verified by the user" in summary
-    assert "images at xmid 2.88-20.88 (4); M0 curve at xmid 2.88-20.88 (4)." in summary
+    assert "images at xmid 17.25-125.25 (4); M0 curve at xmid 17.25-125.25 (4)." in summary
 
 
 def test_a_curve_picked_by_hand_is_taken_as_it_is_and_never_picked_again(
@@ -125,7 +125,7 @@ def test_a_curve_picked_by_hand_is_taken_as_it_is_and_never_picked_again(
     settings, _, run_id = outputs
     run_folder = find_run(run_id, settings)
     manifest = load_manifest(run_id, settings)
-    window = run_folder / "xmid_8.88"
+    window = run_folder / "xmid_53.25"
     # Far off its neighbours: an automatic curve like it would be an outlier.
     hand = _picked_by_hand(window, scale=1.6)
 
@@ -133,13 +133,13 @@ def test_a_curve_picked_by_hand_is_taken_as_it_is_and_never_picked_again(
 
     np.testing.assert_allclose(_vs(window), hand.vs, rtol=1e-3)
     work = run_work(run_folder, manifest)
-    assert work["xmid_8.88"].m0 == "user" and work["xmid_8.88"].by_hand == ("M0",)
+    assert work["xmid_53.25"].m0 == "user" and work["xmid_53.25"].by_hand == ("M0",)
     # The assistant's checks of the older curve are its history, not its verdicts.
     report = build_report(run_id, run_folder, QCConfig().budgets, 4)
-    unit = next(one for one in report.units if one.unit == "xmid_8.88")
+    unit = next(one for one in report.units if one.unit == "xmid_53.25")
     assert "G3" not in unit.verdicts and "G4" not in unit.verdicts
     ready = invertible(run_folder, manifest)
-    np.testing.assert_allclose(ready["xmid_8.88"].vs, hand.vs, rtol=1e-3)
+    np.testing.assert_allclose(ready["xmid_53.25"].vs, hand.vs, rtol=1e-3)
 
 
 def test_a_mode_added_by_hand_keeps_the_assistants_m0_and_its_checks(
@@ -148,12 +148,13 @@ def test_a_mode_added_by_hand_keeps_the_assistants_m0_and_its_checks(
     settings, _, run_id = outputs
     run_folder = find_run(run_id, settings)
     manifest = load_manifest(run_id, settings)
-    window = run_folder / "xmid_8.88"
+    # xmid 89.25, whose M0 the gates passed.
+    window = run_folder / "xmid_89.25"
     before = invertible(run_folder, manifest)
 
     _picked_by_hand(window, M1, scale=1.8)
 
-    work = run_work(run_folder, manifest)["xmid_8.88"]
+    work = run_work(run_folder, manifest)["xmid_89.25"]
     assert (work.m0, work.by_hand) == ("judged", ("M1",))
     # Its M0 inverted as the gates passed it, its M1 with it.
     assert set(invertible(run_folder, manifest)) == set(before)
@@ -237,18 +238,18 @@ def test_the_line_done_again_leaves_a_persons_work_as_it_is(
     settings, _, run_id = outputs
     run_folder = find_run(run_id, settings)
     windows = [window.folder for window in load_manifest(run_id, settings).windows]
-    _picked_by_hand(run_folder / "xmid_8.88")
-    image = (run_folder / "xmid_8.88" / "DispersionImage_0000.hdf5").read_bytes()
+    _picked_by_hand(run_folder / "xmid_53.25")
+    image = (run_folder / "xmid_53.25" / "DispersionImage_0000.hdf5").read_bytes()
 
     # The images are the line's: one window's alone is no redo of them.
     with pytest.raises(RunError, match="the line's, the same for every window"):
-        redo_stage(run_id, "phase_shift", ["xmid_8.88"], {"dispersion": {"vmax": 900}}, settings)
+        redo_stage(run_id, "phase_shift", ["xmid_53.25"], {"dispersion": {"vmax": 900}}, settings)
     redo_stage(run_id, "phase_shift", windows, {"dispersion": {"vmax": 900}}, settings)
 
     # The person's window keeps its image; the line's others are made with the new range.
-    assert (run_folder / "xmid_8.88" / "DispersionImage_0000.hdf5").read_bytes() == image
-    assert load_image(run_folder / "xmid_2.88").vs.max() == pytest.approx(900.0)
-    np.testing.assert_allclose(load_image(run_folder / "xmid_8.88").vs.max(), 1000.0)
+    assert (run_folder / "xmid_53.25" / "DispersionImage_0000.hdf5").read_bytes() == image
+    assert load_image(run_folder / "xmid_17.25").vs.max() == pytest.approx(900.0)
+    np.testing.assert_allclose(load_image(run_folder / "xmid_53.25").vs.max(), 1000.0)
     # Every window a person's: nothing left to redo.
     for window in windows:
         _picked_by_hand(run_folder / window)
@@ -280,22 +281,25 @@ def test_inspect_reads_each_run_and_who_made_it_changing_nothing(
 ) -> None:
     settings, pac, judged = outputs
     run_folder = find_run(pac, settings)
-    _picked_by_hand(run_folder / "xmid_2.88")
+    _picked_by_hand(run_folder / "xmid_17.25")
     stamps = {
         path: path.stat().st_mtime for path in settings.output_dir.rglob("*") if path.is_file()
     }
 
     runs = inspection.runs_text(settings)
     one = inspection.run_text(judged, settings)
-    window = inspection.window_text(pac, 3.0, settings)
+    window = inspection.window_text(pac, 18.0, settings)
 
-    assert f"Run {pac}: active_p1 (active), processed by PAC's pages" in runs
-    assert f"Run {judged}: active_p1 (active), processed by the assistant" in runs
+    assert f"Run {pac}: active_p2 (active), processed by PAC's pages" in runs
+    assert f"Run {judged}: active_p2 (active), processed by the assistant" in runs
     assert "1 M0 curves (1 by hand)" in runs
-    # Alike windows next to each other in one line, their count said.
+    # Alike windows next to each other in one line, their count said: xmid 89.25 and 125.25,
+    # whose curves G3 and G4 both passed.
     assert "Settings: mode active" in one and "Retries: " in one
-    assert any(line.startswith("xmid 2.88-") and "(" in line for line in one.splitlines()[3:])
-    assert window.startswith("xmid 2.88 (the nearest to 3 m): image by hand; M0 by hand; no model.")
+    assert any(line.startswith("xmid 89.25-") and "(" in line for line in one.splitlines()[3:])
+    assert window.startswith(
+        "xmid 17.25 (the nearest to 18 m): image by hand; M0 by hand; no model."
+    )
     assert "M0 (by hand): 16 points, 10-40 Hz" in window
     after = {
         path: path.stat().st_mtime for path in settings.output_dir.rglob("*") if path.is_file()
@@ -309,17 +313,18 @@ def test_positions_are_the_nearest_windows_the_line_holds(
     settings, pac, _ = outputs
     manifest = load_manifest(pac, settings)
 
-    units, read = at_positions(manifest, [9.0, 3.1, 8.0])
+    units, read = at_positions(manifest, [54.0, 18.6, 48.0])
 
-    assert units == ["xmid_2.88", "xmid_8.88"]
+    assert units == ["xmid_17.25", "xmid_53.25"]
     assert read == (
-        "9 m: xmid 8.88, window 2 of 4; 3.1 m: xmid 2.88, window 1 of 4; "
-        "8 m: xmid 8.88, window 2 of 4"
+        "54 m: xmid 53.25, window 2 of 4; 18.6 m: xmid 17.25, window 1 of 4; "
+        "48 m: xmid 53.25, window 2 of 4"
     )
     with pytest.raises(
-        RunError, match=r"50 m is off the line of run .*: its windows are at xmid 2\.88 to 20\.88 m"
+        RunError,
+        match=r"300 m is off the line of run .*: its windows are at xmid 17\.25 to 125\.25 m",
     ):
-        at_positions(manifest, [50.0])
+        at_positions(manifest, [300.0])
 
 
 def test_a_window_given_in_metres_is_the_nearest_receiver_count() -> None:

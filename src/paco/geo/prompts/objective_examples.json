@@ -1,0 +1,36 @@
+[
+  {
+    "message": "Process active_p1 and give me Vs down to 15 m, as deep as you can.",
+    "form": {"invert": true, "profile": "active_p1", "target_depth_m": 15, "priority": "depth"}
+  },
+  {
+    "message": "Quick look at line_b: soft clay over chalk, the water table is near 2 m.",
+    "form": {
+      "pick": true,
+      "profile": "line_b",
+      "effort": "quick",
+      "site_notes": "soft clay over chalk, the water table near 2 m"
+    }
+  },
+  {
+    "message": "Dispersion curves of active_p1 with windows of 24 receivers, lateral detail first, take your time.",
+    "form": {
+      "pick": true,
+      "profile": "active_p1",
+      "length_receivers": 24,
+      "priority": "lateral",
+      "effort": "thorough"
+    }
+  },
+  {
+    "message": "Process line_c with velocities up to 600 m/s and invert it with 10,000 iterations, Vs between 120 and 450 m/s.",
+    "form": {
+      "invert": true,
+      "profile": "line_c",
+      "vmax_m_s": 600,
+      "iterations": 10000,
+      "vs_min_m_s": 120,
+      "vs_max_m_s": 450
+    }
+  }
+]

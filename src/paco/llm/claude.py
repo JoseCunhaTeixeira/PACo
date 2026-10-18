@@ -1,0 +1,555 @@
+"""The Anthropic client (docs/geo_plan.md §3): PACo's ChatModel protocol over Anthropic's own API,
+for Claude, beside the client of OpenAI's chat API (paco.llm.model). The host and PACo's agent write
+the conversation in OpenAI's format; this client reads it into Anthropic's: the system prompt apart,
+each call a tool_use block, each result a tool_result block in the user's next message, the figures
+that follow a result inside it (Anthropic's API takes images in a tool's result, OpenAI's in user
+messages only), the state card after the results.
+
+What Claude's API adds, used here:
+
+- Prompt caching: the tools, the system prompt and the conversation up to the model's last reply
+  are marked for the cache, so that each call reads them back; the host keeps the prompt's
+  beginning the same from call to call (§7.2).
+- Thinking as the model takes it, which the models API says: adaptive where it can, else a budget
+  of tokens; its blocks given back unchanged with the calls they led to, as the API asks within a
+  tool loop. The effort (PACO_LLM_EFFORT), where the model takes it.
+- A form is the input of a tool the model must call, under the form's schema, without thinking;
+  for a model that cannot leave thinking out, its output constrained to the schema; where it
+  takes neither, the form's tool offered and its call asked.
+
+The same client speaks to Claude on Google Cloud's Vertex AI, on Amazon Bedrock and on Microsoft
+Foundry, through the SDK's clients for them (paco.llm.chat). Their APIs serve no models API: what
+the model takes is asked once, by requests of a few tokens, a refusal meaning no.
+
+Its errors are raised as the OpenAI SDK's of the same kind, which the host, PACo's runner and the
+evaluation tell apart: a server out of reach loses a play, a refusal fails it."""
+
+import json
+import logging
+import re
+from collections.abc import Awaitable, Callable, Sequence
+from typing import Any, cast
+
+import anthropic
+import anyio
+import openai
+from anthropic import AsyncAnthropic, AsyncAnthropicFoundry, Omit, omit, transform_schema
+from anthropic.lib.bedrock import AsyncAnthropicBedrockMantle
+from anthropic.lib.vertex import AsyncAnthropicVertex
+from anthropic.types import (
+    ContentBlockParam,
+    Message,
+    MessageParam,
+    ModelCapabilities,
+    OutputConfigParam,
+    TextBlockParam,
+    ThinkingConfigParam,
+    ToolChoiceParam,
+    ToolParam,
+    Usage,
+)
+from openai.types.chat import ChatCompletionFunctionToolParam, ChatCompletionMessageParam
+
+from paco.llm.model import images
+from paco.llm.protocol import RECONNECT_S, Filled, Reply, ToolCall
+from paco.llm.reconnecting import reconnecting
+from paco.llm.settings import Effort
+
+logger = logging.getLogger(__name__)
+
+# The tokens of a reply, its thinking included: past some 21,000 the SDK asks for a stream.
+REPLY_TOKENS = 16_000
+# Thinking's budget, where the model takes a budget rather than adaptive thinking.
+THINKING_TOKENS = 8_000
+# A form's tokens: PACo's 400 are a small model's; Claude's forms come back whole within these.
+FORM_TOKENS = 2_000
+# The tool whose input is a form.
+FORM_TOOL = "form"
+# Claude's API, Anthropic's own or a cloud platform's.
+type Client = (
+    AsyncAnthropic | AsyncAnthropicVertex | AsyncAnthropicBedrockMantle | AsyncAnthropicFoundry
+)
+# A request asking only whether the model takes a parameter: its message and tokens, a budget's
+# tokens beside, and the schema of a probed structured output.
+PROBE = "Reply with OK."
+PROBE_TOKENS = 16
+PROBE_BUDGET = 1_024
+PROBE_SCHEMA: dict[str, Any] = {
+    "type": "object",
+    "properties": {"ok": {"type": "boolean"}},
+    "required": ["ok"],
+    "additionalProperties": False,
+}
+# An image of one pixel, to ask whether the model takes images.
+DOT = "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNkYAAAAAYAAjCB0C8AAAAASUVORK5CYII="
+# What a form's tool, offered without forcing it, is asked with.
+FILL = "Fill the form now: call the tool form, whose fields are your answer."
+CACHED: dict[str, Any] = {"type": "ephemeral"}
+_DATA_URL = re.compile(r"data:(?P<type>[\w/+.-]+);base64,(?P<data>.+)", re.DOTALL)
+# The OpenAI SDK's errors, by the status Anthropic's API answered.
+_STATUS: dict[int, type[openai.APIStatusError]] = {
+    400: openai.BadRequestError,
+    401: openai.AuthenticationError,
+    403: openai.PermissionDeniedError,
+    404: openai.NotFoundError,
+    409: openai.ConflictError,
+    422: openai.UnprocessableEntityError,
+    429: openai.RateLimitError,
+}
+
+
+class AnthropicChat:
+    """Claude through Anthropic's API, as PACo's ChatModel: `vision`, `thinking` and `effort` as
+    the settings give them (PACO_LLM_*). A conversation holding an image is refused without
+    vision, before anything is sent. A server that refuses or drops the connection is asked
+    again for up to `reconnect_s`, waiting with `sleep`, as the other client does."""
+
+    def __init__(
+        self,
+        client: Client,
+        model: str,
+        *,
+        vision: bool = False,
+        thinking: bool = True,
+        effort: Effort | None = None,
+        reconnect_s: float = RECONNECT_S,
+        sleep: Callable[[float], Awaitable[None]] = anyio.sleep,
+    ) -> None:
+        self._client = client
+        self.name = model
+        self.vision = vision
+        self.thinking = thinking
+        self.effort: Effort | None = effort
+        self._reconnect_s = reconnect_s
+        self._sleep = sleep
+        # What the models API says of the model, asked once: None when it did not answer.
+        self._asked = False
+        self._capabilities: ModelCapabilities | None = None
+        self._max_tokens: int | None = None
+        # Each reply that made calls, its content blocks as they came, by each call's id.
+        self._replies: dict[str, list[dict[str, Any]]] = {}
+
+    async def __call__(
+        self,
+        messages: list[ChatCompletionMessageParam],
+        tools: list[ChatCompletionFunctionToolParam],
+        *,
+        thinking: bool | None = None,
+        parallel: bool = False,
+    ) -> Reply:
+        """The model's reply to `messages`, offered `tools`. It thinks first if `thinking` says so
+        (None: the client's own). Several tool calls come in one reply only when `parallel`."""
+        self._refuse_images(messages)
+        await self._described()
+        think = self.thinking if thinking is None else thinking
+        system, turns = self._converted(messages)
+        offered = _tools(tools)
+        choice: ToolChoiceParam = {"type": "auto", "disable_parallel_tool_use": not parallel}
+        config = self._thinking(think)
+        effort = self._effort()
+        response = await self._create(
+            lambda: self._client.messages.create(
+                model=self.name,
+                max_tokens=self._tokens(REPLY_TOKENS),
+                system=system,
+                messages=turns,
+                tools=offered or omit,
+                tool_choice=choice if offered else omit,
+                thinking=config if config is not None else omit,
+                output_config={"effort": effort} if effort is not None else omit,
+            )
+        )
+        calls = tuple(
+            ToolCall(id=block.id, name=block.name, arguments=json.dumps(block.input))
+            for block in response.content
+            if block.type == "tool_use"
+        )
+        if calls:
+            kept = [block.model_dump(mode="json", exclude_none=True) for block in response.content]
+            self._replies |= dict.fromkeys((call.id for call in calls), kept)
+        prompt, cached, completion = _tokens(response.usage)
+        return Reply(
+            content=_text(response),
+            tool_calls=calls,
+            prompt_tokens=prompt,
+            completion_tokens=completion,
+            cached_tokens=cached,
+        )
+
+    async def fill(
+        self,
+        messages: list[ChatCompletionMessageParam],
+        schema: dict[str, Any],
+    ) -> Filled:
+        """A form filled under `schema`: the input of the tool the model must call, without
+        thinking (the API takes no temperature); or, for a model that cannot leave thinking out,
+        its output constrained to the schema."""
+        self._refuse_images(messages)
+        await self._described()
+        system, turns = self._converted(messages)
+        capabilities = self._capabilities
+        silent = capabilities is None or capabilities.thinking.types.disabled.supported
+        constrained = capabilities is not None and capabilities.structured_outputs.supported
+        form: ToolParam = {
+            "name": FORM_TOOL,
+            "description": "Fill the form: its fields are your answer.",
+            "input_schema": cast(Any, schema),
+        }
+        tools: list[ToolParam] | Omit = omit
+        choice: ToolChoiceParam | Omit = omit
+        output: OutputConfigParam | Omit = omit
+        thinking: ThinkingConfigParam | Omit = omit
+        if silent:
+            tools, choice, thinking = (
+                [form],
+                {"type": "tool", "name": FORM_TOOL},
+                {"type": "disabled"},
+            )
+        elif constrained:
+            # The schema in the subset structured outputs take: what they do not (a list's
+            # longest) goes into its description; the form is checked after, as every form.
+            output = {"format": {"type": "json_schema", "schema": transform_schema(schema)}}
+        else:
+            # Neither (Bedrock's Messages endpoint, for a model that always thinks): the tool
+            # offered, its call asked; a form not called comes back as text, checked as any.
+            tools, choice = [form], {"type": "auto", "disable_parallel_tool_use": True}
+            asked: TextBlockParam = {"type": "text", "text": FILL}
+            system = [*system, asked]
+        response = await self._create(
+            lambda: self._client.messages.create(
+                model=self.name,
+                max_tokens=self._tokens(FORM_TOKENS),
+                system=system,
+                messages=turns,
+                tools=tools,
+                tool_choice=choice,
+                output_config=output,
+                thinking=thinking,
+            )
+        )
+        filled = next((block.input for block in response.content if block.type == "tool_use"), None)
+        prompt, cached, completion = _tokens(response.usage)
+        return Filled(
+            content=json.dumps(filled) if filled is not None else _text(response),
+            prompt_tokens=prompt,
+            completion_tokens=completion,
+            cached_tokens=cached,
+        )
+
+    async def takes_images(self) -> bool:
+        """Whether the model takes images: as the models API says, or as the model answered where
+        its platform has none; a proxy that says nothing: as Claude's models do."""
+        await self._described()
+        return self._capabilities is None or self._capabilities.image_input.supported
+
+    async def _described(self) -> None:
+        """The model's capabilities and its most tokens, from the models API, asked once; its
+        defaults where the API does not say (a proxy that does not serve it); asked of the model
+        itself where its platform serves no models API."""
+        if self._asked:
+            return
+        self._asked = True
+        client = self._client
+        if isinstance(
+            client, AsyncAnthropicVertex | AsyncAnthropicBedrockMantle | AsyncAnthropicFoundry
+        ):
+            self._capabilities = await self._probed()
+            return
+        try:
+            info = await client.models.retrieve(self.name)
+        except anthropic.APIError as error:
+            logger.warning(
+                "Anthropic's models API did not describe %s (%s): its defaults are used",
+                self.name,
+                error,
+            )
+            return
+        self._capabilities = info.capabilities
+        self._max_tokens = info.max_tokens
+
+    async def _probed(self) -> ModelCapabilities:
+        """What the model takes where no models API says it (Vertex AI, Bedrock, Foundry), asked
+        by requests of a few tokens, a refusal meaning no: thinking adaptive, else with a budget;
+        thinking off; the effort the settings give; structured outputs, which a form needs where
+        thinking cannot be off; images, when vision is on."""
+        adaptive = await self._takes(thinking={"type": "adaptive"})
+        budget: ThinkingConfigParam = {"type": "enabled", "budget_tokens": PROBE_BUDGET}
+        enabled = not adaptive and await self._takes(thinking=budget, tokens=PROBE_BUDGET * 2)
+        disabled = await self._takes(thinking={"type": "disabled"})
+        effort = self.effort is not None and await self._takes(output={"effort": self.effort})
+        schema: OutputConfigParam = {"format": {"type": "json_schema", "schema": PROBE_SCHEMA}}
+        structured = not disabled and await self._takes(output=schema)
+        seen = self.vision and await self._takes(image=True)
+        logger.info(
+            "%s, asked: thinking adaptive %s, budgeted %s, off %s; effort %s %s; structured "
+            "outputs %s; images %s",
+            self.name, adaptive, enabled, disabled, self.effort, effort, structured, seen,
+        )  # fmt: skip
+        no = {"supported": False}
+        return ModelCapabilities.model_validate(
+            {
+                "batch": no,
+                "citations": no,
+                "code_execution": no,
+                "pdf_input": no,
+                "context_management": no,
+                "server_tools": {"supported": False, "code_execution": no, "web_search": no},
+                "effort": {
+                    "supported": effort,
+                    **{
+                        level: {"supported": effort and level == self.effort}
+                        for level in ("low", "medium", "high", "xhigh", "max")
+                    },
+                },
+                "image_input": {"supported": seen},
+                "structured_outputs": {"supported": structured},
+                "thinking": {
+                    "supported": adaptive or enabled,
+                    "types": {
+                        "adaptive": {"supported": adaptive},
+                        "between_tools": no,
+                        "disabled": {"supported": disabled},
+                        "enabled": {"supported": enabled},
+                    },
+                },
+            }
+        )
+
+    async def _takes(
+        self,
+        *,
+        thinking: ThinkingConfigParam | Omit = omit,
+        output: OutputConfigParam | Omit = omit,
+        image: bool = False,
+        tokens: int = PROBE_TOKENS,
+    ) -> bool:
+        """Whether the model takes `thinking`, `output` or an image: a request of a few tokens
+        not refused. Other errors are raised: a key refused, a model not there."""
+        content: list[ContentBlockParam] = [{"type": "text", "text": PROBE}]
+        if image:
+            picture: ContentBlockParam = {
+                "type": "image",
+                "source": {"type": "base64", "media_type": "image/png", "data": DOT},
+            }
+            content.insert(0, picture)
+        try:
+            await self._create(
+                lambda: self._client.messages.create(
+                    model=self.name,
+                    max_tokens=tokens,
+                    messages=[{"role": "user", "content": content}],
+                    thinking=thinking,
+                    output_config=output,
+                )
+            )
+        except openai.BadRequestError:
+            return False
+        return True
+
+    def _thinking(self, think: bool) -> ThinkingConfigParam | None:
+        """Thinking as the model takes it: adaptive where it can, else a budget; off where it
+        can be turned off; None (the model's default) where the models API did not say."""
+        capabilities = self._capabilities
+        if capabilities is None:
+            return None
+        kinds = capabilities.thinking.types
+        if think and capabilities.thinking.supported:
+            if kinds.adaptive.supported:
+                return {"type": "adaptive"}
+            if kinds.enabled.supported:
+                budget = max(1024, min(THINKING_TOKENS, self._tokens(REPLY_TOKENS) // 2))
+                return {"type": "enabled", "budget_tokens": budget}
+            return None
+        if not think and kinds.disabled.supported:
+            return {"type": "disabled"}
+        return None
+
+    def _effort(self) -> Effort | None:
+        """The effort the settings give, where the model takes that level."""
+        capabilities = self._capabilities
+        if self.effort is None or capabilities is None or not capabilities.effort.supported:
+            return None
+        level = getattr(capabilities.effort, self.effort, None)
+        if level is None or not level.supported:
+            logger.warning("%s takes no effort %s: its default is used", self.name, self.effort)
+            return None
+        return self.effort
+
+    def _tokens(self, wanted: int) -> int:
+        return min(wanted, self._max_tokens) if self._max_tokens else wanted
+
+    async def _create(self, request: Callable[[], Awaitable[Message]]) -> Message:
+        """`request`'s message; its errors raised as the OpenAI SDK's, asked again while the
+        server refuses or drops the connection."""
+
+        async def create() -> Message:
+            try:
+                return await request()
+            except anthropic.APIError as error:
+                raise as_openai(error) from error
+
+        return await reconnecting(create, self._client.base_url, self._reconnect_s, self._sleep)
+
+    def _refuse_images(self, messages: list[ChatCompletionMessageParam]) -> None:
+        """Refuse `messages` when they hold an image and vision is off: nothing is sent."""
+        if not self.vision and (count := images(messages)):
+            raise ValueError(
+                f"The conversation holds {count} image(s) but vision is off "
+                "(PACO_LLM_VISION): no image may reach the model."
+            )
+
+    def _converted(
+        self, messages: list[ChatCompletionMessageParam]
+    ) -> tuple[list[TextBlockParam], list[MessageParam]]:
+        """`messages`, in OpenAI's format, as Anthropic's API takes them: the system prompt, and
+        the turns, a role's messages in a row merged into one, each result first in its turn,
+        the cache marked at the end of the system prompt and of the turns before the model's
+        last reply."""
+        system: list[dict[str, Any]] = []
+        turns: list[dict[str, Any]] = []
+        previous = ""
+        for message in cast(list[dict[str, Any]], messages):
+            role = str(message["role"])
+            content = message.get("content")
+            if role in ("system", "developer"):
+                if text := _plain(content):
+                    system.append({"type": "text", "text": text})
+            elif role == "assistant":
+                _join(turns, "assistant", self._assistant(message))
+            elif role == "tool":
+                result = {
+                    "type": "tool_result",
+                    "tool_use_id": str(message["tool_call_id"]),
+                    "content": _plain(content) or "(empty)",
+                }
+                _join(turns, "user", [result])
+            elif previous == "tool" and isinstance(content, list) and turns:
+                # The figures that follow a result: inside it.
+                last = cast(dict[str, Any], turns[-1]["content"][-1])
+                if last.get("type") == "tool_result":
+                    said = last["content"]
+                    blocks = [{"type": "text", "text": said}] if isinstance(said, str) else said
+                    last["content"] = [*blocks, *_user(content)]
+                else:
+                    _join(turns, "user", _user(content))
+            else:
+                _join(turns, "user", _user(content))
+            previous = role
+        if system:
+            system[-1]["cache_control"] = CACHED
+        replies = [index for index, turn in enumerate(turns) if turn["role"] == "assistant"]
+        if replies and replies[-1] > 0:
+            turns[replies[-1] - 1]["content"][-1]["cache_control"] = CACHED
+        return cast(list[TextBlockParam], system), cast(list[MessageParam], turns)
+
+    def _assistant(self, message: dict[str, Any]) -> list[dict[str, Any]]:
+        """An assistant message as content blocks: the reply as it came when this client made it
+        (its thinking given back with its calls), else its text and calls."""
+        calls = cast(list[dict[str, Any]], message.get("tool_calls") or [])
+        if calls and (kept := self._replies.get(str(calls[0]["id"]))) is not None:
+            return [dict(block) for block in kept]
+        blocks: list[dict[str, Any]] = []
+        if text := _plain(message.get("content")).strip():
+            blocks.append({"type": "text", "text": text})
+        for call in calls:
+            function = cast(dict[str, Any], call["function"])
+            blocks.append(
+                {
+                    "type": "tool_use",
+                    "id": str(call["id"]),
+                    "name": str(function["name"]),
+                    "input": _input(function.get("arguments")),
+                }
+            )
+        return blocks
+
+
+def as_openai(error: anthropic.APIError) -> openai.APIError:
+    """`error` as the OpenAI SDK's error of the same kind."""
+    if isinstance(error, anthropic.APITimeoutError):
+        return openai.APITimeoutError(request=error.request)
+    if isinstance(error, anthropic.APIConnectionError):
+        return openai.APIConnectionError(message=error.message, request=error.request)
+    if isinstance(error, anthropic.APIStatusError):
+        status = error.status_code
+        default = openai.InternalServerError if status >= 500 else openai.APIStatusError
+        return _STATUS.get(status, default)(error.message, response=error.response, body=error.body)
+    return openai.APIError(error.message, error.request, body=error.body)
+
+
+def _tools(tools: Sequence[ChatCompletionFunctionToolParam]) -> list[ToolParam]:
+    """The tools as Anthropic's API takes them, the last marked for the cache."""
+    converted: list[dict[str, Any]] = []
+    for tool in tools:
+        function = cast(dict[str, Any], tool["function"])
+        converted.append(
+            {
+                "name": function["name"],
+                "description": function.get("description") or "",
+                "input_schema": function.get("parameters") or {"type": "object", "properties": {}},
+            }
+        )
+    if converted:
+        converted[-1]["cache_control"] = CACHED
+    return cast(list[ToolParam], converted)
+
+
+def _join(turns: list[dict[str, Any]], role: str, blocks: list[dict[str, Any]]) -> None:
+    """`blocks` added to the turns: into the last one when it is `role`'s, the results first."""
+    if not blocks:
+        return
+    if not turns or turns[-1]["role"] != role:
+        turns.append({"role": role, "content": blocks})
+        return
+    merged = [*turns[-1]["content"], *blocks]
+    results = [block for block in merged if block.get("type") == "tool_result"]
+    turns[-1]["content"] = results + [
+        block for block in merged if block.get("type") != "tool_result"
+    ]
+
+
+def _user(content: object) -> list[dict[str, Any]]:
+    """A user message's content as blocks: its text, and its images from their data URLs."""
+    if isinstance(content, str):
+        return [{"type": "text", "text": content}] if content.strip() else []
+    blocks: list[dict[str, Any]] = []
+    for part in cast(list[dict[str, Any]], content or []):
+        if part.get("type") == "text" and str(part.get("text") or "").strip():
+            blocks.append({"type": "text", "text": str(part["text"])})
+        elif part.get("type") == "image_url":
+            url = str(cast(dict[str, Any], part["image_url"])["url"])
+            if (found := _DATA_URL.fullmatch(url)) is not None:
+                source = {"type": "base64", "media_type": found["type"], "data": found["data"]}
+            else:
+                source = {"type": "url", "url": url}
+            blocks.append({"type": "image", "source": source})
+    return blocks
+
+
+def _plain(content: object) -> str:
+    """A message's text: its string, or its text parts."""
+    if isinstance(content, str):
+        return content
+    parts = cast(list[dict[str, Any]], content or [])
+    return "\n".join(str(part.get("text") or "") for part in parts if part.get("type") == "text")
+
+
+def _input(arguments: object) -> dict[str, Any]:
+    """A call's arguments as a tool_use's input: an object, empty when they did not parse."""
+    try:
+        parsed = json.loads(str(arguments or "{}"))
+    except json.JSONDecodeError:
+        return {}
+    return cast(dict[str, Any], parsed) if isinstance(parsed, dict) else {}
+
+
+def _text(response: Message) -> str:
+    return "\n".join(block.text for block in response.content if block.type == "text").strip()
+
+
+def _tokens(usage: Usage) -> tuple[int, int, int]:
+    """The prompt tokens the model read (those read from the cache and written to it included),
+    those read from the cache, and the tokens it wrote."""
+    read = usage.cache_read_input_tokens or 0
+    written = usage.cache_creation_input_tokens or 0
+    return usage.input_tokens + read + written, read, usage.output_tokens

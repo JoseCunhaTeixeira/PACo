@@ -425,7 +425,7 @@ def test_the_line_imaged_again_is_picked_again_but_the_windows_g2_rejects(
     # not picked, the others are, and the line keeps their curves for G4.
     monkeypatch.chdir(tmp_path)
     settings = Settings(input_dir=demo_input_dir, output_dir=tmp_path / "outputs", workers=2)
-    run_id = run_processing("active_p1", "active", SMALL_WINDOWS, settings).run_id
+    run_id = run_processing("active_p2", "active", SMALL_WINDOWS, settings).run_id
     judge_run(run_id, settings, QCConfig())
     run_folder = find_run(run_id, settings)
     windows = [window.folder for window in load_manifest(run_id, settings).windows]
@@ -433,15 +433,15 @@ def test_the_line_imaged_again_is_picked_again_but_the_windows_g2_rejects(
 
     def rejecting(*args: Any, **kwargs: Any) -> None:  # noqa: ANN401
         judged(*args, **kwargs)
-        attempt = latest(read_attempts(run_folder), "xmid_2.88", "phase_shift")
+        attempt = latest(read_attempts(run_folder), "xmid_17.25", "phase_shift")
         assert attempt is not None
         g2 = attempt.results["G2"].model_copy(update={"verdict": "reject"})
-        record_result(run_folder, "xmid_2.88", "phase_shift", attempt.attempt, g2)
+        record_result(run_folder, "xmid_17.25", "phase_shift", attempt.attempt, g2)
 
     monkeypatch.setattr(redo, "judge_images", rejecting)
     with pytest.raises(RunError, match="the line's, the same for every window"):
         redo.redo_stage(
-            run_id, "phase_shift", ["xmid_2.88"], {"dispersion": {"vmax": 900}}, settings
+            run_id, "phase_shift", ["xmid_17.25"], {"dispersion": {"vmax": 900}}, settings
         )
     redo.redo_stage(run_id, "phase_shift", windows, {"dispersion": {"vmax": 900}}, settings)
 
@@ -452,7 +452,7 @@ def test_the_line_imaged_again_is_picked_again_but_the_windows_g2_rejects(
         assert attempt.parameters == {"dispersion": {"vmax": 900}}
     assert load_manifest(run_id, settings).preset.model_dump()["dispersion"]["vmax"] == 900
     picked = {a.unit for a in attempts if a.stage == "picking" and a.triggered_by != "initial"}
-    assert picked == set(windows) - {"xmid_2.88"}
+    assert picked == set(windows) - {"xmid_17.25"}
     line = latest(attempts, LINE, "picking")
     assert line is not None and line.results["G4"].verdict == "pass"
 
@@ -833,12 +833,12 @@ def test_describe_each_action() -> None:
 def processed(
     demo_input_dir: Path, tmp_path_factory: pytest.TempPathFactory
 ) -> tuple[Settings, str]:
-    """active_p1 processed once, in four 24-receiver windows."""
+    """active_p2 processed once, in four 24-receiver windows."""
     root = tmp_path_factory.mktemp("rerun")
     settings = Settings(input_dir=demo_input_dir, output_dir=root / "outputs", workers=2)
     with pytest.MonkeyPatch.context() as patch:
         patch.chdir(root)
-        summary = run_processing("active_p1", "active", SMALL_WINDOWS, settings)
+        summary = run_processing("active_p2", "active", SMALL_WINDOWS, settings)
     return settings, summary.run_id
 
 
@@ -848,48 +848,53 @@ def test_the_phase_shift_done_again_keeps_the_old_results_and_logs_the_attempt(
     monkeypatch.chdir(tmp_path)
     settings, run_id = processed
     run_folder = find_run(run_id, settings)
-    before = (run_folder / "xmid_2.88" / "DispersionImage_0000.hdf5").read_bytes()
+    before = (run_folder / "xmid_17.25" / "DispersionImage_0000.hdf5").read_bytes()
 
     outcomes = rerun_phase_shift(
         run_id,
-        ["xmid_2.88", "xmid_8.88"],
+        ["xmid_17.25", "xmid_53.25"],
         {"dispersion": {"vmax": 500}},
         settings,
         "G2:ridge_at_vmax",
     )
 
     assert [(outcome.folder, outcome.status) for outcome in outcomes] == [
-        ("xmid_2.88", "succeeded"),
-        ("xmid_8.88", "succeeded"),
+        ("xmid_17.25", "succeeded"),
+        ("xmid_53.25", "succeeded"),
     ]
     # The first attempt's image is kept; the new one has the new velocity range.
-    archive = run_folder / "xmid_2.88" / ATTEMPTS_FOLDER / "1_phase_shift"
+    archive = run_folder / "xmid_17.25" / ATTEMPTS_FOLDER / "1_phase_shift"
     assert (archive / "DispersionImage_0000.hdf5").read_bytes() == before
-    assert load_image(run_folder / "xmid_2.88").vs.max() == pytest.approx(500.0)
-    assert load_image(run_folder / "xmid_14.88").vs.max() == pytest.approx(1000.0)  # untouched
+    assert load_image(run_folder / "xmid_17.25").vs.max() == pytest.approx(500.0)
+    assert load_image(run_folder / "xmid_89.25").vs.max() == pytest.approx(1000.0)  # untouched
     # The log holds the run's first attempts, then the two new ones.
     attempts = read_attempts(run_folder)
     assert [(a.unit, a.stage, a.attempt, a.triggered_by) for a in attempts] == [
-        ("1.dat", "preprocessing", 1, "initial"),
-        ("2.dat", "preprocessing", 1, "initial"),
-        ("xmid_2.88", "phase_shift", 1, "initial"),
-        ("xmid_8.88", "phase_shift", 1, "initial"),
-        ("xmid_14.88", "phase_shift", 1, "initial"),
-        ("xmid_20.88", "phase_shift", 1, "initial"),
-        ("xmid_2.88", "phase_shift", 2, "G2:ridge_at_vmax"),
-        ("xmid_8.88", "phase_shift", 2, "G2:ridge_at_vmax"),
+        ("101.dat", "preprocessing", 1, "initial"),
+        ("117.dat", "preprocessing", 1, "initial"),
+        ("133.dat", "preprocessing", 1, "initial"),
+        ("149.dat", "preprocessing", 1, "initial"),
+        ("165.dat", "preprocessing", 1, "initial"),
+        ("181.dat", "preprocessing", 1, "initial"),
+        ("197.dat", "preprocessing", 1, "initial"),
+        ("xmid_17.25", "phase_shift", 1, "initial"),
+        ("xmid_53.25", "phase_shift", 1, "initial"),
+        ("xmid_89.25", "phase_shift", 1, "initial"),
+        ("xmid_125.25", "phase_shift", 1, "initial"),
+        ("xmid_17.25", "phase_shift", 2, "G2:ridge_at_vmax"),
+        ("xmid_53.25", "phase_shift", 2, "G2:ridge_at_vmax"),
     ]
     assert attempts[-1].parameters == {"dispersion": {"vmax": 500}}
     assert attempts[-1].status == "succeeded"
     # Asked of the agent (a backtrack): the window's image afresh, nothing older of it left, but
     # what its retry cost the run's budget.
     spent = retries_in_run(read_attempts(run_folder))
-    rerun_phase_shift(run_id, ["xmid_2.88"], {"dispersion": {"vmax": 600}}, settings)
+    rerun_phase_shift(run_id, ["xmid_17.25"], {"dispersion": {"vmax": 600}}, settings)
     attempts = read_attempts(run_folder)
-    own = [(a.attempt, a.triggered_by, a.forgotten) for a in attempts if a.unit == "xmid_2.88"]
+    own = [(a.attempt, a.triggered_by, a.forgotten) for a in attempts if a.unit == "xmid_17.25"]
     assert own == [(1, "backtrack", 1)]
-    assert archived_attempts(run_folder / "xmid_2.88") == ()
-    assert load_image(run_folder / "xmid_2.88").vs.max() == pytest.approx(600.0)
+    assert archived_attempts(run_folder / "xmid_17.25") == ()
+    assert load_image(run_folder / "xmid_17.25").vs.max() == pytest.approx(600.0)
     assert retries_in_run(attempts) == spent + 1
 
 
@@ -897,11 +902,11 @@ def test_windows_cannot_move_and_must_exist(processed: tuple[Settings, str]) -> 
     settings, run_id = processed
 
     with pytest.raises(RunError, match="masw cannot change"):
-        rerun_phase_shift(run_id, ["xmid_2.88"], {"masw": {"length": 12}}, settings)
+        rerun_phase_shift(run_id, ["xmid_17.25"], {"masw": {"length": 12}}, settings)
     with pytest.raises(
-        RunError, match=r"no window xmid_3\.00\. Its windows: xmid_2\.88, xmid_8\.88"
+        RunError, match=r"no window xmid_18\.00\. Its windows: xmid_17\.25, xmid_53\.25"
     ):
-        rerun_phase_shift(run_id, ["xmid_3.00"], {}, settings)
+        rerun_phase_shift(run_id, ["xmid_18.00"], {}, settings)
 
 
 def test_apply_overrides_merges_a_stage_and_replaces_a_method() -> None:
@@ -931,69 +936,93 @@ def test_judge_run_puts_the_four_gates_in_the_log_and_the_report(
     # A run of its own: the shared one has windows done again with other velocity ranges.
     monkeypatch.chdir(tmp_path)
     settings = Settings(input_dir=demo_input_dir, output_dir=tmp_path / "outputs", workers=2)
-    run_id = run_processing("active_p1", "active", SMALL_WINDOWS, settings).run_id
+    run_id = run_processing("active_p2", "active", SMALL_WINDOWS, settings).run_id
     run_folder = find_run(run_id, settings)
 
     report = judge_run(run_id, settings, QCConfig())
 
     assert (run_folder / CONFIG_FILE).exists()
     assert read_report(run_folder) == report
-    # G1 on the two records: their files say the shot comes 20 ms in, where the first breaks put
-    # it (within 10 ms); not muted, nothing to correct (the trigger is part of the muting).
-    for name in ("1.dat", "2.dat"):
+    # G1 on the seven records: their files say the shot comes 20 ms in; the first breaks put it
+    # 16 and 27 ms earlier on 133.dat and 165.dat, past G1's 10 ms, but no record is muted:
+    # nothing to correct (the trigger is part of the muting).
+    for name in ("101.dat", "117.dat", "133.dat", "149.dat", "165.dat", "181.dat", "197.dat"):
         unit = next(unit for unit in report.units if unit.unit == name)
         assert "shifted_trigger" not in {flag.name for flag in unit.flags.get("G1", ())}
-    # G2 and G3 on the four windows: G3 passes the four 24-receiver windows, their picks
-    # followed past their ends (xmid 20.88, the line's last window, keeps 34 points), its kept
-    # flags said: the long wavelengths past three window lengths, the shots nearer than half the
-    # longest, an inverse trend.
+    # G2 and G3 on the four windows: G3 passes three of the four 24-receiver windows, its kept
+    # flags said: the shots nearer than half the longest wavelength kept (each window has one
+    # 0.75 m off an end), an inverse trend; it rejects xmid 53.25, whose pick keeps a single
+    # point, in the aliasing zone.
     windows = [unit for unit in report.units if unit.xmid is not None]
-    assert all(unit.verdicts["G3"] == "pass" for unit in windows)
-    assert {unit.unit: [flag.name for flag in unit.flags["G3"]] for unit in windows} == {
-        "xmid_2.88": ["inverse_dispersion", "near_field"],
-        "xmid_8.88": ["beyond_reach", "near_field"],
-        "xmid_14.88": ["beyond_reach", "near_field"],
-        "xmid_20.88": ["beyond_reach", "near_field"],
+    assert {unit.unit: unit.verdicts["G3"] for unit in windows} == {
+        "xmid_17.25": "pass",
+        "xmid_53.25": "reject",
+        "xmid_89.25": "pass",
+        "xmid_125.25": "pass",
     }
-    # The band reaches the image's 100 Hz: kept, not widened. The records are usable to 412.5 Hz,
-    # counted within the image's frequencies: its coherent band covers them.
+    assert {unit.unit: [flag.name for flag in unit.flags["G3"]] for unit in windows} == {
+        "xmid_17.25": ["near_field"],
+        "xmid_53.25": [
+            "sharpness",
+            "on_data",
+            "constant_wavelength",
+            "aliasing_zone",
+            "too_few_points",
+            "narrow_span",
+            "near_field",
+        ],
+        "xmid_89.25": ["near_field"],
+        "xmid_125.25": ["inverse_dispersion", "near_field"],
+    }
+    # The band reaches the image's 100 Hz: kept, not widened. The records each window stacks are
+    # usable together from 16.3 to 85.7 Hz (197.dat's band): its coherent band covers them. With
+    # receivers 1.5 m apart, most coherent columns also hold an alias, a second ridge under the
+    # aliasing limit 2 dx f: picked below it.
     assert all(unit.verdicts["G2"] == "pass" for unit in windows)
-    assert all({flag.name for flag in unit.flags["G2"]} == {"band_at_fmax"} for unit in windows)
+    assert all(
+        {flag.name for flag in unit.flags["G2"]} == {"band_at_fmax", "aliasing"} for unit in windows
+    )
     assert all(unit.curve is not None and unit.curve.n_points for unit in windows)
     # S3 saved each curve in PAC's layout.
     assert all((run_folder / unit.unit / CURVES_FILE).exists() for unit in windows)
-    # G4 over the line: four curves 6 m apart, one or two neighbours a side, are no evidence
-    # against each other; no window without a curve, no gap.
-    assert all(unit.verdicts["G4"] == "pass" for unit in windows)
+    # G4 over the line, on the three curves G3 passed: xmid 17.25's is 23% off its neighbours on
+    # its only side, which agree with each other, to be picked again along their median curve;
+    # xmid 53.25, whose curve G3 rejected, a gap in the section.
+    assert {unit.unit: unit.verdicts.get("G4") for unit in windows} == {
+        "xmid_17.25": "retry",
+        "xmid_53.25": None,
+        "xmid_89.25": "pass",
+        "xmid_125.25": "pass",
+    }
     line = next(unit for unit in report.units if unit.unit == "line")
     assert line.verdicts == {"G4": "pass"}
-    assert line.flags["G4"] == ()
+    assert [flag.name for flag in line.flags["G4"]] == ["gaps"]
     # The picking is an attempt of its own, judged by G3.
     attempts = read_attempts(run_folder)
-    assert latest(attempts, "xmid_2.88", "picking") is not None
-    picked = latest(attempts, "xmid_2.88", "picking")
+    assert latest(attempts, "xmid_17.25", "picking") is not None
+    picked = latest(attempts, "xmid_17.25", "picking")
     assert picked is not None and "G3" in picked.results
     # The configuration's picking: as far as the ridge holds, no wavelength limit.
     assert (picked.parameters["max_gap_hz"], picked.parameters["max_wavelength"]) == (2.0, None)
     text = summarize_report(report)
-    assert "G2 band_at_fmax, xmid 2.88-20.88 (4)" in text
+    assert "G2 band_at_fmax, xmid 17.25-125.25 (4)" in text
     assert "shifted_trigger" not in text
-    assert "G3 beyond_reach, xmid 8.88-20.88 (3)" in text
-    assert "gaps" not in text
+    assert "G3 near_field, xmid 17.25-125.25 (4)" in text
+    assert "G4 gaps, line: No curve at xmid 53.25 (1): the section has gaps there." in text
 
     # The picking again for a window, with an override (asked of the agent): the window's
     # picking afresh, its only attempt now, the first curve not kept; G3 on the new one.
     looser = {"min_relative_coherence": 0.3}
-    (result,) = rerun_picking(run_id, ["xmid_20.88"], looser, settings)
-    assert result.gate == "G3" and result.unit == "xmid_20.88"
-    picks = attempts_of(read_attempts(run_folder), "xmid_20.88", "picking")
+    (result,) = rerun_picking(run_id, ["xmid_125.25"], looser, settings)
+    assert result.gate == "G3" and result.unit == "xmid_125.25"
+    picks = attempts_of(read_attempts(run_folder), "xmid_125.25", "picking")
     assert [(one.attempt, one.triggered_by) for one in picks] == [(1, "backtrack")]
     (second,) = picks
     assert second.parameters["min_relative_coherence"] == 0.3
     assert second.parameters["max_gap_hz"] == 2.0
     assert second.results["G3"] == result
-    assert archived_attempts(run_folder / "xmid_20.88") == ()
+    assert archived_attempts(run_folder / "xmid_125.25") == ()
     with pytest.raises(RunError, match=r"no processed window xmid_1\.00"):
         rerun_picking(run_id, ["xmid_1.00"], {}, settings)
     with pytest.raises(RunError, match="Unknown picking parameter"):
-        rerun_picking(run_id, ["xmid_2.88"], {"coridor": 0.1}, settings)
+        rerun_picking(run_id, ["xmid_17.25"], {"coridor": 0.1}, settings)

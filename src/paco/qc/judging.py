@@ -29,9 +29,17 @@ from sigpipe.masw.presets import (
 )
 from sigpipe.masw.profiles import Profile, ProfileError, load_profile
 from sigpipe.masw.quality.line import Series
+from sigpipe.masw.quality.measures import line_reach as sigpipe_line_reach
 from sigpipe.masw.quality.measures import measure_signal, selection_measures
 from sigpipe.masw.quality.spectra import save_record_spectra
-from sigpipe.masw.runs import RunManifest, find_run, load_image, load_manifest, start_worker
+from sigpipe.masw.runs import (
+    RecordOutcome,
+    RunManifest,
+    find_run,
+    load_image,
+    load_manifest,
+    start_worker,
+)
 from sigpipe.masw.runs.stopping import finished
 from sigpipe.masw.windows import MASWWindow
 from sigpipe.transformers import Load
@@ -108,10 +116,18 @@ def judge_records(
 ) -> dict[str, tuple[float, float] | None]:
     """G1 on each preprocessed record of the run, against its latest preprocessing attempt (its
     noise on the record before its muting, from its input in `profile`: before_muting), each
-    record's shot where its muting and file's trigger (`triggers`) put it; its spectra drawn
-    beside it. Returns each record's usable band."""
+    record's shot where its muting and file's trigger (`triggers`) put it, its traces measured
+    within the line's reach (line_reach, with `profile`); its spectra drawn beside it. Returns
+    each record's usable band."""
     active = manifest.profile.kind == "active"
     usable: dict[str, tuple[float, float] | None] = {}
+    # The traces' SNR within the line's reach, as the line measures it: farther from the shot,
+    # a long line's traces are mostly noise, which would have G1 reject its end shots.
+    reach_m = (
+        line_reach(run_folder, profile, manifest.records, config, manifest.preset)
+        if profile is not None
+        else None
+    )
     attempts = read_attempts(run_folder)
     for record in manifest.records:
         if record.status != "succeeded":
@@ -127,6 +143,7 @@ def judge_records(
             stream,
             config.signal,
             active=active,
+            reach_m=reach_m,
             shot_s=shot_s,
             applied_s=applied_s,
             spectra=manifest.preset.mode in SPECTRA_MODES,
@@ -137,6 +154,41 @@ def judge_records(
         draw_spectra(stream, folder, result.kept.band_hz)
         usable[record.name] = result.kept.band_hz
     return usable
+
+
+def line_reach(
+    run_folder: Path,
+    profile: Profile,
+    records: tuple[RecordOutcome, ...],
+    config: QCConfig,
+    preset: ActivePreset | PassivePreset,
+) -> float | None:
+    """How far from the shots the line's traces still carry the wave (G1's per-trace SNR over
+    every active record, its noise before its muting as G1 measures it, `snr_reach`, in bins of
+    a fifteenth of the line, each record's times from its shot where its latest preprocessing,
+    over the run's `preset`, and its file's trigger put it); None on a passive line, or when no
+    distance falls below G1's SNR limit."""
+    if profile.kind != "active":
+        return None
+    triggers = file_triggers(profile)
+    attempts = read_attempts(run_folder)
+
+    def unmuted(record: RecordOutcome) -> tuple[Stream, float]:
+        # Its noise as G1 measures it, before its muting; its times from its shot.
+        attempt = latest(attempts, record.name, "preprocessing")
+        values = preprocessing_values(preset, attempt)
+        shot_s = trigger_context(values, triggers.get(record.name))[0]
+        return before_muting(preset, profile, record.name, attempt, shot_s) or (
+            stream_of(run_folder / record.folder / PREPROCESSED),
+            shot_s,
+        )
+
+    positions = [receiver.x for receiver in profile.receivers]
+    return sigpipe_line_reach(
+        (unmuted(record) for record in records if record.status == "succeeded"),
+        config.signal,
+        max(positions) - min(positions),
+    )
 
 
 def before_muting(

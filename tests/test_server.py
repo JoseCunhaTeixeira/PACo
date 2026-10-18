@@ -40,7 +40,7 @@ TOOLS = [
 # largest prompt measured, 8,107 tokens).
 CARDS_BUDGET = 11_600  # characters, all tools together
 # The tools' schemas as last reviewed (T12).
-SCHEMAS_SNAPSHOT = Path(__file__).parent / "data" / "tool_schemas.json"
+SCHEMAS_SNAPSHOT = Path(__file__).parent / "snapshots" / "tool_schemas.json"
 # The server's instructions go into the model's system prompt too.
 INSTRUCTIONS_BUDGET = 700  # characters
 # Four 24-receiver windows along the active demo line, as in test_runs.py.
@@ -192,18 +192,18 @@ def test_the_context_is_not_an_argument() -> None:
 
 def test_profiles_are_listed_and_inspected(paco_env: Settings) -> None:
     listed = _call("inspect", {"what": "profiles"})
-    inspected = _call("inspect", {"what": "profile", "profile": "passive_p1"})
+    inspected = _call("inspect", {"what": "profile", "profile": "passive_p2"})
     unsaid = _call("inspect", {"what": "run"})
 
     assert _text(listed) == (
-        "active_p1: a profile to process, no run yet\npassive_p1: a profile to process, no run yet"
+        "active_p2: a profile to process, no run yet\npassive_p2: a profile to process, no run yet"
     )
-    assert _text(inspected) == inspection.profile_text("passive_p1", paco_env)
+    assert _text(inspected) == inspection.profile_text("passive_p2", paco_env)
     assert unsaid.is_error and "inspect(what=run) needs run_id." in _text(unsaid)
 
 
 @pytest.mark.parametrize(
-    ("profile", "preset"), [("active_p1", "active"), ("passive_p1", "passive")]
+    ("profile", "preset"), [("active_p2", "active"), ("passive_p2", "passive")]
 )
 @pytest.mark.usefixtures("paco_env")
 def test_preset_settings_are_the_profiles_override_schema(profile: str, preset: str) -> None:
@@ -214,16 +214,16 @@ def test_preset_settings_are_the_profiles_override_schema(profile: str, preset: 
 
 @pytest.mark.usefixtures("paco_env")
 def test_an_active_profile_has_a_passive_active_mode() -> None:
-    summary = _text(_call("inspect", {"what": "profile", "profile": "active_p1"}))
+    summary = _text(_call("inspect", {"what": "profile", "profile": "active_p2"}))
 
     assert summary.endswith("modes: active, passive-active.")
     settings = json.loads(
-        _text(_call("preset_settings", {"profile": "active_p1", "mode": "passive-active"}))
+        _text(_call("preset_settings", {"profile": "active_p2", "mode": "passive-active"}))
     )
     assert settings == override_schema("passive-active")
-    refused = _call("preset_settings", {"profile": "active_p1", "mode": "passive"})
+    refused = _call("preset_settings", {"profile": "active_p2", "mode": "passive"})
     assert refused.is_error
-    assert "Profile 'active_p1' is active: its modes are active, passive-active." in (
+    assert "Profile 'active_p2' is active: its modes are active, passive-active." in (
         _text(refused)
     )
 
@@ -243,7 +243,7 @@ def test_a_setting_the_tool_does_not_have_is_ignored_and_said() -> None:
     # says them; a value refused for a setting the tool has would refuse the call.
     processed = _call(
         "run_processing",
-        {"profile": "active_p1", "overrides": {**SMALL_WINDOWS, "fk": {"threshold": 0.1}}},
+        {"profile": "active_p2", "overrides": {**SMALL_WINDOWS, "fk": {"threshold": 0.1}}},
     )
     assert not processed.is_error and processed.structured_content is not None
     assert processed.structured_content["ignored"] == [
@@ -266,7 +266,7 @@ def test_the_workflow_process_pick_redo_invert() -> None:
     progress: list[tuple[float, float | None]] = []
 
     processed = _call(
-        "run_processing", {"profile": "active_p1", "overrides": SMALL_WINDOWS}, progress
+        "run_processing", {"profile": "active_p2", "overrides": SMALL_WINDOWS}, progress
     )
     run_id = processed.structured_content["run_id"] if processed.structured_content else ""
     picked = _call("pick", {"run_id": run_id})
@@ -277,46 +277,55 @@ def test_the_workflow_process_pick_redo_invert() -> None:
     # What the gates did, in a few lines, and what to call next.
     done = processed.structured_content
     assert done is not None
-    assert done["summary"].splitlines()[:2] == ["G1: 3 pass", "G2: 4 pass"]
-    # No trigger corrected: the demo's files say the shot comes 20 ms in, where the first breaks
-    # put it, and the muting is off (the trigger is part of it).
-    assert "shifted_trigger" not in done["summary"]
+    assert done["summary"].splitlines()[:2] == ["G1: 4 pass, 4 reject", "G2: 4 pass"]
+    # No trigger corrected: the files say the shot comes 20 ms in; G1 puts 149.dat's and
+    # 165.dat's first breaks 18 ms earlier, and the line's trial windows gain too little by the
+    # correction to keep it (below).
+    assert not [used for used in done["used"] if used.startswith("trigger")]
     assert done["next"] == f"Run {run_id}'s images are made: pick gives their curves."
     # The settings the gates changed, in words, for the agent to report.
     changed = done["changed"]
-    # The line's rules: the shots' reach, the length as given, then the near field.
-    assert changed[0].startswith(
-        "line: masw distance_max 24.29 m: beyond it from the shot, the traces' median SNR falls "
+    # The records G1 left out, whole: 101.dat for its SNR, 117.dat, 133.dat and 165.dat for
+    # their traces' coherence.
+    assert changed[0] == "101.dat, 117.dat, 133.dat, 165.dat: left out of every window"
+    # The line's rules: the shots' reach, the length as given, the mute trial's cone, the near
+    # field, then the trigger G1 asked, tried and not kept.
+    assert changed[1].startswith(
+        "line: masw distance_max 57.79 m: beyond it from the shot, the traces' median SNR falls "
         "under 2 dB (G1), so the windows stack no farther shot. masw length 24 for the whole "
-        "line, as given: trial windows G3 passed 26/27 at 24 (picks "
+        "line, as given: trial windows G3 passed 14/27 at 24 (picks "
     )
-    assert "%). near_field distance_m " in changed[0]
+    assert "%). muting mute 134.5 to 302.7 m/s: the mute trial " in changed[1]
+    assert ". near_field distance_m " in changed[1]
+    assert changed[1].endswith(
+        "Tried for the line, not kept: trigger t0 0.0016 s, asked by 3 windows "
+        "(G1:shifted_trigger): 3 of 4 trial windows passing G3 against 3, under 2 more."
+    )
     # No trace left out for its amplitude in one record: the line judges its receivers.
-    assert len(changed) == 1
+    assert len(changed) == 2
     # The lengths the ladder tried, for the agent to choose from: the user's only, here.
     assert done["lengths"] == [
-        "line: 96 receivers 0.25 m apart (23.75 m); windows of up to 48 receivers (half the line)",
-        "24 receivers (5.75 m): 26/27 trial windows passed G3, wavelengths 5.0-30.0 m (models "
-        "down to about 15.0 m), picks within 40%, 4 windows on the line (proposed)",
+        "line: 96 receivers 1.5 m apart (142.50 m); windows of up to 48 receivers (half the line)",
+        "24 receivers (34.50 m): 14/27 trial windows passed G3, wavelengths 6.5-15.5 m (models "
+        "down to about 7.8 m), picks within 6%, 4 windows on the line (proposed)",
     ]
     assert picked.structured_content is not None
     # Every window keeps its traces (none is off the decay in most records) and stacks its
-    # shots out of the near field where it has farther ones.
-    # xmid 2.88's ridge spans a metre of wavelength: G3 resamples it finer and keeps more of the
-    # ridge, and rejects it when its retries are spent; xmid 20.88 falls off its neighbours: G4
-    # picks it again along their curve. Three curves pass.
+    # shots out of the near field where it has farther ones G1 keeps: xmid 53.25, whose farther
+    # shots G1 left out, keeps its near one (G3 flags its near field).
+    # xmid 125.25's pick is a single point in the aliasing zone, off its columns' brightest
+    # values (competing ridges): G3 picks it again in the coherent band, more of the ridge kept,
+    # and rejects it when its retries are spent. Three curves pass.
     assert picked.structured_content["summary"].splitlines()[:2] == [
         "G4: 4 pass",
         "G3: 3 pass, 1 reject",
     ]
-    changed = picked.structured_content["changed"]
-    # Too few points, and too narrow a span: resampled finer and more of the ridge kept.
-    assert changed[0] == (
-        "min_relative_coherence 0.5 -> 0.3; wavelength_step 1 -> 0.2 at xmid 2.88 (1), by "
-        "G3:too_few_points"
+    (change,) = picked.structured_content["changed"]
+    assert change.startswith(
+        "min_relative_coherence 0.5 -> 0.3; fmin the default -> 0.3; fmax the default -> 100 at "
+        "xmid 125.25 (1)"
     )
-    assert changed[1] == "min_relative_coherence 0.3 -> 0.18 at xmid 2.88 (1), by G3:narrow_span"
-    assert changed[2].endswith("at xmid 20.88 (1), by G4:outlier")
+    assert change.endswith(", by G3:on_data")
     assert picked.structured_content["next"] == (
         f"3 curves of run {run_id} passed G3 and G4: invert gives their models. Higher modes (M1, "
         "M2) are picked by hand in PAC's Dispersion picking page, then invert takes them with M0."
@@ -326,11 +335,11 @@ def test_the_workflow_process_pick_redo_invert() -> None:
     # judges the stage redone.
     redone = _call(
         "redo",
-        {"run_id": run_id, "stage": "picking", "xmids": [2.88], "changes": {"corridor": 0.1}},
+        {"run_id": run_id, "stage": "picking", "xmids": [125.25], "changes": {"corridor": 0.3}},
     )
     assert redone.structured_content is not None
     assert (
-        'Retried backtrack, xmid 2.88 (1) with picking {"corridor":0.1}: now 1 pass.'
+        'Retried backtrack, xmid 125.25 (1) with picking {"corridor":0.3}: now 1 pass.'
         in redone.structured_content["summary"]
     )
 
@@ -340,7 +349,7 @@ def test_the_workflow_process_pick_redo_invert() -> None:
     # invert returns a job or the user's choice: one of two models, wrapped.
     assert started.structured_content is not None
     job = started.structured_content["result"]
-    # xmid 2.88's curve, picked again in a narrower corridor, passed: 4 windows to invert.
+    # xmid 125.25's curve, picked again in a wider corridor, passed: 4 windows to invert.
     assert job["state"] in ("queued", "running")
     assert job["total"] == 4
     status = _wait_for(job["job_id"])
@@ -355,8 +364,8 @@ def test_the_workflow_process_pick_redo_invert() -> None:
 
 def test_a_band_given_bounds_every_pick(paco_env: Settings) -> None:
     # Picked down to 12 Hz and up to 40 Hz: no point outside, whatever the gates narrow within
-    # (the windows' picks span 9.5 to 42.5 Hz without it).
-    run_id = _run_id(_call("run_processing", {"profile": "active_p1", "overrides": SMALL_WINDOWS}))
+    # (the windows' picks span 8.9 to 42.7 Hz without it).
+    run_id = _run_id(_call("run_processing", {"profile": "active_p2", "overrides": SMALL_WINDOWS}))
 
     picked = _call("pick", {"run_id": run_id, "changes": {"fmin": 12, "fmax": 40}})
 
@@ -373,16 +382,16 @@ def test_run_processing_takes_the_mode_as_an_argument(paco_env: Settings) -> Non
     # "mode" out of the overrides.
     processed = _call(
         "run_processing",
-        {"profile": "active_p1", "overrides": SMALL_WINDOWS, "mode": "passive-active"},
+        {"profile": "active_p2", "overrides": SMALL_WINDOWS, "mode": "passive-active"},
     )
 
     assert not processed.is_error and processed.structured_content is not None
     run_id = processed.structured_content["run_id"]
-    manifest = json.loads((paco_env.output_dir / "active_p1" / run_id / "run.json").read_text())
+    manifest = json.loads((paco_env.output_dir / "active_p2" / run_id / "run.json").read_text())
     assert manifest["preset"]["mode"] == "passive-active"
-    refused = _call("run_processing", {"profile": "active_p1", "mode": "passive"})
+    refused = _call("run_processing", {"profile": "active_p2", "mode": "passive"})
     assert refused.is_error
-    assert "Profile 'active_p1' is active: its modes are active, passive-active." in (
+    assert "Profile 'active_p2' is active: its modes are active, passive-active." in (
         _text(refused)
     )
 
@@ -390,7 +399,7 @@ def test_run_processing_takes_the_mode_as_an_argument(paco_env: Settings) -> Non
 def test_a_run_made_again_takes_its_images_from_the_cache(paco_env: Settings) -> None:
     # The muting given: no mute trial, the test's runs short.
     overrides = {**SMALL_WINDOWS, "muting": {"method": "none"}}
-    arguments = {"profile": "active_p1", "overrides": overrides}
+    arguments = {"profile": "active_p2", "overrides": overrides}
     first, again = _call("run_processing", arguments), _call("run_processing", arguments)
 
     manifests = [
@@ -440,7 +449,7 @@ def test_each_call_takes_the_cache_its_settings_give(
 def test_one_vs_range_stands_for_every_layer_at_invert() -> None:
     # The form invert's card offers: checked as the job reads it, not against PAC's 2 layers
     # (refused, a model makes up a range for each layer).
-    processed = _call("run_processing", {"profile": "active_p1", "overrides": SMALL_WINDOWS})
+    processed = _call("run_processing", {"profile": "active_p2", "overrides": SMALL_WINDOWS})
     run_id = processed.structured_content["run_id"] if processed.structured_content else ""
 
     result = _call(
@@ -454,14 +463,14 @@ def test_one_vs_range_stands_for_every_layer_at_invert() -> None:
 
 
 def test_invert_refuses_a_run_without_a_curve(paco_env: Settings) -> None:
-    processed = _call("run_processing", {"profile": "active_p1", "overrides": SMALL_WINDOWS})
+    processed = _call("run_processing", {"profile": "active_p2", "overrides": SMALL_WINDOWS})
     run_id = processed.structured_content["run_id"] if processed.structured_content else ""
 
     result = _call("invert", {"run_id": run_id})
 
     assert result.is_error
     assert f"Run '{run_id}' has no curve: pick it first." in _text(result)
-    assert not (paco_env.output_dir / "active_p1" / run_id / "inversion.json").exists()
+    assert not (paco_env.output_dir / "active_p2" / run_id / "inversion.json").exists()
 
 
 def _wait_for(job_id: str, timeout_s: float = 120) -> dict[str, Any]:
@@ -482,9 +491,9 @@ def _wait_for(job_id: str, timeout_s: float = 120) -> dict[str, Any]:
 def test_a_run_another_application_writes_is_refused_saying_who(
     paco_env: Settings, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    processed = _call("run_processing", {"profile": "active_p1", "overrides": SMALL_WINDOWS})
+    processed = _call("run_processing", {"profile": "active_p2", "overrides": SMALL_WINDOWS})
     run_id = processed.structured_content["run_id"] if processed.structured_content else ""
-    run_folder = paco_env.output_dir / "active_p1" / run_id
+    run_folder = paco_env.output_dir / "active_p2" / run_id
     monkeypatch.setattr(server, "WRITER_WAIT_S", 0.0)
     held, release = threading.Event(), threading.Event()
 
@@ -510,12 +519,12 @@ def test_a_run_another_application_writes_is_refused_saying_who(
 
 @pytest.mark.usefixtures("paco_env")
 def test_redo_needs_windows_that_exist() -> None:
-    processed = _call("run_processing", {"profile": "active_p1", "overrides": SMALL_WINDOWS})
+    processed = _call("run_processing", {"profile": "active_p2", "overrides": SMALL_WINDOWS})
     run_id = processed.structured_content["run_id"] if processed.structured_content else ""
 
-    unknown = _call("redo", {"run_id": run_id, "stage": "picking", "xmids": [3.0]})
+    unknown = _call("redo", {"run_id": run_id, "stage": "picking", "xmids": [17.0]})
     assert unknown.is_error
-    assert "has no window at 3.00. Its xmids: 2.88, 8.88, 14.88, 20.88." in _text(unknown)
+    assert "has no window at 17.00. Its xmids: 17.25, 53.25, 89.25, 125.25." in _text(unknown)
     moved = _call(
         "redo", {"run_id": run_id, "stage": "phase_shift", "changes": {"masw": {"length": 48}}}
     )
@@ -528,19 +537,19 @@ def test_redo_needs_windows_that_exist() -> None:
     [
         (
             "inspect",
-            {"what": "profile", "profile": "active_p2"},
-            "Unknown profile 'active_p2'. Available profiles: active_p1, passive_p1.",
+            {"what": "profile", "profile": "active_p3"},
+            "Unknown profile 'active_p3'. Available profiles: active_p2, passive_p2.",
         ),
         (
             "run_processing",
-            {"profile": "active_p1", "overrides": {"masw": {"lenght": 24}}},
+            {"profile": "active_p2", "overrides": {"masw": {"lenght": 24}}},
             "- masw.lenght: unknown parameter. Allowed: length, step, distance_min, distance_max. "
             "Did you mean length?",
         ),
         (
             "run_processing",
-            {"profile": "active_p1", "overrides": {"masw": {"length": 97}}},
-            "length (97) exceeds the 96 receivers of profile 'active_p1': no window that long "
+            {"profile": "active_p2", "overrides": {"masw": {"length": 97}}},
+            "length (97) exceeds the 96 receivers of profile 'active_p2': no window that long "
             "fits the line, you are stuck. Ask the user which length to use, with options: the "
             "whole line (96), half of it (48), or the ladder's proposal (no length).",
         ),

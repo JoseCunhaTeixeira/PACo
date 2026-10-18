@@ -21,11 +21,11 @@ class Settings(BaseSettings):
         validate_default=True,
     )
 
-    # Profiles are read where PAC keeps them, so PAC and PACo process the same inputs.
+    # Profiles are read where PAC keeps them, so PAC and PACo process the same inputs; the results
+    # go to a folder of the user's (PAC's runs PACo's into its own output folder). Both outside
+    # PACo's repository, which holds no data: /data in PACo's image.
     input_dir: DirectoryPath = Path("/data/input")
-
-    # PACo writes its own results, never into PAC's data folder.
-    output_dir: Path = Path("data/output")
+    output_dir: Path = Path("/data/output")
 
     # Windows a run processes in parallel, one worker process each.
     workers: int = Field(default=1, ge=1)

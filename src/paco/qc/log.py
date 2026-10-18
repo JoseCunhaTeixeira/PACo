@@ -166,7 +166,12 @@ def record_notes(
     ]
     if not match:
         raise ValueError(f"No attempt {attempt} of {stage} for {unit} in the log of {run_folder}")
-    noted = match[0].model_copy(update={"notes": (*match[0].notes, *notes)})
+    # A note the attempt holds already is not added again (G1 settles the records again after
+    # the mute trial, the same records left out).
+    new = tuple(note for note in dict.fromkeys(notes) if note not in match[0].notes)
+    if not new:
+        return match[0]
+    noted = match[0].model_copy(update={"notes": (*match[0].notes, *new)})
     append_attempt(run_folder, noted, "notes")
     return noted
 

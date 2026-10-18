@@ -19,7 +19,7 @@ repos:
         args: [--fix]
       - id: ruff-format
 
-  # The type check and the fast tests (C2): those that process no demo data, under a second.
+  # The type check and the fast tests (C2): those that read no line, under a second.
   - repo: local
     hooks:
       - id: pyright

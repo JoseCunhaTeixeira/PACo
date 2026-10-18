@@ -195,22 +195,22 @@ def test_the_model_gets_every_tool_card_and_the_workflow() -> None:
 def test_the_agent_calls_tools_until_the_model_answers(paco_env: Settings) -> None:
     model = ScriptedModel(
         _calls(("inspect", {"what": "profiles"})),
-        _calls(("inspect", {"what": "profile", "profile": "active_p1"})),
-        _says("Two profiles; active_p1 is an active line of 96 receivers."),
+        _calls(("inspect", {"what": "profile", "profile": "active_p2"})),
+        _says("Two profiles; active_p2 is an active line of 96 receivers."),
         scopes=(LOOK,),
     )
 
     answer, events, messages = _converse(model, "What can I process?")
 
-    assert answer == _scoped("Two profiles; active_p1 is an active line of 96 receivers.", LOOK)
+    assert answer == _scoped("Two profiles; active_p2 is an active line of 96 receivers.", LOOK)
     assert events == [
         '-> inspect({"what": "profiles"})',
-        '-> inspect({"what": "profile", "profile": "active_p1"})',
+        '-> inspect({"what": "profile", "profile": "active_p2"})',
     ]
     # The inspection's own text, as the tool writes it.
     assert _tool_results(messages) == [
         inspection.profiles_text(paco_env),
-        inspection.profile_text("active_p1", paco_env),
+        inspection.profile_text("active_p2", paco_env),
     ]
     # Each reply saw the results before it.
     assert model.seen[2][-1] == messages[-2]
@@ -238,28 +238,28 @@ def test_mistakes_go_back_to_the_model() -> None:
             ("inspect", "{what: profile"),
             ("inspect", "[1]"),
             ("invent_curve", {}),
-            ("inspect", {"what": "profile", "profile": "active_p2"}),
+            ("inspect", {"what": "profile", "profile": "active_p3"}),
         ),
         _says("Sorry, I will check the profile's name."),
     )
 
-    _, events, messages = _converse(model, "Inspect active_p2.")
+    _, events, messages = _converse(model, "Inspect active_p3.")
 
     # The user sees the calls made, and why they failed; calls refused unmade stay silent.
     assert events == [
         "-> invent_curve({})",
         "   failed: Unknown tool: invent_curve",
-        '-> inspect({"what": "profile", "profile": "active_p2"})',
-        "   failed: [bad argument] Unknown profile 'active_p2'. Available profiles: active_p1, "
-        "passive_p1.",
+        '-> inspect({"what": "profile", "profile": "active_p3"})',
+        "   failed: [bad argument] Unknown profile 'active_p3'. Available profiles: active_p2, "
+        "passive_p2.",
     ]
     results = _tool_results(messages)
     assert results[0].startswith("Not called: the arguments of inspect are not valid JSON")
     assert results[1] == "Not called: the arguments of inspect must be a JSON object."
     assert results[2] == "Unknown tool: invent_curve"
     assert results[3] == (
-        "Error executing tool inspect: [bad argument] Unknown profile 'active_p2'. Available "
-        "profiles: active_p1, passive_p1."
+        "Error executing tool inspect: [bad argument] Unknown profile 'active_p3'. Available "
+        "profiles: active_p2, passive_p2."
     )
     # What the server said comes as data (T10, X3); what the host says, as it is.
     raw = [str(message["content"]) for message in messages if message["role"] == "tool"]
@@ -274,7 +274,7 @@ def test_an_answer_has_a_tool_call_budget() -> None:
         _calls(
             ("inspect", {"what": "profiles"}),
             ("inspect", {"what": "runs"}),
-            ("inspect", {"what": "profile", "profile": "active_p1"}),
+            ("inspect", {"what": "profile", "profile": "active_p2"}),
         ),
         _says("Two profiles."),
     )
@@ -294,29 +294,29 @@ def test_an_answer_has_a_tool_call_budget() -> None:
 @pytest.mark.usefixtures("paco_env")
 def test_a_call_that_just_failed_is_not_made_again() -> None:
     model = ScriptedModel(
-        _calls(("inspect", {"what": "profile", "profile": "active_p2"})),
+        _calls(("inspect", {"what": "profile", "profile": "active_p3"})),
         # The same call again, its JSON written otherwise: refused, unmade.
-        _calls(("inspect", '{ "profile" :"active_p2", "what": "profile" }')),
-        _calls(("inspect", {"what": "profile", "profile": "active_p1"})),
-        _says("active_p2 does not exist; active_p1 has 96 receivers."),
+        _calls(("inspect", '{ "profile" :"active_p3", "what": "profile" }')),
+        _calls(("inspect", {"what": "profile", "profile": "active_p2"})),
+        _says("active_p3 does not exist; active_p2 has 96 receivers."),
     )
 
-    _, events, messages = _converse(model, "Inspect active_p2.")
+    _, events, messages = _converse(model, "Inspect active_p3.")
 
     results = _tool_results(messages)
     assert results[1].startswith(
         "Not called: this exact call just failed, and would fail again: Error executing tool "
-        "inspect: [bad argument] Unknown profile 'active_p2'."
+        "inspect: [bad argument] Unknown profile 'active_p3'."
     )
     assert results[1].endswith(
         "Change the arguments, call another tool, or answer the user with what you have."
     )
     assert events[2] == (
-        '-> inspect({ "profile" :"active_p2", "what": "profile" }) refused: the same call just '
+        '-> inspect({ "profile" :"active_p3", "what": "profile" }) refused: the same call just '
         "failed"
     )
     # Another call goes through.
-    assert results[2].startswith("active_p1: active, 2 records, 96 receivers")
+    assert results[2].startswith("active_p2: active, 7 records, 96 receivers")
 
 
 # ---------------------------------------------------------------- no question for the user
@@ -391,12 +391,12 @@ def test_the_host_lists_the_parameters_used_and_the_settings_the_gates_changed()
     def picks(messages: list[ChatCompletionMessageParam]) -> Reply:
         results = _tool_results(messages)
         if not results:
-            return _calls(("run_processing", {"profile": "active_p1", "overrides": SMALL_WINDOWS}))
+            return _calls(("run_processing", {"profile": "active_p2", "overrides": SMALL_WINDOWS}))
         if len(results) == 1:
             return _calls(("pick", {"run_id": json.loads(results[0])["run_id"]}))
         return _says("3 curves passed G3 and G4.")
 
-    answer, _, messages = _converse(PolicyModel(picks), "Process active_p1 and pick the curves.")
+    answer, _, messages = _converse(PolicyModel(picks), "Process active_p2 and pick the curves.")
 
     head, listed = answer.split("\n\nSettings the gates changed:\n")
     said, used = head.split("\n\nParameters used:\n")
@@ -406,18 +406,24 @@ def test_the_host_lists_the_parameters_used_and_the_settings_the_gates_changed()
     # The window length and the band first, then the picker's settings.
     # Each with why: the window length as given, with what its trial windows gave.
     assert used.splitlines()[1].startswith(
-        "- MASW windows of 24 receivers (5.75 m), 4 windows, xmid 2.875 to 20.875 m: given (in "
+        "- MASW windows of 24 receivers (34.5 m), 4 windows, xmid 17.25 to 125.25 m: given (in "
         "your request, or chosen by the agent)"
     )
     assert used.splitlines()[-1].startswith("- picking: M0 tracked along its ridge")
-    # No trigger changed: the demo's files say the shot comes 20 ms in, where the first breaks
-    # put it, and the muting is off (the trigger is part of it). First the line's rules: the
-    # shots' reach, the length as given, the near field. No trace left out for its amplitude in
-    # one record: the line judges its receivers over them all.
-    first = listed.splitlines()[0]
-    assert first.startswith("- line: masw distance_max ")
-    assert "near_field distance_m " in first
-    assert "trigger" not in listed
+    # No trigger changed: the files say the shot comes 20 ms in; G1 puts two shots' first breaks
+    # 18 ms earlier, and the line's trial windows gain too little by the correction to keep it.
+    # First the records G1 left out of every window, then the line's rules: the shots' reach, the
+    # length as given, the mute trial's cone, the near field. No trace left out for its
+    # amplitude in one record: the line judges its receivers over them all.
+    records, rules = listed.splitlines()[:2]
+    assert records == "- 101.dat, 117.dat, 133.dat, 165.dat: left out of every window"
+    assert rules.startswith("- line: masw distance_max ")
+    assert "near_field distance_m " in rules
+    assert rules.endswith(
+        "Tried for the line, not kept: trigger t0 0.0016 s, asked by 3 windows "
+        "(G1:shifted_trigger): 3 of 4 trial windows passing G3 against 3, under 2 more."
+    )
+    assert "trigger" not in used
     assert "left out of the windows" not in listed
     # What the user saw is what the conversation keeps.
     assert messages[-1] == {"role": "assistant", "content": answer}
@@ -429,11 +435,11 @@ def test_after_the_work_an_offer_gives_way_to_what_the_user_can_do_next() -> Non
     # the model's question is not shown; code says what the user can ask next.
     def offers(messages: list[ChatCompletionMessageParam]) -> Reply:
         if not _tool_results(messages):
-            return _calls(("run_processing", {"profile": "active_p1", "overrides": SMALL_WINDOWS}))
+            return _calls(("run_processing", {"profile": "active_p2", "overrides": SMALL_WINDOWS}))
         return _says("The images are ready. Shall I pick the curves?")
 
     process = EVERYTHING.model_copy(update={"pick": False, "invert": False, "soils": False})
-    answer, events, messages = _converse(PolicyModel(offers, (process,)), "Process active_p1.")
+    answer, events, messages = _converse(PolicyModel(offers, (process,)), "Process active_p2.")
 
     said, rest = answer.split("\n\nDone:\n", 1)
     assert said == _scoped("The images are ready.", process)
@@ -450,13 +456,13 @@ def test_a_question_before_any_work_reaches_the_user() -> None:
     # The request's clarification: no stage tool ran, so the question is the model's to ask.
     model = ScriptedModel(
         _calls(("inspect", {"what": "profiles"})),
-        _says("Two profiles hold an active line. Which one, active_p1 or passive_p1?"),
+        _says("Two profiles hold an active line. Which one, active_p2 or passive_p2?"),
     )
 
     answer, _, _ = _converse(model, "Process my active line.")
 
     assert answer == _scoped(
-        "Two profiles hold an active line.\n\nWhich one, active_p1 or passive_p1?"
+        "Two profiles hold an active line.\n\nWhich one, active_p2 or passive_p2?"
     )
 
 
@@ -684,12 +690,12 @@ def test_compare_serves_a_message_asking_to_process_and_nothing_else() -> None:
         update={"process": False, "pick": False, "invert": False, "soils": False}
     )
     process = look.model_copy(update={"process": True})
-    variants = {"profile": "active_p1", "variants": [{}, {}], "metric": "depth"}
+    variants = {"profile": "active_p2", "variants": [{}, {}], "metric": "depth"}
     for scope, ran in ((look, []), (process, ["compare"])):
         model = ScriptedModel(_calls(("compare", variants)), _says("Compared."), scopes=(scope,))
         server_ = MetaServer()
 
-        _, _, events = _played(model, server_, "Compare two lengths on active_p1.")
+        _, _, events = _played(model, server_, "Compare two lengths on active_p2.")
 
         assert [name for name, _ in server_.calls] == ran
         assert bool(ran) != events[0].endswith("refused: outside the scope")
@@ -842,10 +848,10 @@ class PlanServer(MetaServer):
         return _structured({"run_id": run_id, "did": f"{did} run {run_id}, 4 windows."})
 
 
-# Two runs of active_p1, the newest first, as the server labels them.
+# Two runs of active_p2, the newest first, as the server labels them.
 RUN_A, RUN_B = "20261004-070000-aaaa", "20261003-070000-bbbb"
 TWO_RUNS = {
-    "active_p1": {
+    "active_p2": {
         RUN_A: "active, windows of 24 receivers, curves",
         RUN_B: "active, windows of 12 receivers, images",
     }
@@ -853,9 +859,9 @@ TWO_RUNS = {
 
 
 def _on(*stages: str, **fields: Any) -> Scope:  # noqa: ANN401
-    """A message's scope asking `stages` of active_p1, with `fields`."""
+    """A message's scope asking `stages` of active_p2, with `fields`."""
     asked = {stage: stage in stages for stage in ("process", "pick", "invert", "soils")}
-    return LOOK.model_copy(update={"profile": "active_p1", **asked, **fields})
+    return LOOK.model_copy(update={"profile": "active_p2", **asked, **fields})
 
 
 def test_calls_stay_on_the_run_settled() -> None:
@@ -880,7 +886,7 @@ def test_a_new_run_the_turn_makes_is_the_one_it_goes_on_with() -> None:
     server_ = PlanServer()
     server_.runs = TWO_RUNS
     model = ScriptedModel(
-        _calls(("run_processing", {"profile": "active_p1", "again": True})),
+        _calls(("run_processing", {"profile": "active_p2", "again": True})),
         _calls(("pick", {"run_id": PlanServer.made})),
         _says("Processed and picked."),
         scopes=(_on("process", "pick", run_id=RUN_A, redo=True),),
@@ -905,7 +911,7 @@ def test_a_run_named_that_does_not_exist_is_said_with_the_runs_there() -> None:
 
     # Said by code: the model is not called, nothing runs; the runs there to choose from.
     assert answer.endswith(
-        "Run 20990101-000000-abcd does not exist. active_p1 has 2 runs.\n\nWhich run?\n"
+        "Run 20990101-000000-abcd does not exist. active_p2 has 2 runs.\n\nWhich run?\n"
         f"(1) work on run {RUN_A} (active, windows of 24 receivers, curves)\n"
         f"(2) work on run {RUN_B} (active, windows of 12 receivers, images)"
     )
@@ -925,20 +931,20 @@ def test_processing_a_profile_with_runs_asks_a_new_run_or_which() -> None:
 
     async def conversation() -> Agent:
         agent = Agent(server_, model, [], None, on_event=lambda _: None)  # pyright: ignore[reportArgumentType]
-        answers.append(await agent.answer("Process active_p1 and invert it."))
+        answers.append(await agent.answer("Process active_p2 and invert it."))
         answers.append(await agent.answer("2"))
         return agent
 
     agent = anyio.run(conversation)
 
     assert answers[0].endswith(
-        "active_p1 has 2 runs.\n\nA new run, or a run to work on?\n(1) a new run\n"
+        "active_p2 has 2 runs.\n\nA new run, or a run to work on?\n(1) a new run\n"
         f"(2) work on run {RUN_A} (active, windows of 24 receivers, curves)\n"
         f"(3) work on run {RUN_B} (active, windows of 12 receivers, images)"
     )
     # The run chosen: the model told it and the plan, its curves inverted, nothing processed.
     told = str(agent.messages[-4].get("content"))
-    assert f"Work on run {RUN_A} of active_p1, and on no other run: invert." in told
+    assert f"Work on run {RUN_A} of active_p2, and on no other run: invert." in told
     assert [name for name, _ in server_.calls] == ["invert"]
 
 
@@ -947,9 +953,9 @@ def test_a_new_run_chosen_is_made_by_the_model_with_the_request_s_settings() -> 
     # the mode, not the stacking, which the model gives, the request quoted to it.
     server_ = PlanServer()
     server_.runs = TWO_RUNS
-    request = "Process active_p1 using passive-active method but phase-weighted stack at power 1."
+    request = "Process active_p2 using passive-active method but phase-weighted stack at power 1."
     processing = {
-        "profile": "active_p1",
+        "profile": "active_p2",
         "mode": "passive-active",
         "overrides": {"stacking": {"method": "phase_weighted", "nu": 1}},
         "again": True,
@@ -971,10 +977,10 @@ def test_a_new_run_chosen_is_made_by_the_model_with_the_request_s_settings() -> 
     # The model's call, the host's none.
     assert server_.calls == [("run_processing", processing)]
     told = str(agent.messages[-4].get("content"))
-    offered = 'run_processing(profile="active_p1", mode="passive-active", again=true)'
+    offered = 'run_processing(profile="active_p2", mode="passive-active", again=true)'
     assert told.endswith(
         f'The user chose (1) a new run. Their request: "{request}"; every setting it gives goes '
-        f"into the calls. A new run of active_p1 first ({offered}, with the request's settings)."
+        f"into the calls. A new run of active_p2 first ({offered}, with the request's settings)."
     )
     assert server_.metas[-1]["scope"]["chosen"] == offered
 
@@ -982,27 +988,27 @@ def test_a_new_run_chosen_is_made_by_the_model_with_the_request_s_settings() -> 
 def test_later_stages_ask_which_of_several_runs_and_go_on_with_one() -> None:
     several = MetaServer()
     several.runs = TWO_RUNS
-    asked, _, _ = _played(ScriptedModel(scopes=(_on("invert"),)), several, "Invert active_p1.")
+    asked, _, _ = _played(ScriptedModel(scopes=(_on("invert"),)), several, "Invert active_p2.")
     assert asked.endswith(
-        "active_p1 has 2 runs.\n\nWhich run?\n"
+        "active_p2 has 2 runs.\n\nWhich run?\n"
         + f"(1) work on run {RUN_A} (active, windows of 24 receivers, curves)\n"
         + f"(2) work on run {RUN_B} (active, windows of 12 receivers, images)"
     )
 
     one = PlanServer()
-    one.runs = {"active_p1": {RUN_A: TWO_RUNS["active_p1"][RUN_A]}}
+    one.runs = {"active_p2": {RUN_A: TWO_RUNS["active_p2"][RUN_A]}}
     model = ScriptedModel(
         _calls(("invert", {"run_id": RUN_A})), _says("Inverted."), scopes=(_on("invert"),)
     )
-    _, agent, _ = _played(model, one, "Invert active_p1.")
+    _, agent, _ = _played(model, one, "Invert active_p2.")
     assert str(agent.messages[1].get("content")).endswith(
-        f"Work on run {RUN_A} of active_p1, and on no other run: invert."
+        f"Work on run {RUN_A} of active_p2, and on no other run: invert."
     )
 
 
 def test_the_model_is_sent_back_once_when_it_stops_before_the_plan_is_done() -> None:
     server_ = PlanServer()
-    server_.runs = {"active_p1": {RUN_A: TWO_RUNS["active_p1"][RUN_B]}}
+    server_.runs = {"active_p2": {RUN_A: TWO_RUNS["active_p2"][RUN_B]}}
     model = ScriptedModel(
         _calls(("pick", {"run_id": RUN_A})),
         _says("Picked: the inversion can now proceed."),
@@ -1011,7 +1017,7 @@ def test_the_model_is_sent_back_once_when_it_stops_before_the_plan_is_done() -> 
         scopes=(_on("pick", "invert"),),
     )
 
-    answer, agent, _ = _played(model, server_, "Pick and invert active_p1.")
+    answer, agent, _ = _played(model, server_, "Pick and invert active_p2.")
 
     assert [name for name, _ in server_.calls] == ["pick", "invert"]
     assert {
@@ -1030,7 +1036,7 @@ def test_a_message_whose_scope_cannot_be_read_runs_nothing() -> None:
 
     async def conversation() -> tuple[str, Agent]:
         agent = Agent(server_, model, [], None, on_event=lambda _: None)  # pyright: ignore[reportArgumentType]
-        return await agent.answer("Pick active_p1."), agent
+        return await agent.answer("Pick active_p2."), agent
 
     answer, agent = anyio.run(conversation)
 
@@ -1313,7 +1319,7 @@ def test_chat_says_which_settings_are_missing(
     anyio.run(chat)
 
     assert capsys.readouterr().out == (
-        "Set PACO_LLM_BASE_URL, PACO_LLM_MODEL in .env (vLLM's address and model name).\n"
+        "Set PACO_LLM_BASE_URL, PACO_LLM_MODEL in .env (the model: its server and name).\n"
     )
 
 

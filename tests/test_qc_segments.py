@@ -22,14 +22,14 @@ WINDOWS = {"masw": {"length": 24, "step": 24}}
 SAMPLING = 500.0
 
 
-def test_the_demos_passive_line_takes_shorter_segments(
+def test_the_demos_passive_line_takes_longer_segments(
     profiles: dict[str, Profile], tmp_path: Path
 ) -> None:
-    # passive_p1's windows span 5.75 m, crossed in 72 ms at 80 m/s: 0.72 s segments (ten
-    # crossings) with the FK selection at 0.1 give an M0 pick over 7.8 times its shortest
-    # wavelength, 8 % of the segments kept and the correlograms converged (0.85), against 5.0
-    # with the defaults (1 s, FK at 0.2), whose correlograms do not converge (0.48).
-    profile = profiles["passive_p1"]
+    # passive_p2's windows span 34.5 m, crossed in 0.43 s at 80 m/s: 4.31 s segments (ten
+    # crossings) with the FK selection at 0.05 give an M0 pick over 4.3 times its shortest
+    # wavelength, 77 % of the segments kept and the correlograms converged (0.72), against 1.0
+    # with the defaults (1 s, FK at 0.2), whose correlograms do not converge (0.56).
+    profile = profiles["passive_p2"]
     preset = resolve_preset(make_preset("passive", WINDOWS), profile)
     preprocess_records(preset, profile, tmp_path, workers=1)
     rules = SegmentRules()
@@ -39,11 +39,11 @@ def test_the_demos_passive_line_takes_shorter_segments(
     )
 
     assert changes == {
-        "slicing": {"segment_duration": 0.72, "segment_step": 0.72},
-        "selection": {"method": "fk", "threshold": 0.1, "vmin": None, "vmax": None},
+        "slicing": {"segment_duration": 4.31, "segment_step": 4.31},
+        "selection": {"method": "fk", "threshold": 0.05, "vmin": None, "vmax": None},
     }
     (note,) = notes
-    assert note.startswith("Segments of 0.72 s (10 crossings of the windows' 5.75 m at 80 m/s)")
+    assert note.startswith("Segments of 4.31 s (10 crossings of the windows' 34.5 m at 80 m/s)")
     trials = json.loads((tmp_path / SEGMENTS_FILE).read_text())
     # The FK selection always on: every band and threshold tried, the line's own among them.
     selections = len(rules.bands) * len(rules.thresholds)

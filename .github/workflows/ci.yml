@@ -1,5 +1,6 @@
-# The same checks as before a commit: lint, format, types, tests. The tests read the demo
-# profiles committed in data/input, and install sigpipe from GitHub at the commit uv.lock pins.
+# The same checks as before a commit: lint, format, types, tests, sigpipe installed from GitHub at
+# the commit uv.lock pins. The tests that read real lines (PAC's local active_p2 and passive_p2,
+# kept in no repository) are skipped here: run them where those lines are (README, Develop).
 name: CI
 
 on:

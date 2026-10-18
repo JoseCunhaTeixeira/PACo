@@ -12,7 +12,8 @@ from sigpipe.base.stream import Stream
 from sigpipe.masw.presets import make_preset
 from sigpipe.masw.runs import find_run, list_runs, load_manifest
 
-from paco.evaluation.defects import build_inputs
+from paco.evaluation.defects import REFRACTED
+from paco.evaluation.defects import _refracted as refracted  # pyright: ignore[reportPrivateUsage]
 from paco.qc import LINE, QCConfig, compare_settings, latest, process_line, read_attempts
 from paco.qc.g1_signal import SignalThresholds, judge_fast_arrivals
 from paco.qc.models import GateResult, Override
@@ -160,17 +161,21 @@ def test_the_demo_line_is_tried_with_mutes_and_kept_unmuted(
     demo_input_dir: Path, tmp_path: Path
 ) -> None:
     settings = Settings(input_dir=demo_input_dir, output_dir=tmp_path, workers=2)
+    # active_p2's shots need a mute (the tight cone passes the 15 trial windows, no mute 4):
+    # rules asking more windows than the trial has keep none.
+    unmuted = QCConfig(mute=MuteRules(min_gain=MuteRules().trials + 1))
 
-    report = process_line("active_p1", {"masw": {"length": 24, "step": 24}}, settings, QCConfig())
+    report = process_line("active_p2", {"masw": {"length": 24, "step": 24}}, settings, unmuted)
 
     run_folder = find_run(report.run_id, settings)
     choice = read_mute_choice(run_folder)
-    # Five candidates on the same trial windows; no mute gave 2 more windows passing G3 than
-    # none on the demo's clean shots: the line stays unmuted, as it was.
+    # Five candidates on the same trial windows; no mute gave the windows passing G3 the rules
+    # ask over none: the line stays unmuted, as it was.
     assert choice is not None and choice.chosen == "none" and choice.muting is None
     assert [trial.candidate for trial in choice.trials] == [
         "none", "standard", "wider", "cone", "tight",
     ]  # fmt: skip
+    assert [trial.refused is not None for trial in choice.trials] == [False] + [True] * 4
     assert load_manifest(report.run_id, settings).preset.muting.method == "none"  # pyright: ignore[reportAttributeAccessIssue]
     # Nothing changed: no note among the line's changes; the trial's candidates in mute.json.
     line = latest(read_attempts(run_folder), LINE, "phase_shift")
@@ -180,41 +185,47 @@ def test_the_demo_line_is_tried_with_mutes_and_kept_unmuted(
         "masw": {"length": 24, "step": 24},
         "muting": {"method": "mute", "vmin": 100.0, "vmax": 900.0},
     }
-    given = process_line("active_p1", muted, settings, QCConfig())
+    given = process_line("active_p2", muted, settings, QCConfig())
     assert read_mute_choice(find_run(given.run_id, settings)) is None
 
 
 def test_compare_tries_settings_apart_from_the_runs(demo_input_dir: Path, tmp_path: Path) -> None:
     settings = Settings(input_dir=demo_input_dir, output_dir=tmp_path, workers=2)
-    variants = [{"masw": {"length_m": 2.75}}, {"masw": {"length": 24}}]
+    variants = [{"masw": {"length_m": 16.5}}, {"masw": {"length": 24}}]
 
-    compared = compare_settings("active_p1", variants, "depth", settings, QCConfig())
+    compared = compare_settings("active_p2", variants, "depth", settings, QCConfig())
 
     first, second = compared.variants
-    # The length in metres converted: 2.75 m are 12 receivers 0.25 m apart.
+    # The length in metres converted: 16.5 m are 12 receivers 1.5 m apart.
     assert (first.length, second.length) == (12, 24)
     assert first.windows == second.windows == 9
     depths = {variant.label: variant.depth_m for variant in compared.variants}
     assert compared.best == max(depths, key=lambda label: depths[label] or 0.0)
-    assert compared.did.startswith("Compared 2 variants of active_p1 on the depth of investigation")
+    assert compared.did.startswith("Compared 2 variants of active_p2 on the depth of investigation")
     assert compared.table[0].startswith("variant 1") and "(best)" in " ".join(compared.table)
     # No run made or changed: the trials sit in the profile's compare folder.
     assert list_runs(settings) == []
-    assert (tmp_path / "active_p1" / "compare").is_dir()
+    assert (tmp_path / "active_p2" / "compare").is_dir()
 
 
 def test_strong_refractions_are_muted_with_the_tight_cone(
     demo_input_dir: Path, tmp_path: Path
 ) -> None:
-    # The evaluation's active_refracted: a head wave as strong as the surface waves, which
-    # pulls the gathers' fast quartile up; their median holds, and its tight cone takes the
-    # head wave out.
-    inputs = build_inputs(demo_input_dir, tmp_path / "inputs")
+    # The evaluation's active_refracted, its head wave at 0.8 of each trace's peak: it pulls the
+    # gathers' fast quartile up; their median holds, and its tight cone takes the head wave out
+    # of the line's windows of 24 receivers.
+    name, _, velocity, ratio = REFRACTED
+    inputs = tmp_path / "inputs"
+    refracted(demo_input_dir / "active_p2", inputs / name, velocity, ratio)
     settings = Settings(input_dir=inputs, output_dir=tmp_path / "outputs", workers=2)
 
-    report = process_line("active_refracted", None, settings, QCConfig())
+    report = process_line(name, {"masw": {"length": 24, "step": 24}}, settings, QCConfig())
 
     choice = read_mute_choice(find_run(report.run_id, settings))
     assert choice is not None and choice.chosen == "tight"
     none, *_, tight = choice.trials
     assert tight.passed >= none.passed + MuteRules().min_gain
+    # The cone widened keeps the head wave; the tight cone, around the median, alone cuts it.
+    assert choice.cone_m_s is not None
+    _, median, fast = choice.cone_m_s
+    assert median * MuteRules().widening < velocity < fast * MuteRules().widening

@@ -6,7 +6,8 @@
 #
 # Needs NVIDIA's container toolkit on the host and a 24 GB GPU. Settings come from .env:
 # PACO_LLM_MODEL=Qwen/Qwen3-14B-FP8, VLLM_MAX_MODEL_LEN, PACO_WORKERS, and HF_TOKEN for gated
-# models. Profiles are read from ./data/input, results written to ./data/output.
+# models. Profiles are read from <PACO_DATA_DIR>/input, results written to <PACO_DATA_DIR>/output:
+# PAC's data folder by default (../PAC/data), PACo's repository holding no data.
 
 x-model: &model
   PACO_LLM_BASE_URL: http://vllm:8000/v1
@@ -52,7 +53,7 @@ services:
       # Listening on 0.0.0.0 in the container: check the Host header against DNS rebinding.
       PACO_ALLOWED_HOSTS: '["paco-server:*", "127.0.0.1:*", "localhost:*"]'
     volumes:
-      - ./data:/data
+      - ${PACO_DATA_DIR:-../PAC/data}:/data
     ports:
       - 127.0.0.1:8000:8000  # this machine only: anyone who reaches it can run PACo's tools
 
@@ -63,7 +64,7 @@ services:
       <<: *model
       PACO_MCP_URL: http://paco-server:8000/mcp
     volumes:
-      - ./data:/data
+      - ${PACO_DATA_DIR:-../PAC/data}:/data
     stdin_open: true
     tty: true
     depends_on:
@@ -80,7 +81,7 @@ services:
       <<: *model
       PACO_WORKERS: ${PACO_WORKERS:-4}
     volumes:
-      - ./data:/data
+      - ${PACO_DATA_DIR:-../PAC/data}:/data
     depends_on:
       vllm:
         condition: service_healthy

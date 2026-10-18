@@ -18,7 +18,6 @@ from pathlib import Path
 from typing import Any, cast
 
 import numpy as np
-from sigpipe.base import Stream
 from sigpipe.masw.pipelines import PREPROCESSED, record_folder
 from sigpipe.masw.presets import (
     ActivePreset,
@@ -29,7 +28,6 @@ from sigpipe.masw.presets import (
 )
 from sigpipe.masw.profiles import Profile, ProfileError, load_profile
 from sigpipe.masw.quality.measures import decay_outliers, spectral_outliers
-from sigpipe.masw.quality.measures import line_reach as sigpipe_line_reach
 from sigpipe.masw.runs import RecordOutcome, RunError, RunManifest, load_image, load_manifest
 from sigpipe.masw.runs.processing import (
     RECORDS_FOLDER,
@@ -72,6 +70,7 @@ from paco.qc.judging import (
     correlations_of,
     draw_spectra,
     image_band,
+    line_reach,
     shared_band,
     stream_of,
 )
@@ -257,7 +256,7 @@ def _process(
     near_notes: tuple[str, ...] = ()
     logged = dict(changes)
     if near is not None and longest is not None:
-        windows, near_only = near_field_windows(windows, near)
+        windows, near_only = near_field_windows(windows, near, exclusions.records)
         near_notes = (near_note(near, longest, near_only),)
         logged["near_field"] = {"distance_m": near}
     if not windows:
@@ -379,41 +378,6 @@ def reprocess_records(
     if stopped is not None:
         raise stopped
     return tuple(outcomes.values())
-
-
-def line_reach(
-    run_folder: Path,
-    profile: Profile,
-    records: tuple[RecordOutcome, ...],
-    config: QCConfig,
-    preset: ActivePreset | PassivePreset,
-) -> float | None:
-    """How far from the shots the line's traces still carry the wave (G1's per-trace SNR over
-    every active record, its noise before its muting as G1 measures it, `snr_reach`, in bins of
-    a fifteenth of the line, each record's times from its shot where its latest preprocessing,
-    over the run's `preset`, and its file's trigger put it); None on a passive line, or when no
-    distance falls below G1's SNR limit."""
-    if profile.kind != "active":
-        return None
-    triggers = file_triggers(profile)
-    attempts = read_attempts(run_folder)
-
-    def unmuted(record: RecordOutcome) -> tuple[Stream, float]:
-        # Its noise as G1 measures it, before its muting; its times from its shot.
-        attempt = latest(attempts, record.name, "preprocessing")
-        values = preprocessing_values(preset, attempt)
-        shot_s = trigger_context(values, triggers.get(record.name))[0]
-        return before_muting(preset, profile, record.name, attempt, shot_s) or (
-            stream_of(run_folder / record.folder / PREPROCESSED),
-            shot_s,
-        )
-
-    positions = [receiver.x for receiver in profile.receivers]
-    return sigpipe_line_reach(
-        (unmuted(record) for record in records if record.status == "succeeded"),
-        config.signal,
-        max(positions) - min(positions),
-    )
 
 
 def far_limit(
@@ -717,7 +681,7 @@ def settle_line(
         manifest = load_manifest(run_id, settings)
         attempts = read_attempts(run_folder)
         work = run_work(run_folder, manifest, attempts)
-        built = line_windows(run_folder, profile, preset)
+        built = line_windows(run_folder, profile, preset, exclusions.records)
         windows = {
             window.folder: built[window.folder]
             for window in manifest.windows

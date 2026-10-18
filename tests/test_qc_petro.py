@@ -181,13 +181,13 @@ def test_redoing_the_seismic_inversion_keeps_the_petrophysical_one() -> None:
 def judged(
     demo_input_dir: Path, tmp_path_factory: pytest.TempPathFactory
 ) -> tuple[Settings, str, Path]:
-    """active_p1 in 24-receiver windows every 12, judged up to G4 with no retry."""
+    """active_p2 in 24-receiver windows every 12, judged up to G4 with no retry."""
     root = tmp_path_factory.mktemp("petro")
     settings = Settings(input_dir=demo_input_dir, output_dir=root / "outputs", workers=2)
     with pytest.MonkeyPatch.context() as patch:
         patch.chdir(root)
         windows = {"masw": {"length": 24, "step": 12}}
-        run_id = run_processing("active_p1", "active", windows, settings).run_id
+        run_id = run_processing("active_p2", "active", windows, settings).run_id
         judge_run(run_id, settings, QCConfig(budgets=Budgets(per_gate_and_unit=0)))
     return settings, run_id, find_run(run_id, settings)
 
