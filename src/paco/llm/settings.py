@@ -160,23 +160,22 @@ class ModelSettings(BaseSettings):
     llm_seed: int | None = None
 
     @field_validator(
+        "llm_provider",
         "llm_base_url",
+        "llm_api_key",
         "llm_region",
         "llm_project",
         "llm_context",
+        "llm_vision",
+        "llm_thinking",
         "llm_effort",
         "llm_temperature",
         "llm_seed",
         mode="before",
     )
     @classmethod
-    def _empty_is_unset(cls, value: object) -> object:
-        return _unset(value)
-
-    @field_validator("llm_api_key", mode="before")
-    @classmethod
-    def _empty_key_is_none(cls, value: object) -> object:
-        return NO_KEY if value == "" else value
+    def _empty_is_default(cls, value: object, info: ValidationInfo) -> object:
+        return _default(cls, value, info)
 
     def context(self) -> int:
         """The model's context: the one set, else a small local model's or a frontier one's."""
@@ -211,7 +210,8 @@ class JudgeSettings(BaseSettings):
         frozen=True,
     )
 
-    judge_provider: Provider = "openai-compatible"
+    # vLLM's by default, as the model's: PACo's judge was first served so.
+    judge_provider: Provider = "vllm"
     judge_model: str | None = None
     judge_base_url: str | None = Field(default=None, validate_default=True)
     judge_api_key: SecretStr = SecretStr(NO_KEY)
@@ -221,16 +221,18 @@ class JudgeSettings(BaseSettings):
 
     # Named apart from the model's own validators: PACo's agent settings inherit both.
     @field_validator(
+        "judge_provider",
         "judge_model",
         "judge_base_url",
+        "judge_api_key",
         "judge_region",
         "judge_project",
         "judge_effort",
         mode="before",
     )
     @classmethod
-    def _judge_empty_is_unset(cls, value: object) -> object:
-        return _unset(value)
+    def _judge_empty_is_default(cls, value: object, info: ValidationInfo) -> object:
+        return _default(cls, value, info)
 
     @field_validator("judge_base_url")
     @classmethod
@@ -240,10 +242,12 @@ class JudgeSettings(BaseSettings):
         return _address(value, info.data.get("judge_provider"))
 
 
-def _unset(value: object) -> object:
-    """An empty setting is one not set: compose passes one for a variable its .env leaves out, and
-    a settings page saves one over a value of .env."""
-    return None if value == "" else value
+def _default(settings: type[BaseSettings], value: object, info: ValidationInfo) -> object:
+    """An empty setting is one not set, its default: compose passes one for a variable its .env
+    leaves out, and a settings page saves one over a value of .env."""
+    if value != "" or info.field_name is None:
+        return value
+    return settings.model_fields[info.field_name].get_default(call_default_factory=True)
 
 
 def missing(error: ValidationError, prefix: str = "PACO_") -> str:

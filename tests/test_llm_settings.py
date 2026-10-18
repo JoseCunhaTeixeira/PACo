@@ -136,20 +136,24 @@ def test_an_empty_setting_is_one_not_set(monkeypatch: pytest.MonkeyPatch) -> Non
         ("CONTEXT", ""),
         ("API_KEY", ""),
         ("EFFORT", ""),
+        ("VISION", ""),
+        ("THINKING", ""),
     ):
         monkeypatch.setenv(f"PACO_LLM_{name}", value)
-    monkeypatch.setenv("PACO_JUDGE_MODEL", "")
+    for name in ("PROVIDER", "MODEL", "API_KEY"):
+        monkeypatch.setenv(f"PACO_JUDGE_{name}", "")
     monkeypatch.setenv("PACO_AGENT_MODE", "")
 
     settings = AgentSettings()  # pyright: ignore[reportCallIssue]
 
     assert (settings.llm_base_url, settings.llm_context, settings.llm_effort) == (None, None, None)
+    assert (settings.llm_vision, settings.llm_thinking) == (False, True)
     assert settings.context() == FRONTIER_CONTEXT
     assert settings.llm_api_key.get_secret_value() == "EMPTY"
-    assert settings.judge_model is None
+    assert (settings.judge_provider, settings.judge_model) == ("vllm", None)
     assert ModeSettings().agent_mode == "guided"
-    # A server of the user's still needs its address.
-    monkeypatch.setenv("PACO_LLM_PROVIDER", "vllm")
+    # An empty provider is vLLM's, which needs its address.
+    monkeypatch.setenv("PACO_LLM_PROVIDER", "")
     with pytest.raises(ValidationError) as refused:
         ModelSettings()  # pyright: ignore[reportCallIssue]
     assert missing(refused.value) == "PACO_LLM_BASE_URL"
