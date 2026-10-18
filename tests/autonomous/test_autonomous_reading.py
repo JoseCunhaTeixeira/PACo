@@ -1,5 +1,5 @@
 """observe, look and advise (docs/autonomous_plan.md §6): what they read of a committed line, here
-active_p2's four 24-receiver windows as PACo makes them; and advise's own trials, made once."""
+active_test_profile's four 24-receiver windows as PACo makes them; and advise's own trials, made once."""
 
 from pathlib import Path
 
@@ -16,6 +16,7 @@ from paco.settings import Settings
 PNG = b"\x89PNG"
 
 
+@pytest.mark.slow
 def test_observe_summarizes_a_gate(judged_line: JudgedLine) -> None:
     text = observe(judged_line.folder, "curves", QCConfig())
 
@@ -23,6 +24,7 @@ def test_observe_summarizes_a_gate(judged_line: JudgedLine) -> None:
     assert "G3 near_field, xmid 17.25 (1), 89.25-125.25 (2)" in text
 
 
+@pytest.mark.slow
 def test_observe_gives_the_rows_where_asked(judged_line: JudgedLine) -> None:
     lines = observe(
         judged_line.folder, "curves", QCConfig(), where="flag:near_field+xmids:80-130"
@@ -33,6 +35,7 @@ def test_observe_gives_the_rows_where_asked(judged_line: JudgedLine) -> None:
     assert lines[1].startswith("89.25: pass; near_field; λ 7-14 m;")
 
 
+@pytest.mark.slow
 def test_observe_the_line_with_its_pseudo_section(judged_line: JudgedLine) -> None:
     section = observe(judged_line.folder, "line", QCConfig()).split("Pseudo-section")[1]
 
@@ -42,6 +45,7 @@ def test_observe_the_line_with_its_pseudo_section(judged_line: JudgedLine) -> No
     assert rows[0].split()[1:] == ["-", "-", "-", "311", "-"]
 
 
+@pytest.mark.slow
 def test_observe_what_is_not_there(judged_line: JudgedLine) -> None:
     assert observe(judged_line.folder, "models", QCConfig()).startswith(
         "No G5 result on this run yet: invert the frozen curves first"
@@ -52,6 +56,7 @@ def test_observe_what_is_not_there(judged_line: JudgedLine) -> None:
         observe(judged_line.folder, "curves", QCConfig(), where="verdict:pass", page=2)
 
 
+@pytest.mark.slow
 def test_look_at_a_window_its_pick_and_its_limits(judged_line: JudgedLine) -> None:
     seen = look(judged_line.folder, "image", "89", vision=True)
 
@@ -60,6 +65,7 @@ def test_look_at_a_window_its_pick_and_its_limits(judged_line: JudgedLine) -> No
     assert figure.startswith(PNG)
 
 
+@pytest.mark.slow
 def test_without_vision_a_ridge_table_and_g1s_measures(judged_line: JudgedLine) -> None:
     image = look(judged_line.folder, "image", "89", vision=False)
     gather = look(judged_line.folder, "gather", "101.dat", vision=False)
@@ -73,6 +79,7 @@ def test_without_vision_a_ridge_table_and_g1s_measures(judged_line: JudgedLine) 
         look(judged_line.folder, "sheet", "0-150", vision=False)
 
 
+@pytest.mark.slow
 def test_look_at_records_and_a_sheet(judged_line: JudgedLine) -> None:
     assert look(judged_line.folder, "gather", "101.dat", vision=True).figures[0].startswith(PNG)
     assert look(judged_line.folder, "spectra", "103.dat", vision=True).figures[0].startswith(PNG)
@@ -82,8 +89,9 @@ def test_look_at_records_and_a_sheet(judged_line: JudgedLine) -> None:
         look(judged_line.folder, "gather", "999.dat", vision=True)
 
 
+@pytest.mark.slow
 def test_advise_reads_the_committed_lines_gates(judged_line: JudgedLine, tmp_path: Path) -> None:
-    study = Study("active_p2", tmp_path)
+    study = Study("active_test_profile", tmp_path)
     settings = Settings(input_dir=judged_line.folder, output_dir=tmp_path)
 
     def said(topic: str, run_folder: Path | None = judged_line.folder) -> str:
@@ -99,13 +107,14 @@ def test_advise_reads_the_committed_lines_gates(judged_line: JudgedLine, tmp_pat
     assert said("inversion").startswith("No model yet")
 
 
+@pytest.mark.slow
 def test_advise_makes_pacos_trials_once(input_dir: Path, tmp_path: Path) -> None:
     # Few trial windows and two lengths: PACo's ladder and mute trial in a few seconds.
     config = QCConfig.model_validate(
         {"coherence": {"trials": 3, "lengths": [9, 13]}, "mute": {"trials": 3}}
     )
     settings = Settings(input_dir=input_dir, output_dir=tmp_path / "output", workers=2)
-    study = new_study("active_p2", settings)
+    study = new_study("active_test_profile", settings)
 
     ladder = advise(study, "window_length", {}, settings, config)
     mute = advise(study, "mute", {}, settings, config)

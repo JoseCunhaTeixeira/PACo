@@ -50,14 +50,14 @@ M0, M1 = Mode("M", 0), Mode("M", 1)
 
 @pytest.fixture(scope="module")
 def made(demo_input_dir: Path, tmp_path_factory: pytest.TempPathFactory) -> tuple[Path, str, str]:
-    """active_p2 processed in four 24-receiver windows twice: as PAC's pages leave a run (no
+    """active_test_profile processed in four 24-receiver windows twice: as PAC's pages leave a run (no
     check), and judged by the assistant (G1 to G4, its picks). Their outputs, and each run."""
     root = tmp_path_factory.mktemp("hand")
     settings = Settings(input_dir=demo_input_dir, output_dir=root / "outputs", workers=2)
     with pytest.MonkeyPatch.context() as patch:
         patch.chdir(root)
-        pac = run_processing("active_p2", "active", SMALL_WINDOWS, settings).run_id
-        judged = run_processing("active_p2", "active", SMALL_WINDOWS, settings).run_id
+        pac = run_processing("active_test_profile", "active", SMALL_WINDOWS, settings).run_id
+        judged = run_processing("active_test_profile", "active", SMALL_WINDOWS, settings).run_id
         judge_run(judged, settings, QCConfig())
     return root / "outputs", pac, judged
 
@@ -95,6 +95,7 @@ def _vs(window: Path, mode: Mode = M0) -> np.ndarray:
     return next(np.asarray(one.vs) for one in saved.dispersion_curves if one.mode == mode)
 
 
+@pytest.mark.slow
 def test_a_run_made_in_pac_is_inverted_as_the_user_picked_it(
     outputs: tuple[Settings, str, str],
 ) -> None:
@@ -119,6 +120,7 @@ def test_a_run_made_in_pac_is_inverted_as_the_user_picked_it(
     assert "images at xmid 17.25-125.25 (4); M0 curve at xmid 17.25-125.25 (4)." in summary
 
 
+@pytest.mark.slow
 def test_a_curve_picked_by_hand_is_taken_as_it_is_and_never_picked_again(
     outputs: tuple[Settings, str, str],
 ) -> None:
@@ -142,6 +144,7 @@ def test_a_curve_picked_by_hand_is_taken_as_it_is_and_never_picked_again(
     np.testing.assert_allclose(ready["xmid_53.25"].vs, hand.vs, rtol=1e-3)
 
 
+@pytest.mark.slow
 def test_a_mode_added_by_hand_keeps_the_assistants_m0_and_its_checks(
     outputs: tuple[Settings, str, str],
 ) -> None:
@@ -161,6 +164,7 @@ def test_a_mode_added_by_hand_keeps_the_assistants_m0_and_its_checks(
     assert window_modes(window) == (M0, M1)
 
 
+@pytest.mark.slow
 def test_pacs_automatic_pick_is_judged_before_the_inversion_takes_it(
     outputs: tuple[Settings, str, str],
 ) -> None:
@@ -232,6 +236,7 @@ def test_g4_compares_the_assistants_curves_with_a_persons_never_the_reverse() ->
     assert verdicts["off"] == "retry" and "h1" not in verdicts and "h2" not in verdicts
 
 
+@pytest.mark.slow
 def test_the_line_done_again_leaves_a_persons_work_as_it_is(
     outputs: tuple[Settings, str, str],
 ) -> None:
@@ -276,6 +281,7 @@ def test_asked_stages_and_judgements_are_off_the_runs_budget() -> None:
     assert retries_in_run(attempts) == 2
 
 
+@pytest.mark.slow
 def test_inspect_reads_each_run_and_who_made_it_changing_nothing(
     outputs: tuple[Settings, str, str],
 ) -> None:
@@ -290,8 +296,8 @@ def test_inspect_reads_each_run_and_who_made_it_changing_nothing(
     one = inspection.run_text(judged, settings)
     window = inspection.window_text(pac, 18.0, settings)
 
-    assert f"Run {pac}: active_p2 (active), processed by PAC's pages" in runs
-    assert f"Run {judged}: active_p2 (active), processed by the assistant" in runs
+    assert f"Run {pac}: active_test_profile (active), processed by PAC's pages" in runs
+    assert f"Run {judged}: active_test_profile (active), processed by the assistant" in runs
     assert "1 M0 curves (1 by hand)" in runs
     # Alike windows next to each other in one line, their count said: xmid 89.25 and 125.25,
     # whose curves G3 and G4 both passed.
@@ -307,6 +313,7 @@ def test_inspect_reads_each_run_and_who_made_it_changing_nothing(
     assert after == stamps
 
 
+@pytest.mark.slow
 def test_positions_are_the_nearest_windows_the_line_holds(
     outputs: tuple[Settings, str, str],
 ) -> None:
@@ -343,6 +350,7 @@ def test_a_window_given_in_metres_is_the_nearest_receiver_count() -> None:
         in_receivers({"masw": {"length_m": 0.1}}, 0.25)
 
 
+@pytest.mark.slow
 def test_the_state_is_rebuilt_from_the_files_a_page_of_pac_changed(
     outputs: tuple[Settings, str, str],
 ) -> None:

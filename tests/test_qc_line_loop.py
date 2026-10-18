@@ -166,7 +166,7 @@ def test_an_ask_the_line_did_not_keep_is_kept_as_a_note() -> None:
 def test_a_mute_tried_for_the_line_is_made_as_the_mute_trials(profiles: dict[str, Profile]) -> None:
     # G2 asks a mute without its width and taper: the line's pulse (no record measured one: the
     # configuration's), and the mute trial's taper, one mute for every record.
-    profile = profiles["active_p2"]
+    profile = profiles["active_test_profile"]
     asked = Candidate(
         stage="preprocessing",
         overrides=MUTE,
@@ -189,6 +189,7 @@ def _demo(demo_input_dir: Path, root: Path) -> Settings:
     return Settings(input_dir=demo_input_dir, output_dir=root / "outputs", workers=2)
 
 
+@pytest.mark.slow
 def test_a_change_kept_is_made_on_the_whole_line(
     demo_input_dir: Path, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
@@ -225,7 +226,9 @@ def test_a_change_kept_is_made_on_the_whole_line(
     monkeypatch.chdir(tmp_path)
     settings = _demo(demo_input_dir, tmp_path)
 
-    report = process_line("active_p2", {"masw": {"length": 24, "step": 24}}, settings, QCConfig())
+    report = process_line(
+        "active_test_profile", {"masw": {"length": 24, "step": 24}}, settings, QCConfig()
+    )
 
     run_folder = find_run(report.run_id, settings)
     manifest = load_manifest(report.run_id, settings)
@@ -255,6 +258,7 @@ def test_a_change_kept_is_made_on_the_whole_line(
     assert len(calls) == 2
 
 
+@pytest.mark.slow
 def test_the_loop_keeps_at_most_its_changes(
     demo_input_dir: Path, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
@@ -291,13 +295,16 @@ def test_the_loop_keeps_at_most_its_changes(
     settings = _demo(demo_input_dir, tmp_path)
     config = QCConfig(line=LineRules(max_changes=2))
 
-    report = process_line("active_p2", {"masw": {"length": 24, "step": 24}}, settings, config)
+    report = process_line(
+        "active_test_profile", {"masw": {"length": 24, "step": 24}}, settings, config
+    )
 
     assert load_manifest(report.run_id, settings).preset.model_dump()["dispersion"]["vmax"] == 1000
     trials = json.loads((find_run(report.run_id, settings) / LINE_LOOP_FILE).read_text())
     assert len(trials["trials"]) == 2
 
 
+@pytest.mark.slow
 def test_an_ask_of_a_setting_the_user_gave_rejects_its_window(
     demo_input_dir: Path, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
@@ -307,7 +314,7 @@ def test_an_ask_of_a_setting_the_user_gave_rejects_its_window(
     settings = _demo(demo_input_dir, tmp_path)
     overrides = {"masw": {"length": 24, "step": 24}, "dispersion": {"vmax": 250}}
 
-    report = process_line("active_p2", overrides, settings, QCConfig())
+    report = process_line("active_test_profile", overrides, settings, QCConfig())
 
     manifest = load_manifest(report.run_id, settings)
     assert manifest.preset.model_dump()["dispersion"]["vmax"] == 250

@@ -24,9 +24,9 @@ KINDS: tuple[Kind, ...] = ("thinking", "no thinking", "parallel", "form", "figur
 SYSTEM = "You process MASW seismic profiles with the tools you are given. Answer in one sentence."
 ASKED: dict[Kind, str] = {
     "thinking": "Which profiles are there? Use a tool if you need one.",
-    "no thinking": "Which processing settings can active_p2 take? Use a tool if you need one.",
-    "parallel": "Read the processing settings of active_p2 and the inversion's parameters.",
-    "form": "Process the profile active_p2, then pick its curves.",
+    "no thinking": "Which processing settings can active_test_profile take? Use a tool if you need one.",
+    "parallel": "Read the processing settings of active_test_profile and the inversion's parameters.",
+    "form": "Process the profile active_test_profile, then pick its curves.",
     "figure": "What does this figure show?",
 }
 # The form the form calls fill: a scope, much smaller than PACo's.

@@ -22,14 +22,15 @@ WINDOWS = {"masw": {"length": 24, "step": 24}}
 SAMPLING = 500.0
 
 
+@pytest.mark.slow
 def test_the_demos_passive_line_takes_longer_segments(
     profiles: dict[str, Profile], tmp_path: Path
 ) -> None:
-    # passive_p2's windows span 34.5 m, crossed in 0.43 s at 80 m/s: 4.31 s segments (ten
+    # passive_test_profile's windows span 34.5 m, crossed in 0.43 s at 80 m/s: 4.31 s segments (ten
     # crossings) with the FK selection at 0.05 give an M0 pick over 4.3 times its shortest
     # wavelength, 77 % of the segments kept and the correlograms converged (0.72), against 1.0
     # with the defaults (1 s, FK at 0.2), whose correlograms do not converge (0.56).
-    profile = profiles["passive_p2"]
+    profile = profiles["passive_test_profile"]
     preset = resolve_preset(make_preset("passive", WINDOWS), profile)
     preprocess_records(preset, profile, tmp_path, workers=1)
     rules = SegmentRules()

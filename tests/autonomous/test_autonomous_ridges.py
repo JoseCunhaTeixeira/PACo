@@ -1,4 +1,4 @@
-"""Ridge tables (docs/autonomous_plan.md §6): an image whose ridges are known, and active_p2's, whose
+"""Ridge tables (docs/autonomous_plan.md §6): an image whose ridges are known, and active_test_profile's, whose
 strongest ridge is the curve its picker followed."""
 
 import numpy as np
@@ -78,6 +78,7 @@ def test_the_table_as_the_model_reads_it() -> None:
     ]
 
 
+@pytest.mark.slow
 def test_the_strongest_ridge_is_the_picked_curve(judged_line: JudgedLine) -> None:
     folder = judged_line.folder / "xmid_89.25"
     curve = saved_m0(folder / CURVES_FILE)

@@ -1,4 +1,4 @@
-"""survey (docs/autonomous_plan.md §4.1): active_p2's geometry, the limits it sets, and its raw records as
+"""survey (docs/autonomous_plan.md §4.1): active_test_profile's geometry, the limits it sets, and its raw records as
 G1 measures them, made once a study."""
 
 from collections.abc import Iterator
@@ -22,16 +22,17 @@ class Surveyed:
 
 @pytest.fixture(scope="module")
 def surveyed(input_dir: Path, tmp_path_factory: pytest.TempPathFactory) -> Iterator[Surveyed]:
-    """A study of active_p2, surveyed (a second or two)."""
+    """A study of active_test_profile, surveyed (a second or two)."""
     root = tmp_path_factory.mktemp("survey")
     with pytest.MonkeyPatch.context() as patch:
         patch.setitem(Settings.model_config, "env_file", None)
         patch.chdir(root)
         settings = Settings(input_dir=input_dir, output_dir=root / "output", workers=2)
-        study = new_study("active_p2", settings)
+        study = new_study("active_test_profile", settings)
         yield Surveyed(settings, study, survey(study, settings, QCConfig()))
 
 
+@pytest.mark.slow
 def test_the_lines_geometry_and_the_limits_it_sets(surveyed: Surveyed) -> None:
     found = surveyed.found
 
@@ -53,6 +54,7 @@ def test_the_lines_geometry_and_the_limits_it_sets(surveyed: Surveyed) -> None:
     assert (found.shortest_wavelength_m, found.lengths) == (3.0, (5, 48))
 
 
+@pytest.mark.slow
 def test_the_raw_records_as_g1_measures_them(surveyed: Surveyed) -> None:
     found = surveyed.found
 
@@ -67,12 +69,13 @@ def test_the_raw_records_as_g1_measures_them(surveyed: Surveyed) -> None:
     assert found.g1["line"].verdict == "pass"
 
 
+@pytest.mark.slow
 def test_the_survey_as_the_model_reads_it_made_once(surveyed: Surveyed) -> None:
     lines = describe_survey(surveyed.found).splitlines()
 
     # Many shots, and many records, summed up.
     assert lines[0] == (
-        "active_p2: 96 receivers 1.5 m apart, 142.5 m long; 28 shots: 1 before the line (at "
+        "active_test_profile: 96 receivers 1.5 m apart, 142.5 m long; 28 shots: 1 before the line (at "
         "-0.75 m), 26 on the line (from 0.75 to 141.75 m), 1 after the line (at 143.25 m), their "
         "files' trigger 0.02 s."
     )
@@ -88,6 +91,7 @@ def test_the_survey_as_the_model_reads_it_made_once(surveyed: Surveyed) -> None:
     assert survey(surveyed.study, surveyed.settings, QCConfig()) == surveyed.found
 
 
+@pytest.mark.slow
 def test_regular_shots_are_said_with_their_step(surveyed: Surveyed) -> None:
     found = surveyed.found
     regular = tuple(

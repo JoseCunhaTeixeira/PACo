@@ -39,7 +39,8 @@ type Candidate = Literal["none", "standard", "wider", "cone", "tight"]
 
 
 class MuteRules(BaseModel):
-    """How the mute trial decides: provisional, measured on active_p1 and active_p2."""
+    """How the mute trial decides: provisional, measured on PAC's former demo line and on the active
+    test profile."""
 
     model_config = ConfigDict(frozen=True, extra="forbid")
 

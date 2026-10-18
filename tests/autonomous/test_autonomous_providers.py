@@ -20,7 +20,7 @@ SCHEMA: dict[str, Any] = {
     "properties": {"profile": {"anyOf": [{"type": "string"}, {"type": "null"}]}},
     "required": ["profile"],
 }
-FORM = ({"role": "assistant", "content": '{"profile": "active_p2"}'}, usage(400, 20))
+FORM = ({"role": "assistant", "content": '{"profile": "active_test_profile"}'}, usage(400, 20))
 
 
 # ---------------------------------------------------------------- vision

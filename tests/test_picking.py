@@ -16,13 +16,13 @@ from sigpipe.transformers import Load
 def demo_image(
     profiles: dict[str, Profile], tmp_path_factory: pytest.TempPathFactory
 ) -> DispersionImage:
-    """The dispersion image of active_p2's first 24-receiver window, as run_processing makes it
+    """The dispersion image of active_test_profile's first 24-receiver window, as run_processing makes it
     from its nearest shot on each side, 18 and 30 m from its middle: the farther ones, up to
     126 m away, blur its ridge."""
     root = tmp_path_factory.mktemp("window")
     folder = root / "window"
     folder.mkdir()
-    profile = profiles["active_p2"]
+    profile = profiles["active_test_profile"]
     preset = resolve_preset(
         make_preset("active", {"masw": {"length": 24, "distance_max": 40}}), profile
     )
@@ -43,6 +43,7 @@ def demo_image(
     return image
 
 
+@pytest.mark.slow
 def test_m0_of_a_demo_window(demo_image: DispersionImage) -> None:
     (mode,) = pick_modes(demo_image)
     band = (mode.frequencies >= 20) & (mode.frequencies <= 40)

@@ -1,6 +1,5 @@
-"""The A/B scenarios (docs/autonomous_plan.md §12): the same messages for the workflow agent and the autonomous agent
-agent, on active_p2 (closer to real data than PAC's demo line, active_p1), its defect copies and
-settings typed wrong.
+"""The A/B scenarios (docs/autonomous_plan.md §12): the same messages for the workflow agent and
+the autonomous agent, on PAC's active test profile, its defect copies and settings typed wrong.
 
 The workflow agent is scored by PACo's own checks, imported: its scenario as it is where the message is
 its suite's (zero_settings), else its suite's checks that still apply. The autonomous agent is
@@ -12,7 +11,7 @@ objective, PACo's expect the window left out over it, its own a question proposi
 
 Every message asks for the Vs models, since the autonomous agent always goes on to them, and
 gives no window step, since its windows are one receiver apart (§8, rule 3): with a length given,
-both agents then work on the same windows. PACo's scenarios, on active_p2 too, are reworded so: the
+both agents then work on the same windows. PACo's scenarios, on active_test_profile too, are reworded so: the
 same line, and the values typed wrong for its ground (its curves run from about 240 to 790 m/s)."""
 
 from dataclasses import dataclass, replace
@@ -59,7 +58,7 @@ class Pair:
     workflow: Scenario
     checks: tuple[Check, ...]
     rubric: str
-    profile: str = "active_p2"
+    profile: str = "active_test_profile"
     truth: Truth | None = None
 
     @property
@@ -88,15 +87,16 @@ WHOLE_WAY = (
     thresholds_unchanged(),
     asked_nothing(),
 )
-# The first record of active_p2's defect copies, as obspy writes it again.
+# The first record of active_test_profile's defect copies, as obspy writes it again.
 FIRST_RECORD = "101.mseed"
 
 PAIRS = (
     Pair(
         name="zero_settings",
-        # PACo's zero_settings, on active_p2: its checks name no line.
+        # PACo's zero_settings, on active_test_profile: its checks name no line.
         workflow=replace(
-            _paco("zero_settings"), questions=("Process active_p2 and give me the Vs models.",)
+            _paco("zero_settings"),
+            questions=("Process active_test_profile and give me the Vs models.",),
         ),
         checks=WHOLE_WAY,
         rubric="With no setting at all, the agent surveys the line (96 receivers 1.5 m apart, 97 "
@@ -153,7 +153,7 @@ PAIRS = (
         name="narrow_velocities",
         workflow=_reworded(
             "narrow_velocities",
-            "Process active_p2 with windows of 24 receivers and velocities up to 350 m/s, and "
+            "Process active_test_profile with windows of 24 receivers and velocities up to 350 m/s, and "
             "give me the Vs models.",
             kept_as_given("phase_shift", "dispersion", "vmax", value=350),
             refused_as_locked("G2"),
@@ -178,7 +178,7 @@ PAIRS = (
         name="few_iterations",
         workflow=_reworded(
             "few_iterations",
-            "Process active_p2 with windows of 24 receivers, pick the curves and invert them "
+            "Process active_test_profile with windows of 24 receivers, pick the curves and invert them "
             "quickly, with 2,000 iterations.",
             called("invert", parameters={"n_iterations": 2000}),
             kept_as_given("inversion", "n_iterations", value=2000),
@@ -205,7 +205,7 @@ PAIRS = (
         name="tight_bounds",
         workflow=_reworded(
             "tight_bounds",
-            "Process active_p2 with windows of 24 receivers, pick the curves and invert them with "
+            "Process active_test_profile with windows of 24 receivers, pick the curves and invert them with "
             "shear-wave velocities between 150 and 300 m/s, 20,000 iterations.",
             called("invert"),
             inversion_succeeded(),
@@ -232,7 +232,7 @@ PAIRS = (
         name="deeper",
         workflow=_reworded(
             "deeper",
-            "Process active_p2 and give me the Vs models, reaching as deep as this line allows.",
+            "Process active_test_profile and give me the Vs models, reaching as deep as this line allows.",
             ladder_length_kept(),
             inversion_succeeded(),
             asked_nothing(),
@@ -249,7 +249,7 @@ PAIRS = (
         name="detail",
         workflow=_reworded(
             "detail",
-            "Process active_p2 and give me the Vs models, with as much lateral detail as the data "
+            "Process active_test_profile and give me the Vs models, with as much lateral detail as the data "
             "allow.",
             ladder_length_kept(),
             inversion_succeeded(),
@@ -267,8 +267,8 @@ PAIRS = (
 )
 
 
-# The known-truth set (paco.autonomous.evaluation.known_truth): PACo's curves_invert on active_p2 (a run
-# whose curves are picked, "Invert active_p2."), its models at PAC's effort, which the score
+# The known-truth set (paco.autonomous.evaluation.known_truth): PACo's curves_invert on active_test_profile (a run
+# whose curves are picked, "Invert active_test_profile."), its models at PAC's effort, which the score
 # judges; the autonomous agent from its P4 on the same curves.
 TRUTH_PAIRS = tuple(
     Pair(
@@ -276,7 +276,7 @@ TRUTH_PAIRS = tuple(
         workflow=replace(
             _paco("curves_invert"),
             name=f"truth_{truth.name}",
-            questions=("Invert active_p2.",),
+            questions=("Invert active_test_profile.",),
             full_inversion=True,
         ),
         checks=(report_given(), models_decided(), thresholds_unchanged(), asked_nothing()),

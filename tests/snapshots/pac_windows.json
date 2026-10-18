@@ -1,7 +1,7 @@
 {
  "generated_with": {"pac_commit": "372357c", "sigpipe_commit": "772ff36"},
  "cases": [
-  {"profile": "active_p2", "params": {"length": 3, "step": 1, "distance_min": 0.0, "distance_max": 100.0}, "windows": [
+  {"profile": "active_test_profile", "params": {"length": 3, "step": 1, "distance_min": 0.0, "distance_max": 100.0}, "windows": [
    {"xmid": 1.5, "files": ["101.dat", "117.dat", "133.dat", "149.dat", "165.dat"], "receivers": [0, 3], "sources": [[-0.75, 0.0], [23.25, 0.0], [47.25, 0.0], [71.25, 0.0], [95.25, 0.0]]},
    {"xmid": 3.0, "files": ["101.dat", "117.dat", "133.dat", "149.dat", "165.dat"], "receivers": [1, 4], "sources": [[-0.75, 0.0], [23.25, 0.0], [47.25, 0.0], [71.25, 0.0], [95.25, 0.0]]},
    {"xmid": 4.5, "files": ["101.dat", "117.dat", "133.dat", "149.dat", "165.dat"], "receivers": [2, 5], "sources": [[-0.75, 0.0], [23.25, 0.0], [47.25, 0.0], [71.25, 0.0], [95.25, 0.0]]},
@@ -97,20 +97,20 @@
    {"xmid": 139.5, "files": ["133.dat", "149.dat", "165.dat", "181.dat", "197.dat"], "receivers": [92, 95], "sources": [[47.25, 0.0], [71.25, 0.0], [95.25, 0.0], [119.25, 0.0], [143.25, 0.0]]},
    {"xmid": 141.0, "files": ["133.dat", "149.dat", "165.dat", "181.dat", "197.dat"], "receivers": [93, 96], "sources": [[47.25, 0.0], [71.25, 0.0], [95.25, 0.0], [119.25, 0.0], [143.25, 0.0]]}
   ]},
-  {"profile": "active_p2", "params": {"length": 24, "step": 12, "distance_min": 1.0, "distance_max": 35.0}, "windows": [
+  {"profile": "active_test_profile", "params": {"length": 24, "step": 12, "distance_min": 1.0, "distance_max": 35.0}, "windows": [
    {"xmid": 17.25, "files": ["101.dat", "133.dat"], "receivers": [0, 24], "sources": [[-0.75, 0.0], [47.25, 0.0]]},
    {"xmid": 53.25, "files": ["117.dat", "149.dat"], "receivers": [24, 48], "sources": [[23.25, 0.0], [71.25, 0.0]]},
    {"xmid": 71.25, "files": ["133.dat", "165.dat"], "receivers": [36, 60], "sources": [[47.25, 0.0], [95.25, 0.0]]},
    {"xmid": 89.25, "files": ["149.dat", "181.dat"], "receivers": [48, 72], "sources": [[71.25, 0.0], [119.25, 0.0]]},
    {"xmid": 125.25, "files": ["165.dat", "197.dat"], "receivers": [72, 96], "sources": [[95.25, 0.0], [143.25, 0.0]]}
   ]},
-  {"profile": "active_p2", "params": {"length": 24, "step": 6, "distance_min": 0.5, "distance_max": 20.0}, "windows": [
+  {"profile": "active_test_profile", "params": {"length": 24, "step": 6, "distance_min": 0.5, "distance_max": 20.0}, "windows": [
    {"xmid": 17.25, "files": ["101.dat"], "receivers": [0, 24], "sources": [[-0.75, 0.0]]},
    {"xmid": 53.25, "files": ["149.dat"], "receivers": [24, 48], "sources": [[71.25, 0.0]]},
    {"xmid": 89.25, "files": ["149.dat"], "receivers": [48, 72], "sources": [[71.25, 0.0]]},
    {"xmid": 125.25, "files": ["197.dat"], "receivers": [72, 96], "sources": [[143.25, 0.0]]}
   ]},
-  {"profile": "active_p2", "params": {"length": 48, "step": 8, "distance_min": 2.0, "distance_max": 50.0}, "windows": [
+  {"profile": "active_test_profile", "params": {"length": 48, "step": 8, "distance_min": 2.0, "distance_max": 50.0}, "windows": [
    {"xmid": 35.25, "files": ["101.dat", "149.dat"], "receivers": [0, 48], "sources": [[-0.75, 0.0], [71.25, 0.0]]},
    {"xmid": 47.25, "files": ["101.dat", "165.dat"], "receivers": [8, 56], "sources": [[-0.75, 0.0], [95.25, 0.0]]},
    {"xmid": 59.25, "files": ["117.dat", "165.dat"], "receivers": [16, 64], "sources": [[23.25, 0.0], [95.25, 0.0]]},
@@ -119,16 +119,16 @@
    {"xmid": 95.25, "files": ["133.dat", "197.dat"], "receivers": [40, 88], "sources": [[47.25, 0.0], [143.25, 0.0]]},
    {"xmid": 107.25, "files": ["149.dat", "197.dat"], "receivers": [48, 96], "sources": [[71.25, 0.0], [143.25, 0.0]]}
   ]},
-  {"profile": "active_p2", "params": {"length": 96, "step": 1, "distance_min": 0.0, "distance_max": 100.0}, "windows": [
+  {"profile": "active_test_profile", "params": {"length": 96, "step": 1, "distance_min": 0.0, "distance_max": 100.0}, "windows": [
    {"xmid": 71.25, "files": ["101.dat", "197.dat"], "receivers": [0, 96], "sources": [[-0.75, 0.0], [143.25, 0.0]]}
   ]},
-  {"profile": "active_p2", "params": {"length": 5, "step": 3, "distance_min": 9.75, "distance_max": 12.75}, "windows": [
+  {"profile": "active_test_profile", "params": {"length": 5, "step": 3, "distance_min": 9.75, "distance_max": 12.75}, "windows": [
    {"xmid": 12.0, "files": ["117.dat"], "receivers": [6, 11], "sources": [[23.25, 0.0]]},
    {"xmid": 34.5, "files": ["117.dat"], "receivers": [21, 26], "sources": [[23.25, 0.0]]},
    {"xmid": 84.0, "files": ["165.dat"], "receivers": [54, 59], "sources": [[95.25, 0.0]]},
    {"xmid": 106.5, "files": ["165.dat"], "receivers": [69, 74], "sources": [[95.25, 0.0]]}
   ]},
-  {"profile": "passive_p2", "params": {"length": 3, "step": 1, "distance_min": 0.0, "distance_max": 100.0}, "windows": [
+  {"profile": "passive_test_profile", "params": {"length": 3, "step": 1, "distance_min": 0.0, "distance_max": 100.0}, "windows": [
    {"xmid": 1.5, "files": ["1001.dat", "1002.dat"], "receivers": [0, 3], "sources": [[0.0, 0.0], [0.0, 0.0]]},
    {"xmid": 3.0, "files": ["1001.dat", "1002.dat"], "receivers": [1, 4], "sources": [[1.5, 0.0], [1.5, 0.0]]},
    {"xmid": 4.5, "files": ["1001.dat", "1002.dat"], "receivers": [2, 5], "sources": [[3.0, 0.0], [3.0, 0.0]]},
@@ -224,7 +224,7 @@
    {"xmid": 139.5, "files": ["1001.dat", "1002.dat"], "receivers": [92, 95], "sources": [[138.0, 0.0], [138.0, 0.0]]},
    {"xmid": 141.0, "files": ["1001.dat", "1002.dat"], "receivers": [93, 96], "sources": [[139.5, 0.0], [139.5, 0.0]]}
   ]},
-  {"profile": "passive_p2", "params": {"length": 24, "step": 12, "distance_min": 1.0, "distance_max": 35.0}, "windows": [
+  {"profile": "passive_test_profile", "params": {"length": 24, "step": 12, "distance_min": 1.0, "distance_max": 35.0}, "windows": [
    {"xmid": 17.25, "files": ["1001.dat", "1002.dat"], "receivers": [0, 24], "sources": [[0.0, 0.0], [0.0, 0.0]]},
    {"xmid": 35.25, "files": ["1001.dat", "1002.dat"], "receivers": [12, 36], "sources": [[18.0, 0.0], [18.0, 0.0]]},
    {"xmid": 53.25, "files": ["1001.dat", "1002.dat"], "receivers": [24, 48], "sources": [[36.0, 0.0], [36.0, 0.0]]},
@@ -233,7 +233,7 @@
    {"xmid": 107.25, "files": ["1001.dat", "1002.dat"], "receivers": [60, 84], "sources": [[90.0, 0.0], [90.0, 0.0]]},
    {"xmid": 125.25, "files": ["1001.dat", "1002.dat"], "receivers": [72, 96], "sources": [[108.0, 0.0], [108.0, 0.0]]}
   ]},
-  {"profile": "passive_p2", "params": {"length": 24, "step": 6, "distance_min": 0.5, "distance_max": 20.0}, "windows": [
+  {"profile": "passive_test_profile", "params": {"length": 24, "step": 6, "distance_min": 0.5, "distance_max": 20.0}, "windows": [
    {"xmid": 17.25, "files": ["1001.dat", "1002.dat"], "receivers": [0, 24], "sources": [[0.0, 0.0], [0.0, 0.0]]},
    {"xmid": 26.25, "files": ["1001.dat", "1002.dat"], "receivers": [6, 30], "sources": [[9.0, 0.0], [9.0, 0.0]]},
    {"xmid": 35.25, "files": ["1001.dat", "1002.dat"], "receivers": [12, 36], "sources": [[18.0, 0.0], [18.0, 0.0]]},
@@ -248,7 +248,7 @@
    {"xmid": 116.25, "files": ["1001.dat", "1002.dat"], "receivers": [66, 90], "sources": [[99.0, 0.0], [99.0, 0.0]]},
    {"xmid": 125.25, "files": ["1001.dat", "1002.dat"], "receivers": [72, 96], "sources": [[108.0, 0.0], [108.0, 0.0]]}
   ]},
-  {"profile": "passive_p2", "params": {"length": 48, "step": 8, "distance_min": 2.0, "distance_max": 50.0}, "windows": [
+  {"profile": "passive_test_profile", "params": {"length": 48, "step": 8, "distance_min": 2.0, "distance_max": 50.0}, "windows": [
    {"xmid": 35.25, "files": ["1001.dat", "1002.dat"], "receivers": [0, 48], "sources": [[0.0, 0.0], [0.0, 0.0]]},
    {"xmid": 47.25, "files": ["1001.dat", "1002.dat"], "receivers": [8, 56], "sources": [[12.0, 0.0], [12.0, 0.0]]},
    {"xmid": 59.25, "files": ["1001.dat", "1002.dat"], "receivers": [16, 64], "sources": [[24.0, 0.0], [24.0, 0.0]]},
@@ -257,10 +257,10 @@
    {"xmid": 95.25, "files": ["1001.dat", "1002.dat"], "receivers": [40, 88], "sources": [[60.0, 0.0], [60.0, 0.0]]},
    {"xmid": 107.25, "files": ["1001.dat", "1002.dat"], "receivers": [48, 96], "sources": [[72.0, 0.0], [72.0, 0.0]]}
   ]},
-  {"profile": "passive_p2", "params": {"length": 96, "step": 1, "distance_min": 0.0, "distance_max": 100.0}, "windows": [
+  {"profile": "passive_test_profile", "params": {"length": 96, "step": 1, "distance_min": 0.0, "distance_max": 100.0}, "windows": [
    {"xmid": 71.25, "files": ["1001.dat", "1002.dat"], "receivers": [0, 96], "sources": [[0.0, 0.0], [0.0, 0.0]]}
   ]},
-  {"profile": "passive_p2", "params": {"length": 5, "step": 3, "distance_min": 9.75, "distance_max": 12.75}, "windows": [
+  {"profile": "passive_test_profile", "params": {"length": 5, "step": 3, "distance_min": 9.75, "distance_max": 12.75}, "windows": [
    {"xmid": 3.0, "files": ["1001.dat", "1002.dat"], "receivers": [0, 5], "sources": [[0.0, 0.0], [0.0, 0.0]]},
    {"xmid": 7.5, "files": ["1001.dat", "1002.dat"], "receivers": [3, 8], "sources": [[4.5, 0.0], [4.5, 0.0]]},
    {"xmid": 12.0, "files": ["1001.dat", "1002.dat"], "receivers": [6, 11], "sources": [[9.0, 0.0], [9.0, 0.0]]},

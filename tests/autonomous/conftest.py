@@ -12,10 +12,15 @@ from paco.llm.settings import ModelSettings
 from paco.modes import ModeSettings
 from paco.settings import Settings, get_settings
 
-# active_p2's shots the tests keep: the seven at each end, which a long window stacks, and one in
-# six between, 28 of 97: real records, read and judged in a quarter of the time.
-END_SHOTS = 7
-SHOT_STEP = 6
+# The active test profile's shots the tests keep: the seven at each end, which a long window
+# stacks, and one in six between, 28 of the real line's 97 (24 m apart, as the 7 PACo's tests
+# keep); the passive one's 2 records of noise.
+SHOTS = (
+    *(f"{shot}.dat" for shot in range(101, 108)),
+    *(f"{shot}.dat" for shot in range(108, 190, 6)),
+    *(f"{shot}.dat" for shot in range(191, 198)),
+)
+NOISE_RECORDS = 2
 
 
 @pytest.fixture(autouse=True)
@@ -38,18 +43,18 @@ def no_env_file(monkeypatch: pytest.MonkeyPatch) -> Iterator[None]:
 
 @pytest.fixture(scope="session")
 def input_dir(tmp_path_factory: pytest.TempPathFactory) -> Path:
-    """active_p2, its records linked from the local data folder with the shots the tests keep, in
-    a folder of its own; passive_p2 beside it, whole (its 16 records of noise process in seconds)."""
+    """The test profiles linked from PAC's data folder, with the shots and records the tests keep,
+    in a folder of their own."""
     present(ACTIVE, PASSIVE)
     root = tmp_path_factory.mktemp("input")
-    link_active(root, END_SHOTS, SHOT_STEP)
-    link_passive(root)
+    link_active(root, SHOTS)
+    link_passive(root, NOISE_RECORDS)
     return root
 
 
 @pytest.fixture(scope="session")
 def passive_dir(input_dir: Path) -> Path:
-    """The test lines' folder, holding passive_p2."""
+    """The test lines' folder, holding passive_test_profile."""
     return input_dir
 
 
@@ -76,6 +81,6 @@ def free_port() -> int:
 
 @pytest.fixture(scope="session")
 def judged_line(input_dir: Path, tmp_path_factory: pytest.TempPathFactory) -> JudgedLine:
-    """A line of active_p2, processed, picked and judged once for the tests that read real curves
+    """A line of active_test_profile, processed, picked and judged once for the tests that read real curves
     and images."""
     return make_judged_line(input_dir, tmp_path_factory.mktemp("judged_line"))

@@ -23,7 +23,7 @@ type CopyDemo = Callable[[str, str], Path]
 
 
 def test_list_profiles_finds_the_demo_profiles(demo_settings: Settings) -> None:
-    assert {"active_p2", "passive_p2"} <= set(list_profiles(demo_settings))
+    assert {"active_test_profile", "passive_test_profile"} <= set(list_profiles(demo_settings))
 
 
 def test_list_profiles_skips_files_and_hidden_folders(input_dir: Path, settings: Settings) -> None:
@@ -35,7 +35,7 @@ def test_list_profiles_skips_files_and_hidden_folders(input_dir: Path, settings:
 
 
 def test_inspect_active_demo(demo_settings: Settings) -> None:
-    summary = inspect_profile("active_p2", demo_settings)
+    summary = inspect_profile("active_test_profile", demo_settings)
 
     assert summary.kind == ProfileKind.ACTIVE
     assert summary.n_records == 7
@@ -50,7 +50,7 @@ def test_inspect_active_demo(demo_settings: Settings) -> None:
 
 
 def test_inspect_passive_demo(demo_settings: Settings) -> None:
-    summary = inspect_profile("passive_p2", demo_settings)
+    summary = inspect_profile("passive_test_profile", demo_settings)
 
     assert summary.kind == ProfileKind.PASSIVE
     assert summary.n_records == 2
@@ -61,14 +61,14 @@ def test_inspect_passive_demo(demo_settings: Settings) -> None:
     assert summary.source_x_range_m is None
 
 
-@pytest.mark.parametrize("name", ["active_p2", "passive_p2"])
+@pytest.mark.parametrize("name", ["active_test_profile", "passive_test_profile"])
 def test_summary_stays_short(demo_settings: Settings, name: str) -> None:
     # The summary is what the agent reads: it must stay far below the tool-output budget.
     assert len(inspect_profile(name, demo_settings).model_dump_json()) < 1_000
 
 
 def test_load_active_demo_uses_sigpipe_coordinates(demo_settings: Settings) -> None:
-    profile = load_profile("active_p2", demo_settings)
+    profile = load_profile("active_test_profile", demo_settings)
 
     assert all(isinstance(receiver, Coordinate) for receiver in profile.receivers)
     assert all(receiver.y == 0.0 for receiver in profile.receivers)
@@ -92,7 +92,7 @@ def test_load_active_demo_uses_sigpipe_coordinates(demo_settings: Settings) -> N
 
 
 def test_profile_without_source_file_is_passive(copy_demo: CopyDemo, settings: Settings) -> None:
-    folder = copy_demo("active_p2", "p1")
+    folder = copy_demo("active_test_profile", "p1")
     (folder / SOURCE_POSITIONS_FILE).unlink()
 
     profile = load_profile("p1", settings)
@@ -105,7 +105,7 @@ def test_profile_without_source_file_is_passive(copy_demo: CopyDemo, settings: S
 
 
 def test_unknown_profile_lists_the_available_ones(copy_demo: CopyDemo, settings: Settings) -> None:
-    copy_demo("active_p2", "p1")
+    copy_demo("active_test_profile", "p1")
 
     with pytest.raises(ProfileError, match=r"Unknown profile 'nope'\. Available profiles: p1\."):
         load_profile("nope", settings)
@@ -115,14 +115,14 @@ def test_unknown_profile_lists_the_available_ones(copy_demo: CopyDemo, settings:
 def test_names_outside_the_input_dir_are_rejected(
     copy_demo: CopyDemo, settings: Settings, name: str
 ) -> None:
-    copy_demo("active_p2", "p1")
+    copy_demo("active_test_profile", "p1")
 
     with pytest.raises(ProfileError, match="Unknown profile"):
         load_profile(name, settings)
 
 
 def test_profile_without_records(copy_demo: CopyDemo, settings: Settings) -> None:
-    folder = copy_demo("active_p2", "p1")
+    folder = copy_demo("active_test_profile", "p1")
     for record in folder.glob("*.dat"):
         record.unlink()
 
@@ -131,7 +131,7 @@ def test_profile_without_records(copy_demo: CopyDemo, settings: Settings) -> Non
 
 
 def test_missing_receiver_file(copy_demo: CopyDemo, settings: Settings) -> None:
-    folder = copy_demo("active_p2", "p1")
+    folder = copy_demo("active_test_profile", "p1")
     (folder / RECEIVER_POSITIONS_FILE).unlink()
 
     with pytest.raises(ProfileError, match=f"has no {RECEIVER_POSITIONS_FILE}"):
@@ -151,7 +151,7 @@ def test_missing_receiver_file(copy_demo: CopyDemo, settings: Settings) -> None:
 def test_malformed_receiver_file(
     copy_demo: CopyDemo, settings: Settings, content: str, message: str
 ) -> None:
-    folder = copy_demo("active_p2", "p1")
+    folder = copy_demo("active_test_profile", "p1")
     (folder / RECEIVER_POSITIONS_FILE).write_text(content)
 
     with pytest.raises(ProfileError, match=message):
@@ -159,7 +159,7 @@ def test_malformed_receiver_file(
 
 
 def test_unsorted_receivers(copy_demo: CopyDemo, settings: Settings) -> None:
-    folder = copy_demo("active_p2", "p1")
+    folder = copy_demo("active_test_profile", "p1")
     path = folder / RECEIVER_POSITIONS_FILE
     path.write_text(yaml.safe_dump(yaml.safe_load(path.read_text())[::-1]))
 
@@ -168,7 +168,7 @@ def test_unsorted_receivers(copy_demo: CopyDemo, settings: Settings) -> None:
 
 
 def test_source_file_not_matching_the_records(copy_demo: CopyDemo, settings: Settings) -> None:
-    folder = copy_demo("active_p2", "p1")
+    folder = copy_demo("active_test_profile", "p1")
     path = folder / SOURCE_POSITIONS_FILE
     sources = yaml.safe_load(path.read_text())
     # The last shot's position under the name of a record the profile does not have.
@@ -183,7 +183,7 @@ def test_source_file_not_matching_the_records(copy_demo: CopyDemo, settings: Set
 
 
 def test_source_file_that_is_not_a_mapping(copy_demo: CopyDemo, settings: Settings) -> None:
-    folder = copy_demo("active_p2", "p1")
+    folder = copy_demo("active_test_profile", "p1")
     (folder / SOURCE_POSITIONS_FILE).write_text("- x: 0.0\n  z: 0.0\n")
 
     with pytest.raises(ProfileError, match="must map each record file name"):
@@ -191,7 +191,7 @@ def test_source_file_that_is_not_a_mapping(copy_demo: CopyDemo, settings: Settin
 
 
 def test_fewer_receivers_than_traces(copy_demo: CopyDemo, settings: Settings) -> None:
-    folder = copy_demo("active_p2", "p1")
+    folder = copy_demo("active_test_profile", "p1")
     path = folder / RECEIVER_POSITIONS_FILE
     path.write_text(yaml.safe_dump(yaml.safe_load(path.read_text())[:10]))
 
@@ -200,7 +200,7 @@ def test_fewer_receivers_than_traces(copy_demo: CopyDemo, settings: Settings) ->
 
 
 def test_file_sigpipe_cannot_read(copy_demo: CopyDemo, settings: Settings) -> None:
-    folder = copy_demo("active_p2", "p1")
+    folder = copy_demo("active_test_profile", "p1")
     (folder / SOURCE_POSITIONS_FILE).unlink()
     (folder / "notes.txt").write_text("field notes")
 
@@ -211,10 +211,10 @@ def test_file_sigpipe_cannot_read(copy_demo: CopyDemo, settings: Settings) -> No
 def test_records_with_different_sampling_rates(
     copy_demo: CopyDemo, demo_input_dir: Path, settings: Settings
 ) -> None:
-    folder = copy_demo("active_p2", "p1")
+    folder = copy_demo("active_test_profile", "p1")
     (folder / SOURCE_POSITIONS_FILE).unlink()
     # A 500 Hz passive record next to the 2000 Hz active ones, same 96 receivers.
-    (folder / "1002.dat").symlink_to(demo_input_dir / "passive_p2" / "1002.dat")
+    (folder / "1002.dat").symlink_to(demo_input_dir / "passive_test_profile" / "1002.dat")
 
     with pytest.raises(ProfileError, match="one sampling rate, found 500 Hz, 2000 Hz"):
         load_profile("p1", settings)

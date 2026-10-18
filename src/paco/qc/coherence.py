@@ -61,7 +61,7 @@ class CoherenceRules(BaseModel):
         default=0.2,
         gt=0,
         description="Median velocity uncertainty of the curves G3 passed at which the climb "
-        "stops: short of it, the ladder keeps the most precise length that passes. On p2, 5 "
+        "stops: short of it, the ladder keeps the most precise length that passes. On the active test profile, 5 "
         "receivers passed with picks at 40 %, 7 at 30 %.",
     )
     min_precision_gain: float = Field(

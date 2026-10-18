@@ -1,6 +1,6 @@
 """The settings the user gave (docs/autonomous_plan.md §8, rule 1): read by the objective form, kept in the
 study (the latest message's winning), applied by code to every trial, commit and inversion, a call
-changing one refused; what they hold back said on the card and in the report. On active_p2's
+changing one refused; what they hold back said on the card and in the report. On active_test_profile's
 24-receiver windows with a velocity grid the ground is faster than, as narrow_velocities types
 it."""
 
@@ -52,7 +52,9 @@ LOCKED = "propose a change to them, never make it."
 
 
 def test_the_form_reads_the_settings_typed() -> None:
-    scope = GeoScope.model_validate({**BLANK, "invert": True, "profile": "active_p2", **TYPED})
+    scope = GeoScope.model_validate(
+        {**BLANK, "invert": True, "profile": "active_test_profile", **TYPED}
+    )
 
     assert scope.given(1.5) == USER
     # A length in metres, in receivers on a line of 1.5 m.
@@ -65,7 +67,7 @@ def test_the_form_reads_the_settings_typed() -> None:
 
 
 def test_the_latest_message_giving_a_setting_wins(tmp_path: Path) -> None:
-    study = Study("active_p2", tmp_path)
+    study = Study("active_test_profile", tmp_path)
 
     assert given.give(study, USER) == USER.said()
     assert given.give(study, USER) == []
@@ -77,7 +79,7 @@ def test_the_latest_message_giving_a_setting_wins(tmp_path: Path) -> None:
 
 
 def test_a_study_begun_before_kept_its_objectives_length(tmp_path: Path) -> None:
-    study = Study("active_p2", tmp_path)
+    study = Study("active_test_profile", tmp_path)
     journal.objective(study, {"given": {"masw": {"length": 30}}}, "balanced")
 
     assert given_of(study) == Given(line={"masw": {"length": 30}})
@@ -126,6 +128,7 @@ def test_the_users_settings_go_into_every_call() -> None:
     )
 
 
+@pytest.mark.slow
 def test_the_checks_keep_a_bound_the_user_gave(judged_line: JudgedLine) -> None:
     # 89.25's curve reaches 270 m/s: a top Vs of 200 m/s fails the checks before S4, kept.
     curve = saved_m0(judged_line.folder / "xmid_89.25" / CURVES_FILE)
@@ -197,7 +200,7 @@ def test_what_the_users_settings_hold_back(tmp_path: Path) -> None:
 
 @dataclass(frozen=True)
 class Kept:
-    """A study of active_p2 whose user gave windows of 24 receivers and velocities up to 350
+    """A study of active_test_profile whose user gave windows of 24 receivers and velocities up to 350
     m/s: what its calls said, and its first commit."""
 
     settings: Settings
@@ -219,7 +222,7 @@ def kept(input_dir: Path, tmp_path_factory: pytest.TempPathFactory) -> Iterator[
         patch.chdir(root)
         settings = Settings(input_dir=input_dir, output_dir=root / "output", workers=4)
         config = QCConfig()
-        study = new_study("active_p2", settings)
+        study = new_study("active_test_profile", settings)
         given.give(study, Given(line=USER.line))
         refused = {
             "trial": _refused(
@@ -247,6 +250,7 @@ def kept(input_dir: Path, tmp_path_factory: pytest.TempPathFactory) -> Iterator[
         yield Kept(settings, study, refused, trial.current, first)
 
 
+@pytest.mark.slow
 def test_a_trial_and_a_commit_changing_them_are_refused(kept: Kept) -> None:
     assert kept.refused == {
         "trial": f"dispersion vmax is the user's (350): {LOCKED}",
@@ -256,6 +260,7 @@ def test_a_trial_and_a_commit_changing_them_are_refused(kept: Kept) -> None:
     assert kept.current == {"masw": {"length": 24}, "dispersion": {"vmax": 350.0}}
 
 
+@pytest.mark.slow
 def test_the_first_commit_runs_with_them_and_logs_them(kept: Kept) -> None:
     (made,) = kept.first.line.commits
 
@@ -272,6 +277,7 @@ def test_the_first_commit_runs_with_them_and_logs_them(kept: Kept) -> None:
     assert "dispersion vmax: given by the user (L1)" in notes.notes
 
 
+@pytest.mark.slow
 def test_g2_rejects_the_windows_they_hold_back_and_the_card_says_so(kept: Kept) -> None:
     held = asks(kept.run, given_of(kept.study))
 

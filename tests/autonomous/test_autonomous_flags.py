@@ -50,6 +50,7 @@ def test_a_flags_class_comes_from_its_action(
     assert flag_class(flag) == expected
 
 
+@pytest.mark.slow
 def test_the_lines_flags_take_the_classes_the_table_gives(judged_line: JudgedLine) -> None:
     raised = [
         (gate, flag)

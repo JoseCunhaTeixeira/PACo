@@ -28,12 +28,12 @@ SMALL_WINDOWS = {"masw": {"length": 24, "step": 24}}
 
 @pytest.fixture(scope="module")
 def made(demo_input_dir: Path, tmp_path_factory: pytest.TempPathFactory) -> tuple[Path, str]:
-    """active_p2 in four 24-receiver windows, judged by the assistant: G1 to G4, its picks."""
+    """active_test_profile in four 24-receiver windows, judged by the assistant: G1 to G4, its picks."""
     root = tmp_path_factory.mktemp("replay")
     settings = Settings(input_dir=demo_input_dir, output_dir=root / "outputs", workers=2)
     with pytest.MonkeyPatch.context() as patch:
         patch.chdir(root)
-        run_id = run_processing("active_p2", "active", SMALL_WINDOWS, settings).run_id
+        run_id = run_processing("active_test_profile", "active", SMALL_WINDOWS, settings).run_id
         judge_run(run_id, settings, QCConfig())
     return root / "outputs", run_id
 
@@ -46,6 +46,7 @@ def run(made: tuple[Path, str], demo_input_dir: Path, tmp_path: Path) -> tuple[S
     return Settings(input_dir=demo_input_dir, output_dir=tmp_path / "outputs", workers=2), run_id
 
 
+@pytest.mark.slow
 def test_a_run_replays_to_the_same_records_images_and_curves(run: tuple[Settings, str]) -> None:
     settings, run_id = run
 
@@ -60,6 +61,7 @@ def test_a_run_replays_to_the_same_records_images_and_curves(run: tuple[Settings
     assert replay.folder is None and not any((settings.output_dir / REPLAYS).iterdir())
 
 
+@pytest.mark.slow
 def test_a_replay_makes_every_image_again(run: tuple[Settings, str], tmp_path: Path) -> None:
     settings, run_id = run
     cache = Cache(tmp_path / "cache", max_bytes=1 << 30)
@@ -71,6 +73,7 @@ def test_a_replay_makes_every_image_again(run: tuple[Settings, str], tmp_path: P
     assert replay.same and not cache.folder.exists()
 
 
+@pytest.mark.slow
 def test_an_output_the_log_does_not_make_is_found(run: tuple[Settings, str]) -> None:
     settings, run_id = run
     run_folder = find_run(run_id, settings)
@@ -95,6 +98,7 @@ def test_an_output_the_log_does_not_make_is_found(run: tuple[Settings, str]) -> 
     assert replay.folder is not None and (replay.folder / unit).is_dir()
 
 
+@pytest.mark.slow
 def test_a_persons_work_is_left_out_and_said(run: tuple[Settings, str]) -> None:
     settings, run_id = run
     run_folder = find_run(run_id, settings)
@@ -115,6 +119,7 @@ def test_a_persons_work_is_left_out_and_said(run: tuple[Settings, str]) -> None:
     )
 
 
+@pytest.mark.slow
 def test_a_run_whose_inputs_changed_is_not_replayed(
     run: tuple[Settings, str], monkeypatch: pytest.MonkeyPatch
 ) -> None:

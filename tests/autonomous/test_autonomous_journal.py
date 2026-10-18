@@ -13,7 +13,7 @@ from paco.autonomous.tools.trials import Study
 def study(tmp_path: Path) -> Study:
     folder = tmp_path / "studies" / "20261017-120000-abcd"
     folder.mkdir(parents=True)
-    return Study("active_p2", folder)
+    return Study("active_test_profile", folder)
 
 
 def test_the_models_entries_take_their_kinds_ids(study: Study) -> None:

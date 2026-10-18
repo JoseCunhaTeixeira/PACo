@@ -57,6 +57,9 @@ THINKING_TOKENS = 8_000
 FORM_TOKENS = 2_000
 # The tool whose input is a form.
 FORM_TOOL = "form"
+# The fields of a value or nothing (anyOf with null) Claude's API compiles a form's schema with,
+# at most: past them, it refuses the request.
+UNIONS = 16
 # What a form's tool, offered without forcing it, is asked with.
 FILL = "Fill the form now: call the tool form, whose fields are your answer."
 CACHED: dict[str, Any] = {"type": "ephemeral"}
@@ -162,6 +165,7 @@ class AnthropicChat:
         capabilities = self._capabilities
         silent = capabilities is None or capabilities.thinking.types.disabled.supported
         constrained = capabilities is not None and capabilities.structured_outputs.supported
+        schema, relaxed = _within_unions(schema)
         form: ToolParam = {
             "name": FORM_TOOL,
             "description": "Fill the form: its fields are your answer.",
@@ -202,7 +206,7 @@ class AnthropicChat:
         filled = next((block.input for block in response.content if block.type == "tool_use"), None)
         prompt, cached, completion = _tokens(response.usage)
         return Filled(
-            content=json.dumps(filled) if filled is not None else _text(response),
+            content=_with_nulls(filled if filled is not None else _text(response), relaxed),
             prompt_tokens=prompt,
             completion_tokens=completion,
             cached_tokens=cached,
@@ -416,6 +420,53 @@ def _input(arguments: object) -> dict[str, Any]:
     except json.JSONDecodeError:
         return {}
     return cast(dict[str, Any], parsed) if isinstance(parsed, dict) else {}
+
+
+def _within_unions(schema: dict[str, Any]) -> tuple[dict[str, Any], list[str]]:
+    """`schema` within the unions Claude's API compiles (UNIONS): past them, its last fields of a
+    value or nothing sent as their value alone, and no longer required. Those fields too, which
+    the form gives back as null where the model leaves them out: the form PACo reads is the same."""
+    properties: dict[str, Any] = schema.get("properties") or {}
+    unions = [name for name, field in properties.items() if _nullable(field) is not None]
+    relaxed = unions[UNIONS:] if len(unions) > UNIONS else []
+    if not relaxed:
+        return schema, []
+    sent = dict(properties)
+    for name in relaxed:
+        field = properties[name]
+        value = _nullable(field) or {}
+        sent[name] = {
+            **{key: kept for key, kept in field.items() if key not in ("anyOf", "default")},
+            **value,
+        }
+    required = [name for name in schema.get("required", []) if name not in relaxed]
+    return {**schema, "properties": sent, "required": required}, relaxed
+
+
+def _nullable(field: object) -> dict[str, Any] | None:
+    """The value a field of a value or nothing takes (`anyOf` of it and null); None for another."""
+    if not isinstance(field, dict):
+        return None
+    options = cast(dict[str, Any], field).get("anyOf")
+    if not isinstance(options, list) or len(options) != 2 or {"type": "null"} not in options:
+        return None
+    return next(option for option in options if option != {"type": "null"})
+
+
+def _with_nulls(filled: object, relaxed: list[str]) -> str:
+    """The form `filled` (the tool's input, or the text of structured outputs) as JSON, the fields
+    `relaxed` the model left out given back as null."""
+    if isinstance(filled, str):
+        if not relaxed:
+            return filled
+        try:
+            filled = json.loads(filled)
+        except json.JSONDecodeError:
+            return filled
+    if isinstance(filled, dict):
+        found = cast(dict[str, Any], filled)
+        filled = {**found, **{name: None for name in relaxed if name not in found}}
+    return json.dumps(filled)
 
 
 def _text(response: Message) -> str:

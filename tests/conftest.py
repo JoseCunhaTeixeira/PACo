@@ -15,16 +15,33 @@ from paco.settings import Settings, get_settings
 # Pipelines save figures to files: use the non-GUI backend, as PAC's API does.
 matplotlib.use("Agg")
 
-# The real lines PACo's tests read (local_lines): active_p2 with 7 of its shots, one in 16 from
-# the line's first to its last, 24 m apart, each window stacking a few, as the demo line's 2 shots
-# did; passive_p2 with its first 2 records of noise. The autonomous agent's tests read more of them
-# (tests/autonomous/conftest.py).
+# The test profiles PACo's tests read (local_lines): the active one with 7 of its shots, 24 m apart
+# from the line's first to its last, each window stacking a few; the passive one with its first 2
+# records of noise. The autonomous mode's tests read more shots (tests/autonomous/conftest.py).
 DEMO_PROFILES = (ACTIVE, PASSIVE)
-END_SHOTS = 0
-SHOT_STEP = 16
+SHOTS = ("101.dat", "117.dat", "133.dat", "149.dat", "165.dat", "181.dat", "197.dat")
 NOISE_RECORDS = 2
 
 type CopyDemo = Callable[[str, str], Path]
+
+
+def pytest_addoption(parser: pytest.Parser) -> None:
+    parser.addoption(
+        "--slow",
+        action="store_true",
+        help="also run the slow tests: PACo's processing, picking and inversion of the test "
+        "profiles, sigpipe's work, which sigpipe tests itself",
+    )
+
+
+def pytest_collection_modifyitems(config: pytest.Config, items: list[pytest.Item]) -> None:
+    """The tests marked slow left out, unless --slow: the others test PACo's own work in minutes."""
+    if config.getoption("--slow"):
+        return
+    slow = [item for item in items if item.get_closest_marker("slow") is not None]
+    if slow:
+        config.hook.pytest_deselected(items=slow)
+        items[:] = [item for item in items if item.get_closest_marker("slow") is None]
 
 
 @pytest.fixture(autouse=True)
@@ -51,7 +68,7 @@ def demo_input_dir(tmp_path_factory: pytest.TempPathFactory) -> Path:
     user adds to that folder stay out of the tests."""
     present(*DEMO_PROFILES)
     root = tmp_path_factory.mktemp("input")
-    link_active(root, END_SHOTS, SHOT_STEP)
+    link_active(root, SHOTS)
     link_passive(root, NOISE_RECORDS)
     return root
 

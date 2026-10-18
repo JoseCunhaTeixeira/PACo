@@ -81,7 +81,7 @@ def _hand_curve(window: Path) -> DispersionCurve:
 
 @pytest.fixture(scope="module")
 def picked(demo_input_dir: Path, tmp_path_factory: pytest.TempPathFactory) -> tuple[Path, str]:
-    """active_p2 processed and picked by the assistant in an earlier conversation."""
+    """active_test_profile processed and picked by the assistant in an earlier conversation."""
     root = tmp_path_factory.mktemp("choices")
     with pytest.MonkeyPatch.context() as patch:
         patch.setenv("PACO_INPUT_DIR", str(demo_input_dir))
@@ -90,7 +90,9 @@ def picked(demo_input_dir: Path, tmp_path_factory: pytest.TempPathFactory) -> tu
         patch.chdir(root)
         server.get_settings.cache_clear()
         run_id = _call(
-            "run_processing", {"profile": "active_p2", "overrides": SMALL_WINDOWS}, "earlier"
+            "run_processing",
+            {"profile": "active_test_profile", "overrides": SMALL_WINDOWS},
+            "earlier",
         )["run_id"]
         _call("pick", {"run_id": run_id}, "earlier")
     server.get_settings.cache_clear()
@@ -113,12 +115,15 @@ def run(
     server.get_settings.cache_clear()
 
 
+@pytest.mark.slow
 def test_a_profile_with_a_run_is_processed_again_only_as_the_user_chooses(
     run: tuple[Settings, str, str],
 ) -> None:
     settings, run_id, new = run
 
-    asked = _call("run_processing", {"profile": "active_p2", "overrides": SMALL_WINDOWS}, new)
+    asked = _call(
+        "run_processing", {"profile": "active_test_profile", "overrides": SMALL_WINDOWS}, new
+    )
 
     assert asked["run_id"] == run_id
     assert asked["summary"].startswith(f"Run {run_id} (the assistant's, ")
@@ -129,45 +134,53 @@ def test_a_profile_with_a_run_is_processed_again_only_as_the_user_chooses(
     )
     # A new run, or the run there to work on: its curves, a client sending no scope.
     assert (
-        '(1) a new run: run_processing(profile="active_p2", overrides={"masw": {"length": 24, '
+        '(1) a new run: run_processing(profile="active_test_profile", overrides={"masw": {"length": 24, '
         '"step": 24}}, again=true)' in asked["next"]
     )
     assert (
         f"(2) work on run {run_id} (active, windows of 24 receivers, curves): "
         f'pick(run_id="{run_id}")' in asked["next"]
     )
-    assert len(list((settings.output_dir / "active_p2").iterdir())) == 1  # nothing done
+    assert len(list((settings.output_dir / "active_test_profile").iterdir())) == 1  # nothing done
     again = _call(
         "run_processing",
-        {"profile": "active_p2", "overrides": SMALL_WINDOWS, "again": True},
+        {"profile": "active_test_profile", "overrides": SMALL_WINDOWS, "again": True},
         new,
     )
     assert again["run_id"] != run_id
     # The same conversation goes on with its own run: processed again, no question.
-    goes_on = _call("run_processing", {"profile": "active_p2", "overrides": SMALL_WINDOWS}, new)
+    goes_on = _call(
+        "run_processing", {"profile": "active_test_profile", "overrides": SMALL_WINDOWS}, new
+    )
     assert goes_on["run_id"] not in (run_id, again["run_id"])
 
 
+@pytest.mark.slow
 def test_a_new_run_chosen_is_made_whatever_the_call_says(
     run: tuple[Settings, str, str],
 ) -> None:
     # The message chose the new run: processed again, the call's `again` left out (the user
     # first); a call giving `again` that its message did not ask still gets the question.
     settings, run_id, new = run
-    chosen = _scope("process", chosen='run_processing(profile="active_p2", again=true)')
+    chosen = _scope("process", chosen='run_processing(profile="active_test_profile", again=true)')
 
     made = _call(
-        "run_processing", {"profile": "active_p2", "overrides": SMALL_WINDOWS}, new, 2, chosen
+        "run_processing",
+        {"profile": "active_test_profile", "overrides": SMALL_WINDOWS},
+        new,
+        2,
+        chosen,
     )
 
     assert made["run_id"] != run_id
-    assert len(list((settings.output_dir / "active_p2").iterdir())) == 2
-    arguments = {"profile": "active_p2", "overrides": SMALL_WINDOWS, "again": True}
+    assert len(list((settings.output_dir / "active_test_profile").iterdir())) == 2
+    arguments = {"profile": "active_test_profile", "overrides": SMALL_WINDOWS, "again": True}
     asked = _call("run_processing", arguments, uuid.uuid4().hex, 1, _scope("process"))
     assert asked["next"].startswith("Nothing was done.")
-    assert len(list((settings.output_dir / "active_p2").iterdir())) == 2
+    assert len(list((settings.output_dir / "active_test_profile").iterdir())) == 2
 
 
+@pytest.mark.slow
 def test_a_profile_asked_with_other_windows_still_offers_its_runs(
     run: tuple[Settings, str, str],
 ) -> None:
@@ -175,17 +188,20 @@ def test_a_profile_asked_with_other_windows_still_offers_its_runs(
     settings, run_id, new = run
 
     asked = _call(
-        "run_processing", {"profile": "active_p2", "overrides": {"masw": {"length": 12}}}, new
+        "run_processing",
+        {"profile": "active_test_profile", "overrides": {"masw": {"length": 12}}},
+        new,
     )
 
     assert (
-        '(1) a new run: run_processing(profile="active_p2", overrides={"masw": {"length": 12}}, '
+        '(1) a new run: run_processing(profile="active_test_profile", overrides={"masw": {"length": 12}}, '
         "again=true)" in asked["next"]
     )
     assert f"(2) work on run {run_id} (active, windows of 24 receivers, curves)" in asked["next"]
-    assert len(list((settings.output_dir / "active_p2").iterdir())) == 1
+    assert len(list((settings.output_dir / "active_test_profile").iterdir())) == 1
 
 
+@pytest.mark.slow
 def test_the_run_chosen_goes_on_to_the_first_stage_asked(
     run: tuple[Settings, str, str],
 ) -> None:
@@ -193,7 +209,7 @@ def test_the_run_chosen_goes_on_to_the_first_stage_asked(
 
     def go_on(*stages: str) -> str:
         asked = choices.Conversation(new, 1, choices.Asked(frozenset(stages)))
-        planned = choices.processing("active_p2", asked, settings, {})
+        planned = choices.processing("active_test_profile", asked, settings, {})
         assert planned is not None and planned.options[0][0] == "a new run"
         return planned.options[1][1]
 
@@ -203,6 +219,7 @@ def test_the_run_chosen_goes_on_to_the_first_stage_asked(
     assert go_on("process") == f'inspect(what="run", run_id="{run_id}")'
 
 
+@pytest.mark.slow
 def test_a_stage_on_an_earlier_run_waits_for_the_choice_processing_gives(
     run: tuple[Settings, str, str],
 ) -> None:
@@ -215,12 +232,13 @@ def test_a_stage_on_an_earlier_run_waits_for_the_choice_processing_gives(
 
     assert refused["status"] == "refused"
     assert refused["next"] == (
-        'Nothing was done. Call run_processing(profile="active_p2") first: it gives the user\'s '
+        'Nothing was done. Call run_processing(profile="active_test_profile") first: it gives the user\'s '
         "choice of a new run or a run to work on."
     )
     assert run_work(run_folder, load_manifest(run_id, settings)) == before
 
 
+@pytest.mark.slow
 def test_the_workers_a_message_asks_run_its_work(
     run: tuple[Settings, str, str], monkeypatch: pytest.MonkeyPatch
 ) -> None:
@@ -237,7 +255,7 @@ def test_the_workers_a_message_asks_run_its_work(
 
     processed = _call(
         "run_processing",
-        {"profile": "active_p2", "overrides": SMALL_WINDOWS, "again": True},
+        {"profile": "active_test_profile", "overrides": SMALL_WINDOWS, "again": True},
         new,
         scope=asked,
     )
@@ -260,6 +278,7 @@ def test_more_workers_than_cores_run_on_the_cores_and_say_so() -> None:
     assert server.with_workers(result, None, 12) is result
 
 
+@pytest.mark.slow
 def test_the_host_reads_the_runs_from_the_servers_resources(
     run: tuple[Settings, str, str],
 ) -> None:
@@ -268,7 +287,11 @@ def test_the_host_reads_the_runs_from_the_servers_resources(
     async def read() -> list[Any]:
         async with Client(server.server) as client:
             texts: list[Any] = []
-            for uri in ("paco://profiles/active_p2/runs", f"paco://runs/{run_id}", "paco://runs"):
+            for uri in (
+                "paco://profiles/active_test_profile/runs",
+                f"paco://runs/{run_id}",
+                "paco://runs",
+            ):
                 found = await client.read_resource(uri)
                 content = found.contents[0]
                 assert isinstance(content, TextResourceContents)
@@ -281,7 +304,7 @@ def test_the_host_reads_the_runs_from_the_servers_resources(
 
     one = {
         "run_id": run_id,
-        "profile": "active_p2",
+        "profile": "active_test_profile",
         "label": "active, windows of 24 receivers, curves",
         "went": "curves",
     }
@@ -289,6 +312,7 @@ def test_the_host_reads_the_runs_from_the_servers_resources(
     assert described == one
 
 
+@pytest.mark.slow
 def test_a_run_with_curves_is_picked_as_the_user_chooses(run: tuple[Settings, str, str]) -> None:
     settings, run_id, new = run
     run_folder = find_run(run_id, settings)
@@ -306,6 +330,7 @@ def test_a_run_with_curves_is_picked_as_the_user_chooses(run: tuple[Settings, st
         assert f'pick(run_id="{run_id}", windows="missing")' in asked["next"]
 
 
+@pytest.mark.slow
 def test_a_curve_picked_by_hand_is_replaced_only_once_the_user_could_reply(
     run: tuple[Settings, str, str],
 ) -> None:
@@ -339,6 +364,7 @@ def test_a_curve_picked_by_hand_is_replaced_only_once_the_user_could_reply(
     assert aside.name.startswith("picking_") and (aside / "DispersionCurves_0000.csv").exists()
 
 
+@pytest.mark.slow
 def test_models_and_soil_columns_already_there_are_the_users_choice(
     run: tuple[Settings, str, str],
 ) -> None:
@@ -371,6 +397,7 @@ def test_models_and_soil_columns_already_there_are_the_users_choice(
     )
 
 
+@pytest.mark.slow
 def test_positions_narrow_every_window_or_those_without_one(
     run: tuple[Settings, str, str],
 ) -> None:
@@ -388,6 +415,7 @@ def test_positions_narrow_every_window_or_those_without_one(
         choices.picking(run_folder, manifest, conversation, at_89, "missing", None)
 
 
+@pytest.mark.slow
 def test_every_window_of_a_run_without_curves_is_its_first_pick(
     run: tuple[Settings, str, str],
 ) -> None:
@@ -404,6 +432,7 @@ def test_every_window_of_a_run_without_curves_is_its_first_pick(
     assert planned == choices.Plan(units=None)
 
 
+@pytest.mark.slow
 def test_a_redo_over_work_made_by_hand_asks_first(run: tuple[Settings, str, str]) -> None:
     settings, run_id, _ = run
     run_folder = find_run(run_id, settings)
@@ -441,13 +470,14 @@ def test_a_result_of_one_of_two_models_reaches_the_model_unwrapped() -> None:
 # ---------------------------------------------------------------- with the message's scope
 
 
+@pytest.mark.slow
 def test_a_stage_the_message_does_not_ask_goes_on_from_the_run(
     run: tuple[Settings, str, str],
 ) -> None:
     settings, run_id, new = run
     invert = _scope("invert")
 
-    processed = _call("run_processing", {"profile": "active_p2"}, new, 1, invert)
+    processed = _call("run_processing", {"profile": "active_test_profile"}, new, 1, invert)
     picked = _call("pick", {"run_id": run_id}, new, 1, invert)
 
     # No question: the way on, from the run's curves.
@@ -457,12 +487,13 @@ def test_a_stage_the_message_does_not_ask_goes_on_from_the_run(
         )
         assert result["options"] == []
     assert processed["next"].startswith(
-        f"Nothing was done: this message does not ask to process active_p2, whose run {run_id} "
+        f"Nothing was done: this message does not ask to process active_test_profile, whose run {run_id} "
         "is there."
     )
-    assert len(list((settings.output_dir / "active_p2").iterdir())) == 1
+    assert len(list((settings.output_dir / "active_test_profile").iterdir())) == 1
 
 
+@pytest.mark.slow
 def test_work_there_is_asked_about_unless_the_message_asks_to_redo_it(
     run: tuple[Settings, str, str],
 ) -> None:
@@ -474,7 +505,11 @@ def test_work_there_is_asked_about_unless_the_message_asks_to_redo_it(
     # Every window again, and a new run, unasked by the message: the question, nothing done.
     asked = _call("pick", {"run_id": run_id, "windows": "all"}, new, 1, _scope("pick"))
     again = _call(
-        "run_processing", {"profile": "active_p2", "again": True}, new, 1, _scope("process")
+        "run_processing",
+        {"profile": "active_test_profile", "again": True},
+        new,
+        1,
+        _scope("process"),
     )
 
     assert asked["next"].startswith("Nothing was done. Asked to pick, the user chooses how")
@@ -487,6 +522,7 @@ def test_work_there_is_asked_about_unless_the_message_asks_to_redo_it(
     assert "Retries" in redone["summary"] and redone["options"] == []
 
 
+@pytest.mark.slow
 def test_hand_work_is_replaced_when_the_message_asks_it_or_chose_it(
     run: tuple[Settings, str, str],
 ) -> None:
@@ -520,6 +556,7 @@ def test_hand_work_is_replaced_when_the_message_asks_it_or_chose_it(
     assert len(list((window / "by_hand").iterdir())) == 2
 
 
+@pytest.mark.slow
 def test_what_a_message_asks_holds_for_its_own_stages_only(
     run: tuple[Settings, str, str],
 ) -> None:
@@ -562,6 +599,7 @@ def test_what_a_message_asks_holds_for_its_own_stages_only(
     assert kept.hand("keep", "pick", "pick") == "keep"
 
 
+@pytest.mark.slow
 def test_processing_unasked_goes_on_to_the_first_stage_asked(
     run: tuple[Settings, str, str],
 ) -> None:
@@ -569,7 +607,7 @@ def test_processing_unasked_goes_on_to_the_first_stage_asked(
     settings, run_id, new = run
     asked = choices.Conversation(new, 1, choices.Asked(frozenset({"pick", "invert"})))
 
-    planned = choices.processing("active_p2", asked, settings, {})
+    planned = choices.processing("active_test_profile", asked, settings, {})
 
     assert planned is not None
     assert planned.next.endswith(f'Go on from this run without asking: pick(run_id="{run_id}").')
@@ -585,6 +623,7 @@ def _inverted(
     return status
 
 
+@pytest.mark.slow
 def test_a_window_without_a_curve_among_those_asked_is_left_out_not_the_batch(
     run: tuple[Settings, str, str],
 ) -> None:
@@ -599,6 +638,7 @@ def test_a_window_without_a_curve_among_those_asked_is_left_out_not_the_batch(
     assert "Left out, without a curve the inversion takes: xmid 17.25 (1)." in status["notes"]
 
 
+@pytest.mark.slow
 def test_with_a_scope_the_positions_are_the_messages(run: tuple[Settings, str, str]) -> None:
     _, run_id, new = run
     at_90 = {**_scope("invert"), "positions_m": [90.0]}
@@ -611,21 +651,22 @@ def test_with_a_scope_the_positions_are_the_messages(run: tuple[Settings, str, s
     assert any(note.startswith("Positions: 90 m: xmid 89.25, window") for note in status["notes"])
 
 
+@pytest.mark.slow
 def test_a_run_whose_manifest_does_not_read_is_not_gone_on_from(
     run: tuple[Settings, str, str],
 ) -> None:
     # A run being written, or broken, beside the profile's run: skipped, never the tool's
     # failure.
     settings, run_id, new = run
-    broken = settings.output_dir / "active_p2" / "20260930-235959-ffff"
+    broken = settings.output_dir / "active_test_profile" / "20260930-235959-ffff"
     broken.mkdir()
     (broken / "run.json").write_text("{}")
 
-    asked = _call("run_processing", {"profile": "active_p2"}, new)
+    asked = _call("run_processing", {"profile": "active_test_profile"}, new)
     runs = inspection.runs_text(settings)
 
     assert asked["run_id"] == run_id
-    assert f"Run {run_id}: active_p2 (active)" in runs
+    assert f"Run {run_id}: active_test_profile (active)" in runs
     assert (
         "Run 20260930-235959-ffff: its manifest does not read (being written, or broken)." in runs
     )
@@ -648,6 +689,7 @@ def test_the_tools_say_whether_they_only_read() -> None:
     assert all(tool.annotations is not None for tool in tools)
 
 
+@pytest.mark.slow
 def test_read_only_tools_change_nothing_and_a_run_keeps_its_calls(
     run: tuple[Settings, str, str],
 ) -> None:
@@ -657,7 +699,7 @@ def test_read_only_tools_change_nothing_and_a_run_keeps_its_calls(
     _call("inspect", {"what": "run", "run_id": run_id}, new, 1)
     _call("inspect", {"what": "window", "run_id": run_id, "position": 90}, new, 1)
     _call("petro_models", {"run_id": run_id}, new, 1)
-    _call("preset_settings", {"profile": "active_p2"}, new, 1)
+    _call("preset_settings", {"profile": "active_test_profile"}, new, 1)
 
     assert {path: path.stat().st_mtime_ns for path in settings.output_dir.rglob("*")} == stamps
     # A call that changes the run leaves its trace there, with its conversation and turn.
@@ -675,6 +717,7 @@ def test_read_only_tools_change_nothing_and_a_run_keeps_its_calls(
     assert traced["scope"]["asked"] == ["pick"] and traced["outcome"] in ("ok", "partial")
 
 
+@pytest.mark.slow
 def test_a_pick_keeps_the_picking_values_the_user_gave(run: tuple[Settings, str, str]) -> None:
     settings, run_id, new = run
     before = datetime.now(UTC)
@@ -695,15 +738,20 @@ def test_a_pick_keeps_the_picking_values_the_user_gave(run: tuple[Settings, str,
     )
 
 
+@pytest.mark.slow
 @pytest.mark.usefixtures("paco_env")
 def test_the_windows_the_message_gives_are_the_runs_whatever_the_model_wrote() -> None:
-    # "Windows of 24 receivers, every 24": the model wrote them in metres, which on active_p2's
+    # "Windows of 24 receivers, every 24": the model wrote them in metres, which on active_test_profile's
     # 1.5 m spacing would be 17 receivers; the message's words decide (its scope).
     scope = {**_scope("process"), "window": {"length": 24, "step": 24}}
     wrong = {"masw": {"length_m": 24, "step_m": 24}, "dispersion": {"vmax": 900}}
 
     result = _call(
-        "run_processing", {"profile": "active_p2", "overrides": wrong}, "windows", 1, scope
+        "run_processing",
+        {"profile": "active_test_profile", "overrides": wrong},
+        "windows",
+        1,
+        scope,
     )
 
     manifest = load_manifest(result["run_id"], get_settings())

@@ -83,7 +83,7 @@ def test_passive_active_preset_holds_pacs_defaults() -> None:
 def test_an_active_profile_can_be_processed_passive_active(profiles: dict[str, Profile]) -> None:
     preset = make_preset("passive-active", {"stacking": {"method": "phase_weighted", "nu": 2}})
 
-    resolved = resolve_preset(preset, profiles["active_p2"])
+    resolved = resolve_preset(preset, profiles["active_test_profile"])
 
     assert (resolved.mode, resolved.model_dump()["stacking"]) == (
         "passive-active",
@@ -421,7 +421,9 @@ def test_invalid_parameters_are_explained_for_the_agent(
 # ---------------------------------------------------------------- resolution against a profile
 
 
-@pytest.mark.parametrize(("profile", "name"), [("active_p2", "active"), ("passive_p2", "passive")])
+@pytest.mark.parametrize(
+    ("profile", "name"), [("active_test_profile", "active"), ("passive_test_profile", "passive")]
+)
 def test_resolving_the_defaults_changes_nothing(
     profiles: dict[str, Profile], profile: str, name: str
 ) -> None:
@@ -435,12 +437,19 @@ def test_resolving_the_defaults_changes_nothing(
     ("profile", "name", "stage", "override", "field", "expected"),
     [
         # The muting's width: one sample, 0.5 ms at 2,000 Hz (a passive line has no muting).
-        ("active_p2", "active", "muting", {"method": "mute", "vmax": 1500.0}, "width", 0.0005),
+        (
+            "active_test_profile",
+            "active",
+            "muting",
+            {"method": "mute", "vmax": 1500.0},
+            "width",
+            0.0005,
+        ),
         # 0.95 x Nyquist, just below sigpipe's limit.
-        ("active_p2", "active", "filtering", {"method": "iir"}, "fmax", 950.0),
-        ("passive_p2", "passive", "filtering", {"method": "iir"}, "fmax", 237.5),
+        ("active_test_profile", "active", "filtering", {"method": "iir"}, "fmax", 950.0),
+        ("passive_test_profile", "passive", "filtering", {"method": "iir"}, "fmax", 237.5),
         # Nyquist, as in PAC.
-        ("passive_p2", "passive", "whitening", {"method": "onebit_apod"}, "fmax", 250.0),
+        ("passive_test_profile", "passive", "whitening", {"method": "onebit_apod"}, "fmax", 250.0),
     ],
 )
 def test_values_derived_from_the_profile(
@@ -461,8 +470,8 @@ def test_explicit_values_are_kept(profiles: dict[str, Profile]) -> None:
     passive = make_preset("passive", {"filtering": {"method": "iir", "fmin": 5, "fmax": 100}})
     active = make_preset("active", {"muting": {"method": "mute", "tmax": 1.0, "width": 0.01}})
 
-    resolved_passive = resolve_preset(passive, profiles["passive_p2"]).model_dump()
-    resolved_active = resolve_preset(active, profiles["active_p2"]).model_dump()
+    resolved_passive = resolve_preset(passive, profiles["passive_test_profile"]).model_dump()
+    resolved_active = resolve_preset(active, profiles["active_test_profile"]).model_dump()
 
     assert resolved_passive["filtering"] == passive.model_dump()["filtering"]
     assert resolved_active["muting"] == active.model_dump()["muting"]
@@ -472,15 +481,15 @@ def test_resolving_twice_changes_nothing(profiles: dict[str, Profile]) -> None:
     preset = make_preset(
         "passive", {"filtering": {"method": "iir"}, "whitening": {"method": "onebit_apod"}}
     )
-    resolved = resolve_preset(preset, profiles["passive_p2"])
+    resolved = resolve_preset(preset, profiles["passive_test_profile"])
 
-    assert resolve_preset(resolved, profiles["passive_p2"]) == resolved
+    assert resolve_preset(resolved, profiles["passive_test_profile"]) == resolved
 
 
 def test_derived_filter_band_passes_sigpipe_where_pacs_default_fails(
     profiles: dict[str, Profile],
 ) -> None:
-    profile = profiles["active_p2"]
+    profile = profiles["active_test_profile"]
     record = profile.records[0]
     assert record.source is not None
     acquisition = LinearAcquisition(source=record.source, receivers=profile.receivers)
@@ -507,30 +516,31 @@ def test_filter_fmax_at_or_above_nyquist_is_rejected(
     preset = make_preset("passive", {"filtering": {"method": "iir", "fmax": fmax}})
 
     with pytest.raises(
-        PresetError, match=r"must be below the Nyquist frequency of profile 'passive_p2' \(250 Hz\)"
+        PresetError,
+        match=r"must be below the Nyquist frequency of profile 'passive_test_profile' \(250 Hz\)",
     ):
-        resolve_preset(preset, profiles["passive_p2"])
+        resolve_preset(preset, profiles["passive_test_profile"])
 
 
 @pytest.mark.parametrize(
     ("profile", "name", "stage", "override", "message"),
     [
         (
-            "passive_p2",
+            "passive_test_profile",
             "passive",
             "filtering",
             {"method": "iir", "fmin": 240},
             r"filtering\.fmin \(240 Hz\) must be below filtering\.fmax, which defaults to 237\.5 Hz",
         ),
         (
-            "passive_p2",
+            "passive_test_profile",
             "passive",
             "whitening",
             {"method": "onebit_apod", "fmin": 260},
             r"whitening\.fmin \(260 Hz\) must be below whitening\.fmax, which defaults to 250 Hz",
         ),
         (
-            "active_p2",
+            "active_test_profile",
             "active",
             "muting",
             {"method": "mute", "tmin": 3},
@@ -555,20 +565,20 @@ def test_a_derived_value_clashing_with_an_override_is_explained(
     ("profile", "name", "message"),
     [
         (
-            "passive_p2",
+            "passive_test_profile",
             "active",
-            r"Preset 'active' does not fit passive profile 'passive_p2': use 'passive'\.",
+            r"Preset 'active' does not fit passive profile 'passive_test_profile': use 'passive'\.",
         ),
         (
-            "active_p2",
+            "active_test_profile",
             "passive",
-            r"Preset 'passive' does not fit active profile 'active_p2': use 'active' or "
+            r"Preset 'passive' does not fit active profile 'active_test_profile': use 'active' or "
             r"'passive-active'\.",
         ),
         (
-            "passive_p2",
+            "passive_test_profile",
             "passive-active",
-            r"Preset 'passive-active' does not fit passive profile 'passive_p2': use 'passive'\.",
+            r"Preset 'passive-active' does not fit passive profile 'passive_test_profile': use 'passive'\.",
         ),
     ],
 )
@@ -580,8 +590,12 @@ def test_preset_must_match_the_profile_kind(
 
 
 def test_resolution_keeps_the_preset_type(profiles: dict[str, Profile]) -> None:
-    assert isinstance(resolve_preset(make_preset("active"), profiles["active_p2"]), ActivePreset)
-    assert isinstance(resolve_preset(make_preset("passive"), profiles["passive_p2"]), PassivePreset)
+    assert isinstance(
+        resolve_preset(make_preset("active"), profiles["active_test_profile"]), ActivePreset
+    )
+    assert isinstance(
+        resolve_preset(make_preset("passive"), profiles["passive_test_profile"]), PassivePreset
+    )
 
 
 # ---------------------------------------------------------------- sigpipe's rules, before any work
@@ -590,7 +604,7 @@ PASSIVE_RULES = [
     pytest.param(
         {"slicing": {"segment_duration": 200, "segment_step": 200}},
         "slicing.segment_duration (200 s) must not exceed the shortest record of profile "
-        "'passive_p2' (119.998 s).",
+        "'passive_test_profile' (119.998 s).",
         id="segments longer than a record",
     ),
     pytest.param(
@@ -614,7 +628,7 @@ PASSIVE_RULES = [
     ),
     pytest.param(
         {"dispersion": {"fmin": 300, "fmax": 400}},
-        "dispersion.fmin (300 Hz) must be below the Nyquist frequency of profile 'passive_p2' "
+        "dispersion.fmin (300 Hz) must be below the Nyquist frequency of profile 'passive_test_profile' "
         "(250 Hz).",
         id="dispersion above Nyquist",
     ),
@@ -626,9 +640,12 @@ def test_sigpipes_rules_are_checked_before_any_work(
     profiles: dict[str, Profile], overrides: dict[str, object], line: str
 ) -> None:
     with pytest.raises(PresetError) as caught:
-        resolve_preset(make_preset("passive", overrides), profiles["passive_p2"])
+        resolve_preset(make_preset("passive", overrides), profiles["passive_test_profile"])
 
-    assert str(caught.value) == f"Preset 'passive' does not fit profile 'passive_p2':\n- {line}"
+    assert (
+        str(caught.value)
+        == f"Preset 'passive' does not fit profile 'passive_test_profile':\n- {line}"
+    )
 
 
 def test_every_problem_with_the_profile_is_listed(profiles: dict[str, Profile]) -> None:
@@ -639,10 +656,10 @@ def test_every_problem_with_the_profile_is_listed(profiles: dict[str, Profile]) 
     }
 
     with pytest.raises(PresetError) as caught:
-        resolve_preset(make_preset("passive", overrides), profiles["passive_p2"])
+        resolve_preset(make_preset("passive", overrides), profiles["passive_test_profile"])
 
     lines = str(caught.value).splitlines()
-    assert lines[0] == "Preset 'passive' does not fit profile 'passive_p2':"
+    assert lines[0] == "Preset 'passive' does not fit profile 'passive_test_profile':"
     assert [line.split(" (")[0] for line in lines[1:]] == [
         "- filtering.fmax",
         "- slicing.segment_step",
@@ -655,7 +672,7 @@ def test_dispersion_fmax_above_nyquist_is_left_to_sigpipe(profiles: dict[str, Pr
     # sigpipe lowers it to Nyquist, with a warning, as PAC does.
     preset = make_preset("passive", {"dispersion": {"fmax": 300}})
 
-    resolved = resolve_preset(preset, profiles["passive_p2"])
+    resolved = resolve_preset(preset, profiles["passive_test_profile"])
 
     assert resolved.model_dump()["dispersion"]["fmax"] == 300.0
 
@@ -666,7 +683,7 @@ def test_whitening_band_rule_agrees_with_sigpipe(
 ) -> None:
     # PACo recomputes sigpipe's frequency step for a segment: compare on real segments, around
     # the two-step limit, so a change in sigpipe's arithmetic shows up here.
-    profile = profiles["passive_p2"]
+    profile = profiles["passive_test_profile"]
     record = profile.records[1]
     acquisition = LinearAcquisition(source=profile.receivers[0], receivers=profile.receivers)
     stream = Load(

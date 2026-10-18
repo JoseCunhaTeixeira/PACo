@@ -52,7 +52,7 @@ a folder:
 
 ```
 PAC/data/input/
-  active_p2/
+  active_test_profile/
     101.dat, 102.dat, ...        # the records, in any format ObsPy reads (SEG-2 here)
     receiver_positions.yaml
     source_positions.yaml        # active profiles only
@@ -111,21 +111,22 @@ Both use `PACO_AGENT_MODE`. To use the other mode once, add `--mode autonomous` 
 A session looks like this (an illustration: the answer's wording depends on the model):
 
 ```
-you> Process active_p1 with windows of 24 receivers, every 24 receivers, and pick the curves.
--> run_processing({"profile": "active_p1", "overrides": {"masw": {"length": 24, "step": 24}}})
+you> Process active_test_profile with windows of 24 receivers, every 24 receivers, and pick the curves.
+-> run_processing({"profile": "active_test_profile", "overrides": {"masw": {"length": 24, "step": 24}}})
    run_processing: 4 of 4 windows
--> pick({"run_id": "20260924-175047-f0a0"})
+-> pick({"run_id": "20261018-125618-6e05"})
 
-paco> The 4 curves passed G3 and G4. G1 left out traces 1, 89 and 90 of 2.dat.
+paco> The 4 curves passed G3 and G4. G1 left out 5 shots, and a mute of the surface waves'
+cone made the images cleaner.
 
 Parameters used:
 - mode active: the profile's kind
-- MASW windows of 24 receivers (5.75 m), 4 windows, xmid 2.875 to 20.875 m: given (in your request, or chosen by the agent); its trial windows: 26/27 at 24 receivers
-- shots 0 to 24.34 m from a window's middle: beyond it from the shot, the traces' median SNR falls under 2 dB (G1), so the windows stack no farther shot
+- MASW windows of 24 receivers (34.5 m), 4 windows, xmid 17.25 to 125.25 m: given (in your request, or chosen by the agent); its trial windows: 22/27 at 24 receivers (picks 7%)
+- muting 130.2 to 293 m/s: the mute trial (the gathers' surface waves 63.9 to 261.6 m/s, median 195.3): the tight cone 130.2 to 293 m/s, 15 of 15 trial windows of 24 receivers (34.5 m) passing G3, against 12 without a mute
 - ...
 
 Settings the gates changed:
-- 2.dat: traces [1, 89, 90] left out of the windows
+- 101.dat, 133.dat, 144.dat, 165.dat, 174.dat: left out of every window
 - ...
 ```
 
@@ -264,7 +265,7 @@ Never your records, images or models, unless vision is on.
 **Other models.** The workflow mode works with any model that calls tools and fills a JSON schema.
 With vLLM, a model of another family needs its own `--tool-call-parser`, and no
 `--reasoning-parser qwen3`. PACo's 15 test scenarios, played 5 times each (`uv run paco-evaluate`,
-on active_p1 when measured):
+on PAC's former demo line when measured):
 
 | Model | GPU memory | PACo's tests (75 plays) |
 |---|---|---|
@@ -306,13 +307,16 @@ With vLLM in Docker and PACo run with uv: `PACO_LLM_BASE_URL=http://127.0.0.1:80
 ```sh
 uv run ruff check && uv run ruff format --check   # lint and format
 uv run pyright src tests                          # types
-uv run pytest                                     # tests, on PAC's local active_p2 and passive_p2
+uv run pytest                                     # the fast tests, in under a minute
+uv run pytest --slow                              # all the tests, the slow ones too (about 50 min)
 uv run pre-commit install                         # lint, format, types and fast tests on commit
 ```
 
-The tests read PAC's local lines `active_p2` and `passive_p2` (`../PAC/data/input`, or the
-folder `PACO_TEST_INPUT_DIR` names), kept in no repository; without them, the tests that read
-them are skipped.
+The slow tests (marked `slow`) run PACo's processing, picking and inversion of the test profiles:
+sigpipe's work, which sigpipe tests itself. `uv run pytest` leaves them out; run them with
+`--slow` before a release. The tests read PAC's test profiles, `active_test_profile` and
+`passive_test_profile` (in PAC's `data/input`, beside this folder, or the folder
+`PACO_TEST_INPUT_DIR` names); without them, the tests that read them are skipped.
 
 The tools' schemas are kept in `tests/snapshots/tool_schemas.json`: a change fails
 `tests/test_server.py` until it is reviewed and written again with

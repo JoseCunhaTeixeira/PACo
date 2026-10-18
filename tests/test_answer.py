@@ -27,7 +27,7 @@ ASKS_PICK = Scope(
     pick=True,
     invert=False,
     soils=False,
-    profile="active_p2",
+    profile="active_test_profile",
     run_id=None,
     positions_m=[],
     length_receivers=None,
@@ -102,15 +102,20 @@ def test_the_model_fills_the_form_from_its_draft() -> None:
     form = {"said": "Picked 4 windows.", "question": None}
     model = FormModel('{"said": 1}', json.dumps(form))
 
-    written = anyio.run(write_answer, model, "Pick active_p2.", "Picked 4 windows. Shall I?")
+    written = anyio.run(
+        write_answer, model, "Pick active_test_profile.", "Picked 4 windows. Shall I?"
+    )
 
     assert written.form == AnswerForm.model_validate(form) and len(written.fills) == 2
     system, *examples, user = model.sent[0]
     assert system == {"role": "system", "content": prompts.prompt("answer")}
     assert len(examples) == 2 * len(prompts.answer_examples())
-    assert user.get("content") == "Message: Pick active_p2.\nAnswer: Picked 4 windows. Shall I?"
+    assert (
+        user.get("content")
+        == "Message: Pick active_test_profile.\nAnswer: Picked 4 windows. Shall I?"
+    )
     with pytest.raises(AnswerError):
-        anyio.run(write_answer, FormModel("{}", "{}"), "Pick active_p2.", "Picked.")
+        anyio.run(write_answer, FormModel("{}", "{}"), "Pick active_test_profile.", "Picked.")
 
 
 def test_the_turn_reads_what_each_tool_did() -> None:
@@ -130,11 +135,11 @@ def test_after_work_the_answer_says_what_next_not_the_models_question() -> None:
     turn = Turn()
     turn.read("pick", PICKED, failed=False)
 
-    answer = render(ASKS_PICK, "Picked active_p2's 4 windows.", "Invert them?", turn)
+    answer = render(ASKS_PICK, "Picked active_test_profile's 4 windows.", "Invert them?", turn)
 
     assert answer == (
-        "Scope: pick · active_p2.\n\n"
-        "Picked active_p2's 4 windows.\n\n"
+        "Scope: pick · active_test_profile.\n\n"
+        "Picked active_test_profile's 4 windows.\n\n"
         "Done:\n- Picked run r, 4 windows: G3 3 pass, 1 reject.\n\n"
         "Left out:\n- xmid 2.88 (1): G3 narrow_span\n\n"
         "Next: the Vs models (ask to invert them); the results in PAC's Visualization page.\n\n"
@@ -153,7 +158,7 @@ def test_the_question_shows_when_the_user_must_choose() -> None:
 
     with_options = render(ASKS_PICK, "Run r holds 4 curves.", None, offered)
     when_stuck = render(ASKS_PICK, "The budget is spent.", "A new run, or stop?", stuck)
-    before_work = render(ASKS_PICK, "Two runs hold active_p2.", "Which one?", nothing)
+    before_work = render(ASKS_PICK, "Two runs hold active_test_profile.", "Which one?", nothing)
 
     assert with_options.endswith(
         "Which do you choose?\n(1) pick every window again\n(2) invert the curves as they are"
@@ -203,7 +208,7 @@ def test_windows_left_out_over_a_setting_given_are_named_next() -> None:
         failed=False,
     )
 
-    answer = render(ASKS_PICK, "Picked active_p2's 4 windows.", None, turn)
+    answer = render(ASKS_PICK, "Picked active_test_profile's 4 windows.", None, turn)
 
     assert (
         "Next: for the windows left out over a setting you gave, ask again with the change; the "
@@ -231,7 +236,9 @@ def test_a_stage_asked_that_no_tool_did_is_said() -> None:
 def test_a_comparison_or_a_redo_does_the_stage_it_serves() -> None:
     process = ASKS_PICK.model_copy(update={"process": True, "pick": False})
     compared = Turn()
-    compared.read("compare", json.dumps({"did": "Compared 2 variants of active_p2."}), False)
+    compared.read(
+        "compare", json.dumps({"did": "Compared 2 variants of active_test_profile."}), False
+    )
     redone = Turn()
     did = {"run_id": "r", "status": "ok", "did": "Redid the phase shift of run r, 1 window."}
     redone.read("redo", json.dumps(did), False, '{"run_id": "r", "stage": "phase_shift"}')

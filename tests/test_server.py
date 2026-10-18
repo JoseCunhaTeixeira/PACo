@@ -192,18 +192,18 @@ def test_the_context_is_not_an_argument() -> None:
 
 def test_profiles_are_listed_and_inspected(paco_env: Settings) -> None:
     listed = _call("inspect", {"what": "profiles"})
-    inspected = _call("inspect", {"what": "profile", "profile": "passive_p2"})
+    inspected = _call("inspect", {"what": "profile", "profile": "passive_test_profile"})
     unsaid = _call("inspect", {"what": "run"})
 
     assert _text(listed) == (
-        "active_p2: a profile to process, no run yet\npassive_p2: a profile to process, no run yet"
+        "active_test_profile: a profile to process, no run yet\npassive_test_profile: a profile to process, no run yet"
     )
-    assert _text(inspected) == inspection.profile_text("passive_p2", paco_env)
+    assert _text(inspected) == inspection.profile_text("passive_test_profile", paco_env)
     assert unsaid.is_error and "inspect(what=run) needs run_id." in _text(unsaid)
 
 
 @pytest.mark.parametrize(
-    ("profile", "preset"), [("active_p2", "active"), ("passive_p2", "passive")]
+    ("profile", "preset"), [("active_test_profile", "active"), ("passive_test_profile", "passive")]
 )
 @pytest.mark.usefixtures("paco_env")
 def test_preset_settings_are_the_profiles_override_schema(profile: str, preset: str) -> None:
@@ -214,16 +214,18 @@ def test_preset_settings_are_the_profiles_override_schema(profile: str, preset: 
 
 @pytest.mark.usefixtures("paco_env")
 def test_an_active_profile_has_a_passive_active_mode() -> None:
-    summary = _text(_call("inspect", {"what": "profile", "profile": "active_p2"}))
+    summary = _text(_call("inspect", {"what": "profile", "profile": "active_test_profile"}))
 
     assert summary.endswith("modes: active, passive-active.")
     settings = json.loads(
-        _text(_call("preset_settings", {"profile": "active_p2", "mode": "passive-active"}))
+        _text(
+            _call("preset_settings", {"profile": "active_test_profile", "mode": "passive-active"})
+        )
     )
     assert settings == override_schema("passive-active")
-    refused = _call("preset_settings", {"profile": "active_p2", "mode": "passive"})
+    refused = _call("preset_settings", {"profile": "active_test_profile", "mode": "passive"})
     assert refused.is_error
-    assert "Profile 'active_p2' is active: its modes are active, passive-active." in (
+    assert "Profile 'active_test_profile' is active: its modes are active, passive-active." in (
         _text(refused)
     )
 
@@ -237,13 +239,17 @@ def test_inversion_settings_describe_every_parameter() -> None:
             assert parameter.get("description"), name
 
 
+@pytest.mark.slow
 @pytest.mark.usefixtures("paco_env")
 def test_a_setting_the_tool_does_not_have_is_ignored_and_said() -> None:
     # As pydantic ignores the fields a model does not expect: the call runs without them, and
     # says them; a value refused for a setting the tool has would refuse the call.
     processed = _call(
         "run_processing",
-        {"profile": "active_p2", "overrides": {**SMALL_WINDOWS, "fk": {"threshold": 0.1}}},
+        {
+            "profile": "active_test_profile",
+            "overrides": {**SMALL_WINDOWS, "fk": {"threshold": 0.1}},
+        },
     )
     assert not processed.is_error and processed.structured_content is not None
     assert processed.structured_content["ignored"] == [
@@ -261,12 +267,13 @@ def test_a_setting_the_tool_does_not_have_is_ignored_and_said() -> None:
     assert refused.is_error and "corridor" in _text(refused)
 
 
+@pytest.mark.slow
 @pytest.mark.usefixtures("paco_env")
 def test_the_workflow_process_pick_redo_invert() -> None:
     progress: list[tuple[float, float | None]] = []
 
     processed = _call(
-        "run_processing", {"profile": "active_p2", "overrides": SMALL_WINDOWS}, progress
+        "run_processing", {"profile": "active_test_profile", "overrides": SMALL_WINDOWS}, progress
     )
     run_id = processed.structured_content["run_id"] if processed.structured_content else ""
     picked = _call("pick", {"run_id": run_id})
@@ -362,10 +369,13 @@ def test_the_workflow_process_pick_redo_invert() -> None:
     assert any(line.startswith("G5: ") for line in status["summary"].splitlines()[:2])
 
 
+@pytest.mark.slow
 def test_a_band_given_bounds_every_pick(paco_env: Settings) -> None:
     # Picked down to 12 Hz and up to 40 Hz: no point outside, whatever the gates narrow within
     # (the windows' picks span 8.9 to 42.7 Hz without it).
-    run_id = _run_id(_call("run_processing", {"profile": "active_p2", "overrides": SMALL_WINDOWS}))
+    run_id = _run_id(
+        _call("run_processing", {"profile": "active_test_profile", "overrides": SMALL_WINDOWS})
+    )
 
     picked = _call("pick", {"run_id": run_id, "changes": {"fmin": 12, "fmax": 40}})
 
@@ -377,29 +387,33 @@ def test_a_band_given_bounds_every_pick(paco_env: Settings) -> None:
     assert "picking fmin 12, fmax 40: given" in " ".join(picked.structured_content["used"])
 
 
+@pytest.mark.slow
 def test_run_processing_takes_the_mode_as_an_argument(paco_env: Settings) -> None:
     # As preset_settings takes it: a model that asked preset_settings for a mode may leave
     # "mode" out of the overrides.
     processed = _call(
         "run_processing",
-        {"profile": "active_p2", "overrides": SMALL_WINDOWS, "mode": "passive-active"},
+        {"profile": "active_test_profile", "overrides": SMALL_WINDOWS, "mode": "passive-active"},
     )
 
     assert not processed.is_error and processed.structured_content is not None
     run_id = processed.structured_content["run_id"]
-    manifest = json.loads((paco_env.output_dir / "active_p2" / run_id / "run.json").read_text())
+    manifest = json.loads(
+        (paco_env.output_dir / "active_test_profile" / run_id / "run.json").read_text()
+    )
     assert manifest["preset"]["mode"] == "passive-active"
-    refused = _call("run_processing", {"profile": "active_p2", "mode": "passive"})
+    refused = _call("run_processing", {"profile": "active_test_profile", "mode": "passive"})
     assert refused.is_error
-    assert "Profile 'active_p2' is active: its modes are active, passive-active." in (
+    assert "Profile 'active_test_profile' is active: its modes are active, passive-active." in (
         _text(refused)
     )
 
 
+@pytest.mark.slow
 def test_a_run_made_again_takes_its_images_from_the_cache(paco_env: Settings) -> None:
     # The muting given: no mute trial, the test's runs short.
     overrides = {**SMALL_WINDOWS, "muting": {"method": "none"}}
-    arguments = {"profile": "active_p2", "overrides": overrides}
+    arguments = {"profile": "active_test_profile", "overrides": overrides}
     first, again = _call("run_processing", arguments), _call("run_processing", arguments)
 
     manifests = [
@@ -445,11 +459,14 @@ def test_each_call_takes_the_cache_its_settings_give(
     assert caching.CACHE.get() is None
 
 
+@pytest.mark.slow
 @pytest.mark.usefixtures("paco_env")
 def test_one_vs_range_stands_for_every_layer_at_invert() -> None:
     # The form invert's card offers: checked as the job reads it, not against PAC's 2 layers
     # (refused, a model makes up a range for each layer).
-    processed = _call("run_processing", {"profile": "active_p2", "overrides": SMALL_WINDOWS})
+    processed = _call(
+        "run_processing", {"profile": "active_test_profile", "overrides": SMALL_WINDOWS}
+    )
     run_id = processed.structured_content["run_id"] if processed.structured_content else ""
 
     result = _call(
@@ -462,15 +479,18 @@ def test_one_vs_range_stands_for_every_layer_at_invert() -> None:
     assert "has no curve: pick it first" in _text(result)
 
 
+@pytest.mark.slow
 def test_invert_refuses_a_run_without_a_curve(paco_env: Settings) -> None:
-    processed = _call("run_processing", {"profile": "active_p2", "overrides": SMALL_WINDOWS})
+    processed = _call(
+        "run_processing", {"profile": "active_test_profile", "overrides": SMALL_WINDOWS}
+    )
     run_id = processed.structured_content["run_id"] if processed.structured_content else ""
 
     result = _call("invert", {"run_id": run_id})
 
     assert result.is_error
     assert f"Run '{run_id}' has no curve: pick it first." in _text(result)
-    assert not (paco_env.output_dir / "active_p2" / run_id / "inversion.json").exists()
+    assert not (paco_env.output_dir / "active_test_profile" / run_id / "inversion.json").exists()
 
 
 def _wait_for(job_id: str, timeout_s: float = 120) -> dict[str, Any]:
@@ -488,12 +508,15 @@ def _wait_for(job_id: str, timeout_s: float = 120) -> dict[str, Any]:
 # ---------------------------------------------------------------- errors
 
 
+@pytest.mark.slow
 def test_a_run_another_application_writes_is_refused_saying_who(
     paco_env: Settings, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    processed = _call("run_processing", {"profile": "active_p2", "overrides": SMALL_WINDOWS})
+    processed = _call(
+        "run_processing", {"profile": "active_test_profile", "overrides": SMALL_WINDOWS}
+    )
     run_id = processed.structured_content["run_id"] if processed.structured_content else ""
-    run_folder = paco_env.output_dir / "active_p2" / run_id
+    run_folder = paco_env.output_dir / "active_test_profile" / run_id
     monkeypatch.setattr(server, "WRITER_WAIT_S", 0.0)
     held, release = threading.Event(), threading.Event()
 
@@ -517,9 +540,12 @@ def test_a_run_another_application_writes_is_refused_saying_who(
     assert not list(run_folder.glob("xmid_*/DispersionCurves_0000.csv"))
 
 
+@pytest.mark.slow
 @pytest.mark.usefixtures("paco_env")
 def test_redo_needs_windows_that_exist() -> None:
-    processed = _call("run_processing", {"profile": "active_p2", "overrides": SMALL_WINDOWS})
+    processed = _call(
+        "run_processing", {"profile": "active_test_profile", "overrides": SMALL_WINDOWS}
+    )
     run_id = processed.structured_content["run_id"] if processed.structured_content else ""
 
     unknown = _call("redo", {"run_id": run_id, "stage": "picking", "xmids": [17.0]})
@@ -538,18 +564,18 @@ def test_redo_needs_windows_that_exist() -> None:
         (
             "inspect",
             {"what": "profile", "profile": "active_p3"},
-            "Unknown profile 'active_p3'. Available profiles: active_p2, passive_p2.",
+            "Unknown profile 'active_p3'. Available profiles: active_test_profile, passive_test_profile.",
         ),
         (
             "run_processing",
-            {"profile": "active_p2", "overrides": {"masw": {"lenght": 24}}},
+            {"profile": "active_test_profile", "overrides": {"masw": {"lenght": 24}}},
             "- masw.lenght: unknown parameter. Allowed: length, step, distance_min, distance_max. "
             "Did you mean length?",
         ),
         (
             "run_processing",
-            {"profile": "active_p2", "overrides": {"masw": {"length": 97}}},
-            "length (97) exceeds the 96 receivers of profile 'active_p2': no window that long "
+            {"profile": "active_test_profile", "overrides": {"masw": {"length": 97}}},
+            "length (97) exceeds the 96 receivers of profile 'active_test_profile': no window that long "
             "fits the line, you are stuck. Ask the user which length to use, with options: the "
             "whole line (96), half of it (48), or the ladder's proposal (no length).",
         ),

@@ -1,4 +1,4 @@
-"""Scorecards (docs/autonomous_plan.md §5.3): active_p2's line, and cases with a known answer for coverage,
+"""Scorecards (docs/autonomous_plan.md §5.3): active_test_profile's line, and cases with a known answer for coverage,
 the longest gap, a variant against the best (PACo's rule 6) and dominance."""
 
 import pytest
@@ -8,6 +8,7 @@ from paco.autonomous.sensors.scorecard import Scorecard, against, dominated, sco
 from paco.qc.line_loop import LineRules
 
 
+@pytest.mark.slow
 def test_the_lines_scorecard(judged_line: JudgedLine) -> None:
     card = scorecard(dict(judged_line.g3), judged_line.length_m, g4=judged_line.g4.values())
 
@@ -28,6 +29,7 @@ def test_the_lines_scorecard(judged_line: JudgedLine) -> None:
     assert card.cpu_s is None
 
 
+@pytest.mark.slow
 def test_coverage_counts_the_windows_that_count(judged_line: JudgedLine) -> None:
     # On the line, the windows accepted; a window whose processing failed is not covered.
     g3 = {**judged_line.g3, 161.25: None}

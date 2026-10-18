@@ -30,10 +30,7 @@ repos:
         types: [python]
       - id: fast-tests
         name: fast tests
-        entry: >-
-          uv run pytest -q -p no:cacheprovider tests/test_scope.py tests/test_answer.py
-          tests/test_prompts.py tests/test_given.py tests/test_logs.py tests/test_properties.py
-          tests/test_trace.py tests/test_examples.py
+        entry: uv run pytest -q -p no:cacheprovider
         language: system
         pass_filenames: false
         types: [python]

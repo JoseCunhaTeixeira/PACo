@@ -1,8 +1,8 @@
 """pick, decide and freeze (docs/autonomous_plan.md §4.6, §4.7, §8, §13 M5): a scripted agent picks
-active_p2's windows, decides every one and freezes its curves, through the autonomous agent's tools;
+active_test_profile's windows, decides every one and freezes its curves, through the autonomous agent's tools;
 decide refuses a blocking flag, an unjustified note and a rejection before the window was tried
 hard; a commit picks each window again with its recipe; nothing is processed or picked after the
-freeze. On active_p2 in 24-receiver windows (73 windows): the play takes some 40 s."""
+freeze. On active_test_profile in 24-receiver windows (73 windows): the play takes some 40 s."""
 
 import hashlib
 import json
@@ -122,19 +122,21 @@ def played(input_dir: Path, tmp_path_factory: pytest.TempPathFactory) -> Iterato
             async with Client(server.server) as client:
                 found: list[tuple[bool, str]] = []
                 for name, arguments, _ in PLAY:
-                    result = await client.call_tool(name, {"profile": "active_p2", **arguments})
+                    result = await client.call_tool(
+                        name, {"profile": "active_test_profile", **arguments}
+                    )
                     found.append((bool(result.is_error), shown(result)))
                 return found
 
         results = anyio.run(play)
         settings = get_settings()
-        (folder,) = (settings.output_dir / "active_p2" / "studies").iterdir()
+        (folder,) = (settings.output_dir / "active_test_profile" / "studies").iterdir()
         line = json.loads((folder / "line.json").read_text())
         yield Played(
             [text for _, text in results],
             [refused for refused, _ in results],
             settings,
-            Study("active_p2", folder),
+            Study("active_test_profile", folder),
             find_run(line["run_id"], settings),
         )
     get_settings.cache_clear()
@@ -144,6 +146,7 @@ def answer(played: Played, step: int) -> str:
     return played.answers[step]
 
 
+@pytest.mark.slow
 def test_the_scripted_agent_decides_every_window_and_freezes(played: Played) -> None:
     # Each call answered, or refused where the play expects it.
     assert played.refused == [refused for _, _, refused in PLAY], played.answers
@@ -156,6 +159,7 @@ def test_the_scripted_agent_decides_every_window_and_freezes(played: Played) -> 
     )
 
 
+@pytest.mark.slow
 def test_decide_refuses_a_blocking_flag(played: Played) -> None:
     assert answer(played, 7).splitlines()[1].startswith("- 66.75: reject;")
     assert "air_wave (blocking)" in answer(played, 7)
@@ -164,6 +168,7 @@ def test_decide_refuses_a_blocking_flag(played: Played) -> None:
     )
 
 
+@pytest.mark.slow
 def test_decide_refuses_an_unjustified_note(played: Played) -> None:
     said = answer(played, 10)
 
@@ -174,6 +179,7 @@ def test_decide_refuses_an_unjustified_note(played: Played) -> None:
     )
 
 
+@pytest.mark.slow
 def test_decide_refuses_a_rejection_before_the_window_was_tried_hard(played: Played) -> None:
     rows = answer(played, 12).splitlines()[1:]
 
@@ -200,6 +206,7 @@ def test_decide_refuses_a_rejection_before_the_window_was_tried_hard(played: Pla
     )
 
 
+@pytest.mark.slow
 def test_a_commit_picks_each_window_again_with_its_recipe(played: Played) -> None:
     assert answer(played, 6).startswith(
         f"L2 changed the line's settings in run {played.run.name}. The windows' own recipes, "
@@ -210,6 +217,7 @@ def test_a_commit_picks_each_window_again_with_its_recipe(played: Played) -> Non
     assert {"xmid_29.25", "xmid_30.75", "xmid_125.25"} <= {one.unit for one in again}
 
 
+@pytest.mark.slow
 def test_a_lasso_guides_the_tracker_inside_its_band(played: Played) -> None:
     attempt = latest(read_attempts(played.run), "xmid_29.25", "picking")
 
@@ -222,6 +230,7 @@ def test_a_lasso_guides_the_tracker_inside_its_band(played: Played) -> None:
     assert "- 29.25: pass; near_field (note)" in answer(played, 4)
 
 
+@pytest.mark.slow
 def test_the_frozen_curves_hold_what_the_inversion_needs(played: Played) -> None:
     frozen = json.loads((played.study.folder / "curves.json").read_text())
 
@@ -239,6 +248,7 @@ def test_the_frozen_curves_hold_what_the_inversion_needs(played: Played) -> None
     ]
 
 
+@pytest.mark.slow
 def test_nothing_is_processed_or_picked_after_the_freeze(played: Played) -> None:
     for step in (19, 21):
         assert "[precondition] The curves are frozen" in answer(played, step)
@@ -250,6 +260,7 @@ def test_nothing_is_processed_or_picked_after_the_freeze(played: Played) -> None
     )
 
 
+@pytest.mark.slow
 def test_paco_replay_makes_the_picked_line_again(played: Played) -> None:
     replay = replay_run(played.run.name, played.settings)
 
@@ -259,6 +270,7 @@ def test_paco_replay_makes_the_picked_line_again(played: Played) -> None:
     assert len(curves) == 73
 
 
+@pytest.mark.slow
 def test_the_windows_a_spec_names(judged_line: JudgedLine) -> None:
     def named(spec: str, statuses: dict[str, str] | None = None) -> list[str]:
         return [

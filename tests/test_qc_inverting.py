@@ -54,12 +54,12 @@ SHORT = {"n_iterations": 1_500}
 def inverted(
     demo_input_dir: Path, tmp_path_factory: pytest.TempPathFactory
 ) -> tuple[Settings, str, Path]:
-    """active_p2 in four 24-receiver windows, judged up to G4, then inverted."""
+    """active_test_profile in four 24-receiver windows, judged up to G4, then inverted."""
     root = tmp_path_factory.mktemp("inverting")
     settings = Settings(input_dir=demo_input_dir, output_dir=root / "outputs", workers=2)
     with pytest.MonkeyPatch.context() as patch:
         patch.chdir(root)
-        run_id = run_processing("active_p2", "active", SMALL_WINDOWS, settings).run_id
+        run_id = run_processing("active_test_profile", "active", SMALL_WINDOWS, settings).run_id
         # No retry: the S4 flow itself, the gates' first verdicts; the loop is tested with the
         # job (test_inversion.py) and the tools (test_server.py).
         judge_run(
@@ -71,6 +71,7 @@ def inverted(
     return settings, run_id, find_run(run_id, settings)
 
 
+@pytest.mark.slow
 def test_the_windows_g4_passed_are_inverted_with_bounds_from_their_curves(
     inverted: tuple[Settings, str, Path],
 ) -> None:
@@ -112,6 +113,7 @@ def test_the_windows_g4_passed_are_inverted_with_bounds_from_their_curves(
         assert [depth for depth, _ in measures.vs_at_depths] == [2.0, 4.0, 6.0]
 
 
+@pytest.mark.slow
 def test_g5_finds_the_chains_too_short_and_g6_has_no_model(
     inverted: tuple[Settings, str, Path],
 ) -> None:
@@ -138,6 +140,7 @@ def test_g5_finds_the_chains_too_short_and_g6_has_no_model(
     assert report.counts["G5"] == {"reject": 2}
 
 
+@pytest.mark.slow
 def test_the_inversion_done_again_starts_from_the_windows_parameters(
     inverted: tuple[Settings, str, Path], tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
@@ -169,6 +172,7 @@ def test_the_inversion_done_again_starts_from_the_windows_parameters(
     assert latest(attempts, "xmid_125.25", "inversion") is not None
 
 
+@pytest.mark.slow
 def test_another_number_of_layers_spreads_the_ranges_over_the_same_depth(
     inverted: tuple[Settings, str, Path], tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
@@ -206,6 +210,7 @@ def test_another_number_of_layers_spreads_the_ranges_over_the_same_depth(
     assert attempt.parameters["vs_layers"][-1] == before.parameters["vs_layers"][-1]
 
 
+@pytest.mark.slow
 def test_what_cannot_be_inverted_is_refused(
     inverted: tuple[Settings, str, Path], demo_input_dir: Path, tmp_path: Path
 ) -> None:
@@ -220,7 +225,7 @@ def test_what_cannot_be_inverted_is_refused(
     fresh = Settings(input_dir=demo_input_dir, output_dir=tmp_path / "outputs", workers=1)
     with pytest.MonkeyPatch.context() as patch:
         patch.chdir(tmp_path)
-        other = run_processing("active_p2", "active", SMALL_WINDOWS, fresh).run_id
+        other = run_processing("active_test_profile", "active", SMALL_WINDOWS, fresh).run_id
     with pytest.raises(RunError, match="has no curve: pick it first"):
         judge_inversions(other, fresh, SHORT)
 
@@ -401,6 +406,7 @@ def test_a_quick_inversion_samples_short_where_the_user_gave_nothing(tmp_path: P
     assert with_effort(derived, None, full) is derived
 
 
+@pytest.mark.slow
 def test_windows_named_are_inverted_quickly_too(
     demo_input_dir: Path, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
@@ -412,7 +418,7 @@ def test_windows_named_are_inverted_quickly_too(
         inversion_effort="quick",
     )
     monkeypatch.chdir(tmp_path)
-    run_id = run_processing("active_p2", "active", SMALL_WINDOWS, settings).run_id
+    run_id = run_processing("active_test_profile", "active", SMALL_WINDOWS, settings).run_id
     no_retry = QCConfig(budgets=Budgets(per_gate_and_unit=0, inversion_per_window=0))
     judge_run(run_id, settings, no_retry)
 

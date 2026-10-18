@@ -1,5 +1,5 @@
 """invert, job_status, and the models after the freeze (docs/autonomous_plan.md §4.8, §10, §13 M7): on
-active_p2's frozen curves (windows of 90 receivers on a coarse grid, 6 accepted and one rejected),
+active_test_profile's frozen curves (windows of 90 receivers on a coarse grid, 6 accepted and one rejected),
 one pass then one group rerun, through the autonomous agent's tools at the quick effort; G5's and G6's
 results in the journal and on the state card; each inversion seeded, the same seed making the same
 models; each window's retries counted; the models decided as §8 says; look and advise on them."""
@@ -49,7 +49,7 @@ FIXABLE = (
 
 @dataclass(frozen=True)
 class Inverted:
-    """active_p2's frozen curves, inverted once, then a group again: what each call said."""
+    """active_test_profile's frozen curves, inverted once, then a group again: what each call said."""
 
     settings: Settings
     study: Study
@@ -70,7 +70,7 @@ def inverted(input_dir: Path, tmp_path_factory: pytest.TempPathFactory) -> Itera
         get_settings.cache_clear()
         settings = get_settings()
         config = QCConfig()
-        study = new_study("active_p2", settings)
+        study = new_study("active_test_profile", settings)
         line = committing.commit(study, LINE, REASONS, None, settings, config).line
         run = find_run(line.run_id, settings)
         base = committing.picking_of(study, line, settings, config)
@@ -101,24 +101,29 @@ def inverted(input_dir: Path, tmp_path_factory: pytest.TempPathFactory) -> Itera
                     ("rerun", [RERUN], "full"),
                 ):
                     queued = await call(
-                        "invert", {"profile": "active_p2", "groups": groups, "effort": effort}
+                        "invert",
+                        {"profile": "active_test_profile", "groups": groups, "effort": effort},
                     )
                     job = queued.split()[1]
                     said[f"{label} queued"] = queued
                     said[label] = await call("job_status", {"job_id": job})
                 said["too many"] = await call(
                     "invert",
-                    {"profile": "active_p2", "groups": [RERUN], "effort": "quick"},
+                    {"profile": "active_test_profile", "groups": [RERUN], "effort": "quick"},
                     {"inversion_retries": 1},
                 )
                 said["accept"] = await call(
                     "decide",
-                    {"profile": "active_p2", "windows": "xmids:[66.75]", "status": "accepted"},
+                    {
+                        "profile": "active_test_profile",
+                        "windows": "xmids:[66.75]",
+                        "status": "accepted",
+                    },
                 )
                 said["reject untried"] = await call(
                     "decide",
                     {
-                        "profile": "active_p2",
+                        "profile": "active_test_profile",
                         "windows": "xmids:[66.75]",
                         "status": "rejected",
                         "reason": "no use",
@@ -127,7 +132,7 @@ def inverted(input_dir: Path, tmp_path_factory: pytest.TempPathFactory) -> Itera
                 said["reject"] = await call(
                     "decide",
                     {
-                        "profile": "active_p2",
+                        "profile": "active_test_profile",
                         "windows": "xmids:[66.75]",
                         "status": "rejected",
                         "reason": FIXABLE,
@@ -136,24 +141,24 @@ def inverted(input_dir: Path, tmp_path_factory: pytest.TempPathFactory) -> Itera
                 said["no model"] = await call(
                     "decide",
                     {
-                        "profile": "active_p2",
+                        "profile": "active_test_profile",
                         "windows": "xmids:[69.75]",
                         "status": "rejected",
                         "reason": "no curve",
                     },
                 )
                 said["look"] = await call(
-                    "look", {"profile": "active_p2", "what": "profile", "where": "72.75"}
+                    "look", {"profile": "active_test_profile", "what": "profile", "where": "72.75"}
                 )
                 said["advise"] = await call(
-                    "advise", {"profile": "active_p2", "topic": "inversion"}
+                    "advise", {"profile": "active_test_profile", "topic": "inversion"}
                 )
                 # The user gives the iterations: a group changing them is refused.
                 given.give(study, given.Given(inversion={"n_iterations": 3000}))
                 said["the user's"] = await call(
                     "invert",
                     {
-                        "profile": "active_p2",
+                        "profile": "active_test_profile",
                         "groups": [
                             {"windows": "xmids:[71.25]", "parameters": {"n_iterations": 6000}}
                         ],
@@ -166,6 +171,7 @@ def inverted(input_dir: Path, tmp_path_factory: pytest.TempPathFactory) -> Itera
     get_settings.cache_clear()
 
 
+@pytest.mark.slow
 def test_one_pass_then_one_group_rerun(inverted: Inverted) -> None:
     assert inverted.said["pass queued"].startswith("Job inv-")
     assert "6 windows, all {} at the quick effort" in inverted.said["pass queued"]
@@ -183,6 +189,7 @@ def test_one_pass_then_one_group_rerun(inverted: Inverted) -> None:
     assert {one.parameters["n_iterations"] for one in done[:6]} == {QUICK_SAMPLER["n_iterations"]}
 
 
+@pytest.mark.slow
 def test_job_status_groups_g5_by_symptom_then_g6(inverted: Inverted) -> None:
     lines = inverted.said["pass"].splitlines()
 
@@ -203,6 +210,7 @@ def test_job_status_groups_g5_by_symptom_then_g6(inverted: Inverted) -> None:
     assert any(line.startswith("G6 on the line: ") for line in lines)
 
 
+@pytest.mark.slow
 def test_g5_and_g6_are_in_the_journal_and_on_the_card(inverted: Inverted) -> None:
     entries = [entry for entry in journal.entries(inverted.study) if entry.kind == "inversion"]
 
@@ -219,6 +227,7 @@ def test_g5_and_g6_are_in_the_journal_and_on_the_card(inverted: Inverted) -> Non
     assert "Retries: 6 a window at most; used: 1 at xmid 72.75-74.25 (2)" in now
 
 
+@pytest.mark.slow
 def test_each_inversion_is_seeded_and_logged(inverted: Inverted) -> None:
     attempts = read_attempts(inverted.run)
     for one in invert.inversions_of(inverted.study)[6:]:
@@ -229,6 +238,7 @@ def test_each_inversion_is_seeded_and_logged(inverted: Inverted) -> None:
         assert attempt.triggered_by == "backtrack"
 
 
+@pytest.mark.slow
 def test_the_same_seed_makes_the_same_models(inverted: Inverted, tmp_path: Path) -> None:
     # sigpipe's Invert passes the seed on to inversion_mcmc: the copy of invert_window gives it.
     window = inverted.run / "xmid_72.75"
@@ -248,6 +258,7 @@ def test_the_same_seed_makes_the_same_models(inverted: Inverted, tmp_path: Path)
     assert models[0] == models[1] != models[2]
 
 
+@pytest.mark.slow
 def test_a_window_past_its_retries_is_refused(inverted: Inverted) -> None:
     assert (
         "[bad argument] The windows at xmid 72.75-74.25 (2) have spent their 1 retries"
@@ -255,6 +266,7 @@ def test_a_window_past_its_retries_is_refused(inverted: Inverted) -> None:
     )
 
 
+@pytest.mark.slow
 def test_the_models_are_decided_as_section_8_says(inverted: Inverted) -> None:
     accept, untried, reject = (inverted.said[key] for key in ("accept", "reject untried", "reject"))
     # What G5 said of 66.75's quick model: its chains' seeds change with the run's id.
@@ -275,6 +287,7 @@ def test_the_models_are_decided_as_section_8_says(inverted: Inverted) -> None:
         assert accept.startswith("Accepted") or "needs a reason" in accept
 
 
+@pytest.mark.slow
 def test_a_window_rejected_before_the_freeze_has_no_model_to_decide(inverted: Inverted) -> None:
     assert inverted.said["no model"] == (
         "Error executing tool decide: [bad argument] No frozen curve where xmids:[69.75]: no "
@@ -282,6 +295,7 @@ def test_a_window_rejected_before_the_freeze_has_no_model_to_decide(inverted: In
     )
 
 
+@pytest.mark.slow
 def test_a_group_changing_the_users_iterations_is_refused(inverted: Inverted) -> None:
     assert inverted.said["the user's"] == (
         "Error executing tool invert: [bad argument] n_iterations is the user's (3000): propose a "
@@ -289,6 +303,7 @@ def test_a_group_changing_the_users_iterations_is_refused(inverted: Inverted) ->
     )
 
 
+@pytest.mark.slow
 def test_look_and_advise_read_the_models(inverted: Inverted) -> None:
     assert inverted.said["look"].startswith(
         "xmid_72.75, its model's measures in its profile's stead (vision is off): fits: ensemble"

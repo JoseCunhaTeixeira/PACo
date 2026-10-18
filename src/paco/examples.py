@@ -21,14 +21,14 @@ class Example:
 EXAMPLES: dict[str, Example] = {
     "inspect": Example(
         {"what": "profiles"},
-        "active_p1: a profile to process, no run yet\npassive_p1: a profile to process, 2 runs",
+        "active_test_profile: a profile to process, no run yet\npassive_test_profile: a profile to process, 2 runs",
     ),
     "preset_settings": Example(
-        {"profile": "active_p1"},
+        {"profile": "active_test_profile"},
         '{"masw":{"length":{"type":"integer","description":"Receivers in a window"}}}',
     ),
     "run_processing": Example(
-        {"profile": "active_p1", "overrides": {"masw": {"length": 24, "step": 24}}},
+        {"profile": "active_test_profile", "overrides": {"masw": {"length": 24, "step": 24}}},
         {
             "run_id": RUN,
             "status": "ok",
@@ -39,14 +39,14 @@ EXAMPLES: dict[str, Example] = {
     ),
     "compare": Example(
         {
-            "profile": "active_p1",
+            "profile": "active_test_profile",
             "variants": [{"masw": {"length_m": 3}}, {"masw": {"length_m": 6}}],
             "metric": "depth",
         },
         {
-            "profile": "active_p1",
+            "profile": "active_test_profile",
             "metric": "depth",
-            "did": "Compared 2 variants of active_p1 on the depth of investigation, half the "
+            "did": "Compared 2 variants of active_test_profile on the depth of investigation, half the "
             "longest wavelength, 9 trial windows each: variant 2 best, 17 m against 7.8.",
             "variants": [
                 {

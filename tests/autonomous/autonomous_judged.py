@@ -1,4 +1,4 @@
-"""A judged line for the tests: active_p2 (the shots the tests keep) processed in four 24-receiver
+"""A judged line for the tests: active_test_profile (the shots the tests keep) processed in four 24-receiver
 windows, then picked and judged by G1 to G4, as PACo's own tests make theirs (its test_qc.py)."""
 
 from dataclasses import dataclass
@@ -19,7 +19,7 @@ FOUR_WINDOWS = {"masw": {"length": 24, "step": 24}}
 
 @dataclass(frozen=True)
 class JudgedLine:
-    """A processed, picked and judged run of active_p2."""
+    """A processed, picked and judged run of active_test_profile."""
 
     folder: Path  # the run's folder
     length_m: float  # its windows' length, from their first receiver to their last
@@ -30,13 +30,13 @@ class JudgedLine:
 
 
 def make_judged_line(input_dir: Path, root: Path) -> JudgedLine:
-    """The line, made in `root` from active_p2 in `input_dir`."""
+    """The line, made in `root` from active_test_profile in `input_dir`."""
     with pytest.MonkeyPatch.context() as patch:
         # PACo's settings from these arguments and its defaults alone, never a developer's .env.
         patch.setitem(Settings.model_config, "env_file", None)
         patch.chdir(root)
         settings = Settings(input_dir=input_dir, output_dir=root / "output", workers=4)
-        summary = run_processing("active_p2", "active", FOUR_WINDOWS, settings)
+        summary = run_processing("active_test_profile", "active", FOUR_WINDOWS, settings)
         judge_run(summary.run_id, settings, QCConfig())
         folder = find_run(summary.run_id, settings)
     attempts = read_attempts(folder)

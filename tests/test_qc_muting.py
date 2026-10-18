@@ -157,15 +157,18 @@ def test_g1_mutes_a_record_whose_arrivals_outrun_the_cone() -> None:
     assert flag.action.overrides == {"muting": CONE}
 
 
+@pytest.mark.slow
 def test_the_demo_line_is_tried_with_mutes_and_kept_unmuted(
     demo_input_dir: Path, tmp_path: Path
 ) -> None:
     settings = Settings(input_dir=demo_input_dir, output_dir=tmp_path, workers=2)
-    # active_p2's shots need a mute (the tight cone passes the 15 trial windows, no mute 4):
+    # active_test_profile's shots need a mute (the tight cone passes the 15 trial windows, no mute 4):
     # rules asking more windows than the trial has keep none.
     unmuted = QCConfig(mute=MuteRules(min_gain=MuteRules().trials + 1))
 
-    report = process_line("active_p2", {"masw": {"length": 24, "step": 24}}, settings, unmuted)
+    report = process_line(
+        "active_test_profile", {"masw": {"length": 24, "step": 24}}, settings, unmuted
+    )
 
     run_folder = find_run(report.run_id, settings)
     choice = read_mute_choice(run_folder)
@@ -185,15 +188,16 @@ def test_the_demo_line_is_tried_with_mutes_and_kept_unmuted(
         "masw": {"length": 24, "step": 24},
         "muting": {"method": "mute", "vmin": 100.0, "vmax": 900.0},
     }
-    given = process_line("active_p2", muted, settings, QCConfig())
+    given = process_line("active_test_profile", muted, settings, QCConfig())
     assert read_mute_choice(find_run(given.run_id, settings)) is None
 
 
+@pytest.mark.slow
 def test_compare_tries_settings_apart_from_the_runs(demo_input_dir: Path, tmp_path: Path) -> None:
     settings = Settings(input_dir=demo_input_dir, output_dir=tmp_path, workers=2)
     variants = [{"masw": {"length_m": 16.5}}, {"masw": {"length": 24}}]
 
-    compared = compare_settings("active_p2", variants, "depth", settings, QCConfig())
+    compared = compare_settings("active_test_profile", variants, "depth", settings, QCConfig())
 
     first, second = compared.variants
     # The length in metres converted: 16.5 m are 12 receivers 1.5 m apart.
@@ -201,13 +205,16 @@ def test_compare_tries_settings_apart_from_the_runs(demo_input_dir: Path, tmp_pa
     assert first.windows == second.windows == 9
     depths = {variant.label: variant.depth_m for variant in compared.variants}
     assert compared.best == max(depths, key=lambda label: depths[label] or 0.0)
-    assert compared.did.startswith("Compared 2 variants of active_p2 on the depth of investigation")
+    assert compared.did.startswith(
+        "Compared 2 variants of active_test_profile on the depth of investigation"
+    )
     assert compared.table[0].startswith("variant 1") and "(best)" in " ".join(compared.table)
     # No run made or changed: the trials sit in the profile's compare folder.
     assert list_runs(settings) == []
-    assert (tmp_path / "active_p2" / "compare").is_dir()
+    assert (tmp_path / "active_test_profile" / "compare").is_dir()
 
 
+@pytest.mark.slow
 def test_strong_refractions_are_muted_with_the_tight_cone(
     demo_input_dir: Path, tmp_path: Path
 ) -> None:
@@ -216,7 +223,7 @@ def test_strong_refractions_are_muted_with_the_tight_cone(
     # of the line's windows of 24 receivers.
     name, _, velocity, ratio = REFRACTED
     inputs = tmp_path / "inputs"
-    refracted(demo_input_dir / "active_p2", inputs / name, velocity, ratio)
+    refracted(demo_input_dir / "active_test_profile", inputs / name, velocity, ratio)
     settings = Settings(input_dir=inputs, output_dir=tmp_path / "outputs", workers=2)
 
     report = process_line(name, {"masw": {"length": 24, "step": 24}}, settings, QCConfig())

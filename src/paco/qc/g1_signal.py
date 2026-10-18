@@ -78,8 +78,8 @@ class SignalThresholds(SignalLimits):
         le=1,
         description="Share of a record's surface-wave energy that may arrive faster than the "
         "gathers' cone (the mute trial's): more, body waves or refractions the image would take "
-        "for surface waves, and the record is muted around the cone. Measured on active_p1 and "
-        "active_p2: at most 0.08",
+        "for surface waves, and the record is muted around the cone. Measured on PAC's former demo "
+        "line and on the active test profile: at most 0.08",
     )
 
 

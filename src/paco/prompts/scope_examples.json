@@ -1,8 +1,8 @@
 [
-  {"message": "Invert active_p1.", "form": {"invert": true, "profile": "active_p1"}},
+  {"message": "Invert active_test_profile.", "form": {"invert": true, "profile": "active_test_profile"}},
   {
-    "message": "Pick and invert passive_p1 again.",
-    "form": {"pick": true, "invert": true, "profile": "passive_p1", "redo": true}
+    "message": "Pick and invert passive_test_profile again.",
+    "form": {"pick": true, "invert": true, "profile": "passive_test_profile", "redo": true}
   },
   {
     "message": "Give me the shear-wave velocity profile of shots_a at 12 m, but keep my hand-picked curves.",

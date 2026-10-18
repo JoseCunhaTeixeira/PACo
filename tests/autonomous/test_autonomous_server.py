@@ -77,17 +77,18 @@ def test_the_tools_read_the_profile() -> None:
         async with Client(server.server) as client:
             return [
                 await client.call_tool("inspect", {"what": "profiles"}),
-                await client.call_tool("preset_settings", {"profile": "active_p2"}),
+                await client.call_tool("preset_settings", {"profile": "active_test_profile"}),
                 await client.call_tool("inversion_settings", {}),
             ]
 
     profiles, preset, inversion = (shown(result) for result in anyio.run(calls))
 
-    assert profiles.startswith("active_p2: a profile to process, no run yet")
+    assert profiles.startswith("active_test_profile: a profile to process, no run yet")
     assert "masw" in json.loads(preset)["properties"]
     assert "n_iterations" in json.loads(inversion)["properties"]
 
 
+@pytest.mark.slow
 @pytest.mark.usefixtures("paco_env")
 def test_the_tools_study_the_profile() -> None:
     # A study from its survey to a committed line, the tools' errors tagged as PACo tags them.
@@ -97,23 +98,30 @@ def test_the_tools_study_the_profile() -> None:
     async def calls() -> list[CallToolResult]:
         async with Client(server.server) as client:
             return [
-                await client.call_tool("observe", {"profile": "active_p2", "level": "curves"}),
-                await client.call_tool("survey", {"profile": "active_p2"}),
                 await client.call_tool(
-                    "commit", {"profile": "active_p2", "changes": first, "reasons": {}}
+                    "observe", {"profile": "active_test_profile", "level": "curves"}
+                ),
+                await client.call_tool("survey", {"profile": "active_test_profile"}),
+                await client.call_tool(
+                    "commit", {"profile": "active_test_profile", "changes": first, "reasons": {}}
                 ),
                 await client.call_tool(
-                    "commit", {"profile": "active_p2", "changes": first, "reasons": reasons}
+                    "commit",
+                    {"profile": "active_test_profile", "changes": first, "reasons": reasons},
                 ),
-                await client.call_tool("observe", {"profile": "active_p2", "level": "curves"}),
                 await client.call_tool(
-                    "look", {"profile": "active_p2", "what": "image", "where": "71"}
+                    "observe", {"profile": "active_test_profile", "level": "curves"}
                 ),
-                await client.call_tool("advise", {"profile": "active_p2", "topic": "picking"}),
+                await client.call_tool(
+                    "look", {"profile": "active_test_profile", "what": "image", "where": "71"}
+                ),
+                await client.call_tool(
+                    "advise", {"profile": "active_test_profile", "topic": "picking"}
+                ),
                 await client.call_tool(
                     "try_settings",
                     {
-                        "profile": "active_p2",
+                        "profile": "active_test_profile",
                         "variants": [{"picking": {"fmax": 90.0}}],
                         "windows": "spread:2",
                     },
@@ -131,7 +139,7 @@ def test_the_tools_study_the_profile() -> None:
         "Error executing tool observe: [precondition] No line committed yet in this study: commit "
         "one first."
     )
-    assert surveyed.startswith("active_p2: 96 receivers 1.5 m apart")
+    assert surveyed.startswith("active_test_profile: 96 receivers 1.5 m apart")
     assert refused.startswith(
         "Error executing tool commit: [bad argument] Give a one-line reason for each setting"
     )

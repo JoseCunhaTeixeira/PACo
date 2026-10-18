@@ -1,7 +1,7 @@
 """commit (docs/autonomous_plan.md §6, §13 M4): the line made with the model's settings in PAC's layout;
 its settings changed in the same run, as PACo logs a change of the line's; a change of the windows
 in a new run. Each setting's reason goes where PAC's run card reads it, and paco-replay makes the
-line again. On active_p2 with windows of 90 receivers on a coarse grid: 7 windows, a commit in a few
+line again. On active_test_profile with windows of 90 receivers on a coarse grid: 7 windows, a commit in a few
 seconds."""
 
 from collections.abc import Iterator
@@ -43,7 +43,7 @@ PAC_DIR = Path(__file__).resolve().parents[3] / "PAC"
 
 @dataclass(frozen=True)
 class Commits:
-    """Three commits of a study of active_p2, and the first run's log after the first one."""
+    """Three commits of a study of active_test_profile, and the first run's log after the first one."""
 
     settings: Settings
     study: Study
@@ -66,7 +66,7 @@ def commits(input_dir: Path, tmp_path_factory: pytest.TempPathFactory) -> Iterat
         patch.chdir(root)
         settings = Settings(input_dir=input_dir, output_dir=root / "output", workers=2)
         config = QCConfig()
-        study = new_study("active_p2", settings)
+        study = new_study("active_test_profile", settings)
         first = commit(study, FIRST, FIRST_REASONS, None, settings, config)
         run = find_run(first.line.run_id, settings)
         after_first = read_attempts(run)
@@ -84,10 +84,11 @@ def commits(input_dir: Path, tmp_path_factory: pytest.TempPathFactory) -> Iterat
         yield Commits(settings, study, first, second, third, after_first)
 
 
+@pytest.mark.slow
 def test_the_first_commit_makes_a_run_in_pacs_layout(commits: Commits) -> None:
     run = commits.run
 
-    assert run.parent == commits.settings.output_dir / "active_p2"
+    assert run.parent == commits.settings.output_dir / "active_test_profile"
     for name in ("run.json", "qc_log.jsonl", "qc_report.json", "qc_config.json"):
         assert (run / name).is_file()
     assert len(list(run.glob("xmid_*"))) == 7
@@ -100,6 +101,7 @@ def test_the_first_commit_makes_a_run_in_pacs_layout(commits: Commits) -> None:
     }
 
 
+@pytest.mark.slow
 def test_each_reason_goes_where_pacs_run_card_reads_it(commits: Commits) -> None:
     line = latest(read_attempts(commits.run), "line", "phase_shift")
 
@@ -126,6 +128,7 @@ def test_each_reason_goes_where_pacs_run_card_reads_it(commits: Commits) -> None
     )
 
 
+@pytest.mark.slow
 def test_a_later_commit_changes_the_line_in_its_run(commits: Commits) -> None:
     run = commits.run
     attempts = read_attempts(run)
@@ -146,6 +149,7 @@ def test_a_later_commit_changes_the_line_in_its_run(commits: Commits) -> None:
     assert all((window / "attempts").is_dir() for window in run.glob("xmid_*"))
 
 
+@pytest.mark.slow
 def test_paco_replay_makes_the_changed_line_again(commits: Commits) -> None:
     replay = replay_run(commits.first.line.run_id, commits.settings)
 
@@ -153,6 +157,7 @@ def test_paco_replay_makes_the_changed_line_again(commits: Commits) -> None:
     assert {one.stage for one in replay.compared} == {"preprocessing", "phase_shift", "picking"}
 
 
+@pytest.mark.slow
 def test_a_change_of_the_windows_makes_a_new_run(commits: Commits) -> None:
     line = line_of(commits.study)
 
@@ -163,6 +168,7 @@ def test_a_change_of_the_windows_makes_a_new_run(commits: Commits) -> None:
     assert len(list(find_run(line.run_id, commits.settings).glob("xmid_*"))) == 3
 
 
+@pytest.mark.slow
 def test_g1_is_made_once_for_each_preprocessing(commits: Commits) -> None:
     # The first commit made G1 on the records as the preset preprocesses them (the trial took it),
     # the second on the band-passed ones, which the third's new run took.
@@ -180,6 +186,7 @@ def test_g1_is_made_once_for_each_preprocessing(commits: Commits) -> None:
     assert len(list(third.glob("records/*/Spectrum_0000.png"))) == 28
 
 
+@pytest.mark.slow
 def test_the_commit_as_the_model_reads_it(commits: Commits) -> None:
     run_id = commits.first.line.run_id
 
@@ -189,6 +196,7 @@ def test_the_commit_as_the_model_reads_it(commits: Commits) -> None:
     )
 
 
+@pytest.mark.slow
 def test_the_line_as_a_trial_set_reads_it(commits: Commits) -> None:
     state = line_state(commits.run)
 
@@ -197,6 +205,7 @@ def test_the_line_as_a_trial_set_reads_it(commits: Commits) -> None:
     assert set(state.flags) == set(state.verdicts)
 
 
+@pytest.mark.slow
 @pytest.mark.parametrize(
     ("changes", "reasons", "experiment", "said"),
     [
@@ -220,16 +229,17 @@ def test_a_commit_is_refused_saying_why(
     experiment: str | None,
     said: str,
 ) -> None:
-    study = new_study("active_p2", commits.settings)
+    study = new_study("active_test_profile", commits.settings)
 
     with pytest.raises(ValueError, match=said):
         commit(study, changes, reasons, experiment, commits.settings, QCConfig())
     assert line_of(study) is None
 
 
+@pytest.mark.slow
 @pytest.mark.skipif(not (PAC_DIR / ".venv").is_dir(), reason="no PAC checkout beside this one")
 def test_pacs_pages_open_the_runs_and_show_the_reasons(commits: Commits) -> None:
-    folders = [f"active_p2/{one.line.run_id}" for one in (commits.second, commits.third)]
+    folders = [f"active_test_profile/{one.line.run_id}" for one in (commits.second, commits.third)]
 
     found = pac.pac_pages(folders, commits.settings, PAC_DIR)
 

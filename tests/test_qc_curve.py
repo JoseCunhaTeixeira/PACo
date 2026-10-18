@@ -334,7 +334,7 @@ def test_too_few_points_ask_to_keep_more_of_the_ridge() -> None:
 
 
 def test_a_curve_spanning_too_few_wavelengths_asks_to_keep_more_of_the_ridge() -> None:
-    # On p2, a curve resampled finer spans 9.2 to 11.2 m of wavelength: enough points, but the
+    # On the active test profile, a curve resampled finer spans 9.2 to 11.2 m of wavelength: enough points, but the
     # inversion needs over 4/3 between the longest and the shortest.
     image = _image(_ridge(M0, 0.8, 1.5))
     fs = np.linspace(29.0, 33.0, 8)

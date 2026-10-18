@@ -316,7 +316,7 @@ def test_a_record_is_judged_within_the_reach() -> None:
 
 def test_the_decay_is_fitted_within_the_reach() -> None:
     # Six traces carry the wave, eighteen only noise: over the whole line the noise floor
-    # flattens the decay, and the six read too loud (active_p2's nearest traces).
+    # flattens the decay, and the six read too loud (active_test_profile's nearest traces).
     shot = _shot()
     rng = np.random.default_rng(1)
     xt = shot.xt.copy()

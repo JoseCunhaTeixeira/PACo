@@ -1,4 +1,4 @@
-"""The checks of a window's picks (docs/autonomous_plan.md §4.6), on active_p2's curves, and on cases with
+"""The checks of a window's picks (docs/autonomous_plan.md §4.6), on active_test_profile's curves, and on cases with
 a known answer its curves do not hold."""
 
 import pytest
@@ -7,7 +7,7 @@ from autonomous_judged import JudgedLine
 from paco.autonomous.sensors.checks import Run, failing_runs, line_checks, window_checks
 from paco.qc.models import GateResult, Kept, Metric
 
-# active_p2's four windows: 24 receivers 1.5 m apart, 34.5 m long. By xmid: the shortest and
+# active_test_profile's four windows: 24 receivers 1.5 m apart, 34.5 m long. By xmid: the shortest and
 # longest wavelengths (m), the share of points beyond 3 window lengths, the share in the aliasing
 # zone, the nearest shot's distance over half the longest wavelength, the median relative
 # uncertainty, and whether the nearest shot is in the near field. The window at 53.25 m holds one
@@ -28,6 +28,7 @@ LINE = {
 }
 
 
+@pytest.mark.slow
 def test_each_curves_checks_on_the_line(judged_line: JudgedLine) -> None:
     assert judged_line.length_m == 34.5
     for xmid, (shortest, longest, beyond, aliased, nearest, uncertainty, near) in LINE.items():
@@ -43,6 +44,7 @@ def test_each_curves_checks_on_the_line(judged_line: JudgedLine) -> None:
         assert check.in_near_field == near
 
 
+@pytest.mark.slow
 def test_the_lines_checks(judged_line: JudgedLine) -> None:
     checks = [window_checks(judged_line.g3[xmid], judged_line.length_m) for xmid in LINE]
 

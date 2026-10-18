@@ -91,10 +91,11 @@ def _line(
     settings = Settings(input_dir=demo_input_dir, output_dir=root / "outputs", workers=2)
     with pytest.MonkeyPatch.context() as patch:
         patch.chdir(root)
-        report = process_line("active_p2", overrides, settings, config)
+        report = process_line("active_test_profile", overrides, settings, config)
     return find_run(report.run_id, settings), report
 
 
+@pytest.mark.slow
 def test_the_ladder_keeps_the_most_precise_length_that_passes(
     demo_input_dir: Path, tmp_path: Path
 ) -> None:
@@ -157,6 +158,7 @@ def test_the_ladder_keeps_the_most_precise_length_that_passes(
     assert "masw length 24 for the whole line" in summary
 
 
+@pytest.mark.slow
 def test_a_given_length_is_kept_as_it_is(demo_input_dir: Path, tmp_path: Path) -> None:
     # Given, the length stays whatever its trial windows give (the ladder proposes, a length
     # given decides), with nothing to compare: 32 receivers, where 1 trial window of the 3 the
@@ -183,6 +185,7 @@ def test_a_given_length_is_kept_as_it_is(demo_input_dir: Path, tmp_path: Path) -
     assert rules[-1].startswith("near_field distance_m ")
 
 
+@pytest.mark.slow
 def test_a_record_g1_rejects_goes_into_no_window(demo_input_dir: Path, tmp_path: Path) -> None:
     # 101.dat's median SNR is 4.6 dB, under G1's 6 dB; the traces of 117.dat, and of 133.dat and
     # 165.dat once muted, correlate under its 0.5: a filter or a mute would measure the same, so
@@ -205,6 +208,7 @@ def test_a_record_g1_rejects_goes_into_no_window(demo_input_dir: Path, tmp_path:
     ) in summarize_report(report)
 
 
+@pytest.mark.slow
 def test_an_active_profile_is_processed_passive_active(
     demo_input_dir: Path, tmp_path: Path
 ) -> None:

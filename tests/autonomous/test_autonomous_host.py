@@ -1,4 +1,4 @@
-"""The host (docs/autonomous_plan.md §13 M6): a scripted conversation runs P0 to P5 on active_p2 through
+"""The host (docs/autonomous_plan.md §13 M6): a scripted conversation runs P0 to P5 on active_test_profile through
 the autonomous agent's tools; the context stays under the set size; the budgets stop the run as
 designed; a run stopped in P2 resumes from the journal with the same phase, budgets and state card.
 The model is scripted (tests/scripted.py); the line, 90-receiver windows on a coarse grid (7
@@ -28,11 +28,11 @@ from paco.autonomous.tools.trials import Study
 from paco.llm.model import OpenAIChat
 from paco.settings import Settings, get_settings
 
-PROFILE = "active_p2"
+PROFILE = "active_test_profile"
 LINE = {"masw": {"length": 90}, "dispersion": {"nv": 250}}
 REASONS = {"masw length": "the deepest windows E1 tried", "dispersion nv": "a coarse grid"}
 SCOPE = {**BLANK, "invert": True, "profile": PROFILE, "effort": "quick"}
-REQUEST = "Give me the Vs of active_p2, quickly."
+REQUEST = "Give me the Vs of active_test_profile, quickly."
 INTERPRETATION = "A stiffer layer below 10 m, if the picks are right."
 # The models of one quick pass, rejected, naming each fixable flag G5 may raise on them: its
 # chains' seeds change with the run's id.
@@ -207,6 +207,7 @@ def played(input_dir: Path, tmp_path_factory: pytest.TempPathFactory) -> Iterato
     get_settings.cache_clear()
 
 
+@pytest.mark.slow
 def test_a_scripted_conversation_runs_p0_to_p5(played: Played) -> None:
     assert [entry.id for entry in journal.entries(played.study)] == [
         "O1",
@@ -238,10 +239,13 @@ def test_a_scripted_conversation_runs_p0_to_p5(played: Played) -> None:
     assert all(body["messages"][-1]["content"].startswith(CARD) for body in bodies)
 
 
+@pytest.mark.slow
 def test_the_report_adds_what_was_tried_and_each_windows_outcome(played: Played) -> None:
     report = played.answer
 
-    assert report.startswith("Scope: invert · active_p2 · balanced, no target depth, quick effort.")
+    assert report.startswith(
+        "Scope: invert · active_test_profile · balanced, no target depth, quick effort."
+    )
     assert "What I tried:\n- E1 on spread:3: current 0/3; 1 " in report
     assert f"Each window's outcome:\n- curves accepted: {ACCEPTED}" in report
     assert f"Interpretation, by the model (not a measurement): {INTERPRETATION}" in report
@@ -257,6 +261,7 @@ def test_the_report_adds_what_was_tried_and_each_windows_outcome(played: Played)
     assert "- 3000 iterations (750 burn-in), 2 chains: the model's effort" in report
 
 
+@pytest.mark.slow
 def test_the_model_reads_the_refusals_and_a_fresh_start_after_the_freeze(played: Played) -> None:
     bodies = [body for body in played.model.bodies if "tools" in body]
     # The note refused without a reason (decide), the model read it next.
@@ -270,6 +275,7 @@ def test_the_model_reads_the_refusals_and_a_fresh_start_after_the_freeze(played:
     assert "[PACo] The curves are frozen: Frozen, from L1" in after[1]["content"]
 
 
+@pytest.mark.slow
 def test_the_context_stays_under_the_set_size(played: Played) -> None:
     assert max(played.host.sizes) < CONTEXT
     # Past 60 % of it, the oldest calls dropped out, the model told so.
@@ -279,6 +285,7 @@ def test_the_context_stays_under_the_set_size(played: Played) -> None:
     assert all(len(str(one["content"])) < 1200 for one in tool_messages)
 
 
+@pytest.mark.slow
 def test_every_call_goes_to_the_usage_log_and_the_transcript_is_saved(played: Played) -> None:
     used = budgets.uses(played.study)
 
@@ -292,6 +299,7 @@ def test_every_call_goes_to_the_usage_log_and_the_transcript_is_saved(played: Pl
     assert json.loads(saved.read_text())["prompt_version"].startswith("autonomous-prompts-")
 
 
+@pytest.mark.slow
 @pytest.mark.usefixtures("folders")
 def test_the_commits_budget_refuses_a_third_commit() -> None:
     picked = {"picking": {"fmax": 80.0}}
@@ -328,13 +336,14 @@ def test_the_model_calls_budget_stops_the_run() -> None:
             budgets.Use(kind="model", phase="P1", at=journal.datetime.now(journal.UTC), seconds=0),
         )
 
-    again = play([form(SCOPE)], ["Go on with active_p2."])
+    again = play([form(SCOPE)], ["Go on with active_test_profile."])
 
     assert again.study == first.study
     assert len(again.model.bodies) == 1  # the objective's form, no call: the budget is spent
     assert "The run's budget of model calls is spent (61 of 60): it stops here." in again.answer
 
 
+@pytest.mark.slow
 @pytest.mark.usefixtures("folders")
 def test_a_run_stopped_in_p2_resumes_with_the_same_phase_budgets_and_card() -> None:
     stopped = play(
@@ -352,7 +361,7 @@ def test_a_run_stopped_in_p2_resumes_with_the_same_phase_budgets_and_card() -> N
 
     resumed = play(
         [form(SCOPE), said("Which windows first?"), answer_form("Resumed.", question="Which?")],
-        ["Go on with active_p2."],
+        ["Go on with active_test_profile."],
     )
 
     assert resumed.study == study
@@ -378,7 +387,7 @@ def test_the_settings_typed_are_kept_and_a_later_message_changes_them() -> None:
     # The user widens the grid: the latest message wins, the journal says so.
     again = play(
         [form({**typed, "vmax_m_s": 600.0}), said("Go on?"), answer_form("Ok.", question="Go?")],
-        ["Use velocities up to 600 m/s on active_p2."],
+        ["Use velocities up to 600 m/s on active_test_profile."],
     )
     assert again.study == first.study
     assert given_of(again.study).line == {"masw": {"length": 24}, "dispersion": {"vmax": 600.0}}
@@ -387,6 +396,7 @@ def test_the_settings_typed_are_kept_and_a_later_message_changes_them() -> None:
     assert "U1: The user now gives dispersion vmax 600 (was 350)." in again.events
 
 
+@pytest.mark.slow
 @pytest.mark.usefixtures("folders")
 def test_a_report_with_models_not_decided_sends_the_model_back_once() -> None:
     # The play to the first inversion; then a report before any model is decided.

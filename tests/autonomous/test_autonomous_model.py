@@ -110,7 +110,9 @@ def test_without_vision_no_image_leaves_the_machine() -> None:
 
 
 def test_thinking_is_the_clients_unless_a_call_says_otherwise_and_never_in_a_form() -> None:
-    server = ScriptedServer(({"role": "assistant", "content": '{"profile": "active_p2"}'}, None))
+    server = ScriptedServer(
+        ({"role": "assistant", "content": '{"profile": "active_test_profile"}'}, None)
+    )
 
     async def calls() -> None:
         thinking = OpenAIChat(server.client, MODEL)
@@ -155,7 +157,10 @@ def test_several_calls_come_in_one_reply_only_when_asked() -> None:
 
 def test_a_form_is_filled_under_its_schema_as_paco_fills_one() -> None:
     server = ScriptedServer(
-        ({"role": "assistant", "content": '{"profile": "active_p2"}'}, usage(400, 20, cached=384))
+        (
+            {"role": "assistant", "content": '{"profile": "active_test_profile"}'},
+            usage(400, 20, cached=384),
+        )
     )
 
     async def fill() -> Filled:
@@ -164,7 +169,7 @@ def test_a_form_is_filled_under_its_schema_as_paco_fills_one() -> None:
     filled = anyio.run(fill)
 
     assert filled == Filled(
-        content='{"profile": "active_p2"}',
+        content='{"profile": "active_test_profile"}',
         prompt_tokens=400,
         completion_tokens=20,
         cached_tokens=384,
@@ -293,7 +298,9 @@ def test_claude_has_its_own_client() -> None:
 
 
 def test_each_dialect_sends_what_its_server_takes() -> None:
-    server = ScriptedServer(({"role": "assistant", "content": '{"profile": "active_p2"}'}, None))
+    server = ScriptedServer(
+        ({"role": "assistant", "content": '{"profile": "active_test_profile"}'}, None)
+    )
 
     async def calls() -> None:
         reasoning = OpenAIChat(server.client, MODEL, dialect="openai")

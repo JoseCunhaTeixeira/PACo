@@ -2,8 +2,9 @@
 records of noise, its levers tried (the segments, the FK selection) with G2 on their correlations,
 committed, read on the card and in the report, looked at, and decided without G3's near-field note
 (its windows' virtual source is their first receiver); PACo's segment trial as advice; and the
-passive-active mode of an active line, a mode change a new run, the user's mode kept. On PAC's local
-passive_p2, 16 records of 120 s on active_p2's 96 receivers, and active_p2's 28 shots."""
+passive-active mode of an active line, a mode change a new run, the user's mode kept. On PAC's test
+profiles: the passive one's 2 records of 120 s on the active one's 96 receivers, and 28 of its
+shots."""
 
 import re
 from collections.abc import Iterator
@@ -43,7 +44,7 @@ PNG = b"\x89PNG"
 
 @dataclass(frozen=True)
 class Passive:
-    """A study of passive_p2: its survey, its first experiment, its first commit."""
+    """A study of passive_test_profile: its survey, its first experiment, its first commit."""
 
     settings: Settings
     study: Study
@@ -64,7 +65,7 @@ def passive(passive_dir: Path, tmp_path_factory: pytest.TempPathFactory) -> Iter
         patch.chdir(root)
         settings = Settings(input_dir=passive_dir, output_dir=root / "output", workers=4)
         config = QCConfig()
-        study = new_study("passive_p2", settings)
+        study = new_study("passive_test_profile", settings)
         found = survey(study, settings, config)
         experiment = try_settings(
             study, VARIANTS, "spread:3", current=LINE, settings=settings, config=config
@@ -73,6 +74,7 @@ def passive(passive_dir: Path, tmp_path_factory: pytest.TempPathFactory) -> Iter
         yield Passive(settings, study, found, experiment, first)
 
 
+@pytest.mark.slow
 def test_the_survey_says_a_passive_lines_records_of_noise(passive: Passive) -> None:
     found = passive.found
 
@@ -80,14 +82,15 @@ def test_the_survey_says_a_passive_lines_records_of_noise(passive: Passive) -> N
     assert (found.reach_m, found.cone_m_s, found.frequency_step_hz) == (None, None, 1.0)
     lines = describe_survey(found).splitlines()
     assert lines[0] == (
-        "passive_p2: 96 receivers 1.5 m apart, 142.5 m long; 16 records of ambient noise, 120 s "
+        "passive_test_profile: 96 receivers 1.5 m apart, 142.5 m long; 2 records of ambient noise, 120 s "
         "long, no shot."
     )
     assert lines[3].startswith("Reach and cone: none, a passive line has no shot")
     assert "Modes: passive (each window correlates the noise's segments and stacks them)." in lines
-    assert lines[-1] == "- 16 records: pass, no flag"
+    assert lines[-1] == "- 2 records: pass, no flag"
 
 
+@pytest.mark.slow
 def test_passive_trials_are_judged_on_their_correlations(passive: Passive) -> None:
     runs = [
         TrialRun.model_validate_json(
@@ -111,6 +114,7 @@ def test_passive_trials_are_judged_on_their_correlations(passive: Passive) -> No
     assert "near field" not in describe(passive.experiment)
 
 
+@pytest.mark.slow
 def test_a_passive_line_is_committed_and_said_as_such(passive: Passive) -> None:
     assert str(load_manifest(passive.first.line.run_id, passive.settings).preset.mode) == "passive"
     lines = card(passive.study, passive.settings).splitlines()
@@ -118,7 +122,7 @@ def test_a_passive_line_is_committed_and_said_as_such(passive: Passive) -> None:
     assert ": passive mode, 24 receivers (34.5 m), segments 1 s every 1 s, FK selection 0.2" in now
     assert "near field" not in "\n".join(lines) and "shot" not in now
     assert (
-        "Survey: 96 receivers 1.5 m apart (142.5 m); 16 records of ambient noise, segments of 1 s "
+        "Survey: 96 receivers 1.5 m apart (142.5 m); 2 records of ambient noise, segments of 1 s "
         "(the preset's)"
     ) in lines[2]
     used = answer.parameters_used(passive.study, passive.settings)
@@ -132,6 +136,7 @@ def test_a_passive_line_is_committed_and_said_as_such(passive: Passive) -> None:
     assert not any(line.startswith("shots ") for line in used)
 
 
+@pytest.mark.slow
 def test_look_shows_a_passive_windows_correlations_and_selection(passive: Passive) -> None:
     run = passive.run
 
@@ -146,6 +151,7 @@ def test_look_shows_a_passive_windows_correlations_and_selection(passive: Passiv
     )
 
 
+@pytest.mark.slow
 def test_g3s_near_field_note_on_a_passive_window_needs_no_reason(passive: Passive) -> None:
     attempts = read_attempts(passive.run)
     noted = [
@@ -163,6 +169,7 @@ def test_g3s_near_field_note_on_a_passive_window_needs_no_reason(passive: Passiv
         assert problem is None and "near_field" not in notes
 
 
+@pytest.mark.slow
 def test_advise_on_a_passive_line(passive: Passive) -> None:
     # One length and one threshold, on one window: PACo's trial in seconds.
     quick = QCConfig.model_validate(
@@ -185,10 +192,11 @@ def test_advise_on_a_passive_line(passive: Passive) -> None:
 # ---------------------------------------------------------------- passive-active
 
 
+@pytest.mark.slow
 def test_passive_active_is_a_mode_of_an_active_line(input_dir: Path, tmp_path: Path) -> None:
     settings = Settings(input_dir=input_dir, output_dir=tmp_path / "output", workers=4)
     config = QCConfig()
-    study = new_study("active_p2", settings)
+    study = new_study("active_test_profile", settings)
     current = {"masw": {"length": 48}}
 
     made = try_settings(
@@ -223,7 +231,7 @@ def test_passive_active_is_a_mode_of_an_active_line(input_dir: Path, tmp_path: P
 
 def test_the_users_mode_is_kept(input_dir: Path, tmp_path: Path) -> None:
     settings = Settings(input_dir=input_dir, output_dir=tmp_path / "output", workers=4)
-    study = new_study("active_p2", settings)
+    study = new_study("active_test_profile", settings)
     given.give(study, given.Given(mode="passive-active"))
 
     with pytest.raises(ValueError, match=re.escape("mode is the user's (passive-active)")):

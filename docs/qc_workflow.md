@@ -1,5 +1,9 @@
 # The quality-controlled processing loop
 
+> The measurements below name the lines they were made on: `active_p1` and `passive_p1`, PAC's
+> former demo lines, and `active_p2` and `passive_p2`, the real lines of which PAC's test
+> profiles, `active_test_profile` and `passive_test_profile`, are light copies.
+
 PACo processes, judges, picks and inverts a line the way a geophysicist does, on its own: after each stage it checks the result; if it is not good, it changes the parameters of that stage or of an earlier one, and redoes only what is affected, until each xmid passes or is rejected with a reason. The end result is one Vs model per xmid, each traceable to the parameters and QC verdicts that produced it, plus a QC report for the whole line. Each gate's page under `docs/gates/` gives its checks, thresholds, reasons and the demo's outputs.
 
 By default the user gives no parameters at all: "process <profile>" runs the whole loop and ends with Vs models and a report, every parameter derived from the data and the geometry, without a question to the user. Settings the user types in the chat are the exception, and even those are not a reason to ask (see "Agent side").
@@ -142,13 +146,13 @@ Constraints: Qwen3-14B in FP8, a 16,384-token context, one tool call per reply, 
 - Raise the cap of 15 tool calls per answer only with evaluation evidence.
 - Evaluation scenarios (`paco.evaluation`), on the demo profiles, synthetic variants of the demo profiles with known defects, and settings the user types:
   - Looking around: the profiles, one profile's geometry, a profile that does not exist.
-  - Zero settings: "process active_p1 and give me the Vs models" with nothing else; the agent must not ask a single question, and the run must end with models for the xmids G4 passed and reasons for the rest.
+  - Zero settings: "process active_test_profile and give me the Vs models" with nothing else; the agent must not ask a single question, and the run must end with models for the xmids G4 passed and reasons for the rest.
   - PAC's three modes, and soils and the water table.
-  - G1: a dead trace (a copy of active_p1 with a zeroed trace), and the demo's own trigger delay.
+  - G1: a dead trace (a copy of active_test_profile with a zeroed trace), and the line's own trigger delay.
   - G2: a velocity range too narrow.
   - G5: too few iterations, and bounds too tight.
   - The window length the agent chooses for depth, and for lateral detail.
-  - Stuck: a passive line with no wave (passive_p1's geometry with white noise for records), and windows longer than the line: the agent asks.
+  - Stuck: a passive line with no wave (passive_test_profile's geometry with white noise for records), and windows longer than the line: the agent asks.
   - A setting the user typed that a gate asks to change: it stays as given, the windows that need the change are left out, and the answer says the change asked (`narrow_velocities`, `few_iterations`, `tight_bounds`).
   - A picking band the user typed: "between 12 and 40 Hz" (`pick_band`) and "down to 12 Hz" (`pick_down_to`), every point of every curve within it (the windows' picks span 9.5 to 42.5 Hz without it).
   - Every scenario where the data decide checks that thresholds were never changed and that no question was asked; `inversion_succeeded` is checked only when G4 passed a curve.
@@ -285,8 +289,8 @@ Each decision states what the system does and the evidence it rests on; the gate
   is the tools'. Left to itself, a model reports the gates' changes in few answers (hence the
   lists), closes with a question, or inverts unasked: the scenarios measure it.
 - **Synthetic defects in the data where they are physical** (`paco.evaluation.defects`): a copy
-  of active_p1 with a zeroed trace (G1), and passive_p1's geometry with white noise for records
-  (a line with no curve); the demo's own trigger delay; typed settings for the rest (a velocity
+  of active_test_profile with a zeroed trace (G1), and passive_test_profile's geometry with white
+  noise for records (a line with no curve); the line's own trigger delay; typed settings for the rest (a velocity
   range too narrow for G2, too few iterations and bounds too tight for G5: kept as given, the
   windows that need them changed left out). Each defect is checked to trip its gate before it
   becomes a scenario.

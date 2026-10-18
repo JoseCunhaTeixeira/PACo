@@ -43,8 +43,8 @@ decides from your request, and the tools apply the rules below.
 PACo processes a profile in PAC's three modes: an active profile as shots (`active`, the
 default) or by interferometry on its shots (`passive-active`: each shot's surface waves
 cross-correlated with the receiver nearest the shot, the correlations stacked), a passive
-profile as ambient noise (`passive`). Ask for another mode in plain words ("process active_p1
-in passive-active mode"); `inspect` lists a profile's modes. Passive records are cut into
+profile as ambient noise (`passive`). Ask for another mode in plain words ("process
+active_test_profile in passive-active mode"); `inspect` lists a profile's modes. Passive records are cut into
 1 s segments end to end, FK-selected (0.2, always on), whitened and normalized one-bit, and their
 correlations stacked phase-weighted (power 2), as PAC's forms do. A passive-active shot
 is correlated whole; when its image peaks at the grid's top velocity, G2 asks for the
@@ -78,7 +78,7 @@ the turn within the scope (`src/paco/agent/scope.py`):
 - each call carries the scope, and the tools apply the rules below with it; the positions a
   tool works at are those your message named (none: the whole line), and the windows and the
   lengths compared those it gave (metres converted by PACo), whatever the model wrote;
-- the answer starts with the scope's line (`Scope: pick, invert · active_p1 · at 9 m.`), for
+- the answer starts with the scope's line (`Scope: pick, invert · active_test_profile · at 9 m.`), for
   you to check what PACo read;
 - the options a tool offered are kept, so that "the second one" is the call it offered; once a
   tool offered options, the answer runs nothing more but reading (inspect, the settings), and

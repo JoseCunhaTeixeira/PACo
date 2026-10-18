@@ -128,3 +128,6 @@ docstring-code-format = true
 # -------------------------
 [tool.pytest.ini_options]
 testpaths = ["tests"]
+markers = [
+    "slow: runs PACo's processing, picking or inversion of the test profiles; left out unless --slow",
+]

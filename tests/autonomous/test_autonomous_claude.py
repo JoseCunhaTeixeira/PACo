@@ -2,8 +2,9 @@
 scripted one (tests/scripted.py). The host's conversation read into Anthropic's turns, the figures
 inside their results, the cache marked; thinking as the model takes it, given back within a tool
 loop; forms by a forced tool; the usage with the cache; the errors as OpenAI's. Then a whole
-conversation of the host, P0 to P5 on active_p2, through it."""
+conversation of the host, P0 to P5 on active_test_profile, through it."""
 
+import json
 from collections.abc import Iterator
 from pathlib import Path
 from typing import Any
@@ -37,7 +38,10 @@ SCHEMA: dict[str, Any] = {
     "required": ["profile"],
     "additionalProperties": False,
 }
-FORM: Answer = ({"role": "assistant", "content": '{"profile": "active_p2"}'}, usage(400, 20))
+FORM: Answer = (
+    {"role": "assistant", "content": '{"profile": "active_test_profile"}'},
+    usage(400, 20),
+)
 
 
 def _calls(*names: str) -> list[dict[str, Any]]:
@@ -54,7 +58,7 @@ def test_the_hosts_conversation_reads_as_anthropics_turns() -> None:
     figure = f"data:image/png;base64,{PNG}"
     messages: list[ChatCompletionMessageParam] = [
         {"role": "system", "content": "You are the autonomous agent of an MASW line."},
-        {"role": "user", "content": "Give me the Vs of active_p2."},
+        {"role": "user", "content": "Give me the Vs of active_test_profile."},
         {"role": "assistant", "content": "", "tool_calls": _calls("look", "observe")},  # pyright: ignore[reportAssignmentType]
         {"role": "tool", "tool_call_id": "toolu_look", "content": "The figure follows."},
         {
@@ -97,7 +101,11 @@ def test_the_hosts_conversation_reads_as_anthropics_turns() -> None:
     assert request == {
         "role": "user",
         "content": [
-            {"type": "text", "text": "Give me the Vs of active_p2.", "cache_control": CACHED}
+            {
+                "type": "text",
+                "text": "Give me the Vs of active_test_profile.",
+                "cache_control": CACHED,
+            }
         ],
     }
     assert reply_turn["content"] == [
@@ -201,12 +209,47 @@ def test_a_form_is_the_input_of_the_tool_the_model_must_call() -> None:
     filled = anyio.run(fill)
 
     assert filled == Filled(
-        content='{"profile": "active_p2"}', prompt_tokens=400, completion_tokens=20, cached_tokens=0
+        content='{"profile": "active_test_profile"}',
+        prompt_tokens=400,
+        completion_tokens=20,
+        cached_tokens=0,
     )
     body = server.bodies[0]
     assert body["tool_choice"] == {"type": "tool", "name": "form"}
     assert body["tools"][0]["input_schema"] == SCHEMA
     assert (body["thinking"], body["max_tokens"]) == ({"type": "disabled"}, FORM_TOKENS)
+
+
+def test_a_form_past_claudes_unions_is_sent_within_them() -> None:
+    # As the autonomous mode's scope: more fields of a value or nothing than Claude's API compiles
+    # (16; past them it refuses the request).
+    nullable = {"anyOf": [{"type": "integer"}, {"type": "null"}], "default": None}
+    fields = {f"f{index:02}": nullable for index in range(20)}
+    wide = {
+        "type": "object",
+        "properties": {"profile": {"type": "string"}, **fields},
+        "required": ["profile", *fields],
+        "additionalProperties": False,
+    }
+    server = ScriptedAnthropic(
+        ({"role": "assistant", "content": '{"profile": "active_test_profile", "f00": 3}'}, None)
+    )
+
+    filled = anyio.run(AnthropicChat(server.client, MODEL).fill, QUESTION, wide)
+
+    sent = server.bodies[0]["tools"][0]["input_schema"]
+    unions = [name for name, field in sent["properties"].items() if "anyOf" in field]
+    # The last ones sent as their value alone, no longer required; the others as they were.
+    assert unions == [f"f{index:02}" for index in range(16)]
+    assert sent["properties"]["f19"] == {"type": "integer"}
+    assert "f19" not in sent["required"] and "f15" in sent["required"]
+    # Left out by the model, given back as null: the form PACo reads is the same.
+    answer = json.loads(filled.content)
+    assert answer == {
+        "profile": "active_test_profile",
+        "f00": 3,
+        **dict.fromkeys(("f16", "f17", "f18", "f19")),
+    }
 
 
 def test_a_model_that_always_thinks_fills_its_form_under_the_schema() -> None:
@@ -216,7 +259,7 @@ def test_a_model_that_always_thinks_fills_its_form_under_the_schema() -> None:
     async def fill() -> Filled:
         return await AnthropicChat(server.client, MODEL).fill(QUESTION, listed)
 
-    assert anyio.run(fill).content == '{"profile": "active_p2"}'
+    assert anyio.run(fill).content == '{"profile": "active_test_profile"}'
     body = server.bodies[0]
     assert "tools" not in body and "thinking" not in body
     # The schema as structured outputs take it: a list's longest in its description.
@@ -294,6 +337,7 @@ def folders(input_dir: Path, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) ->
     get_settings.cache_clear()
 
 
+@pytest.mark.slow
 @pytest.mark.usefixtures("folders")
 @pytest.mark.parametrize(
     "described",
@@ -312,7 +356,7 @@ def test_a_whole_conversation_runs_through_claude(described: Any) -> None:  # no
     host, answer = anyio.run(run)
 
     assert host.study is not None and phase_of(host.study) == "P5"
-    assert answer.startswith("Scope: invert · active_p2")
+    assert answer.startswith("Scope: invert · active_test_profile")
     forms = [
         body
         for body in server.bodies

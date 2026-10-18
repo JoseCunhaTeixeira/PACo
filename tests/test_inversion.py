@@ -42,7 +42,7 @@ from paco.qc.curves import pick_line
 from paco.qc.line import process_line
 from paco.settings import Settings
 
-# Four 24-receiver windows along active_p2, as in test_runs.py; G3 and G4 pass three of the
+# Four 24-receiver windows along active_test_profile, as in test_runs.py; G3 and G4 pass three of the
 # four curves (each pick stops where its ridge breaks).
 SMALL_WINDOWS = {"masw": {"length": 24, "step": 24}}
 # A short sampler: every step of an inversion, in about a second per window; far too short for
@@ -50,7 +50,7 @@ SMALL_WINDOWS = {"masw": {"length": 24, "step": 24}}
 SHORT = {"n_iterations": 500, "n_burnin_iterations": 50, "n_chains": 2}  # two at least
 # xmid 125.25 has no curve: G3 rejects its pick, a single point in the aliasing zone, its
 # retries spent.
-# The windows G4 passes on active_p2.
+# The windows G4 passes on active_test_profile.
 PICKED = ("xmid_17.25", "xmid_53.25", "xmid_89.25")
 # The files PAC's invert_position writes in a window folder.
 PAC_FILES = {
@@ -93,9 +93,9 @@ def picked(demo_input_dir: Path, tmp_path_factory: pytest.TempPathFactory) -> Pi
     settings = Settings(input_dir=demo_input_dir, output_dir=root / "outputs", workers=2)
     with pytest.MonkeyPatch.context() as patch:
         patch.chdir(root)
-        run_id = process_line("active_p2", SMALL_WINDOWS, settings, QCConfig()).run_id
+        run_id = process_line("active_test_profile", SMALL_WINDOWS, settings, QCConfig()).run_id
         pick_line(run_id, settings)
-    return Picked(settings, run_id, settings.output_dir / "active_p2" / run_id)
+    return Picked(settings, run_id, settings.output_dir / "active_test_profile" / run_id)
 
 
 @pytest.fixture(scope="module")
@@ -112,7 +112,7 @@ def inverted(picked: Picked, tmp_path_factory: pytest.TempPathFactory) -> Invert
 def _copy(picked: Picked, root: Path) -> tuple[Settings, Path]:
     """A copy of the picked run, to change."""
     settings = picked.settings.model_copy(update={"output_dir": root})
-    folder = shutil.copytree(picked.folder, root / "active_p2" / picked.run_id)
+    folder = shutil.copytree(picked.folder, root / "active_test_profile" / picked.run_id)
     return settings, folder
 
 
@@ -223,6 +223,7 @@ def test_the_burnin_follows_the_iterations() -> None:
 # ---------------------------------------------------------------- starting a job
 
 
+@pytest.mark.slow
 def test_submit_records_a_queued_job_of_the_windows_g4_passed(
     picked: Picked, tmp_path: Path
 ) -> None:
@@ -241,6 +242,7 @@ def test_submit_records_a_queued_job_of_the_windows_g4_passed(
     assert read_record(folder) == record
 
 
+@pytest.mark.slow
 def test_one_vs_range_is_submitted_for_every_layer(picked: Picked, tmp_path: Path) -> None:
     # The form invert's card offers, on a run G4 judged: checked as the job reads it, not
     # against PAC's default of 2 layers.
@@ -254,6 +256,7 @@ def test_one_vs_range_is_submitted_for_every_layer(picked: Picked, tmp_path: Pat
     assert record.given["vs_layers"] == [{"vs_min": 100.0, "vs_max": 180.0}] * 4
 
 
+@pytest.mark.slow
 def test_an_inversion_needs_g4(picked: Picked, tmp_path: Path) -> None:
     # The assistant's picks, G3's verdicts on them, and no G4 yet.
     settings, folder = _copy(picked, tmp_path)
@@ -271,6 +274,7 @@ def test_an_inversion_needs_g4(picked: Picked, tmp_path: Path) -> None:
         submit_inversion(picked.run_id, SHORT, settings)
 
 
+@pytest.mark.slow
 def test_values_that_cannot_hold_are_refused_at_once(picked: Picked, tmp_path: Path) -> None:
     settings, _ = _copy(picked, tmp_path)
 
@@ -282,6 +286,7 @@ def test_values_that_cannot_hold_are_refused_at_once(picked: Picked, tmp_path: P
         submit_inversion(picked.run_id, {"iterations": 5}, settings)
 
 
+@pytest.mark.slow
 @pytest.mark.parametrize("state", ["queued", "running"])
 def test_one_inversion_per_run_at_a_time(picked: Picked, tmp_path: Path, state: str) -> None:
     settings, folder = _copy(picked, tmp_path)
@@ -294,6 +299,7 @@ def test_one_inversion_per_run_at_a_time(picked: Picked, tmp_path: Path, state: 
 # ---------------------------------------------------------------- running a job
 
 
+@pytest.mark.slow
 def test_every_window_g4_passed_is_inverted(inverted: Inverted) -> None:
     record = inverted.record
 
@@ -320,6 +326,7 @@ def test_every_window_g4_passed_is_inverted(inverted: Inverted) -> None:
     assert read_record(inverted.folder) == record
 
 
+@pytest.mark.slow
 def test_g5s_retries_are_in_the_jobs_summary(inverted: Inverted) -> None:
     summary = inverted.record.summary
 
@@ -341,6 +348,7 @@ def test_g5s_retries_are_in_the_jobs_summary(inverted: Inverted) -> None:
     assert '"vs_min"' not in first
 
 
+@pytest.mark.slow
 def test_the_section_of_the_models_g5_passed_is_saved_like_pacs(inverted: Inverted) -> None:
     # PAC's end-of-run outputs: the ensemble's section as a figure, every variant's in an
     # HDF5 file, over the models G5 passed (two at least; the sampler here is short).
@@ -366,12 +374,14 @@ def test_a_section_needs_two_models(tmp_path: Path) -> None:
     assert not (tmp_path / SECTION_FIGURE).exists()
 
 
+@pytest.mark.slow
 def test_windows_get_pacs_files(inverted: Inverted) -> None:
     for window in inverted.record.windows:
         files = {path.name for path in (inverted.folder / window.folder).iterdir()}
         assert files >= PAC_FILES
 
 
+@pytest.mark.slow
 def test_a_window_whose_curve_is_gone_is_left_out(picked: Picked, tmp_path: Path) -> None:
     settings, folder = _copy(picked, tmp_path)
     (folder / "xmid_17.25" / "DispersionCurves_0000.csv").unlink()
@@ -382,6 +392,7 @@ def test_a_window_whose_curve_is_gone_is_left_out(picked: Picked, tmp_path: Path
     assert [window.folder for window in record.windows] == ["xmid_53.25", "xmid_89.25"]
 
 
+@pytest.mark.slow
 def test_a_window_whose_curve_gives_no_model_is_left_out_with_why(
     picked: Picked, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
@@ -417,6 +428,7 @@ def test_a_window_whose_curve_gives_no_model_is_left_out_with_why(
     assert len(record.windows) == 3
 
 
+@pytest.mark.slow
 def test_150_iterations_after_the_burnin_are_enough(picked: Picked, tmp_path: Path) -> None:
     settings, _ = _copy(picked, tmp_path)
     # One model kept per chain (SAMPLE_EVERY is sigpipe's save_every).
@@ -428,6 +440,7 @@ def test_150_iterations_after_the_burnin_are_enough(picked: Picked, tmp_path: Pa
     assert {window.status for window in record.windows} == {"succeeded"}
 
 
+@pytest.mark.slow
 def test_a_job_that_cannot_run_is_failed(picked: Picked, tmp_path: Path) -> None:
     settings, folder = _copy(picked, tmp_path)
     record = submit_inversion(picked.run_id, SHORT, settings)
@@ -441,6 +454,7 @@ def test_a_job_that_cannot_run_is_failed(picked: Picked, tmp_path: Path) -> None
     assert read_record(folder) == record
 
 
+@pytest.mark.slow
 def test_find_job(inverted: Inverted) -> None:
     settings = Settings(input_dir=inverted.folder.parents[2], output_dir=inverted.folder.parents[1])
 
@@ -550,6 +564,7 @@ def test_jobs_run_one_at_a_time_and_stay_live_until_done() -> None:
     assert not jobs.is_live("second")
 
 
+@pytest.mark.slow
 def test_a_job_on_a_run_another_writer_keeps_fails_saying_who(
     picked: Picked, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:

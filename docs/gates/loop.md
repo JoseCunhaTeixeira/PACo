@@ -1,5 +1,9 @@
 # The loop: stage tools, retries, going back, asking
 
+> The lines named below are those the measurements were made on: `active_p1` and `passive_p1`,
+> PAC's former demo lines, and `active_p2` and `passive_p2`, the real lines of which PAC's test
+> profiles, `active_test_profile` and `passive_test_profile`, are light copies.
+
 How the gates act (option B of `docs/qc_workflow.md`): the records and the images are made
 with one set of settings for the whole line, every record and window alike, as a person sets
 them in PAC's pages; the gates judge each record and window, and the changes they ask of the

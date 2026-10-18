@@ -34,7 +34,7 @@ from paco.llm.model import OpenAIChat
 from paco.qc.judging import saved_m0
 from paco.settings import Settings, get_settings
 
-PROFILE = "active_p2"
+PROFILE = "active_test_profile"
 TRUTH = next(pair for pair in TRUTH_PAIRS if pair.name == "truth_two_layers")
 RUN_ID = re.compile(r"\d{8}-\d{6}-[0-9a-f]{4}")
 JUDGED = '{"score": 4, "reason": "Sound, and faithful to the numbers."}'
@@ -49,16 +49,18 @@ INTERPRETATION = "A stiffer layer below some 5 m, if the curves are right."
 # ---------------------------------------------------------------- the lines
 
 
-def test_the_lines_are_active_p2_and_its_defect_copies(input_dir: Path, tmp_path: Path) -> None:
+def test_the_lines_are_active_test_profile_and_its_defect_copies(
+    input_dir: Path, tmp_path: Path
+) -> None:
     inputs = build_inputs(input_dir, tmp_path / "inputs")
 
-    assert offered(input_dir) == {"active_p2", "active_dead", "active_refracted"}
+    assert offered(input_dir) == {"active_test_profile", "active_dead", "active_refracted"}
     assert sorted(path.name for path in inputs.iterdir()) == [
         "active_dead",
-        "active_p2",
         "active_refracted",
+        "active_test_profile",
     ]
-    # The real line linked, not copied; active_p2 only where the input folder holds it.
+    # The real line linked, not copied; active_test_profile only where the input folder holds it.
     assert all(path.is_symlink() for path in (inputs / PROFILE).iterdir())
     # Its first record's trace 40 zeroed.
     dead = obspy.read(str(inputs / "active_dead" / "101.mseed"))
@@ -74,10 +76,10 @@ def test_the_lines_are_active_p2_and_its_defect_copies(input_dir: Path, tmp_path
 
 def test_both_agents_play_the_same_messages_with_their_own_checks() -> None:
     pacos = {scenario.name: scenario for scenario in SCENARIOS}
-    # PACo's own scenario, its message on active_p2: its checks name no line.
+    # PACo's own scenario, its message on active_test_profile: its checks name no line.
     zero = next(pair for pair in PAIRS if pair.name == "zero_settings")
     assert zero.workflow.checks == pacos["zero_settings"].checks
-    assert zero.workflow.questions == ("Process active_p2 and give me the Vs models.",)
+    assert zero.workflow.questions == ("Process active_test_profile and give me the Vs models.",)
     for pair in (*PAIRS, *TRUTH_PAIRS):
         (question,) = pair.questions
         # Every message asks for the models, and none a window step (§8, rule 3).
@@ -85,8 +87,8 @@ def test_both_agents_play_the_same_messages_with_their_own_checks() -> None:
         assert "every" not in question
         assert pair.checks
         assert pair.workflow.checks
-    # The known-truth set: PACo's curves_invert on active_p2, its models at PAC's effort.
-    assert TRUTH.questions == TRUTH.workflow.questions == ("Invert active_p2.",)
+    # The known-truth set: PACo's curves_invert on active_test_profile, its models at PAC's effort.
+    assert TRUTH.questions == TRUTH.workflow.questions == ("Invert active_test_profile.",)
     assert TRUTH.workflow.checks == pacos["curves_invert"].checks
     assert TRUTH.workflow.full_inversion
 
@@ -111,6 +113,7 @@ def test_the_scenarios_are_chosen_among_the_lines_there_are() -> None:
 # ---------------------------------------------------------------- the known truth
 
 
+@pytest.mark.slow
 def test_a_truths_curve_stands_on_a_picked_window(judged_line: JudgedLine) -> None:
     # A window whose pick passed G3, as the known-truth set takes them: 17.25's, 13 to 31 Hz.
     xmid = min(x for x, g3 in judged_line.g3.items() if g3.verdict == "pass")
@@ -280,6 +283,7 @@ def evaluated(
     yield report, root / report.eval_id
 
 
+@pytest.mark.slow
 def test_both_agents_play_a_known_truth_scenario(evaluated: tuple[ABReport, Path]) -> None:
     report, folder = evaluated
 
@@ -307,6 +311,7 @@ def test_both_agents_play_a_known_truth_scenario(evaluated: tuple[ABReport, Path
     assert workflow.reasoning is None
 
 
+@pytest.mark.slow
 def test_each_play_is_measured_from_what_it_left(evaluated: tuple[ABReport, Path]) -> None:
     report, folder = evaluated
     workflow, autonomous = report.plays
@@ -331,12 +336,13 @@ def test_each_play_is_measured_from_what_it_left(evaluated: tuple[ABReport, Path
         (folder / autonomous.folder / "transcript.json").read_text()
     )
     assert transcript.answer == autonomous.answer
-    assert autonomous.answer.startswith("Scope: invert · active_p2")
+    assert autonomous.answer.startswith("Scope: invert · active_test_profile")
     assert (
         f"Interpretation, by the model (not a measurement): {INTERPRETATION}" in autonomous.answer
     )
 
 
+@pytest.mark.slow
 def test_the_kept_models_are_scored_against_the_truth(evaluated: tuple[ABReport, Path]) -> None:
     report, folder = evaluated
     workflow, autonomous = report.plays
@@ -363,6 +369,7 @@ def test_the_kept_models_are_scored_against_the_truth(evaluated: tuple[ABReport,
     assert every.in_band is not None and 0 <= every.in_band <= 1
 
 
+@pytest.mark.slow
 def test_the_report_compares_the_agents(evaluated: tuple[ABReport, Path]) -> None:
     report, _ = evaluated
 
@@ -373,7 +380,7 @@ def test_the_report_compares_the_agents(evaluated: tuple[ABReport, Path]) -> Non
         f"the autonomous agent (scripted, {report.autonomous_prompts}), 1 play of each; judge: judge;"
     )
     lines = text.splitlines()
-    assert 'truth_two_layers, on active_p2: "Invert active_p2."' in lines
+    assert 'truth_two_layers, on active_test_profile: "Invert active_test_profile."' in lines
     header = next(line for line in lines if line.strip().startswith("workflow"))
     assert header.split() == ["workflow", "autonomous", "no-advise"]
     rows = {line[:30].strip(): line[30:].split() for line in lines if line.startswith("  ")}

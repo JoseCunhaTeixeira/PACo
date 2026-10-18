@@ -13,7 +13,7 @@ from paco.autonomous import prompts, server
 from paco.autonomous.host.phases import MANUALS, TOOLS, offered
 
 # The prompts' version: update it with the prompt, once the change is reviewed.
-VERSION = "autonomous-prompts-95436e8b"
+VERSION = "autonomous-prompts-5e05a8f9"
 # The context of the model the agent runs on today (Qwen3-14B, docs/autonomous_plan.md §3): each phase's
 # fixed part, the role, its manual and its tools' cards, takes half of it at most.
 SMALL_CONTEXT = 16_384

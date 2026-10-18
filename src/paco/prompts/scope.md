@@ -4,7 +4,7 @@ soils (soils). Fill the form with what the message asks, nothing more.
 
 - process, pick, invert, soils: true only for the stages the message names, or whose result it
   names. The stages before them are not asked: PACo runs what they need itself (Invert
-  active_p1: invert only). A question about what exists (which profiles, which runs, what a run
+  active_test_profile: invert only). A question about what exists (which profiles, which runs, what a run
   holds) asks for none: all false. So does a request none of these stages makes (a 3D model, a
   map from one line).
 - Vs models, a velocity profile, a shear-wave section: invert. Soils, soil types, the water
@@ -13,7 +13,7 @@ soils (soils). Fill the form with what the message asks, nothing more.
 - A correction of what was done (no, I asked for phase-weighted stacking; not 12 receivers, 24)
   asks again, redo true, the stage its setting is for: the images' (the mode, the stacking,
   the mute, the windows) process, the curves' pick, the models' invert.
-- profile: the profile's name as written (like active_p1), else null. run_id: a run id as the
+- profile: the profile's name as written (like active_test_profile), else null. run_id: a run id as the
   message writes it (a date, a time and four letters or digits), else null. A message about
   "it" or "them" means the current profile and run, given below.
 - positions_m: the positions along the line the message names, in metres (at 9 m: [9]), else

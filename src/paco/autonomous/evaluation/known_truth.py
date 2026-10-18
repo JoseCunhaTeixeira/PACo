@@ -5,7 +5,7 @@ on them; the workflow agent finds a run whose curves are picked. Each is scored 
 (the autonomous agent's accepted, PACo's passing G5): their median Vs's error down to the depth
 they inform, and how often the truth lies within their P10 to P90.
 
-The curves stand on active_p2's own windows (90 receivers, one receiver apart: 7 windows),
+The curves stand on active_test_profile's own windows (90 receivers, one receiver apart: 7 windows),
 processed and picked through the autonomous agent's tools with no model. The windows whose pick passed
 G3 and G4, those the workflow agent inverts, are frozen, the others rejected; each frozen window's
 picked curve lends its frequencies and geometry to the synthetic one that replaces it, its noise
@@ -46,7 +46,7 @@ from paco.qc.judging import saved_m0
 from paco.qc.log import latest, read_attempts
 from paco.settings import Settings, get_settings
 
-PROFILE = "active_p2"
+PROFILE = "active_test_profile"
 # The line the synthetic curves stand on: 7 windows of 90 receivers, imaged on a coarse grid
 # (their curves are replaced).
 LINE = {"masw": {"length": 90}, "dispersion": {"nv": 250}}

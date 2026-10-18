@@ -45,7 +45,7 @@ VARIANTS: list[dict[str, Any]] = [
 
 @dataclass(frozen=True)
 class Made:
-    """A study of active_p2 and its first experiment."""
+    """A study of active_test_profile and its first experiment."""
 
     settings: Settings
     study: Study
@@ -54,14 +54,14 @@ class Made:
 
 @pytest.fixture(scope="module")
 def made(input_dir: Path, tmp_path_factory: pytest.TempPathFactory) -> Iterator[Made]:
-    """A study of active_p2, and the current settings with VARIANTS tried on three windows spread
+    """A study of active_test_profile, and the current settings with VARIANTS tried on three windows spread
     along the line (a few seconds)."""
     root = tmp_path_factory.mktemp("trials")
     with pytest.MonkeyPatch.context() as patch:
         patch.setitem(Settings.model_config, "env_file", None)
         patch.chdir(root)
         settings = Settings(input_dir=input_dir, output_dir=root / "output", workers=2)
-        study = new_study("active_p2", settings)
+        study = new_study("active_test_profile", settings)
         first = try_settings(
             study, VARIANTS, "spread:3", current=CURRENT, settings=settings, config=QCConfig()
         )
@@ -70,11 +70,12 @@ def made(input_dir: Path, tmp_path_factory: pytest.TempPathFactory) -> Iterator[
 
 @pytest.fixture(scope="module")
 def windows(input_dir: Path) -> list[MASWWindow]:
-    """active_p2's 73 windows of 24 receivers, at xmid 17.25 to 125.25 m, 1.5 m apart."""
-    profile = load_profile("active_p2", Settings(input_dir=input_dir))
+    """active_test_profile's 73 windows of 24 receivers, at xmid 17.25 to 125.25 m, 1.5 m apart."""
+    profile = load_profile("active_test_profile", Settings(input_dir=input_dir))
     return line_windows(profile, concrete(CURRENT, profile, QCConfig()))
 
 
+@pytest.mark.slow
 def test_the_current_settings_and_three_variants_are_scored(made: Made) -> None:
     first = made.first
 
@@ -90,6 +91,7 @@ def test_the_current_settings_and_three_variants_are_scored(made: Made) -> None:
     assert all(one.against is not None for one in first.tried[1:])
 
 
+@pytest.mark.slow
 def test_each_change_remakes_what_it_changes(made: Made) -> None:
     runs = {one.label: _run(made.study, one.trial) for one in made.first.tried}
 
@@ -109,6 +111,7 @@ def test_each_change_remakes_what_it_changes(made: Made) -> None:
     assert runs["3"].seconds["images"] == 0
 
 
+@pytest.mark.slow
 def test_the_same_call_again_returns_its_experiment(made: Made) -> None:
     before = sorted((made.study.folder / trials.TRIALS).iterdir())
 
@@ -127,6 +130,7 @@ def test_the_same_call_again_returns_its_experiment(made: Made) -> None:
     assert sorted((made.study.folder / trials.TRIALS).iterdir()) == before
 
 
+@pytest.mark.slow
 def test_a_holdout_set_leaves_out_the_last_sets_windows(made: Made) -> None:
     holdout = try_settings(
         made.study,
@@ -141,13 +145,14 @@ def test_a_holdout_set_leaves_out_the_last_sets_windows(made: Made) -> None:
     assert holdout.xmids == (18.75, 69.75, 123.75)
 
 
+@pytest.mark.slow
 def test_a_trials_images_come_back_when_the_line_is_imaged_with_its_settings(
     made: Made, tmp_path: Path
 ) -> None:
     # As a commit of variant 2's settings would: its records preprocessed again in a folder of
     # their own, judged by G1, and the line's windows imaged.
     config = QCConfig()
-    profile = load_profile("active_p2", made.settings)
+    profile = load_profile("active_test_profile", made.settings)
     trial = concrete({**CURRENT, "near_field_m": 1.0}, profile, config)
     records, preprocessed = trials.preprocessed(
         tmp_path, trial.preset, profile, made.settings, config
@@ -171,6 +176,7 @@ def test_a_trials_images_come_back_when_the_line_is_imaged_with_its_settings(
     }
 
 
+@pytest.mark.slow
 def test_g1_is_made_once_for_the_trials_that_preprocess_alike(made: Made) -> None:
     # The variants change neither the records' preprocessing nor the images' band, and take the
     # same cone: one G1, made by the first trial and given to the others.
@@ -183,12 +189,14 @@ def test_g1_is_made_once_for_the_trials_that_preprocess_alike(made: Made) -> Non
     assert len(list(entry.glob("records/*/Spectrum_0000.png"))) == 28
 
 
+@pytest.mark.slow
 def test_a_trial_changes_no_run(made: Made) -> None:
-    profile = made.settings.output_dir / "active_p2"
+    profile = made.settings.output_dir / "active_test_profile"
 
     assert [path.name for path in profile.iterdir()] == [trials.STUDIES]
 
 
+@pytest.mark.slow
 def test_the_experiment_as_the_model_reads_it(made: Made) -> None:
     lines = describe(made.first).splitlines()
 
@@ -201,6 +209,7 @@ def test_the_experiment_as_the_model_reads_it(made: Made) -> None:
     assert lines[2].endswith("; dominated by current")
 
 
+@pytest.mark.slow
 @pytest.mark.parametrize(
     ("variant", "said"),
     [
@@ -219,6 +228,7 @@ def test_a_variant_that_cannot_be_tried_is_refused_before_anything_runs(
         )
 
 
+@pytest.mark.slow
 def test_the_number_of_variants_is_bounded(made: Made) -> None:
     for variants in ([], [{"near_field_m": float(n)} for n in range(7)]):
         with pytest.raises(ValueError, match="variant"):
@@ -239,6 +249,7 @@ def test_a_trial_set_in_words() -> None:
             parse_windows(spec)
 
 
+@pytest.mark.slow
 def test_the_windows_a_trial_set_names(windows: list[MASWWindow]) -> None:
     def named(
         spec: str, line: LineState | None = None, last: tuple[float, ...] = ()

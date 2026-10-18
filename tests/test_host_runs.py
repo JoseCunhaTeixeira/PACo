@@ -6,7 +6,7 @@ from paco.agent.runs import RunInfo, parse_call, to_do
 
 def _run(went: str) -> RunInfo:
     label = f"active, windows of 24 receivers, {went}"
-    return RunInfo("20261004-070000-aaaa", "active_p2", label, went)
+    return RunInfo("20261004-070000-aaaa", "active_test_profile", label, went)
 
 
 def test_a_plan_does_what_its_run_lacks_for_the_stages_asked() -> None:
@@ -24,12 +24,10 @@ def test_an_offered_call_is_read_back_to_be_made() -> None:
         "pick",
         {"run_id": "r", "windows": "all"},
     )
-    processing = (
-        'run_processing(profile="active_p2", overrides={"masw": {"length": 24}}, again=true)'
-    )
+    processing = 'run_processing(profile="active_test_profile", overrides={"masw": {"length": 24}}, again=true)'
     assert parse_call(processing) == (
         "run_processing",
-        {"profile": "active_p2", "overrides": {"masw": {"length": 24}}, "again": True},
+        {"profile": "active_test_profile", "overrides": {"masw": {"length": 24}}, "again": True},
     )
     # A call the user must fill, or one that does not read: not made.
     assert parse_call('pick(run_id="r", positions=["<m>"])') is None

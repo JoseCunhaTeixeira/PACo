@@ -1,5 +1,9 @@
 # The coherence rules for S2, before the phase shift
 
+> The lines named below are those the measurements were made on: `active_p1` and `passive_p1`,
+> PAC's former demo lines, and `active_p2` and `passive_p2`, the real lines of which PAC's test
+> profiles, `active_test_profile` and `passive_test_profile`, are light copies.
+
 Not a gate: rules checked once per line, after S1 and G1 and before any image is made, so that
 the phase shift's parameters come from the data and the geometry (rule 7). Code:
 `src/paco/qc/coherence.py` (the rules), `src/paco/qc/line.py` (`process_line`: S1, G1, the

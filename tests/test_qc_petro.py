@@ -181,17 +181,18 @@ def test_redoing_the_seismic_inversion_keeps_the_petrophysical_one() -> None:
 def judged(
     demo_input_dir: Path, tmp_path_factory: pytest.TempPathFactory
 ) -> tuple[Settings, str, Path]:
-    """active_p2 in 24-receiver windows every 12, judged up to G4 with no retry."""
+    """active_test_profile in 24-receiver windows every 12, judged up to G4 with no retry."""
     root = tmp_path_factory.mktemp("petro")
     settings = Settings(input_dir=demo_input_dir, output_dir=root / "outputs", workers=2)
     with pytest.MonkeyPatch.context() as patch:
         patch.chdir(root)
         windows = {"masw": {"length": 24, "step": 12}}
-        run_id = run_processing("active_p2", "active", windows, settings).run_id
+        run_id = run_processing("active_test_profile", "active", windows, settings).run_id
         judge_run(run_id, settings, QCConfig(budgets=Budgets(per_gate_and_unit=0)))
     return settings, run_id, find_run(run_id, settings)
 
 
+@pytest.mark.slow
 def test_a_model_says_how_many_curves_it_covers(judged: tuple[Settings, str, Path]) -> None:
     settings, run_id, _ = judged
 
@@ -207,6 +208,7 @@ def test_a_model_says_how_many_curves_it_covers(judged: tuple[Settings, str, Pat
     assert choice.next.startswith(f"Call invert_petro with model {GRAND_EST}")
 
 
+@pytest.mark.slow
 def test_the_covered_curves_are_inverted_and_judged(judged: tuple[Settings, str, Path]) -> None:
     settings, run_id, run_folder = judged
 
@@ -236,6 +238,7 @@ def test_the_covered_curves_are_inverted_and_judged(judged: tuple[Settings, str,
     assert (run_folder / window.unit / MEASURES_FILE).exists()
 
 
+@pytest.mark.slow
 def test_a_soil_column_made_by_hand_is_kept_or_replaced_as_the_user_chooses(
     judged: tuple[Settings, str, Path], tmp_path: Path
 ) -> None:
@@ -267,6 +270,7 @@ def test_a_soil_column_made_by_hand_is_kept_or_replaced_as_the_user_chooses(
     assert (window / MEASURES_FILE).exists()
 
 
+@pytest.mark.slow
 def test_an_unknown_model_is_refused(judged: tuple[Settings, str, Path]) -> None:
     settings, run_id, _ = judged
 

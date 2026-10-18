@@ -11,17 +11,17 @@ from sigpipe.masw.runs.origin import M0, mark_edited
 from paco import qc
 from paco.settings import Settings
 
-# Four 24-receiver windows along active_p2 (xmid 17.25 to 125.25 m): minutes to process its 97
-# shots, seconds the tests' few.
+# Four 24-receiver windows along active_test_profile (xmid 17.25 to 125.25 m): minutes to process
+# its 33 shots, seconds the tests' few.
 SMALL_WINDOWS = {"masw": {"length": 24, "step": 24}}
 # The window whose curve hand_curve_run picks by hand.
 HAND_WINDOW = "xmid_53.25"
 
 
 def hand_run(settings: Settings) -> None:
-    """active_p2 processed in PAC's pages (no check), its M0 picked by hand in every window
+    """active_test_profile processed in PAC's pages (no check), its M0 picked by hand in every window
     where the picker finds one: a person's work, verified by them."""
-    run_id = run_processing("active_p2", "active", SMALL_WINDOWS, settings).run_id
+    run_id = run_processing("active_test_profile", "active", SMALL_WINDOWS, settings).run_id
     run_folder = find_run(run_id, settings)
     for window in load_manifest(run_id, settings).windows:
         folder = run_folder / window.folder
@@ -33,14 +33,14 @@ def hand_run(settings: Settings) -> None:
 
 
 def imaged_run(settings: Settings) -> str:
-    """active_p2 processed by the assistant, as an earlier conversation leaves it: its images,
+    """active_test_profile processed by the assistant, as an earlier conversation leaves it: its images,
     no curve yet. Its run_id."""
     config = qc.load_qc_config(settings.qc_config)
-    return qc.process_line("active_p2", SMALL_WINDOWS, settings, config).run_id
+    return qc.process_line("active_test_profile", SMALL_WINDOWS, settings, config).run_id
 
 
 def picked_run(settings: Settings) -> str:
-    """active_p2 processed and picked by the assistant, as an earlier conversation leaves it.
+    """active_test_profile processed and picked by the assistant, as an earlier conversation leaves it.
     Its run_id."""
     run_id = imaged_run(settings)
     qc.pick_line(run_id, settings)
@@ -48,7 +48,7 @@ def picked_run(settings: Settings) -> str:
 
 
 def hand_curve_run(settings: Settings) -> None:
-    """active_p2 processed and picked by the assistant, then xmid 53.25's M0 picked again by hand
+    """active_test_profile processed and picked by the assistant, then xmid 53.25's M0 picked again by hand
     in PAC."""
     run_id = picked_run(settings)
     folder = find_run(run_id, settings) / HAND_WINDOW

@@ -417,6 +417,7 @@ def test_going_back_is_refused_once_the_runs_budget_is_spent(tmp_path: Path) -> 
     check_budget("r", tmp_path, QCConfig(), 3)  # 4 of 6: not spent
 
 
+@pytest.mark.slow
 def test_the_line_imaged_again_is_picked_again_but_the_windows_g2_rejects(
     demo_input_dir: Path, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
@@ -425,7 +426,7 @@ def test_the_line_imaged_again_is_picked_again_but_the_windows_g2_rejects(
     # not picked, the others are, and the line keeps their curves for G4.
     monkeypatch.chdir(tmp_path)
     settings = Settings(input_dir=demo_input_dir, output_dir=tmp_path / "outputs", workers=2)
-    run_id = run_processing("active_p2", "active", SMALL_WINDOWS, settings).run_id
+    run_id = run_processing("active_test_profile", "active", SMALL_WINDOWS, settings).run_id
     judge_run(run_id, settings, QCConfig())
     run_folder = find_run(run_id, settings)
     windows = [window.folder for window in load_manifest(run_id, settings).windows]
@@ -833,15 +834,16 @@ def test_describe_each_action() -> None:
 def processed(
     demo_input_dir: Path, tmp_path_factory: pytest.TempPathFactory
 ) -> tuple[Settings, str]:
-    """active_p2 processed once, in four 24-receiver windows."""
+    """active_test_profile processed once, in four 24-receiver windows."""
     root = tmp_path_factory.mktemp("rerun")
     settings = Settings(input_dir=demo_input_dir, output_dir=root / "outputs", workers=2)
     with pytest.MonkeyPatch.context() as patch:
         patch.chdir(root)
-        summary = run_processing("active_p2", "active", SMALL_WINDOWS, settings)
+        summary = run_processing("active_test_profile", "active", SMALL_WINDOWS, settings)
     return settings, summary.run_id
 
 
+@pytest.mark.slow
 def test_the_phase_shift_done_again_keeps_the_old_results_and_logs_the_attempt(
     processed: tuple[Settings, str], tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
@@ -898,6 +900,7 @@ def test_the_phase_shift_done_again_keeps_the_old_results_and_logs_the_attempt(
     assert retries_in_run(attempts) == spent + 1
 
 
+@pytest.mark.slow
 def test_windows_cannot_move_and_must_exist(processed: tuple[Settings, str]) -> None:
     settings, run_id = processed
 
@@ -930,13 +933,14 @@ def test_apply_overrides_merges_a_stage_and_replaces_a_method() -> None:
 # ---------------------------------------------------------------- the gates on a whole run
 
 
+@pytest.mark.slow
 def test_judge_run_puts_the_four_gates_in_the_log_and_the_report(
     demo_input_dir: Path, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     # A run of its own: the shared one has windows done again with other velocity ranges.
     monkeypatch.chdir(tmp_path)
     settings = Settings(input_dir=demo_input_dir, output_dir=tmp_path / "outputs", workers=2)
-    run_id = run_processing("active_p2", "active", SMALL_WINDOWS, settings).run_id
+    run_id = run_processing("active_test_profile", "active", SMALL_WINDOWS, settings).run_id
     run_folder = find_run(run_id, settings)
 
     report = judge_run(run_id, settings, QCConfig())
