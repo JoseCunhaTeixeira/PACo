@@ -709,19 +709,23 @@ def describe(experiment: Experiment) -> str:
         if one.against is not None and one.against.shortened:
             marks.append("gains by shortening its curves (rule 6)")
         cost = "made before" if one.taken else f"{one.seconds:.1f} s"
-        # A passive line's windows have no shot, so no near field.
-        near = f"near field {_share(card.near_field)}, " if card.near_field is not None else ""
-        scores = (
-            f"depth {_value(card.depth_m, ' m')} (P10 {_value(card.depth_p10_m, ' m')}), span "
-            f"{_value(card.span)}, uncertainty {_share(card.precision)}; {near}beyond reach "
-            f"{_share(card.beyond)}, aliased {_share(card.aliased)}"
-            if card.covered
-            else "no curve to score"
-        )
         lines.append(
-            f"- {head}: {passing}; {scores}; {cost}" + "".join(f"; {mark}" for mark in marks)
+            f"- {head}: {passing}; {figures(card)}; {cost}" + "".join(f"; {mark}" for mark in marks)
         )
     return "\n".join(lines)
+
+
+def figures(card: Scorecard) -> str:
+    """A scorecard's figures, as an experiment says them: depth, span, uncertainty, the near
+    field (a passive line's windows have no shot: none), beyond reach and aliased."""
+    if not card.covered:
+        return "no curve to score"
+    near = f"near field {_share(card.near_field)}, " if card.near_field is not None else ""
+    return (
+        f"depth {_value(card.depth_m, ' m')} (P10 {_value(card.depth_p10_m, ' m')}), span "
+        f"{_value(card.span)}, uncertainty {_share(card.precision)}; {near}beyond reach "
+        f"{_share(card.beyond)}, aliased {_share(card.aliased)}"
+    )
 
 
 def _experiment(

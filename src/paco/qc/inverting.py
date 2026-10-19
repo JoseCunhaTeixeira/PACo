@@ -701,6 +701,7 @@ def judge_model_line(
     curves: dict[str, GateResult] = {}
     informed: dict[str, float | None] = {}
     without: list[float] = []
+    shallow: list[float] = []
     for window in manifest.windows:
         inverted = latest(attempts, window.folder, "inversion")
         g5 = inverted.results.get("G5") if inverted is not None else None
@@ -717,8 +718,8 @@ def judge_model_line(
         own = measures.useful_depth_m
         limit = min(reach, own) if own is not None else reach
         depths = [(depth, vs) for depth, vs in measures.vs_at_depths if depth <= limit]
-        if not depths:
-            without.append(window.xmid)
+        if not depths:  # a model, informed above the line's compared depths
+            shallow.append(window.xmid)
             continue
         models.append(
             Series(
@@ -733,7 +734,7 @@ def judge_model_line(
             curves[window.folder] = picked.results["G4"]
         informed[window.folder] = None if np.isinf(limit) else limit
     started_at = datetime.now(UTC)
-    results = judge_model_profile(models, curves, informed, config.models, without)
+    results = judge_model_profile(models, curves, informed, config.models, without, shallow)
     for result in results:
         if result.unit != LINE:
             inverted = latest(attempts, result.unit, "inversion")

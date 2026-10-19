@@ -31,7 +31,7 @@ from sigpipe.masw.runs import RunError, find_run
 from sigpipe.masw.runs.writing import run_lock
 from sigpipe.workers import one_thread_each
 
-from paco import logs, qc, stopping
+from paco import inspection, logs, qc, stopping
 from paco import server as paco_server
 from paco.autonomous.tools import advise as advising
 from paco.autonomous.tools import commit as committing
@@ -53,8 +53,28 @@ from paco.jobs import JobManager
 from paco.qc.config import QCConfig, load_qc_config
 from paco.settings import get_settings
 
+
+def _no_retries[**P, R](tool: Callable[P, R]) -> Callable[P, R]:
+    """`tool`, its runs saying no retries of the gates' budget: the agent's inversions again
+    would fill it, under a budget of its own (the card's)."""
+
+    @functools.wraps(tool)
+    def wrapped(*args: P.args, **kwargs: P.kwargs) -> R:
+        token = inspection.RETRIES_SAID.set(False)
+        try:
+            return tool(*args, **kwargs)
+        finally:
+            inspection.RETRIES_SAID.reset(token)
+
+    return wrapped
+
+
 # PACo's read-only tools, "as today" (§6), in the plan's order.
-PACO_TOOLS = (paco_server.inspect, paco_server.preset_settings, paco_server.inversion_settings)
+PACO_TOOLS = (
+    _no_retries(paco_server.inspect),
+    paco_server.preset_settings,
+    paco_server.inversion_settings,
+)
 # preset_settings' card, its tools named: PACo's names run_processing and redo, which this server
 # has not.
 PRESET_SETTINGS = (
@@ -248,8 +268,9 @@ def commit(
     reasons: Annotated[
         dict[str, str],
         Field(
-            description="Why each setting changed: '<stage> <key>', as the changes name it, to one "
-            "line, from the experiments."
+            description="Why each setting changed, one line each, from the experiments: by "
+            "'<stage> <key>' as the changes name it, or '<stage>' for all its keys; a method and "
+            "its parameters take one. A setting given at the value it has needs none."
         ),
     ],
     ctx: Context,
@@ -462,7 +483,7 @@ def invert_petro(
         result, described = qc.invert_petro_line(
             made.run_id, model, settings, report, [curve.unit for curve in made.curves]
         )
-    summary, _ = qc.capped(qc.summarize_report(result, ("G7", "G8")))
+    summary, _ = qc.capped(qc.summarize_report(result, ("G7", "G8"), retries=False))
     return f"Soils of run {made.run_id}, from its frozen curves. {described}\n{summary}"
 
 
@@ -485,7 +506,11 @@ def journal(
         Field(description="To write: the ids of the entries it rests on (E<n>, H<n>...)."),
     ] = None,
     expect: Annotated[
-        str | None, Field(description="To write a hypothesis: what the experiment should show.")
+        str | None,
+        Field(
+            description="Required to write a hypothesis, apart from its text: what the "
+            "experiment should show."
+        ),
     ] = None,
     entry: Annotated[str | None, Field(description="To read: one entry whole, by its id.")] = None,
     last: Annotated[

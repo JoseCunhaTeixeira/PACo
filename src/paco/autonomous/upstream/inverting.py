@@ -3,7 +3,8 @@
 Why: private, and they invert without a seed, through sigpipe's `invert_window`. The autonomous agent
 agent seeds each window's inversion (docs/autonomous_plan.md §10): the seed goes to the copy of
 `invert_window` that passes it (paco.autonomous.upstream.inversion), and into the attempt's notes. Each
-window's result comes back too, for the study's own record. Otherwise as they are: each window
+window's result comes back too, for the study's own record, and G5's loop weighs the study's runs
+of the window, which the log forgets (`Loop`). Otherwise as they are: each window
 in a worker, its previous files archived, staged until it finished, G5 on its model, logged as
 its inversion attempt, afresh for a first inversion or one the model redoes."""
 
@@ -12,6 +13,7 @@ from collections.abc import Mapping
 from concurrent.futures import Future, ProcessPoolExecutor
 from datetime import UTC, datetime
 from pathlib import Path
+from typing import NamedTuple
 
 from sigpipe.masw.inversion import InversionParameters
 from sigpipe.masw.inversion.measuring import InversionMeasures, measure_inversion
@@ -43,6 +45,16 @@ from paco.qc.models import Attempt
 from paco.qc.report import xmid_of
 
 
+class Loop(NamedTuple):
+    """What G5's loop weighs a window's inversion against, from its runs before: the fewest
+    layers it goes down to, the times it was sampled longer (this run included), whether a run
+    narrowed its ranges for chains that disagreed (this run included)."""
+
+    fewest_layers: int
+    longer_runs: int
+    narrowed: bool
+
+
 def invert(
     run_folder: Path,
     jobs: Mapping[str, Derived],
@@ -53,6 +65,7 @@ def invert(
     workers: int,
     on_progress: ProgressCallback | None = None,
     on_window: OnWindow | None = None,
+    loops: Mapping[str, Loop] | None = None,
 ) -> dict[str, WindowInversion]:
     """PACo's `_invert`: each window of `jobs` inverted with its parameters and its seed (`seeds`)
     in a worker, the previous attempt's files archived first; G5 on each, logged as its
@@ -62,7 +75,9 @@ def invert(
 
     A retry a gate asked for goes on from the window's attempts; any other inversion (the first,
     or one the agent was asked to do again) starts them afresh: once its result is in, the
-    window's earlier attempts are forgotten, their lines and archived results."""
+    window's earlier attempts are forgotten, their lines and archived results. `loops`, by
+    window, what G5's loop weighs it against where the log forgot it (the study's runs): G5
+    keeps a model with a warning past its longer runs, as PACo's loop does."""
     attempts = read_attempts(run_folder)
     fresh = starts_afresh(triggered_by)
     # What the gates weigh this inversion against: its window's attempts, none when afresh.
@@ -124,6 +139,11 @@ def invert(
                     measures = future.result()
                     commit(run_folder / unit)
                     ran = derived.parameters.model_dump(mode="json")
+                    loop = (loops or {}).get(unit) or Loop(
+                        fewest_layers(history, unit),
+                        longer_runs(history, unit, ran),
+                        narrowed(history, unit, triggered_by, ran),
+                    )
                     g5 = judge_model(
                         unit,
                         measures,
@@ -131,9 +151,9 @@ def invert(
                         config.model,
                         derived.reach_m,
                         derived.max_layers,
-                        fewest_layers(history, unit),
-                        longer_runs(history, unit, ran),
-                        narrowed(history, unit, triggered_by, ran),
+                        loop.fewest_layers,
+                        loop.longer_runs,
+                        loop.narrowed,
                     )
                     attempt = attempt.model_copy(update={"results": {g5.gate: g5}})
                     window = window_result(xmid, unit, measures, g5.verdict, derived.reach_m)

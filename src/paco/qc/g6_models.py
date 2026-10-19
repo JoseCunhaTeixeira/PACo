@@ -58,14 +58,16 @@ def judge_model_profile(
     depths_informed: Mapping[str, float | None],
     thresholds: ModelProfileThresholds,
     without: Sequence[float] = (),
+    shallow: Sequence[float] = (),
 ) -> tuple[GateResult, ...]:
     """G6's verdicts: one per model (the ensemble's Vs by depth, down to its depth informed:
     below it the priors speak, not the data), then one for the line, unit "line". `curves`
     holds G4's result on each window's curve, `depths_informed` each window's (None: the whole
-    model), `without` the xmids without a model. Neighbours are the models within
+    model), `without` the xmids without a model, `shallow` those whose model is informed above
+    the depths the line's models are compared at. Neighbours are the models within
     `max_gap_steps` of the line's steps."""
     ordered = sorted(models, key=lambda model: model.xmid)
-    step = line_step([*(one.xmid for one in ordered), *without])
+    step = line_step([*(one.xmid for one in ordered), *without, *shallow])
     found = neighbourhoods(
         ordered,
         thresholds.neighbours,
@@ -167,7 +169,7 @@ def judge_model_profile(
                 kept=Kept(n_points=int(model.x.size)),
             )
         )
-    results.append(_line_result(ordered, depths_informed, without, thresholds))
+    results.append(_line_result(ordered, depths_informed, without, shallow, thresholds))
     return tuple(results)
 
 
@@ -175,10 +177,13 @@ def _line_result(
     models: Sequence[Series],
     depths_informed: Mapping[str, float | None],
     without: Sequence[float],
+    shallow: Sequence[float],
     thresholds: ModelProfileThresholds,
 ) -> GateResult:
-    """Coverage: the xmids without a model, and how evenly the depth informed runs along the
-    line (a model informed down to its bottom counts at its deepest compared depth)."""
+    """Coverage: the xmids without a model, those whose model is informed too shallow to be
+    compared, and how evenly the depth informed runs along the line (a model informed down to
+    its bottom counts at its deepest compared depth)."""
+    windows = len(models) + len(without) + len(shallow)
     depths = [
         depth if (depth := depths_informed.get(model.unit)) is not None else float(model.x[-1])
         for model in models
@@ -192,14 +197,21 @@ def _line_result(
             bound="min",
             passed=bool(models),
             of="line",
-            over=f"the line's {len(models) + len(without)} windows: a model G5 passed",
+            over=f"the line's {windows} windows: a model G5 passed, compared",
         ),
         Metric(
             name="without_model",
             value=len(without),
             passed=True,
             of="line",
-            over=f"the line's {len(models) + len(without)} windows",
+            over=f"the line's {windows} windows",
+        ),
+        Metric(
+            name="shallow_models",
+            value=len(shallow),
+            passed=True,
+            of="line",
+            over=f"the line's {windows} windows: informed above the depths compared",
         ),
         Metric(
             name="depth_informed_spread",
@@ -211,7 +223,7 @@ def _line_result(
             over=f"the {len(models)} models' depths informed: MAD over median",
         ),
     ]
-    step = line_step([*(one.xmid for one in models), *without])
+    step = line_step([*(one.xmid for one in models), *without, *shallow])
     flags: list[Flag] = []
     if without:
         flags.append(
@@ -220,6 +232,16 @@ def _line_result(
                 message=f"No model at {stretches(without, step)}: the section has gaps there.",
                 stage="inversion",
                 action=Keep(note="the gaps stay in the report"),
+            )
+        )
+    if shallow:
+        flags.append(
+            Flag(
+                name="shallow",
+                message=f"The models at {stretches(shallow, step)} are informed above the depths "
+                "the line's models are compared at: not compared with their neighbours.",
+                stage="inversion",
+                action=Keep(note="informed too shallow to compare"),
             )
         )
     if depth_spread > thresholds.max_depth_informed_spread:
@@ -235,7 +257,7 @@ def _line_result(
     return GateResult(
         gate=GATE,
         unit=LINE,
-        verdict="pass" if models else "reject",
+        verdict="pass" if models or shallow else "reject",
         metrics=tuple(metrics),
         flags=tuple(flags),
         kept=Kept(n_points=len(models)),

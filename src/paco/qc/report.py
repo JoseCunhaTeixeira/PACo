@@ -260,9 +260,13 @@ def write_report(report: QCReport, run_folder: Path) -> Path:
     return path
 
 
-def summarize_report(report: QCReport, gates: Sequence[str] | None = None) -> str:
+def summarize_report(
+    report: QCReport, gates: Sequence[str] | None = None, *, retries: bool = True
+) -> str:
     """What the agent reads: counts per gate, the retries, then each flag with the units raising
-    it, as stretches of xmids, and the change it suggests; only `gates`' when given."""
+    it, as stretches of xmids, and the change it suggests; only `gates`' when given. Without
+    `retries`, the run's retry budget and the agent's own steps back are left out: the
+    autonomous agent keeps budgets of its own."""
     if gates is not None:
         report = _only(report, set(gates))
     lines = [
@@ -270,8 +274,9 @@ def summarize_report(report: QCReport, gates: Sequence[str] | None = None) -> st
         for gate, counts in report.counts.items()
     ]
     budget = report.budgets.per_xmid_of_the_run * report.n_xmids
-    lines.append(f"Retries: {report.retries} of {budget}.")
-    if {"G5", "G6"} & set(report.counts):
+    if retries:
+        lines.append(f"Retries: {report.retries} of {budget}.")
+    if retries and {"G5", "G6"} & set(report.counts):
         lines.append(
             f"Inversion retries: {report.inversion_retries}, up to "
             f"{report.budgets.inversion_per_window} a window."
@@ -279,6 +284,8 @@ def summarize_report(report: QCReport, gates: Sequence[str] | None = None) -> st
     step = line_step(unit.xmid for unit in report.units if unit.xmid is not None)
     by_unit = {unit.unit: unit for unit in report.units}
     for trigger, names in report.retried.items():
+        if trigger == "backtrack" and not retries:
+            continue
         gate = trigger.split(":")[0]
         if trigger == "backtrack" and trigger in report.changed:
             # The agent's own step back: the verdict of the gate that judges the stage redone.

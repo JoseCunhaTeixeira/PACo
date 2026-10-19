@@ -10,9 +10,10 @@ priors made).
   window inverted before starts from its last parameters, your changes on them.
 - The layering: free by default (the data choose the layers, up to 8); fixed when the user names
   layers, or to compare: start at 4, never fewer than 3.
-- The effort: quick for a first pass, full (PAC's: 200,000 iterations, 50,000 of burn-in, 5
-  chains) for the final models, unless they pass G5's convergence at less. PACo follows each job
-  to its end and gives you its job_status.
+- The effort: quick for a triage pass (PACo's short sampler, or the values you give); full for
+  PAC's effort (200,000 iterations, 50,000 of burn-in, 5 chains at least, longer where G5 asks).
+  The final models have PAC's effort, or pass G5's convergence checks. PACo follows each job to
+  its end and gives you its job_status.
 
 ## Rules
 

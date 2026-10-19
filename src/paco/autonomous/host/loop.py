@@ -449,8 +449,9 @@ class Host:
             self._on_event(f"   {journal.line(entry)}")
 
     def _shortened(self, name: str, text: str, failed: bool) -> str:
-        """A tool message as the conversation keeps it once read: an experiment's journal line,
-        else its first lines (an error whole)."""
+        """A tool message as the conversation keeps it once read: an experiment's journal line
+        with each variant's figures (the evidence of what the model concludes from it), else its
+        first lines (an error whole)."""
         if failed:
             return text
         if name == "try_settings" and (made := _EXPERIMENT.search(text)) is not None:
@@ -458,7 +459,13 @@ class Host:
                 (one for one in journal.entries(self._study) if one.id == made.group(1)), None
             )
             if entry is not None:
-                return f'<data from="{name}">\n{journal.line(entry)}\n</data>'
+                shown = [
+                    f"- {one['label']}: {one['figures']}"
+                    for one in entry.data.get("variants", [])
+                    if one.get("figures")
+                ]
+                said = "\nTheir figures:\n" + "\n".join(shown) if shown else ""
+                return f'<data from="{name}">\n{journal.line(entry)}{said}\n</data>'
         if name == "invert":
             found = [one for one in journal.entries(self._study) if one.kind == "inversion"]
             if found:

@@ -16,7 +16,7 @@ import pytest
 from mcp import Client
 from mcp.types import CallToolResult
 
-from paco import qc
+from paco import inspection, qc
 from paco import server as paco_server
 from paco.autonomous import server
 from paco.autonomous.host import terminal
@@ -55,6 +55,15 @@ def test_pacos_read_only_tools_are_served_as_paco_serves_them() -> None:
         annotations = ours[name].annotations
         assert annotations is not None
         assert annotations.read_only_hint
+
+
+def test_inspect_says_no_retries_of_the_gates_budget() -> None:
+    # The agent's inversions again would fill it: its budget is its own.
+    def said() -> bool:
+        return inspection.RETRIES_SAID.get()
+
+    assert server._no_retries(said)() is False  # pyright: ignore[reportPrivateUsage]
+    assert inspection.RETRIES_SAID.get()
 
 
 def test_the_petrophysical_tools_take_the_profile_and_read_its_frozen_curves() -> None:

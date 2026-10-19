@@ -142,7 +142,7 @@ def test_the_checks_keep_a_bound_the_user_gave(judged_line: JudgedLine) -> None:
     (note,) = (one for one in derived.notes if one.startswith("free.vs_max 200 m/s"))
     assert "kept as given (the check sets" in note
     # A quick inversion keeps the user's iterations, the sampler's others short.
-    quick = _at_effort(derived, parameters, "quick").parameters
+    quick = _at_effort(derived, parameters, locked, "quick").parameters
     assert quick.n_iterations == 2000
     assert quick.n_chains == QUICK_SAMPLER["n_chains"]
 

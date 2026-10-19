@@ -51,7 +51,9 @@ _NEXT_ASK = {
 _STUCK_ERROR = re.compile(r"Error executing tool \w+: \[stuck\]")
 # Numbers of a count or an order (3 windows, option 2): not checked against the results.
 _SMALL = 10
-_NUMBER = re.compile(r"(?<![\w.])\d+(?:[.,]\d+)?(?![\w])")
+# A number: grouped by thousands (320,000, 1,280,000.5), or with one decimal point or comma.
+_NUMBER = re.compile(r"(?<![\w.,])(?:\d{1,3}(?:,\d{3})+(?:\.\d+)?|\d+(?:[.,]\d+)?)(?![\w])")
+_THOUSANDS = re.compile(r"\d{1,3}(?:,\d{3})+(?:\.\d+)?")
 # A run's id, or a job's (a run's with its kind before): a name, its digits no numbers.
 _ID = re.compile(r"(?:\w+-)?\d{8}-\d{6}-[0-9a-f]{4}")
 
@@ -240,15 +242,22 @@ def render(
 def unfound_numbers(text: str, sources: Iterable[str]) -> list[str]:
     """The numbers of `text` (10 and over, or with decimals; a run's or a job's id is a name)
     that none of `sources` holds, to the text's precision (12.5 is found in 12.46)."""
-    found = [_value(number) for source in sources for number in _NUMBER.findall(source)]
+    found = [
+        value
+        for source in sources
+        for number in _NUMBER.findall(source)
+        for value, _ in _readings(number)
+    ]
     unfound: list[str] = []
     for number in _NUMBER.findall(_ID.sub(" ", text)):
-        value = _value(number)
-        decimals = len(number.replace(",", ".").partition(".")[2])
-        if "." not in number.replace(",", ".") and value < _SMALL:
+        readings = _readings(number)
+        if all(decimals == 0 and value < _SMALL for value, decimals in readings):
             continue
-        tolerance = 0.5 * 10.0**-decimals
-        known = any(abs(value - other) <= tolerance + 1e-9 for other in found)
+        known = any(
+            abs(value - other) <= 0.5 * 10.0**-decimals + 1e-9
+            for value, decimals in readings
+            for other in found
+        )
         if not known and number not in unfound:
             unfound.append(number)
     return unfound
@@ -274,5 +283,14 @@ def _next(turn: Turn, scope: Scope) -> str:
     return "Next: " + "; ".join(parts) + "."
 
 
-def _value(number: str) -> float:
-    return float(number.replace(",", "."))
+def _readings(number: str) -> list[tuple[float, int]]:
+    """`number`'s values, each with its decimals: thousands grouped by commas (320,000), and a
+    comma read as the decimal point (12,5, French), whichever applies."""
+    readings: list[tuple[float, int]] = []
+    if _THOUSANDS.fullmatch(number):
+        whole = number.replace(",", "")
+        readings.append((float(whole), len(whole.partition(".")[2])))
+    if number.count(",") + number.count(".") <= 1:
+        dotted = number.replace(",", ".")
+        readings.append((float(dotted), len(dotted.partition(".")[2])))
+    return readings

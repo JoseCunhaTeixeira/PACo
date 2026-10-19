@@ -21,13 +21,14 @@ import logging
 from collections.abc import Callable, Mapping, Sequence
 from dataclasses import replace
 from datetime import UTC, datetime
+from itertools import pairwise
 from pathlib import Path
 from typing import Any, Literal
 
 from pydantic import BaseModel, ConfigDict, Field
 from sigpipe.base import DispersionCurve
 from sigpipe.masw.inversion import InversionError, InversionParameters
-from sigpipe.masw.inversion.priors import Derived, derive_inversion
+from sigpipe.masw.inversion.priors import MIN_LAYERS, Derived, derive_inversion
 from sigpipe.masw.inversion.section import save_comparison, save_section, save_sections_file
 from sigpipe.masw.inversion.summary import save_line_summary
 from sigpipe.masw.picks import CURVES_FILE
@@ -38,7 +39,7 @@ from sigpipe.masw.runs.writing import run_lock
 from paco.autonomous.sensors.flags import FlagClass, flag_class
 from paco.autonomous.tools import journal
 from paco.autonomous.tools.freeze import frozen
-from paco.autonomous.tools.given import check_inversion, given_of, with_inversion
+from paco.autonomous.tools.given import Given, check_inversion, given_of, with_inversion
 from paco.autonomous.tools.pick import flag_said, manifest_of
 from paco.autonomous.tools.trials import Study
 from paco.autonomous.tools.windows import select
@@ -64,12 +65,17 @@ from paco.settings import Settings
 INVERSIONS = "inversions.jsonl"  # in the study's folder
 # How long a job waits for its run, held by another writer, before it fails.
 JOB_WAIT_S = 60.0
-# The quick effort's sampler (PACo's), and the full effort: PAC's own, as derived.
+# The quick effort, a triage pass: PACo's short sampler, or the values given. The full effort,
+# PAC's: its sampler at least (sigpipe's defaults), more where given or carried over.
 type Effort = Literal["quick", "full"]
 EFFORTS = (
-    "quick: PACo's short sampler, 3,000 iterations and 2 chains, a first look; full: PAC's own, "
-    "200,000 iterations and 5 chains, the final models' (some 40 minutes a line on 8 cores)"
+    "quick: a triage pass, PACo's short sampler (3,000 iterations and 2 chains) or the values "
+    "you give; full: PAC's own at least, 200,000 iterations and 5 chains, the final models' "
+    "(some 40 minutes a line on 8 cores)"
 )
+FULL_SAMPLER: dict[str, int] = {
+    key: int(InversionParameters.model_fields[key].default) for key in ("n_iterations", "n_chains")
+}
 
 logger = logging.getLogger(__name__)
 
@@ -85,8 +91,8 @@ class Group(BaseModel):
 
 class Inverted(BaseModel):
     """A window's inversion, as the study keeps it: the job, the window, its inversion's number
-    in the study and its seed, the parameters it ran with and the checks' notes, G5's verdict and
-    flags (each with its class), or why it failed."""
+    in the study and its seed, its effort, the parameters it ran with and the checks' notes, G5's
+    verdict and flags (each with its class), or why it failed."""
 
     model_config = ConfigDict(frozen=True)
 
@@ -95,6 +101,7 @@ class Inverted(BaseModel):
     unit: str
     number: int
     seed: int
+    effort: Effort = "full"
     parameters: dict[str, Any] = Field(default_factory=dict[str, Any])
     notes: tuple[str, ...] = ()
     verdict: str | None = None
@@ -143,8 +150,8 @@ def submit(
 ) -> tuple[InversionRecord, Callable[[], InversionRecord]]:
     """The job inverting `groups` of the frozen curves of the run in `run_folder`, at `effort`,
     recorded queued, and the work it does; refused, saying why, when a group names no frozen
-    window, a window twice, a parameter the inversion has not, or a window past its
-    `most_retries` (none: no limit)."""
+    window, a window twice, a parameter the inversion has not, a sampler under PAC's at the full
+    effort, or a window past its `most_retries` (none: no limit)."""
     curves = frozen_curves(study, run_folder)
     manifest = manifest_of(run_folder)
     if not groups:
@@ -157,6 +164,8 @@ def submit(
                 f"Unknown inversion parameter(s) {', '.join(unknown)}: see inversion_settings."
             )
         check_inversion(group.parameters, user)
+        if effort == "full":
+            _check_full(group.parameters, user)
         named = [
             unit for unit in select(run_folder, group.windows, statuses or {}) if unit in curves
         ]
@@ -386,6 +395,7 @@ def _invert_group(
     seeds: dict[str, int] = {}
     numbers: dict[str, int] = {}
     refused: dict[str, str] = {}
+    loops: dict[str, inverting.Loop] = {}
     user = given_of(study)
     for unit in units:
         own = [one for one in before if one.unit == unit]
@@ -405,7 +415,10 @@ def _invert_group(
             refused[unit] = f"{type(error).__name__}: {error}"
             continue
         trigger = "backtrack" if own else "initial"
-        jobs[trigger][unit] = _at_effort(derived, given, effort)
+        # The sampler a window carries over from another effort's run is that effort's.
+        asked = given if previous is None or previous.effort == effort else group.parameters
+        jobs[trigger][unit] = at = _at_effort(derived, asked, locked, effort)
+        loops[unit] = _loop(own, at.parameters.n_iterations, effort)
     for unit, error in refused.items():
         _not_invertible(run_folder, unit, error, on_window)
     results: dict[str, WindowInversion] = {}
@@ -413,7 +426,7 @@ def _invert_group(
         if chosen:
             results |= inverting.invert(
                 run_folder, chosen, seeds, depths, config, trigger, settings.workers,
-                progressed, on_window,
+                progressed, on_window, loops,
             )  # fmt: skip
     attempts = read_attempts(run_folder)
     now = datetime.now(UTC)
@@ -429,6 +442,7 @@ def _invert_group(
                 unit=unit,
                 number=numbers[unit],
                 seed=seeds[unit],
+                effort=effort,
                 parameters=derived.parameters.model_dump(mode="json") if derived else {},
                 notes=derived.notes if derived else (),
                 verdict=g5.verdict if g5 is not None else None,
@@ -439,13 +453,67 @@ def _invert_group(
             file.write(kept.model_dump_json() + "\n")
 
 
-def _at_effort(derived: Derived, given: Mapping[str, Any], effort: Effort) -> Derived:
-    """`derived` at `effort`: quick, the sampler's fields not given short (PACo's QUICK_SAMPLER);
-    full, as derived (PAC's effort)."""
-    if effort != "quick":
-        return derived
-    quick = {key: value for key, value in QUICK_SAMPLER.items() if key not in given}
-    return replace(derived, parameters=derived.parameters.model_copy(update=quick))
+def _check_full(parameters: Mapping[str, Any], user: Given) -> None:
+    """Refused, saying why: a sampler under PAC's at the full effort, but the user's."""
+    under = [
+        f"{key} {value:,g}"
+        for key, least in FULL_SAMPLER.items()
+        if key not in user.inversion
+        and isinstance(value := parameters.get(key), int | float)
+        and value < least
+    ]
+    if under:
+        raise ValueError(
+            f"The full effort runs PAC's sampler at least ({FULL_SAMPLER['n_iterations']:,} "
+            f"iterations, {FULL_SAMPLER['n_chains']} chains), not {' or '.join(under)}. A "
+            "shorter pass is the quick effort's, with the values you give."
+        )
+
+
+def _at_effort(
+    derived: Derived, given: Mapping[str, Any], locked: Mapping[str, Any], effort: Effort
+) -> Derived:
+    """`derived` at `effort`, the user's `locked` iterations kept: quick, the sampler's fields not
+    `given` short (PACo's QUICK_SAMPLER); full, PAC's sampler at least (FULL_SAMPLER). Iterations
+    the effort changes take a burn-in of a quarter of them, as sigpipe's."""
+    parameters = derived.parameters
+    if effort == "quick":
+        update = {
+            key: value
+            for key, value in QUICK_SAMPLER.items()
+            if key not in given and key not in locked and key != "n_burnin_iterations"
+        }
+    else:
+        update = {
+            key: max(getattr(parameters, key), least)
+            for key, least in FULL_SAMPLER.items()
+            if key not in locked
+        }
+    iterations = update.get("n_iterations", parameters.n_iterations)
+    if iterations != parameters.n_iterations:
+        update["n_burnin_iterations"] = iterations // 4
+    return replace(derived, parameters=parameters.model_copy(update=update))
+
+
+def _loop(own: Sequence[Inverted], iterations: int, effort: Effort) -> inverting.Loop:
+    """What G5's loop weighs a window's inversion at `effort` and `iterations` against, from its
+    runs before at that effort in the study (the log forgets them: each of the agent's starts
+    afresh): the fewest layers, one more than any count G5 found to underfit; the times it was
+    sampled longer; whether a run after chains that disagreed kept the iterations (it narrowed
+    the ranges instead)."""
+    runs = [one for one in own if one.effort == effort and one.parameters]
+    counts = [*(int(one.parameters.get("n_iterations", 0)) for one in runs), iterations]
+    underfit = [
+        int(one.parameters.get("n_layers", 0)) + 1 for one in runs if "underfit" in one.flags
+    ]
+    return inverting.Loop(
+        fewest_layers=max([MIN_LAYERS, *underfit]),
+        longer_runs=sum(after > before for before, after in pairwise(counts)),
+        narrowed=any(
+            "not_converged" in one.flags and after == before
+            for one, (before, after) in zip(runs, pairwise(counts), strict=True)
+        ),
+    )
 
 
 def _not_invertible(

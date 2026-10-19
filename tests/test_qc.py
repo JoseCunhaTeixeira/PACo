@@ -669,6 +669,39 @@ def test_the_summary_gives_the_checks_notes_and_the_failures(tmp_path: Path) -> 
     }
 
 
+def test_a_summary_without_retries_leaves_out_the_budget_and_the_agents_steps_back(
+    tmp_path: Path,
+) -> None:
+    started = datetime(2026, 9, 24, 12, 0, tzinfo=UTC)
+    for unit, attempt, trigger in (
+        ("xmid_1.00", 1, "initial"),
+        ("xmid_1.00", 2, "G3:too_few_points"),
+        ("xmid_1.25", 1, "initial"),
+        ("xmid_1.25", 2, "backtrack"),
+    ):
+        append_attempt(
+            tmp_path,
+            Attempt(
+                unit=unit,
+                stage="picking",
+                attempt=attempt,
+                parameters={"fmax": 40.0 + attempt},
+                triggered_by=trigger,
+                started_at=started,
+                status="succeeded",
+            ),
+        )
+    report = build_report("20260924-120000-abcd", tmp_path, Budgets(), 2)
+
+    full = summarize_report(report)
+    gates = summarize_report(report, retries=False)
+
+    assert "Retries: " in full and "Retried backtrack" in full
+    assert "Retries: " not in gates and "Retried backtrack" not in gates
+    # What the gates retried, the autonomous agent reads too.
+    assert "Retried G3:too_few_points, xmid 1.00 (1)" in gates
+
+
 def test_notes_alike_but_for_their_numbers_give_the_range_of_each() -> None:
     def note(fastest: int, asked: int) -> str:
         return (

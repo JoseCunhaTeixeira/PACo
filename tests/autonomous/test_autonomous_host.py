@@ -324,9 +324,19 @@ def test_the_context_stays_under_the_set_size(played: Played) -> None:
     assert max(played.host.sizes) < CONTEXT
     # Past 60 % of it, the oldest calls dropped out, the model told so.
     assert any(DROPPED in json.dumps(body["messages"]) for body in played.model.bodies)
-    # A result once read shrinks to its short form: the experiment to its journal line.
+    # A result once read shrinks to its short form: the experiment to its journal line, with
+    # each variant's figures, the evidence of what the model concludes from it.
     tool_messages = [one for one in played.host.transcript().messages if one["role"] == "tool"]
     assert all(len(str(one["content"])) < 1200 for one in tool_messages)
+    # The experiments' calls are gone after the freeze's fresh start: the model read them before.
+    read = [message for body in played.model.bodies for message in body.get("messages", [])]
+    tried = next(
+        str(one["content"])
+        for one in read
+        if one.get("role") == "tool"
+        and str(one.get("content")).startswith('<data from="try_settings">\nE1 on')
+    )
+    assert "Their figures:\n- current: " in tried and "uncertainty" in tried
 
 
 @pytest.mark.slow

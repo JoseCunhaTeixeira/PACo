@@ -10,9 +10,11 @@ from importlib.metadata import version
 from pathlib import Path
 
 import pytest
+from sigpipe.masw.presets import make_preset
 from sigpipe.masw.runs import find_run, load_manifest
 
 from paco.autonomous.evaluation import pac
+from paco.autonomous.tools import commit as committing
 from paco.autonomous.tools.commit import Committed, commit, describe_commit, line_of, line_state
 from paco.autonomous.tools.trials import G1, Study, new_study, try_settings
 from paco.qc.config import QCConfig
@@ -203,6 +205,37 @@ def test_the_line_as_a_trial_set_reads_it(commits: Commits) -> None:
     assert len(state.verdicts) == 7
     assert set(state.verdicts.values()) <= {"pass", "retry", "reject", "no curve"}
     assert set(state.flags) == set(state.verdicts)
+
+
+def test_a_setting_given_at_its_value_is_no_change_and_needs_no_reason() -> None:
+    # The preset's own values given again, as a model may write a whole stage: no change.
+    changes = {
+        "masw": {"length": 12},
+        "dispersion": {"fmin": 16.7, "fmax": 100, "vmin": 1, "nv": 1000},
+    }
+
+    same = committing._unchanged(changes, make_preset("active"))  # pyright: ignore[reportPrivateUsage]
+
+    assert same == {"dispersion fmax", "dispersion vmin", "dispersion nv"}
+    assert committing._without(changes, same) == {  # pyright: ignore[reportPrivateUsage]
+        "masw": {"length": 12},
+        "dispersion": {"fmin": 16.7},
+    }
+
+
+def test_a_method_and_its_parameters_take_one_reason() -> None:
+    mute = {"muting": {"method": "mute", "vmin": 80, "vmax": 1500}}
+    reasons = {"muting vmin": "80 m/s, PACo's", "muting vmax": "1500 m/s, the fast arrivals"}
+
+    committing._check_reasons(mute, reasons)  # pyright: ignore[reportPrivateUsage]
+
+    said = committing._by_key(mute, reasons)  # pyright: ignore[reportPrivateUsage]
+    assert said["muting method"] == "80 m/s, PACo's; 1500 m/s, the fast arrivals"
+    # Settings of a stage without a method: each its own reason.
+    with pytest.raises(ValueError, match="missing masw distance_max"):
+        committing._check_reasons(  # pyright: ignore[reportPrivateUsage]
+            {"masw": {"length": 12, "distance_max": 63}}, {"masw length": "why"}
+        )
 
 
 @pytest.mark.slow

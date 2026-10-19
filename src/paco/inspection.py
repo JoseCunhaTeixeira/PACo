@@ -3,6 +3,7 @@ profiles, one profile's acquisition, the runs, one run's settings and windows, o
 Each part of a run says who made it: the assistant, whose gates judged it, or a person in PAC's
 pages, verified by them. Compact text, a line a window: the model's context is short."""
 
+from contextvars import ContextVar
 from pathlib import Path
 
 from pydantic import ValidationError
@@ -25,6 +26,9 @@ from paco.settings import Settings
 MAX_RUNS = 20
 # The model whose fit the lines say, as PAC shows it.
 FIT_MODEL = "median"
+# Whether a run says the retries its windows spent of the gates' budget: not to the autonomous
+# agent, whose own inversions again would fill it, under a budget of its own.
+RETRIES_SAID: ContextVar[bool] = ContextVar("paco_retries_said", default=True)
 
 
 def profiles_text(settings: Settings) -> str:
@@ -72,10 +76,10 @@ def runs_text(settings: Settings) -> str:
 
 
 def run_text(run_id: str, settings: Settings) -> str:
-    """One run: who made it, its windows and settings, the retries it spent, then its windows,
-    those alike next to each other in one line (their image, curves and model, who made each,
-    the checks; their models' misfits and depths informed as ranges): a line per window would
-    fill the model's context."""
+    """One run: who made it, its windows and settings, the retries it spent (RETRIES_SAID), then
+    its windows, those alike next to each other in one line (their image, curves and model, who
+    made each, the checks; their models' misfits and depths informed as ranges): a line per
+    window would fill the model's context."""
     run_folder = find_run(run_id, settings)
     manifest = load_manifest(run_id, settings)
     report, work = _judged(run_folder, manifest, settings)
@@ -84,8 +88,9 @@ def run_text(run_id: str, settings: Settings) -> str:
     lines = [
         _header(manifest, run_folder, work),
         "Settings: " + "; ".join(processing_used(manifest)),
-        f"Retries: {report.retries} of {budget} spent.",
     ]
+    if RETRIES_SAID.get():
+        lines.append(f"Retries: {report.retries} of {budget} spent.")
     step = line_step(window.xmid for window in manifest.windows)
     groups: list[tuple[str, list[float], list[float], list[float]]] = []
     for window in manifest.windows:

@@ -96,6 +96,7 @@ FLAGS: dict[tuple[str, str], frozenset[FlagClass]] = {
     ("G6", "non_unique"): NOTE,
     ("G6", "no_neighbours"): NOTE,
     ("G6", "gaps"): NOTE,
+    ("G6", "shallow"): NOTE,
     ("G6", "uneven_depth_informed"): NOTE,
 }
 

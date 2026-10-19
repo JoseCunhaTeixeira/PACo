@@ -295,6 +295,11 @@ def test_inspect_reads_each_run_and_who_made_it_changing_nothing(
     runs = inspection.runs_text(settings)
     one = inspection.run_text(judged, settings)
     window = inspection.window_text(pac, 18.0, settings)
+    token = inspection.RETRIES_SAID.set(False)
+    try:
+        unbudgeted = inspection.run_text(judged, settings)
+    finally:
+        inspection.RETRIES_SAID.reset(token)
 
     assert f"Run {pac}: active_test_profile (active), processed by PAC's pages" in runs
     assert f"Run {judged}: active_test_profile (active), processed by the assistant" in runs
@@ -303,6 +308,10 @@ def test_inspect_reads_each_run_and_who_made_it_changing_nothing(
     # whose curves G3 and G4 both passed.
     assert "Settings: mode active" in one and "Retries: " in one
     assert any(line.startswith("xmid 89.25-") and "(" in line for line in one.splitlines()[3:])
+    # The autonomous agent's, without the gates' budget, which its own inversions would fill.
+    assert unbudgeted.splitlines() == [
+        line for line in one.splitlines() if not line.startswith("Retries: ")
+    ]
     assert window.startswith(
         "xmid 17.25 (the nearest to 18 m): image by hand; M0 by hand; no model."
     )

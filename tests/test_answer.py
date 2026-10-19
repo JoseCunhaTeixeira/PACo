@@ -184,6 +184,16 @@ def test_numbers_no_result_holds_are_flagged() -> None:
     assert unfound_numbers("12.4 m", ["12.46"]) == ["12.4"]
 
 
+def test_numbers_grouped_by_thousands_are_read_either_way() -> None:
+    # Iterations as the tools write them (320000) and as a model says them in English (320,000);
+    # a comma can still be a decimal point, as in French.
+    said = "From 20,000 to 1,280,000 iterations, then 320,000; a depth of 12,5 m."
+    held = ['{"n_iterations":20000}', "320000 iterations", "1280000", "12.46"]
+
+    assert unfound_numbers(said, held) == []
+    assert unfound_numbers("640,000 iterations", held) == ["640,000"]
+
+
 def test_ids_and_numbers_the_conversation_holds_are_not_flagged() -> None:
     # A run's and a job's ids are names; a number the user wrote, or a result of an earlier
     # turn, comes from the conversation; one of the scope's, from the message.

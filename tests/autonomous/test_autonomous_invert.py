@@ -6,14 +6,16 @@ models; each window's retries counted; the models decided as §8 says; look and 
 
 import shutil
 from collections.abc import Iterator
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
+from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
 
 import anyio
 import pytest
 from mcp import Client
-from sigpipe.masw.inversion.priors import derive_inversion
+from sigpipe.masw.inversion import InversionParameters
+from sigpipe.masw.inversion.priors import MIN_LAYERS, Derived, derive_inversion
 from sigpipe.masw.picks import CURVES_FILE
 from sigpipe.masw.runs import find_run
 
@@ -23,6 +25,7 @@ from paco.autonomous.tools import commit as committing
 from paco.autonomous.tools import decide, freeze, given, invert, journal, pick
 from paco.autonomous.tools.trials import Study, new_study
 from paco.autonomous.tools.windows import select
+from paco.autonomous.upstream import inverting
 from paco.autonomous.upstream.inversion import invert_window
 from paco.call import shown
 from paco.qc.config import QCConfig
@@ -310,3 +313,99 @@ def test_look_and_advise_read_the_models(inverted: Inverted) -> None:
     assert advice.startswith("G5's changes of the inversion, by window (not applied):") or (
         advice == "G5 asks no window's inversion to change."
     )
+
+
+@pytest.mark.slow
+def test_g5_keeps_a_model_past_the_studys_longer_runs(inverted: Inverted, tmp_path: Path) -> None:
+    # An inversion the agent asks again starts the run's log afresh: G5 weighs the study's runs
+    # of the window, and keeps a model sampled longer twice already, with its warning.
+    run = tmp_path / inverted.run.name
+    shutil.copytree(inverted.run, run)
+    unit = "xmid_74.25"
+    curve = saved_m0(run / unit / CURVES_FILE)
+    assert curve is not None
+    derived = derive_inversion(curve, QCConfig().priors)
+    short = replace(
+        derived,
+        parameters=derived.parameters.model_copy(
+            update={"n_iterations": 1200, "n_burnin_iterations": 300, "n_chains": 2}
+        ),
+    )
+    flags: dict[int, set[str]] = {}
+    for longer in (0, 2):
+        loop = inverting.Loop(MIN_LAYERS, longer, False)
+        inverting.invert(
+            run, {unit: short}, {unit: 11}, (5.0,), QCConfig(), "backtrack", 2, loops={unit: loop}
+        )
+        attempt = latest(read_attempts(run), unit, "inversion")
+        assert attempt is not None
+        flags[longer] = {flag.name for flag in attempt.results["G5"].flags}
+
+    assert "not_converged" in flags[0]
+    assert "not_converged" not in flags[2]
+    assert flags[2] & {"few_samples", "multimodal"}
+
+
+def _derived(**values: int) -> Derived:
+    return Derived(parameters=InversionParameters.model_validate(values), notes=(), reach_m=20.0)
+
+
+def _sampler(derived: Derived) -> tuple[int, int, int]:
+    one = derived.parameters
+    return one.n_iterations, one.n_burnin_iterations, one.n_chains
+
+
+def test_the_full_effort_runs_pacs_sampler_at_least() -> None:
+    at_effort = invert._at_effort  # pyright: ignore[reportPrivateUsage]
+    # A window looked at quickly, then inverted at the full effort: the quick sampler is not
+    # carried over; longer runs stay, and so do the user's iterations.
+    looked = _derived(n_iterations=3000, n_burnin_iterations=750, n_chains=2)
+    assert _sampler(at_effort(looked, {}, {}, "full")) == (200_000, 50_000, 5)
+    longer = _derived(n_iterations=400_000, n_burnin_iterations=100_000)
+    assert _sampler(at_effort(longer, {}, {}, "full")) == (400_000, 100_000, 5)
+    users = _derived(n_iterations=50_000, n_chains=2)
+    assert _sampler(at_effort(users, {}, {"n_iterations": 50_000}, "full")) == (50_000, 12_500, 5)
+    # Less asked at the full effort is refused, saying where it goes.
+    check_full = invert._check_full  # pyright: ignore[reportPrivateUsage]
+    with pytest.raises(ValueError, match=r"not n_iterations 20,000\. A shorter pass is the quick"):
+        check_full({"n_iterations": 20_000, "n_burnin_iterations": 5_000}, given.Given())
+    check_full({"n_iterations": 400_000, "n_chains": 8}, given.Given())
+    # The user's iterations, said again, stay theirs.
+    check_full({"n_iterations": 2000}, given.Given(inversion={"n_iterations": 2000}))
+
+
+def test_the_quick_effort_is_short_unless_given() -> None:
+    at_effort = invert._at_effort  # pyright: ignore[reportPrivateUsage]
+    # After a full run, the short sampler again; iterations given keep their quarter of burn-in.
+    full = _derived(n_iterations=400_000)
+    assert _sampler(at_effort(full, {}, {}, "quick")) == (3000, 750, 2)
+    given = _derived(n_iterations=20_000)
+    assert _sampler(at_effort(given, {"n_iterations": 20_000}, {}, "quick")) == (20_000, 5000, 2)
+    users = _derived(n_iterations=50_000)
+    assert _sampler(at_effort(users, {}, {"n_iterations": 50_000}, "quick")) == (50_000, 12_500, 2)
+
+
+def test_g5s_loop_weighs_the_studys_runs_at_the_same_effort() -> None:
+    loop = invert._loop  # pyright: ignore[reportPrivateUsage]
+
+    def ran(effort: invert.Effort, iterations: int, *flags: str) -> invert.Inverted:
+        return invert.Inverted(
+            job_id="inv-1",
+            run_id="run-1",
+            unit="xmid_1.00",
+            number=1,
+            seed=1,
+            effort=effort,
+            parameters={"n_iterations": iterations, "n_layers": 4},
+            flags=dict.fromkeys(flags, "fixable"),
+            at=datetime.now(UTC),
+        )
+
+    own = [ran("quick", 3000, "not_converged"), ran("full", 200_000, "not_converged")]
+    own.append(ran("full", 400_000, "not_converged"))
+    # The quick look is not one of the full runs: 800,000 iterations sample longer a second time.
+    assert loop(own, 800_000, "full") == inverting.Loop(MIN_LAYERS, 2, False)
+    # Chains that disagreed, then as many iterations: the ranges were narrowed.
+    assert loop(own[:2], 200_000, "full") == inverting.Loop(MIN_LAYERS, 0, True)
+    # An underfit at 4 layers: no fewer than 5 after.
+    assert loop([ran("full", 200_000, "underfit")], 200_000, "full").fewest_layers == 5

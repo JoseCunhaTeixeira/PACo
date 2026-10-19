@@ -48,6 +48,7 @@ def test_a_smooth_line_of_models_passes() -> None:
     assert {metric.name: metric.value for metric in results[LINE].metrics} == {
         "models": 8,
         "without_model": 0,
+        "shallow_models": 0,
         "depth_informed_spread": 0.0,
     }
 
@@ -110,6 +111,22 @@ def test_the_line_reports_gaps_and_uneven_depths_informed() -> None:
     # A model informed down to its bottom counts at its deepest compared depth.
     results = _judge(models, informed={m.unit: None for m in models})
     assert results[LINE].flags == ()
+
+
+def test_models_informed_above_the_compared_depths_are_not_called_missing() -> None:
+    # A window without a model, and two whose models are informed above the line's compared
+    # depths: told apart, each said for what it is.
+    (line,) = judge_model_profile([], {}, {}, THRESHOLDS, (1.0,), (2.0, 3.0))
+
+    flags = {flag.name: flag.message for flag in line.flags}
+    assert line.verdict == "pass"
+    assert "No model at xmid 1.00 (1):" in flags["gaps"]
+    assert flags["shallow"].startswith(
+        "The models at xmid 2.00-3.00 (2) are informed above the depths the line's models are "
+        "compared at: not compared with their neighbours."
+    )
+    counts = {metric.name: metric.value for metric in line.metrics}
+    assert (counts["without_model"], counts["shallow_models"]) == (1, 2)
 
 
 def test_a_line_without_a_model_is_rejected() -> None:

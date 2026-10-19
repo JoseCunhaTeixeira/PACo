@@ -58,6 +58,7 @@ from paco.autonomous.tools.trials import (
     PICKING,
     PREPROCESSING,
     LineState,
+    Preset,
     Study,
     Trial,
     check_open,
@@ -157,6 +158,14 @@ def commit(
     check_line(changed, user)
     own = without(changed, user)
     reasons = {key: reason for key, reason in reasons.items() if key not in _named(user.changes())}
+    # A setting given at the value it has is no change: none recorded, no reason asked.
+    if MODE not in own:
+        before = concrete(line.settings if line is not None else {}, profile, config).preset
+        same = _unchanged(own, before)
+        kept = _without(own, same)
+        gone = {stage for stage in own if stage not in kept}
+        reasons = {key: reason for key, reason in reasons.items() if key not in same | gone}
+        own = kept
     _check_reasons(own, reasons)
     added = missing(line.settings if line is not None else {}, user)
     changed = deep_merge(own, added)
@@ -223,7 +232,7 @@ def describe_commit(committed: Committed) -> str:
         )
     if committed.decided_before:
         said.append("Every window is pending again: decide each once its curve suits you.")
-    return " ".join(said) + f"\n{summarize_report(committed.report)}"
+    return " ".join(said) + f"\n{summarize_report(committed.report, retries=False)}"
 
 
 def picking_of(study: Study, line: Line, settings: Settings, config: QCConfig) -> PickingParameters:
@@ -497,11 +506,68 @@ def _named(changes: Mapping[str, Any]) -> list[str]:
     return named
 
 
+def _unchanged(changes: Mapping[str, Any], before: Preset) -> set[str]:
+    """The settings of `changes` ('<stage> <key>') at the value the line has, its preset's where
+    it set none (`before`, a preset)."""
+    same: set[str] = set()
+    for stage, values in changes.items():
+        current = getattr(before, stage, None)
+        if not isinstance(values, Mapping) or current is None:
+            continue
+        for key, value in cast(Mapping[str, Any], values).items():
+            if key in type(current).model_fields and _same(getattr(current, key), value):
+                same.add(f"{stage} {key}")
+    return same
+
+
+def _same(had: object, value: object) -> bool:
+    """Whether `value` is `had`, a number as a number (100 is 100.0)."""
+    numbers = (int, float)
+    if isinstance(had, numbers) and isinstance(value, numbers) and not isinstance(value, bool):
+        return float(had) == float(value)
+    return had == value
+
+
+def _without(changes: Mapping[str, Any], settings: set[str]) -> dict[str, Any]:
+    """`changes` without the `settings` named ('<stage> <key>'); a stage left empty, gone."""
+    kept: dict[str, Any] = {}
+    for stage, values in changes.items():
+        if not isinstance(values, Mapping):
+            kept[stage] = values
+            continue
+        left = {
+            key: value
+            for key, value in cast(Mapping[str, Any], values).items()
+            if f"{stage} {key}" not in settings
+        }
+        if left:
+            kept[stage] = left
+    return kept
+
+
+def _reason_of(key: str, changes: Mapping[str, Any], reasons: Mapping[str, str]) -> str | None:
+    """The reason for setting `key`: its own, its stage's, or, for a stage whose method changes,
+    those given for its other settings (a method and its parameters are one choice)."""
+    stage = key.split(" ")[0]
+    if key in reasons:
+        return reasons[key]
+    if stage in reasons:
+        return reasons[stage]
+    values = changes.get(stage)
+    if isinstance(values, Mapping) and "method" in values:
+        given = [
+            reason.strip() for other, reason in reasons.items() if other.split(" ")[0] == stage
+        ]
+        if given:
+            return "; ".join(dict.fromkeys(given))
+    return None
+
+
 def _check_reasons(changes: Mapping[str, Any], reasons: Mapping[str, str]) -> None:
     """Refused unless every setting changed has a one-line reason, and every reason a setting
     changed (§10)."""
     named = _named(changes)
-    missing = [key for key in named if key not in reasons and key.split(" ")[0] not in reasons]
+    missing = [key for key in named if _reason_of(key, changes, reasons) is None]
     if missing:
         raise ValueError(
             "Give a one-line reason for each setting changed, by '<stage> <key>' as the changes "
@@ -517,10 +583,8 @@ def _check_reasons(changes: Mapping[str, Any], reasons: Mapping[str, str]) -> No
 
 
 def _by_key(changes: Mapping[str, Any], reasons: Mapping[str, str]) -> dict[str, str]:
-    """Each setting `changes` sets with its reason: its own, else its stage's."""
-    return {
-        key: (reasons.get(key) or reasons[key.split(" ")[0]]).strip() for key in _named(changes)
-    }
+    """Each setting `changes` sets with its reason (_reason_of)."""
+    return {key: (_reason_of(key, changes, reasons) or "").strip() for key in _named(changes)}
 
 
 def _notes(commits: Sequence[Commit], study: Study) -> tuple[str, ...]:

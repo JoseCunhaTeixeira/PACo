@@ -15,7 +15,7 @@ from pydantic import BaseModel, ConfigDict, Field
 
 from paco.autonomous.tools.commit import Committed
 from paco.autonomous.tools.freeze import Frozen
-from paco.autonomous.tools.trials import Experiment, Study
+from paco.autonomous.tools.trials import Experiment, Study, figures
 
 JOURNAL = "journal.jsonl"  # in the study's folder
 MOST_TEXT = 600  # characters, a model's entry
@@ -151,6 +151,7 @@ def experiment(study: Study, made: Experiment, hypothesis: str | None = None) ->
             "lost": list(one.against.lost) if one.against is not None else [],
             "depth_m": one.scorecard.depth_m,
             "near_field": one.scorecard.near_field,
+            "figures": figures(one.scorecard),
             "dominated_by": one.dominated_by,
             "seconds": one.seconds,
         }

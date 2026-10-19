@@ -50,7 +50,7 @@ def observe(
         return _rows(results, gate, where, page)
     manifest = RunManifest.model_validate_json((run_folder / "run.json").read_text())
     report = build_report(manifest.run_id, run_folder, config.budgets, len(manifest.windows))
-    summary = summarize_report(report, (gate,))
+    summary = summarize_report(report, (gate,), retries=False)
     if level == "line":
         summary += "\n" + pseudo_section(run_folder, [window.folder for window in manifest.windows])
     return summary
