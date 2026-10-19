@@ -49,9 +49,9 @@ class ModelSettings(BaseSettings):
     # it in PAC's and PACo's compose files). Unset: LOCAL_CONTEXT or FRONTIER_CONTEXT (context()).
     # The autonomous mode needs 128k; each mode keeps its conversation within it.
     llm_context: int | None = Field(default=None, ge=1)
-    # Whether figures may reach the model. Off unless set: an online model's provider receives
-    # what the model sees (the data policy).
-    llm_vision: bool = False
+    # Whether figures may reach the model: on unless set off. An online model's provider receives
+    # what the model sees (the data policy): PACO_LLM_VISION=false keeps them on the machine.
+    llm_vision: bool = True
 
     @field_validator(
         "llm_provider",

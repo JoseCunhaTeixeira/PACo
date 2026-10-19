@@ -88,7 +88,7 @@ PACO_LLM_CONTEXT=16384
 | `PACO_LLM_MODEL` | required | The model's name |
 | `PACO_LLM_API_KEY` | none | Your API key, if the provider asks for one |
 | `PACO_LLM_CONTEXT` | `16384` on your server, `131072` on a provider's API | The model's context, in tokens. With vLLM, the same number as its `--max-model-len` |
-| `PACO_LLM_VISION` | `false` | Lets the model see figures (autonomous mode only) |
+| `PACO_LLM_VISION` | `true` | Lets the model see figures (autonomous mode only) |
 | `PACO_WORKERS` | `1` | Processes used to process and invert |
 
 Rarely needed: `PACO_HOST` and `PACO_PORT` (where `paco-server` listens, `127.0.0.1:8000`),
@@ -195,7 +195,7 @@ lists the profiles.
 
 Code keeps the work honest. The settings you type are never changed. The phases go in order:
 survey, curves, inversion, report. A window is rejected only after real tries. Budgets stop a run
-that spends too much. Figures reach the model only with `PACO_LLM_VISION=true`. The design is in
+that spends too much. Figures reach the model unless `PACO_LLM_VISION=false`. The design is in
 `docs/autonomous_plan.md`.
 
 ## How PACo works
@@ -265,7 +265,8 @@ drops, PACo tries again for up to 30 s.
 
 **What a provider receives.** Your messages, the tools' descriptions and what the tools return:
 the gates' summaries in the workflow mode, the line's measures and tables in the autonomous mode.
-Never your records, images or models, unless vision is on.
+With vision on (the default), also the figures the autonomous mode looks at: set
+`PACO_LLM_VISION=false` to keep them on your machine.
 
 **Other models.** The workflow mode works with any model that calls tools and fills a JSON schema.
 With vLLM, a model of another family needs its own `--tool-call-parser`, and no

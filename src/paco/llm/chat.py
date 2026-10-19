@@ -61,7 +61,7 @@ async def tried(chat: Chat) -> str:
 
 
 async def seeing(chat: Chat) -> str | None:
-    """Vision as the model allows it (PACO_LLM_VISION, off unless set): switched off for the
+    """Vision as the model allows it (PACO_LLM_VISION, on unless set off): switched off for the
     run, saying why, when the model takes no images; None when it takes them, or vision is off."""
     if not chat.vision or await chat.takes_images():
         return None
