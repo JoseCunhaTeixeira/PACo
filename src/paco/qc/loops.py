@@ -14,15 +14,17 @@ from paco.qc.models import Attempt, Budgets, GateResult, Override, Stage
 
 
 def deep_merge(base: Mapping[str, Any], changes: Mapping[str, Any]) -> dict[str, Any]:
-    """`changes` over `base`, stage by stage: a nested mapping is merged, anything else replaced
-    (a stage given with another method is then replaced whole by the preset's rules)."""
+    """`changes` over `base`, stage by stage: a nested mapping is merged, anything else replaced;
+    a stage given with another method is replaced whole, its other parameters left to the
+    preset's rules (the method before's would be refused)."""
     merged = dict(base)
     for key, value in changes.items():
         previous = merged.get(key)
         if isinstance(previous, Mapping) and isinstance(value, Mapping):
-            merged[key] = deep_merge(
-                cast(Mapping[str, Any], previous), cast(Mapping[str, Any], value)
-            )
+            before = cast(Mapping[str, Any], previous)
+            after = cast(Mapping[str, Any], value)
+            other = "method" in after and before.get("method", after["method"]) != after["method"]
+            merged[key] = dict(after) if other else deep_merge(before, after)
         else:
             merged[key] = value
     return merged

@@ -88,7 +88,7 @@ IMAGES = (
     Example("1. Clean", ACTIVE, MUTED, 108.0),
     Example("2. Stripes", ACTIVE, CORRELATED, 52.5),
     Example("3. Smear", ACTIVE, SHORT, 42.0),
-    Example("4. No ridge", ACTIVE, {}, 43.5),
+    Example("4. A weak ridge", ACTIVE, {}, 43.5),
     Example("5. A pick off the ridge", ACTIVE, SHORT, 139.5),
     Example("6. Aliases, and beyond reach", PASSIVE, PASSIVE_SHORT, 39.0),
 )

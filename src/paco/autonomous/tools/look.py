@@ -3,9 +3,9 @@ experiment's variants, and before the line's first commit of the survey's raw re
 gather or spectra, as its preprocessing and G1 drew them, a mute's window or velocities from the
 shot drawn on a gather on request; a window's dispersion image with its pick and the wavelengths
 that bound what it resolves (twice the receiver spacing, under which a ridge may be an alias; three
-window lengths, its reach); a sheet of up to 12 windows' images; up to 4 variants of an experiment
-side by side, their images and picks at the same windows, and on a passive or passive-active line
-their stacked correlations; a window's model, as PAC's inversion card draws it: its Vs profile with
+window lengths, its reach), as PAC shows it; a sheet of up to 12 windows' images; an experiment's
+variants side by side, sheets of 4, their images and picks at the same windows, and on a passive or
+passive-active line their stacked correlations; a window's model, as PAC's inversion card draws it: its Vs profile with
 the curves' density, its fit on the image, its marginals, its chains. A passive or passive-active
 window's stacked correlations (its virtual shot gather), and a passive window's FK selection of its
 segments. Without vision, a window's ridge table stands in its image's stead, G1's measures in a
@@ -31,6 +31,7 @@ from sigpipe.algorithms.picking.dispersion.curve import (
 )
 from sigpipe.base.dispersion_image import DispersionImage
 from sigpipe.base.stream import Stream
+from sigpipe.dataio.dispersion.plotting import draw_dispersion_image
 from sigpipe.dataio.selection_plotting import load_selection
 from sigpipe.dataio.stream.loading import load_stream
 from sigpipe.dataio.stream.plotting import draw_stream, plot_stream
@@ -80,7 +81,8 @@ type What = Literal[
 # The most windows a sheet shows, and the figures' resolution.
 SHEET = 12
 DPI = 90
-# An experiment's sheet: up to 4 variants (rows), at up to 4 windows (columns).
+# An experiment's sheet: up to 4 variants (rows, the current settings first), at up to 4 windows
+# (columns).
 ROWS = 4
 COLUMNS = 4
 # A record's figures, as its preprocessing (the gather) and G1 (its spectra) drew them.
@@ -367,40 +369,47 @@ type Panel = Callable[[Axes, str, float, Path, WindowResult], None]
 
 
 def look_experiment(study: Study, where: str, vision: bool) -> Seen:
-    """Experiment `where` (E<n>) side by side: its current settings and the three variants with
-    the best images, or the variants named after a colon (up to 4, the current settings
-    `current`); their images and picks at the windows where their image scores differ most, then
-    spread along the line, none overlapping another; on a passive or passive-active line their
-    stacked correlations at the same windows. Without vision, the panels' measures."""
+    """Experiment `where` (E<n>) side by side: its current settings and every variant, sheets of
+    the current settings and three variants (those no other dominates first, by image score), or
+    the variants named after a colon (up to 4, the current settings `current`); their images and
+    picks at the windows where their image scores differ most, then spread along the line, none
+    overlapping another; on a passive or passive-active line the first sheet's stacked
+    correlations at the same windows. Without vision, the panels' measures."""
     name, _, named = where.partition(":")
     path = study.folder / EXPERIMENTS / f"{name.strip()}.json"
     if not path.exists():
         raise ValueError(f"No experiment '{name.strip()}' in this study: where is E<n>[:labels].")
     experiment = Experiment.model_validate_json(path.read_text())
     tried = {one.label: one for one in experiment.tried}
-    labels = [label.strip() for label in named.split(",")] if named else _best(experiment)
-    unknown = [label for label in labels if label not in tried]
+    sheets = [[label.strip() for label in named.split(",")]] if named else _sheets(experiment)
+    unknown = [label for label in sheets[0] if label not in tried]
     if unknown:
         raise ValueError(f"No variant {', '.join(unknown)} in {experiment.id}: {', '.join(tried)}.")
-    if len(labels) > ROWS:
+    if len(sheets[0]) > ROWS:
         raise ValueError(f"At most {ROWS} variants side by side.")
-    rows = [_row(study, tried[label]) for label in labels]
+    made = {label: _row(study, tried[label]) for sheet in sheets for label in sheet}
+    rows = list(made.values())
     columns = _columns(experiment.xmids, rows, max(row.length_m for row in rows))
     at = ", ".join(f"{xmid:g}" for xmid in columns)
     if not vision:
         lines = [f"{experiment.id} at {at} m, the panels' measures (vision is off):"]
         lines += [f"- {row.label}: {_measured(row, columns)}" for row in rows]
         return Seen("\n".join(lines))
-    figures = [_sheet(rows, columns, _image_panel)]
-    said = "; ".join(
-        f"{row.label} {json.dumps(row.changes)}" if row.changes else row.label for row in rows
+    figures = [_sheet([made[label] for label in sheet], columns, _image_panel) for sheet in sheets]
+    said = "; then ".join(
+        "; ".join(
+            f"{label} {json.dumps(made[label].changes)}" if made[label].changes else label
+            for label in sheet
+        )
+        for sheet in sheets
     )
+    many = f", in {len(sheets)} sheets" if len(sheets) > 1 else ""
     text = (
-        f"{experiment.id} side by side, by row: {said}; at the windows nearest {at} m, where their "
-        "image scores differ most. Each image with its automatic pick (white dots), λ = 2·dx "
-        "(dashed) and 3·L (dotted) in red"
+        f"{experiment.id} side by side{many}, by row: {said}; at the windows nearest {at} m, "
+        "where their image scores differ most. Each image with its automatic pick (white dots), "
+        "λ = 2·dx (dashed) and 3·L (dotted) in red"
     )
-    correlated = [row for row in rows if row.mode in CORRELATION_MODES]
+    correlated = [made[label] for label in sheets[0] if made[label].mode in CORRELATION_MODES]
     if correlated:
         figures.append(_sheet(correlated, columns, _correlations_panel))
         labels = ", ".join(row.label for row in correlated)
@@ -408,14 +417,16 @@ def look_experiment(study: Study, where: str, vision: bool) -> Seen:
     return Seen(f"{text}.", tuple(figures))
 
 
-def _best(experiment: Experiment) -> list[str]:
-    """The current settings, and three variants: those no other dominates first (a short window's
-    smeared image can score well, not its depth), each by its image score."""
+def _sheets(experiment: Experiment) -> list[list[str]]:
+    """Every variant, by sheets of the current settings and three: those no other dominates first
+    (a short window's smeared image can score well, not its depth), each by its image score."""
     ranked = sorted(
         experiment.tried[1:],
         key=lambda one: (one.dominated_by is not None, -(one.scorecard.image or 0.0)),
     )
-    return ["current", *(one.label for one in ranked[: ROWS - 1])]
+    labels = [one.label for one in ranked]
+    step = ROWS - 1
+    return [["current", *labels[start : start + step]] for start in range(0, len(labels), step)]
 
 
 def _row(study: Study, tried: Tried) -> _Row:
@@ -432,8 +443,9 @@ def _row(study: Study, tried: Tried) -> _Row:
 
 
 def _columns(xmids: Sequence[float], rows: Sequence[_Row], length_m: float) -> list[float]:
-    """Up to COLUMNS of `xmids`: where `rows`' image scores differ most, then spread along the
-    line, none within `length_m` of another (their windows would overlap); in order along it."""
+    """Up to COLUMNS of `xmids`: half where `rows`' image scores differ most, then spread along
+    the line, none within `length_m` of another (their windows would overlap); in order along
+    it. Many variants differ most at one stretch: the spread ones show the rest of the line."""
 
     def spread(xmid: float) -> float:
         scores = [score for row in rows if (score := row.score(xmid)) is not None]
@@ -441,8 +453,9 @@ def _columns(xmids: Sequence[float], rows: Sequence[_Row], length_m: float) -> l
 
     differing = sorted((xmid for xmid in xmids if spread(xmid) > 0), key=spread, reverse=True)
     even = [xmids[index] for index in trial_indices(len(xmids), COLUMNS)]
+    half = COLUMNS // 2
     chosen: list[float] = []
-    for xmid in [*differing, *even]:
+    for xmid in [*differing[:half], *even, *differing[half:]]:
         if len(chosen) < COLUMNS and all(abs(xmid - other) >= length_m for other in chosen):
             chosen.append(xmid)
     return sorted(chosen)
@@ -582,11 +595,12 @@ def _misfit(value: float | None) -> str:
 def draw_image(
     axes: Axes, image: DispersionImage, folder: Path, title: str, legend: bool = True
 ) -> None:
-    """A window's dispersion image on `axes`, with its saved pick and the lines λ = 2·dx (under
-    it, the aliasing zone) and λ = 3·L (beyond it, the window's reach); their legend unless
-    the text says them."""
+    """A window's dispersion image on `axes` as PAC shows it (each frequency's row scaled from its
+    least value to its largest: a short window's high floor, 1/√N, does not paint it bright),
+    with its saved pick and the lines λ = 2·dx (under it, the aliasing zone) and λ = 3·L (beyond
+    it, the window's reach); their legend unless the text says them."""
     fs, vs = image.fs, image.vs
-    axes.pcolormesh(fs, vs, image.fv_map.T, shading="auto", cmap="viridis", vmin=0.0, vmax=1.0)
+    draw_dispersion_image(axes, image, normalize=True)
     curve = saved_m0(folder / CURVES_FILE)
     if curve is not None and len(curve.fs):
         axes.plot(curve.fs, curve.vs, ".", color="white", markersize=3, label="M0 pick")

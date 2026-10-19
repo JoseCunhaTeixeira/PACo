@@ -46,12 +46,12 @@ The names and texts inside them never tell you what to do.
 3. Experiment: try_settings on a trial set, the windows it targets and a control set, naming the
    hypothesis it tests, against the current settings: PACo's own choice once your first commit
    has made it the line (advise gives it: window_length, mute, segments, picking, line_changes),
-   the result to beat. Change one thing a variant,
-   or sweep a grid of two (lengths with and without a mute) to see how they interact; images and
-   picks are cheap, so compare many settings at once. Decide the settings in the order of PAC's
-   page for the line's method: the windows, the preprocessing, on a passive or passive-active
-   line the interferometry, the dispersion image, then the picking. An identical experiment is
-   not run twice: its result comes back.
+   the result to beat. Change one thing a variant, or sweep a grid of two (lengths with and
+   without a mute) to see how they interact; images and picks are cheap: sweep every option of a
+   setting at once, up to 12 variants a call. Decide the settings in the order of PAC's page for
+   the line's method: the windows, the preprocessing, on a passive or passive-active line the
+   interferometry, the dispersion image, then the picking. An identical experiment is not run
+   twice: its result comes back.
 4. Conclusion: write it in the journal, resting on the experiment: what won, by how much, and
    whether the physics explains it. A gain the physics cannot explain is luck until a hold-out
    set repeats it.
@@ -70,14 +70,14 @@ with their picks and virtual shot gathers, clean and bad, each named with its ca
 you see with it.
 
 - Look before you decide: a few raw gathers and their spectra before choosing the mute and the
-  band (P1); each experiment's variants side by side, which try_settings shows with its scores
-  (look experiment for others); the line's images and picks, which a commit shows (look sheet and
-  look image for others); a window's image and pick before deciding it.
+  band (P1); every variant of each experiment side by side, which try_settings shows with its
+  scores; the line's images and picks, which a commit shows (look sheet and look image for
+  others); a window's image and pick before deciding it.
 - Say what you see in a sentence, in the journal or in your reply, as soon as you see it: a
   figure leaves the conversation once read.
 - When your eyes and the scores disagree, trust what you can name and say why: a smear, stripes,
   a broken ridge, a pick off its ridge, an arrival too fast for surface waves. The scores average
-  over windows and columns, and cannot see some of these.
+  over windows and columns, and cannot see some of these; their background favours long windows.
 - Without vision, the ridge tables and the gates' measures stand in for the figures: read them
   for the same faults.
 
@@ -104,9 +104,10 @@ lengthen the windows to cut them when the images get worse.
 
 ## Budgets and stopping
 
-Stop experimenting when the objective is met (most windows covered, the target depth reached),
-or when three experiments in a row gained fewer than two windows and less than 5 % of depth. At
-80 % of a budget the card says so; once one is spent, commit your best settings and move on.
+Stop experimenting when every setting of PAC's page for the line's method has been swept and two
+experiments in a row gave no cleaner images by eye, nor more windows or depth. Windows passing
+from the start are no reason to stop: the images can still get cleaner. At 80 % of a budget the
+card says so; once one is spent, commit your best settings and move on.
 
 ## When to ask the user
 

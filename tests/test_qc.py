@@ -70,7 +70,7 @@ from paco.qc import (
 )
 from paco.qc.g3_curve import CurveThresholds
 from paco.qc.log import ASKED, LINE_CHANGE
-from paco.qc.loops import RetryBudget, next_try, unchanged
+from paco.qc.loops import RetryBudget, deep_merge, next_try, unchanged
 from paco.qc.report import merged
 from paco.qc.used import picking_used
 from paco.settings import Settings
@@ -961,6 +961,28 @@ def test_apply_overrides_merges_a_stage_and_replaces_a_method() -> None:
     assert replaced.model_dump()["filtering"] == {"method": "none"}
     with pytest.raises(PresetError, match=r"dispersion\.vmaxx: unknown parameter"):
         apply_overrides(preset, {"dispersion": {"vmaxx": 500}})
+
+
+def test_deep_merge_merges_a_stage_and_replaces_a_method() -> None:
+    # A line's FK selection switched off, its threshold and band then left behind: the preset
+    # refuses parameters a method does not take.
+    line = {"masw": {"length": 5}, "selection": {"method": "fk", "threshold": 0.3, "vmin": None}}
+
+    assert deep_merge(line, {"selection": {"threshold": 0.5}})["selection"] == {
+        "method": "fk",
+        "threshold": 0.5,
+        "vmin": None,
+    }
+    assert deep_merge(line, {"selection": {"method": "fk", "vmax": 1500}})["selection"] == {
+        "method": "fk",
+        "threshold": 0.3,
+        "vmin": None,
+        "vmax": 1500,
+    }
+    assert deep_merge(line, {"selection": {"method": "none"}}) == {
+        "masw": {"length": 5},
+        "selection": {"method": "none"},
+    }
 
 
 # ---------------------------------------------------------------- the gates on a whole run

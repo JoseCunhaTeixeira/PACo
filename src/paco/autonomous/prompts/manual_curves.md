@@ -13,9 +13,11 @@ phase velocity v and frequency f.
 - Then go through the settings in the order of PAC's page for the line's method: the windows
   (their length, then the shots' distances), the preprocessing (the mute you drew by eye on the
   survey's gathers, PACo's standard one), on a passive or passive-active line the interferometry,
-  then the dispersion image. Commit a change only when its images are cleaner by eye, along the
-  whole line and at its ends, and its scores no worse; else PACo's choice stays, and you say why
-  it could not be beaten.
+  then the dispersion image. At each, sweep its options at once (up to 12 variants a call, on 15
+  windows or more) and keep the cleanest by eye; then combine the best two or three changes, and
+  try the length again with them. Commit a change when its images are cleaner by eye, along the
+  whole line and at its ends, with as many windows passing; else PACo's choice stays, and you say
+  why it could not be beaten.
 
 ## Physics
 
@@ -61,11 +63,11 @@ phase velocity v and frequency f.
   the line: it climbs while 80 % pass and the uncertainty improves by 10 %, and stops at the first
   length passing with 20 % or less. It favours short windows; where the objective asks depth, a
   longer window is the hypothesis to test against it.
-- Choose the length by the images: the shortest window whose images are clean (the image score
-  near its best, coherent columns and lateral coherence near 1) and whose curves serve the
-  objective. A target depth z needs λmax near 2·z, so L of at least 2·z/3 (λmax within 3·L), but
-  only as far as the images stay as clean; a lateral priority starts at 5 to 9 receivers; a
-  balanced one in the middle of the range. Sweep the lengths around PACo's (its ladder's, and two
+- Choose the length by the images: the shortest window whose images are clean (by eye, one ridge
+  unbroken over its band; lateral coherence near 1) and whose curves serve the objective. A
+  target depth z needs λmax near 2·z, so L of at least 2·z/3 (λmax within 3·L), but only as far
+  as the images stay as clean; a lateral priority starts at 5 to 9 receivers; a balanced one in
+  the middle of the range. Sweep the lengths around PACo's (its ladder's, and two
   longer) on 15 windows or more spread along the line, its ends included, each with and without
   the mute: length and mute interact (on active_p2 a mute moved PACo's ladder from 7 to 11
   receivers).
@@ -80,9 +82,11 @@ phase velocity v and frequency f.
   farther one; one with near shots only keeps them (G3 notes near_field). Keep the nearest shot
   at least λmax/2 from the window.
 - masw distance_max: the farthest shot from a window's middle, at the survey's reach by default;
-  the window's far half extends L/2 beyond it. A shorter one may help the high frequencies, which
-  attenuate first. masw distance_min is a hard bound that loses windows: leave it to a user who
-  asks for it.
+  the window's far half extends L/2 beyond it. Far shots lose the high frequencies first, near
+  ones carry them but bring the near field to the low ones: sweep it from the reach down to a few
+  window lengths, the ridge's high end and its low frequencies judged by eye. masw distance_min
+  drops every window's nearest shots, where near_field_m drops them only while a farther one
+  remains: it can leave a window at the line's ends with no shot.
 - Shots on both sides average out dipping layers: keep both when the distances allow. More shots
   raise the SNR, not a near-field bias.
 - PACo's rule sets the near-field distance at half the median λmax of the trial curves, once the
@@ -147,14 +151,18 @@ phase velocity v and frequency f.
 
 - A good image holds one sharp ridge, continuous over a wide band and rising toward the low
   frequencies, the rest of it dark, the pick on its crest: the atlas's first image.
-- Each experiment shows its current settings and best variants side by side, each with its
-  pick, at the windows where they differ most (look experiment E<n>:current,3,5 shows others).
-  Judge each panel against the atlas, before its scores, and name its fault and cause before the
-  lever: vertical stripes (a hard mute's edges, noisy or dead traces, a lateral change under the
-  window); horizontal fringes under the ridge (a short window's side lobes, a hard mute); a ridge
-  broken into pieces (a lateral change, noise); a broad smear at the low frequencies (the
-  window's resolution, Δv/v ≈ λ/L: a longer window); no ridge at all (too little signal); bright
-  ridges under the dashed line (aliases) or left of the dotted one (beyond the window's reach).
+- Each experiment shows every variant side by side, in sheets of its current settings and three,
+  each with its pick, at the windows where they differ most (look experiment E<n>:current,3,5
+  shows others there), drawn as PAC draws them: each frequency's row from its least value
+  (yellow) to its largest (black). Judge each panel against the atlas, before its scores, and
+  name its fault and cause before the lever: vertical stripes (a hard mute's edges, noisy or dead
+  traces, a lateral change under the window); horizontal fringes under the ridge (a short
+  window's side lobes, a hard mute); a ridge broken into pieces, or jumping at a vertical edge (a
+  lateral change under a long window, noise); a broad dark area at the low frequencies (a short
+  window's resolution, Δv/v ≈ λ/L, not noise: a longer window sharpens it, and is better only
+  where its ridge stays as unbroken at the higher frequencies); a weak ridge (scaled row by row,
+  any peak looks dark: its background tells); dark ridges under the dashed line (aliases) or left
+  of the dotted one (beyond the window's reach).
 - The scorecard measures the same on every window: G2's coherent columns (the share of the
   image's columns with a coherent peak) and lateral coherence (how far the window's traces
   agree), near 1 when clean; G2's background (the image's median level off its ridge, over the
@@ -162,7 +170,10 @@ phase velocity v and frequency f.
   of each pick on its ridge (G3's on_data). On active_p2 the clean images read a background of
   0.10 to 0.18 and stripes under 0.008, the striped ones up to 0.36 and 0.024. The score averages
   them, the background as 1 minus it; its P10, the weakest windows', shows a bad stretch the
-  median hides. Rank many variants by it, then let your eyes choose among the two or three best.
+  median hides. The background compares a column's level off its ridge with its peak: a short
+  window's floor (1/√N) and wider ridge raise it, so it and the score favour long windows:
+  compare them between variants of the same length. Your eyes choose among all the variants; the
+  scores add what a sheet cannot show: every window, the weakest, the coverage and the depth.
 - The measures cannot see everything: a short window's smear can score well where its columns
   peak, an arrival too fast for surface waves holds a high SNR and lateral coherence, a pick on
   a ridge that is not M0 is on its ridge. Where you see one, say so, and trust what you see.
@@ -179,10 +190,14 @@ phase velocity v and frequency f.
   dominate); correlated against the window's first receiver; the correlations stacked: a virtual
   shot at the window's end. The shots' settings (distances, near field, trigger, mute) mean
   nothing there; the windows' length, the image's grid and the picking work as on an active line.
-- The correlations' stacking, passive and passive-active alike: phase-weighted, the preset's (nu
-  2). It weights the linear stack by how well the correlations agree in phase, so that coherent
-  arrivals stay and incoherent noise falls. Keep it: linear or root replace it only when they
-  clearly pass more windows with curves as long, and nu is a late, small lever.
+- The correlations' stacking, passive and passive-active alike: phase-weighted, the preset's nu
+  2. It weights the linear stack by how well the correlations agree in phase, so that coherent
+  arrivals stay and incoherent noise falls; a higher nu (4, 6) keeps less of what they disagree
+  on: fewer stripes, while the ridge stays. Sweep nu, with linear and root as controls.
+- The whitening and the temporal normalization, onebit by default, weigh every segment alike, its
+  noise too; without the normalization (none) the strongest noise weighs most: cleaner where it
+  travels along the line, worse where bursts dominate. Sweep both once the FK selection is set
+  (whitening: onebit, onebit_apod within the image's band, none; normalization: onebit, none).
 - The segments set the image: its frequency step is 1/segment_duration, its longest period the
   segment's length. Longer segments give lower frequencies and a finer step, but fewer to stack, a
   noisier image: they are not more data. advise segments gives PACo's trial (a few minutes):
@@ -200,7 +215,8 @@ phase velocity v and frequency f.
   or open), the spectral whitening, the temporal normalization, the correlations' stacking; then
   the dispersion image. Once the lengths are set, the FK selection, its threshold and its band,
   gets the most experiments: keep the variant whose images and virtual shot gathers are cleanest
-  (look selection shows each segment's ratio against the threshold).
+  (look selection shows each segment's ratio against the threshold); then sweep the whitening,
+  the normalization and the stacking's nu with it.
 - G2 reads a passive window's correlations (their SNR, usable band and lateral coherence:
   noisy_correlations) and the share of segments its FK selection kept (few_segments_kept): both
   ask for more of the data, a lower threshold. Its share of coherent columns says little on a
@@ -270,10 +286,12 @@ phase velocity v and frequency f.
   curves at the 40 % uncertainty cap and half their points beyond the windows' reach.
 - Where you can do better: a longer length where the images stay as clean (its ladder stops at
   11 receivers); a mute kept on a tie when it lengthens the curves within reach; a mute cutting one
-  side only; the near field from each window's own λmax within its reach; on a passive line,
-  segment lengths and FK bands between its candidates; a score weighing coverage and depth within
-  reach together, as the scorecard does. Each is a hypothesis: test it against PACo's choice on
-  the same windows.
+  side only; the near field from each window's own λmax within its reach; nearer shots for the
+  high frequencies (its distance_max is the reach); on a passive line, segment lengths and FK
+  bands between its candidates; on a passive or passive-active line, the whitening, the
+  normalization and the stacking's nu, which it leaves at the preset's; a score weighing coverage
+  and depth within reach together, as the scorecard does. Each is a hypothesis: test it against
+  PACo's choice on the same windows.
 
 ## Diagnosis
 
@@ -291,7 +309,7 @@ phase velocity v and frequency f.
 - A coherent band much narrower than the usable band: the near field at its low end (the
   near-field distance up), or attenuation at its high end (distance_max down).
 - Curves beyond 3·L at the 40 % cap: the window resolves no such wavelength; a longer window for
-  the depth, or cut the tail.
+  the depth where its images stay as clean, or cut the tail.
 - Many windows failing one way along a stretch: the line's settings, or the site there (a buried
   change, a noise source): look at two images of the stretch before changing the line.
 

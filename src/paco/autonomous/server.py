@@ -266,8 +266,8 @@ def try_settings(
 ) -> list[TextContent | ImageContent]:
     """Each variant tried with the current settings on the same trial windows, judged by G1 to
     G3, scored, the windows gained and lost against the current settings; changes no run. A
-    trial made before is not made again. The experiment goes to the journal. With vision, its
-    variants side by side (look experiment)."""
+    trial made before is not made again. The experiment goes to the journal. With vision, every
+    variant side by side, sheets of the current settings and three (look experiment)."""
     study = _study(profile, ctx)
     line = committing.line_of(study)
     state = committing.line_state(_run_folder(study)) if line is not None else LineState()
