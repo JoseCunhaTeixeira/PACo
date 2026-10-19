@@ -57,9 +57,9 @@ conclusion, when you can see:
   offsets too, bounds the image's fmax; the image's fmin goes lower than where it fades, since
   the phase shift normalizes each frequency.
 - On a passive line there is no shot and no mute: nothing to set on its raw records (the survey
-  names them, for a look at one G1 flags). Its images are set by the windows' and the segments'
-  lengths, chosen from the surface waves' group velocity, then by the FK selection of each
-  window's segments (the curves' manual).
+  names them, for a look at one G1 flags). Its settings follow PAC's passive page: the windows, a
+  filter at most, the interferometry (the segments, their FK selection, the whitening, the
+  normalization, the stacking), then the dispersion image (the curves' manual).
 
 ## Your conclusion
 

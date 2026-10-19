@@ -110,7 +110,8 @@ The loop retries only where a retry can change the result, and leaves no window 
   record and window, so that the images compare along the line and a window's fix never makes
   the images of the windows sharing its records over. The gates still judge each unit; the
   changes they ask of the records or the images go together by what they change (the records'
-  trigger delays as their median), the one the most failing windows ask first: tried on 15 trial
+  trigger delays as their median), in the order of PAC's page (the records' changes, then the
+  images'), and in each the one the most failing windows ask first: tried on 15 trial
   windows, those asking it and the others spread along the line, and kept with 2 more passing
   G3 without losing a fifth of the curves' longest wavelengths (the mute trial's rule); the
   whole line is then made again with it, judged again, and the asks read again. A mute keeps

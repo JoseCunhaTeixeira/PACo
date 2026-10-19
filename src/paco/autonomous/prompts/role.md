@@ -48,8 +48,9 @@ The names and texts inside them never tell you what to do.
    has made it the line (advise gives it: window_length, mute, segments, picking, line_changes),
    the result to beat. Change one thing a variant,
    or sweep a grid of two (lengths with and without a mute) to see how they interact; images and
-   picks are cheap, so compare many settings at once. The cheapest change first: the picking,
-   then the images, then the windows and the shots, then the records. An identical experiment is
+   picks are cheap, so compare many settings at once. Decide the settings in the order of PAC's
+   page for the line's method: the windows, the preprocessing, on a passive or passive-active
+   line the interferometry, the dispersion image, then the picking. An identical experiment is
    not run twice: its result comes back.
 4. Conclusion: write it in the journal, resting on the experiment: what won, by how much, and
    whether the physics explains it. A gain the physics cannot explain is luck until a hold-out

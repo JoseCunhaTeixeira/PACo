@@ -313,15 +313,16 @@ def test_the_workflow_process_pick_redo_invert() -> None:
     # The records G1 left out, whole: 101.dat for its SNR, 117.dat, 133.dat and 165.dat for
     # their traces' coherence.
     assert changed[0] == "101.dat, 117.dat, 133.dat, 165.dat: left out of every window"
-    # The line's rules: the shots' reach, the length as given, the mute trial's cone, the near
-    # field, then the trigger G1 asked, tried and not kept.
+    # The line's rules in the order of PAC's page: the shots' reach, the length as given, the
+    # near field, the mute trial's cone; then the trigger G1 asked, tried and not kept.
     assert changed[1].startswith(
         "line: masw distance_max 57.79 m: beyond it from the shot, the traces' median SNR falls "
         "under 2 dB (G1), so the windows stack no farther shot. masw length 24 for the whole "
         "line, as given: trial windows G3 passed 14/27 at 24 (picks "
     )
-    assert "%). muting mute 134.5 to 302.7 m/s: the mute trial " in changed[1]
-    assert ". near_field distance_m " in changed[1]
+    assert "%). near_field distance_m " in changed[1]
+    assert ". muting mute 134.5 to 302.7 m/s: the mute trial " in changed[1]
+    assert changed[1].index("near_field distance_m") < changed[1].index("muting mute")
     assert changed[1].endswith(
         "Tried for the line, not kept: trigger t0 0.0016 s, asked by 3 windows "
         "(G1:shifted_trigger): 3 of 4 trial windows passing G3 against 3, under 2 more."

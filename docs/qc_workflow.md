@@ -122,13 +122,16 @@ Three steps, the range, the fit and the line (`docs/gates/G7.md`, `G8.md`):
 - No retry: a model gives one soil column per curve. A window G7 or G8 rejects is left out of the sections; its flag says what could change it (another model covering the curve, or the pick).
 
 ## Coherence rules for S2 (checked before running)
+In the order of PAC's page for each method: the windows, the preprocessing, the interferometry
+(passive and passive-active lines), the dispersion image.
 - Window length: one value for the whole profile, so lateral resolution and depth of investigation stay comparable and xmids don't move; proposed by a ladder of trial windows, the agent's to change (`docs/gates/S2_rules.md`).
-- Muting: tried at the line's length on active and passive-active lines (`qc/muting.py`), unless the user gave one; a mute kept only where the images gain (below).
 - Step: 1 receiver by default (every xmid). The records' and the images' settings are the line's, the same for every xmid, as in PAC's pages; the picking and the inversion change per xmid.
+- Offsets: the farthest shot within the reach G1 found; the nearest at least half the trial curves' longest wavelength from the window, against near-field effects, where the window has a farther one.
+- Muting: tried at the line's length on active and passive-active lines (`qc/muting.py`), unless the user gave one; a mute kept only where the images gain (below).
+- Segments (passive lines): their length and FK selection (its threshold, its band open or 80 to 1,500 m/s) tried at the line's length (`docs/gates/S2_rules.md`).
 - Frequency range: fmin >= the records' median fmin_usable from G1; fmax <= min(their median fmax_usable, Nyquist), never widened.
 - Velocity range: vmin and vmax bracket the expected velocities: where a ridge sits on the grid's edge, G2 asks a wider range of the line, which the line loop tries.
 - Frequency step: a step finer than 1/T (T = record length after the mute) only interpolates: no padding before the phase shift.
-- Offsets: the nearest shot at least half the trial curves' longest wavelength from the window, against near-field effects, where the window has a farther one; the farthest within the reach G1 found.
 
 ## Agent side
 Constraints: Qwen3-14B in FP8, a 16,384-token context, one tool call per reply, 15 tool calls per answer; the model sees summaries only, and the tool cards have a measured budget.

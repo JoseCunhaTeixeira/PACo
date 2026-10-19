@@ -3,7 +3,8 @@ window as a person sets them in PAC's pages, changed while a change gives more w
 passes. The gates judge each record (G1) and each window (G2, and G3 on a trial pick of its
 image); the changes they ask of the records or of the images are the line's to make
 (`candidates`): grouped by what they change (the records' trigger delays as their median), each
-tried, the one the most failing windows ask first, on windows spread among those asking it and
+tried in the order of PAC's page (the records' changes, then the images'), and in each the one
+the most failing windows ask first, on windows spread among those asking it and
 the others (`try_candidate`), and kept when it gives `min_gain` more of them a curve G3 passes
 without losing the long wavelengths. paco.qc.line runs the loop and makes the whole line again
 with each change kept; the picking of each window, after it, is the window's own."""
@@ -38,6 +39,8 @@ LINE_CHANGES_FOLDER = "line_trials"  # inside the run folder: a change's trial, 
 LINE_LOOP_FILE = "line_loop.json"
 # The stages whose settings are the line's: the records' and the images'.
 type LineStage = Literal["preprocessing", "phase_shift"]
+# The stages in the order of PAC's page: the preprocessing's card before the dispersion image's.
+STAGES: tuple[LineStage, ...] = ("preprocessing", "phase_shift")
 LINE_STAGES: tuple[LineStage, ...] = ("preprocessing", "phase_shift")
 
 
@@ -154,7 +157,8 @@ def candidates(
 ) -> list[Candidate]:
     """The changes of the line's settings the gates ask (G1's of each record, by the windows
     using it in `uses`; G2's and the trial picks' G3 of each window), those a window whose trial
-    curve failed asks, the one the most failing windows ask first: none that would leave the
+    curve failed asks, in the order of PAC's page (the preprocessing's, then the dispersion
+    image's), and in each the one the most failing windows ask first: none that would leave the
     line's settings (`current`, the preset's values) as they are, touch a setting the user gave
     (`given`), or was `tried`. The records' trigger delays go as one change, their median."""
     failing = {unit for unit in uses if picks.get(unit) is None or picks[unit].verdict != "pass"}
@@ -211,7 +215,10 @@ def candidates(
                 failing=failed,
             )
         )
-    return sorted(found, key=lambda one: (-one.failing, -len(one.windows), one.key))
+    return sorted(
+        found,
+        key=lambda one: (STAGES.index(one.stage), -one.failing, -len(one.windows), one.key),
+    )
 
 
 def _delay(overrides: Mapping[str, Any]) -> float | None:

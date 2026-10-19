@@ -2,12 +2,14 @@
 of settings for the whole line, every record and every window alike, as a person sets them in
 PAC's pages. S1 on every record, G1 judging each (the traces and records it excludes left out of
 the windows), G1 over the line (the receivers off the amplitude decay in most records left out
-of every window), the coherence rules for S2 (the band capped by G1's usable band, the window
-length from the ladder, the shots stacked between the near field and the line's reach), the mute
-trial, S2 on the whole line, G2 on every window, and the line loop (qc.line_loop): the changes
-of the records or the images the gates ask, tried for the line and kept when more windows get a
-curve G3 passes, the whole line made again with each. What run_processing runs; the picking and
-G3, G4 are pick's, each window's own."""
+of every window); then the settings in the order of PAC's page: the windows (the shots stacked
+up to the line's reach, the length from the ladder, the near field from its curves), the
+preprocessing (the mute trial), the interferometry (a passive line's segment trial), the
+dispersion image (its band capped by G1's usable band); S2 on the whole line, G2 on every
+window, and the line loop (qc.line_loop): the changes of the records or the images the gates
+ask, tried for the line and kept when more windows get a curve G3 passes, the whole line made
+again with each. What run_processing runs; the picking and G3, G4 are pick's, each window's
+own."""
 
 import shutil
 import statistics
@@ -192,17 +194,16 @@ def _process(
     records, exclusions, usable = settle_records(
         run_folder, loaded, preset, records, config, reach, fast
     )
-    # The band the records G1 kept share: a rejected record constrains nothing.
+    # The band the records G1 kept share, as first preprocessed: a rejected record constrains
+    # nothing, and a mute, narrowing a record's spectrum, would cut the long wavelengths.
     kept = [band for name, band in usable.items() if name not in exclusions.records]
-    dispersion = (overrides or {}).get("dispersion")
-    band, band_notes = cap_band(
-        preset, kept, loaded.nyquist_hz, dispersion if isinstance(dispersion, Mapping) else None
-    )
+    # The settings in the order of PAC's page: the windows (the farthest shot, the length, the
+    # near field), the preprocessing (the mute), the interferometry (a passive line's segments),
+    # then the dispersion image (its band).
     far, far_notes = far_limit(overrides, reach, config.signal.reach_snr_db)
-    band = deep_merge(band, far)
     choice = choose_length(
         loaded,
-        resolve_preset(apply_overrides(preset, band), loaded),
+        resolve_preset(apply_overrides(preset, far), loaded),
         records,
         run_folder,
         TrialJudge(config.coherence, config.curve, config.picking, config.image),
@@ -210,8 +211,9 @@ def _process(
         given_length(overrides),
         exclusions,
     )
-    changes: dict[str, Any] = deep_merge(band, {"masw": {"length": choice.length}})
+    changes: dict[str, Any] = deep_merge(far, {"masw": {"length": choice.length}})
     preset = resolve_preset(apply_overrides(preset, changes), loaded)
+    near, longest = near_field(overrides, str(mode), choice)
     # The mute trial at the line's length: a mute kept changes the images, never the windows;
     # the records then preprocessed again with it, and judged again by G1.
     mute_notes: tuple[str, ...] = ()
@@ -251,8 +253,14 @@ def _process(
         if picked is not None:
             changes = deep_merge(changes, picked)
             preset = resolve_preset(apply_overrides(preset, picked), loaded)
+    dispersion = (overrides or {}).get("dispersion")
+    band, band_notes = cap_band(
+        preset, kept, loaded.nyquist_hz, dispersion if isinstance(dispersion, Mapping) else None
+    )
+    if band:
+        changes = deep_merge(changes, band)
+        preset = resolve_preset(apply_overrides(preset, band), loaded)
     windows = build_windows(loaded, preset.masw)
-    near, longest = near_field(overrides, str(mode), choice)
     near_notes: tuple[str, ...] = ()
     logged = dict(changes)
     if near is not None and longest is not None:
@@ -301,7 +309,7 @@ def _process(
                 error=outcome.error,
             ),
         )
-    notes = band_notes + far_notes + choice.notes + mute_notes + segment_notes + near_notes
+    notes = far_notes + choice.notes + near_notes + mute_notes + segment_notes + band_notes
     _line_settings(run_folder, logged, notes, started_at)
     judge_images(run_folder, manifest, config, settings, usable)
     settled = settle_line(
@@ -663,8 +671,9 @@ def settle_line(
     reach_m: float | None,
 ) -> SettledLine:
     """The line loop (qc.line_loop) on run `run_id`, its windows imaged and judged by G2: each
-    window's image picked on trial; the changes of the line's settings the gates ask tried, the
-    most failing windows' first, until one is kept; the one kept made on the whole line (its
+    window's image picked on trial; the changes of the line's settings the gates ask tried in
+    the order of PAC's page, the records' then the images', in each the most failing windows'
+    first, until one is kept; the one kept made on the whole line (its
     records preprocessed again with it and judged by G1, for a change of the records; every
     window imaged again and judged by G2), the asks then read again; up to `max_changes` kept.
     The changes tried go to line_loop.json."""

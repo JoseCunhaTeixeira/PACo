@@ -133,8 +133,9 @@ def test_the_ladder_keeps_the_most_precise_length_that_passes(
         "muting": {"method": "mute", "vmin": 134.5, "vmax": 302.7, "width": 0.05, "taper": 20},
         "near_field": {"distance_m": 8.5},
     }
-    # The line loop's tries after the processing's rules.
-    far, note, muted, near = [one for one in line.notes if not one.startswith("Tried for the line")]
+    # In the order of PAC's page, the windows' (the farthest shot, the length, the near field),
+    # then the preprocessing's (the mute); the line loop's tries after them.
+    far, note, near, muted = [one for one in line.notes if not one.startswith("Tried for the line")]
     assert far == (
         "masw distance_max 57.79 m: beyond it from the shot, the traces' median SNR falls under "
         "2 dB (G1), so the windows stack no farther shot."
@@ -178,11 +179,10 @@ def test_a_given_length_is_kept_as_it_is(demo_input_dir: Path, tmp_path: Path) -
     assert line.notes[1].startswith(
         "masw length 32 for the whole line, as given: trial windows G3 passed 1/3 at 32 (picks "
     )
-    # At 32 receivers, the mute trial keeps a mute (its note after the length's); the near field
-    # last of the processing's rules, the line loop's tries after them.
-    assert line.notes[2].startswith("muting mute ")
-    rules = [note for note in line.notes if not note.startswith("Tried for the line")]
-    assert rules[-1].startswith("near_field distance_m ")
+    # At 32 receivers, the mute trial keeps a mute; in the order of PAC's page, the windows'
+    # near field before it, the line loop's tries after them.
+    assert line.notes[2].startswith("near_field distance_m ")
+    assert line.notes[3].startswith("muting mute ")
 
 
 @pytest.mark.slow

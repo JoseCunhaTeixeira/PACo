@@ -10,12 +10,12 @@ phase velocity v and frequency f.
   chooses (advise window_length) and the mute its trial keeps (advise mute), or on a passive line
   its segments (advise segments), with the preset's other settings and the user's. The line then
   starts where the workflow ends, and every experiment runs against it as the current settings.
-- Your first experiment tries against it, on a line with shots, the mute you drew by eye on the
-  survey's gathers, PACo's standard mute (80 to 1,500 m/s) and lengths around PACo's; on a passive
-  line, the windows' and segments' lengths set from the group velocity its first virtual shot
-  gathers show, with an FK band around that velocity. Commit a change only when its images are
-  cleaner by eye, along the whole line and at its ends, and its scores no worse; else PACo's
-  choice stays, and you say why it could not be beaten.
+- Then go through the settings in the order of PAC's page for the line's method: the windows
+  (their length, then the shots' distances), the preprocessing (the mute you drew by eye on the
+  survey's gathers, PACo's standard one), on a passive or passive-active line the interferometry,
+  then the dispersion image. Commit a change only when its images are cleaner by eye, along the
+  whole line and at its ends, and its scores no worse; else PACo's choice stays, and you say why
+  it could not be beaten.
 
 ## Physics
 
@@ -190,19 +190,17 @@ phase velocity v and frequency f.
   or 80 to 1,500 m/s; a candidate counts with 1 % of its segments kept and the virtual shots of its
   two halves agreeing (0.7), and wins by the longest λmax/λmin. On passive_p2, 4.5 s segments with
   FK 0.2 in 80 to 1,500 m/s gave a span of 7.8 against 3.1.
-- On a passive line, choose in this order, from the surface waves' group velocity v_g: the
-  virtual shot gathers show it (the arrival's moveout from the virtual source: look correlations,
-  or each experiment's sheet), the images confirm it (the ridge's velocities where you need them).
-  First the windows' length, by the wavelengths they must resolve (λ = v/f, Δv/v ≈ λ/L, as on an
-  active line). Then the segments' length, long enough for the waves to cross a window many times
-  at v_g (10 to 80 times L/v_g; PACo's trial counts its crossings at 80 m/s, the slowest), which
-  also sets the image's frequency step. Then the FK selection, applied to each window's segments:
-  its velocity band around v_g (vmin and vmax bracketing the surface waves, narrower than 80 to
-  1,500 m/s when the gathers allow) and its threshold (0 to 1, the preset's 0.2: lower keeps more
-  segments and their noise, higher fewer and cleaner, while enough remain to stack). Once the
-  lengths are set, the FK selection gets the most experiments: keep the variant whose images and
-  virtual shot gathers are cleanest (look selection shows each segment's ratio against the
-  threshold). The stacking stays phase-weighted.
+- On a passive line, in the order of PAC's page: the windows' length, by the wavelengths they
+  must resolve (as on an active line); the preprocessing, a filter at most (no mute); then the
+  interferometry in its order: the slicing (the segments' length, long enough for the slowest
+  waves to cross a window many times, which also sets the image's frequency step), the segment
+  selection (the FK threshold, 0 to 1, the preset's 0.2: lower keeps more segments and their
+  noise, higher fewer and cleaner, while enough remain to stack; its velocity band from 80 to
+  1,500 m/s to start, since noise records show no velocity to set it from, then wider, narrower
+  or open), the spectral whitening, the temporal normalization, the correlations' stacking; then
+  the dispersion image. Once the lengths are set, the FK selection, its threshold and its band,
+  gets the most experiments: keep the variant whose images and virtual shot gathers are cleanest
+  (look selection shows each segment's ratio against the threshold).
 - G2 reads a passive window's correlations (their SNR, usable band and lateral coherence:
   noisy_correlations) and the share of segments its FK selection kept (few_segments_kept): both
   ask for more of the data, a lower threshold. Its share of coherent columns says little on a
@@ -260,10 +258,11 @@ phase velocity v and frequency f.
 
 ## PACo's workflow, and where to beat it
 
-- The workflow's order follows what depends on what: the user's settings locked; the cone, the
-  reach (distance_max) and G1 on the records; the band capped at the usable band; the length by
-  the ladder; the mute trial at that length; the near field from that length's curves; then the
-  line loop: the changes the gates ask of the records and images (a mute, a trigger, a velocity
+- The workflow's order: the user's settings locked; the cone, the reach and G1 on the records;
+  then PAC's page in its order: the windows (the farthest shot at the reach, the length by the
+  ladder, the near field from that length's curves), the preprocessing (the mute trial at that
+  length), the interferometry (a passive line's segment trial), the dispersion image (the band
+  capped at the usable band); then the line loop: the changes the gates ask of the records and images (a mute, a trigger, a velocity
   grid), each tried on 15 windows, half asking, and kept with 2 more passing and at most 20 % of
   λmax lost, 4 at most; then each window's picks, G3's retries and G4's guide.
 - Its scores count G3's passes alone, so it keeps short windows with loose picks, and a tie goes
