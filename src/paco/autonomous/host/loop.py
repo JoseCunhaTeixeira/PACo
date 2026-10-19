@@ -246,7 +246,9 @@ class Host:
             spacing = receiver_spacing(load_profile(scope.profile, self._settings))
         except ProfileError:
             return f"There is no profile '{scope.profile}'. {self._profiles()}"
-        study = study_for(scope.profile, self._settings)
+        study, lost = study_for(scope.profile, self._settings)
+        if lost is not None:
+            self._on_event(lost)
         self.study, self.scope, self.request = study, scope, message
         self.meta["study"] = study.id
         # Each window's inversion retries, the effort's (§9): the server refuses past them.

@@ -22,11 +22,12 @@ from paco.autonomous.host import budgets
 from paco.autonomous.host.answer import GeoAnswerForm, report
 from paco.autonomous.host.card import card
 from paco.autonomous.host.loop import CARD, DROPPED, PENDING, Host, Limits
-from paco.autonomous.host.phases import phase_of
+from paco.autonomous.host.phases import phase_of, study_for
 from paco.autonomous.host.scope import BLANK
 from paco.autonomous.tools import journal
+from paco.autonomous.tools.commit import LINE_FILE, Line
 from paco.autonomous.tools.given import given_of
-from paco.autonomous.tools.trials import Study
+from paco.autonomous.tools.trials import STUDIES, Study
 from paco.llm.model import OpenAIChat
 from paco.settings import Settings, get_settings
 
@@ -492,3 +493,21 @@ def test_a_report_with_models_not_decided_sends_the_model_back_once() -> None:
     # Then the models decided, and the report.
     assert phase_of(played.study) == "P5"
     assert f"- models rejected: {ACCEPTED}" in played.answer
+
+
+def test_a_study_whose_run_is_gone_is_not_resumed(paco_env: Settings) -> None:
+    # Its run deleted outside PACo: nothing to go on from. A new study, and why, said once.
+    folder = paco_env.output_dir / "active_test_profile" / STUDIES / "20200101-000000-0000"
+    folder.mkdir(parents=True)
+    line = Line(run_id="20200101-000001-0000", settings={}, commits=())
+    (folder / LINE_FILE).write_text(line.model_dump_json())
+
+    study, said = study_for("active_test_profile", paco_env)
+
+    assert study.folder != folder
+    assert said == (
+        "Study 20200101-000000-0000 cannot go on: its run 20200101-000001-0000 is gone. A new "
+        "study."
+    )
+    again, said_again = study_for("active_test_profile", paco_env)
+    assert (again.folder, said_again) == (study.folder, None)
