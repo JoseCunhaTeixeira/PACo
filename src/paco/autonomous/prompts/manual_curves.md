@@ -10,9 +10,11 @@ phase velocity v and frequency f.
   chooses (advise window_length) and the mute its trial keeps (advise mute), or on a passive line
   its segments (advise segments), with the preset's other settings and the user's. The line then
   starts where the workflow ends, and every experiment runs against it as the current settings.
-- Your first experiment tries against it the mute you drew by eye on the survey's gathers, PACo's
-  standard mute (80 to 1,500 m/s) and lengths around PACo's. Commit a change only when its images
-  are cleaner by eye, along the whole line and at its ends, and its scores no worse; else PACo's
+- Your first experiment tries against it, on a line with shots, the mute you drew by eye on the
+  survey's gathers, PACo's standard mute (80 to 1,500 m/s) and lengths around PACo's; on a passive
+  line, the windows' and segments' lengths set from the group velocity its first virtual shot
+  gathers show, with an FK band around that velocity. Commit a change only when its images are
+  cleaner by eye, along the whole line and at its ends, and its scores no worse; else PACo's
   choice stays, and you say why it could not be beaten.
 
 ## Physics
@@ -188,13 +190,19 @@ phase velocity v and frequency f.
   or 80 to 1,500 m/s; a candidate counts with 1 % of its segments kept and the virtual shots of its
   two halves agreeing (0.7), and wins by the longest λmax/λmin. On passive_p2, 4.5 s segments with
   FK 0.2 in 80 to 1,500 m/s gave a span of 7.8 against 3.1.
-- The FK selection decides whose noise each window stacks, and wins or loses a passive line's
-  images: give it the most experiments. Sweep its threshold (0 to 1, the preset's 0.2: lower keeps
-  more segments and their noise, higher fewer and cleaner, while enough remain to stack) and its
-  velocity band (vmin and vmax: none, 80 to 1,500 m/s, a band around the surface waves the images
-  show), in grids with the windows' length, and keep the variant whose images and virtual shot
-  gathers are cleanest (look selection shows each segment's ratio against the threshold). Then
-  the segments' length, then the window's length; the stacking stays phase-weighted.
+- On a passive line, choose in this order, from the surface waves' group velocity v_g: the
+  virtual shot gathers show it (the arrival's moveout from the virtual source: look correlations,
+  or each experiment's sheet), the images confirm it (the ridge's velocities where you need them).
+  First the windows' length, by the wavelengths they must resolve (λ = v/f, Δv/v ≈ λ/L, as on an
+  active line). Then the segments' length, long enough for the waves to cross a window many times
+  at v_g (10 to 80 times L/v_g; PACo's trial counts its crossings at 80 m/s, the slowest), which
+  also sets the image's frequency step. Then the FK selection, applied to each window's segments:
+  its velocity band around v_g (vmin and vmax bracketing the surface waves, narrower than 80 to
+  1,500 m/s when the gathers allow) and its threshold (0 to 1, the preset's 0.2: lower keeps more
+  segments and their noise, higher fewer and cleaner, while enough remain to stack). Once the
+  lengths are set, the FK selection gets the most experiments: keep the variant whose images and
+  virtual shot gathers are cleanest (look selection shows each segment's ratio against the
+  threshold). The stacking stays phase-weighted.
 - G2 reads a passive window's correlations (their SNR, usable band and lateral coherence:
   noisy_correlations) and the share of segments its FK selection kept (few_segments_kept): both
   ask for more of the data, a lower threshold. Its share of coherent columns says little on a
