@@ -223,6 +223,18 @@ def test_a_setting_given_at_its_value_is_no_change_and_needs_no_reason() -> None
     }
 
 
+def test_a_stages_method_stays_while_its_parameters_change() -> None:
+    # The FK selection kept, its threshold changed: the method goes with it, as the override
+    # needs; the whole stage at its values, no change.
+    passive = make_preset("passive")
+    changes = {"selection": {"method": "fk", "threshold": 0.3}}
+
+    assert committing._unchanged(changes, passive) == set()  # pyright: ignore[reportPrivateUsage]
+    assert committing._unchanged(  # pyright: ignore[reportPrivateUsage]
+        {"selection": {"method": "fk", "threshold": 0.2}}, passive
+    ) == {"selection method", "selection threshold"}
+
+
 def test_a_method_and_its_parameters_take_one_reason() -> None:
     mute = {"muting": {"method": "mute", "vmin": 80, "vmax": 1500}}
     reasons = {"muting vmin": "80 m/s, PACo's", "muting vmax": "1500 m/s, the fast arrivals"}

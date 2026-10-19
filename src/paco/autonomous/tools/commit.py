@@ -508,15 +508,22 @@ def _named(changes: Mapping[str, Any]) -> list[str]:
 
 def _unchanged(changes: Mapping[str, Any], before: Preset) -> set[str]:
     """The settings of `changes` ('<stage> <key>') at the value the line has, its preset's where
-    it set none (`before`, a preset)."""
+    it set none (`before`, a preset). A stage's method stays a change while another of its
+    settings is one: the stage's override names its method."""
     same: set[str] = set()
     for stage, values in changes.items():
         current = getattr(before, stage, None)
         if not isinstance(values, Mapping) or current is None:
             continue
-        for key, value in cast(Mapping[str, Any], values).items():
-            if key in type(current).model_fields and _same(getattr(current, key), value):
-                same.add(f"{stage} {key}")
+        given = cast(Mapping[str, Any], values)
+        kept = {
+            f"{stage} {key}"
+            for key, value in given.items()
+            if key in type(current).model_fields and _same(getattr(current, key), value)
+        }
+        if any(f"{stage} {key}" not in kept for key in given if key != "method"):
+            kept.discard(f"{stage} method")
+        same |= kept
     return same
 
 

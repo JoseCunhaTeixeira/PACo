@@ -60,8 +60,8 @@ REJECTED_CURVES = (
 # The curves accepted, then their models inverted and rejected: the 8 from 74.25 m on.
 ACCEPTED = "xmid 74.25-84.75 (8)"
 # A small context, for the oldest calls to drop out (§7.3): P2's tools, role and manual take
-# about 6,500 tokens of it, past its 60 %.
-CONTEXT = 9_000
+# about 9,200 tokens of it, past its 60 %.
+CONTEXT = 12_000
 
 
 def call(
@@ -256,8 +256,8 @@ def test_a_scripted_conversation_runs_p0_to_p5(played: Played) -> None:
     assert "commit" not in offered[-1]
     assert {"invert", "job_status", "decide"} <= offered[-1]
     assert bodies[0]["messages"][0]["content"].endswith(
-        "the usable band, and the first hypotheses to test. They are where the line's settings "
-        "start from."
+        "the first hypotheses to test, a mute on the surface waves' cone among them on a line with "
+        "shots. They are where the line's settings start from."
     )
     assert all(body["messages"][-1]["content"].startswith(CARD) for body in bodies)
 

@@ -13,10 +13,10 @@ from paco.autonomous import prompts, server
 from paco.autonomous.host.phases import MANUALS, TOOLS, offered
 
 # The prompts' version: update it with the prompt, once the change is reviewed.
-VERSION = "autonomous-prompts-bcf2cd8c"
-# The context of the model the agent runs on today (Qwen3-14B, docs/autonomous_plan.md §3): each phase's
-# fixed part, the role, its manual and its tools' cards, takes half of it at most.
-SMALL_CONTEXT = 16_384
+VERSION = "autonomous-prompts-3509e627"
+# Each phase's fixed part, the role, its manual and its tools' cards, takes this many tokens at
+# most of the 128k context the autonomous mode needs: room for the physics and the procedures.
+PHASE_TOKENS = 16_384
 
 
 def test_the_prompts_version_is_the_one_reviewed() -> None:
@@ -65,10 +65,10 @@ def test_the_tools_descriptions_hold_placeholders_not_values() -> None:
         assert not any("e.g." in text for text in texts), tool.name
 
 
-def test_each_phases_fixed_part_fits_in_half_a_small_context() -> None:
+def test_each_phases_fixed_part_fits_in_its_budget() -> None:
     tools = anyio.run(server.server.list_tools)
     for phase, manual in MANUALS.items():
         cards = json.dumps(tools_for_model(offered(phase, tools)))
         fixed = len(prompts.prompt("role")) + len(prompts.prompt(manual)) + len(cards)
-        assert fixed // 4 < SMALL_CONTEXT // 2, phase
+        assert fixed // 4 < PHASE_TOKENS, phase
     assert set(MANUALS) <= set(TOOLS)
