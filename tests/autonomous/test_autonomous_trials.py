@@ -1,7 +1,8 @@
 """Trials (docs/autonomous_plan.md §6 try_settings, §13 M3): variants of the line's settings tried on its
 windows and scored, each made once; their images given back by the cache when the line is imaged
-with their settings; and the trial sets."""
+with their settings; the trial sets; and an experiment's variants looked at side by side."""
 
+import json
 from collections.abc import Iterator
 from dataclasses import dataclass
 from pathlib import Path
@@ -12,6 +13,7 @@ from sigpipe.masw.profiles import load_profile
 from sigpipe.masw.windows import MASWWindow
 
 from paco.autonomous.tools import trials
+from paco.autonomous.tools.look import look_experiment
 from paco.autonomous.tools.trials import (
     At,
     Experiment,
@@ -324,6 +326,39 @@ def test_a_change_of_shots_remakes_the_windows_whose_shots_it_changes(made: Made
         (21.75, True),
         (23.25, False),
     ]
+
+
+@pytest.mark.slow
+def test_an_experiment_seen_side_by_side(made: Made) -> None:
+    seen = look_experiment(made.study, "E1", vision=True)
+    chosen = look_experiment(made.study, "E1:current,2", vision=True)
+    blind = look_experiment(made.study, "E1:current,1", vision=False)
+
+    # The current settings and its three variants, at the trial set's three windows: none of them
+    # overlaps another, the longest variant's neither (32 receivers, 46.5 m).
+    assert seen.text.startswith("E1 side by side, by row: current; ")
+    assert all(json.dumps(change) in seen.text for change in VARIANTS)
+    assert "at the windows nearest 17.25, 71.25, 125.25 m, where their image" in seen.text
+    assert chosen.text.startswith(
+        'E1 side by side, by row: current; 2 {"near_field_m": 1.0}; at the windows nearest '
+    )
+    # An active line: its images alone, each with the pick its trial made and kept.
+    assert [len(one.figures) for one in (seen, chosen)] == [1, 1]
+    assert seen.figures[0].startswith(b"\x89PNG")
+    trial = made.study.folder / "trials" / made.first.tried[0].trial
+    assert len(list(trial.glob("xmid_*/DispersionCurves_0000.csv"))) == 3
+    # Each variant's window nearest each column: the longer one's are elsewhere.
+    lines = blind.text.splitlines()
+    assert lines[0] == "E1 at 17.25, 71.25, 125.25 m, the panels' measures (vision is off):"
+    assert lines[1].startswith("- current: 17.25 m: image ")
+    assert lines[2].startswith("- 1: 23.25 m: image ")
+    for where, said in (
+        ("E9", "No experiment 'E9' in this study"),
+        ("E1:7", "No variant 7 in E1: current, 1, 2, 3"),
+        ("E1:current,1,2,3,1", "At most 4 variants side by side"),
+    ):
+        with pytest.raises(ValueError, match=said):
+            look_experiment(made.study, where, vision=True)
 
 
 def _run(study: Study, key: str) -> TrialRun:

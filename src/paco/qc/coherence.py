@@ -14,6 +14,7 @@ from typing import Any, cast
 import numpy as np
 from pydantic import BaseModel, ConfigDict, Field
 from sigpipe.algorithms.picking.dispersion.tracking import PickingParameters, pick_modes
+from sigpipe.base.dispersion_curve import DispersionCurve
 from sigpipe.masw.presets import ActivePreset, PassivePreset, apply_overrides, resolve_preset
 from sigpipe.masw.profiles import Profile
 from sigpipe.masw.runs import RecordOutcome, RunError, WindowOutcome, load_image
@@ -489,13 +490,21 @@ def trial_pick(window_folder: Path, judge: TrialJudge, mutable: bool) -> GateRes
     """G3 on a pick of the image in `window_folder` with the trials' picking, the curve kept in
     memory: how a trial judges a window (`mutable`: whether a mute of the line is there to try,
     which a flag only a mute fixes asks)."""
+    return trial_curve(window_folder, judge, mutable)[0]
+
+
+def trial_curve(
+    window_folder: Path, judge: TrialJudge, mutable: bool
+) -> tuple[GateResult, DispersionCurve | None]:
+    """trial_pick's G3, and the M0 curve it judged: None when the image holds none."""
     image = load_image(window_folder)
     modes = pick_modes(image, judge.picking)
     m0 = modes[0] if modes else None
     offset = nearest_offset(window_folder)
-    return judge_curve(
+    result = judge_curve(
         window_folder.name, image, m0, judge.curve, None, judge.picking, offset, mutable
     )
+    return result, m0.curve if m0 is not None else None
 
 
 def _medians(ranges: Sequence[tuple[float, float]]) -> tuple[float, float] | None:

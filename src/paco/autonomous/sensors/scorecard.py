@@ -104,18 +104,15 @@ def scorecard(
     images = g2 or {}
     measured = {
         xmid: (
-            _measure(images.get(xmid), "coherent_columns"),
-            _measure(images.get(xmid), "lateral_coherence"),
-            _measure(g3[xmid], "on_data"),
-            _measure(images.get(xmid), "background"),
+            measure(images.get(xmid), "coherent_columns"),
+            measure(images.get(xmid), "lateral_coherence"),
+            measure(g3[xmid], "on_data"),
+            measure(images.get(xmid), "background"),
         )
         for xmid in g3
     }
     scores = [
-        score
-        for coherent, lateral, on_ridge, level in measured.values()
-        if (score := _mean((coherent, lateral, on_ridge, 1 - level if level is not None else None)))
-        is not None
+        score for xmid in g3 if (score := window_image(images.get(xmid), g3[xmid])) is not None
     ]
     return Scorecard(
         windows=tuple(sorted(g3)),
@@ -144,11 +141,25 @@ def scorecard(
         lateral=median_known(values[1] for values in measured.values()),
         on_ridge=median_known(values[2] for values in measured.values()),
         background=median_known(values[3] for values in measured.values()),
-        stripes=median_known(_measure(images.get(xmid), "stripes") for xmid in g3),
+        stripes=median_known(measure(images.get(xmid), "stripes") for xmid in g3),
     )
 
 
-def _measure(result: GateResult | None, name: str) -> float | None:
+def window_image(g2: GateResult | None, g3: GateResult | None) -> float | None:
+    """A window's image score: the mean of G2's share of coherent columns and lateral coherence,
+    G3's share of the pick on the ridge, and one less G2's background; None when none is known."""
+    level = measure(g2, "background")
+    return _mean(
+        (
+            measure(g2, "coherent_columns"),
+            measure(g2, "lateral_coherence"),
+            measure(g3, "on_data"),
+            1 - level if level is not None else None,
+        )
+    )
+
+
+def measure(result: GateResult | None, name: str) -> float | None:
     """The value of `result`'s measure `name`, when it has one."""
     if result is None:
         return None

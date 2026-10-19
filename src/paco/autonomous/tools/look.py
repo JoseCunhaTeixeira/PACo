@@ -1,28 +1,39 @@
-"""look (docs/autonomous_plan.md §6): figures of the committed line, for a model with vision. A record's
-gather or spectra, as its preprocessing and G1 drew them; a window's dispersion image with its pick
-and the wavelengths that bound what it resolves (twice the receiver spacing, under which a ridge may
-be an alias; three window lengths, its reach); a sheet of up to 12 windows' images; a window's
-model, as PAC's inversion card draws it: its Vs profile with the curves' density, its fit on the
-image, its marginals, its chains. A passive or passive-active window's stacked correlations (its
-virtual shot gather), and a passive window's FK selection of its segments. Without vision, a
-window's ridge table stands in its image's stead, G1's measures in a record's, G2's in its
-correlations', the selection's counts in its figure's, and the model's measures (G5's) in its
-figures'."""
+"""look (docs/autonomous_plan.md §6): figures for a model with vision, of the committed line, of an
+experiment's variants, and before the line's first commit of the survey's raw records. A record's
+gather or spectra, as its preprocessing and G1 drew them, a mute's window or velocities from the
+shot drawn on a gather on request; a window's dispersion image with its pick and the wavelengths
+that bound what it resolves (twice the receiver spacing, under which a ridge may be an alias; three
+window lengths, its reach); a sheet of up to 12 windows' images; up to 4 variants of an experiment
+side by side, their images and picks at the same windows, and on a passive or passive-active line
+their stacked correlations; a window's model, as PAC's inversion card draws it: its Vs profile with
+the curves' density, its fit on the image, its marginals, its chains. A passive or passive-active
+window's stacked correlations (its virtual shot gather), and a passive window's FK selection of its
+segments. Without vision, a window's ridge table stands in its image's stead, G1's measures in a
+record's, G2's in its correlations', the selection's counts in its figure's, the panels' measures
+in an experiment's, and the model's measures (G5's) in its figures'."""
 
 import io
+import json
+from collections.abc import Callable, Sequence
 from dataclasses import dataclass
+from itertools import product
 from pathlib import Path
-from typing import Literal
+from typing import Any, Literal
 
+import matplotlib.pyplot as plt
 import numpy as np
 from matplotlib.axes import Axes
 from matplotlib.figure import Figure
+from pydantic import BaseModel, ConfigDict, Field
 from sigpipe.algorithms.picking.dispersion.curve import (
     longest_reached_wavelength,
     min_resolvable_wavelength,
 )
 from sigpipe.base.dispersion_image import DispersionImage
+from sigpipe.base.stream import Stream
 from sigpipe.dataio.selection_plotting import load_selection
+from sigpipe.dataio.stream.loading import load_stream
+from sigpipe.dataio.stream.plotting import draw_stream, plot_stream
 from sigpipe.masw.inversion.measuring import BandFit, InversionMeasures
 from sigpipe.masw.inversion.window import (
     CHAINS_FIGURE,
@@ -31,14 +42,27 @@ from sigpipe.masw.inversion.window import (
     WINDOW_FIGURE,
 )
 from sigpipe.masw.picks import CURVES_FILE
-from sigpipe.masw.runs import RunManifest, load_image
+from sigpipe.masw.runs import RunError, RunManifest, load_image, xmid_of
 
 from paco.autonomous.sensors.ridges import format_ridge_table, ridge_table
+from paco.autonomous.sensors.scorecard import measure, window_image
 from paco.autonomous.tools.observe import describe_result
+from paco.autonomous.tools.survey import SAVED, SURVEY, Survey
+from paco.autonomous.tools.trials import (
+    EXPERIMENTS,
+    RESULT,
+    TRIALS,
+    Experiment,
+    Study,
+    TrialRun,
+    Tried,
+    WindowResult,
+)
 from paco.qc.coherence import trial_indices
 from paco.qc.inverting import MEASURES_FILE
-from paco.qc.judging import saved_m0
+from paco.qc.judging import CORRELATION_MODES, saved_m0
 from paco.qc.log import latest, read_attempts
+from paco.qc.muting import MuteRules
 
 type What = Literal[
     "gather",
@@ -47,6 +71,7 @@ type What = Literal[
     "correlations",
     "selection",
     "sheet",
+    "experiment",
     "profile",
     "fit",
     "marginals",
@@ -55,6 +80,9 @@ type What = Literal[
 # The most windows a sheet shows, and the figures' resolution.
 SHEET = 12
 DPI = 90
+# An experiment's sheet: up to 4 variants (rows), at up to 4 windows (columns).
+ROWS = 4
+COLUMNS = 4
 # A record's figures, as its preprocessing (the gather) and G1 (its spectra) drew them.
 RECORD_FIGURES = {"gather": "Stream_0000.png", "spectra": "Spectrum_0000.png"}
 # A passive or passive-active window's figures, as its processing drew them: its stacked
@@ -69,6 +97,18 @@ MODEL_FIGURES = {
 }
 
 
+class Mute(BaseModel):
+    """A mute to draw on a gather: it keeps from x/vmax to x/vmin plus its width (x the offset)."""
+
+    model_config = ConfigDict(frozen=True, extra="forbid")
+
+    vmin: float = Field(gt=0, description="m/s: its slow edge.")
+    vmax: float = Field(gt=0, description="m/s: its fast edge.")
+    width: float | None = Field(
+        default=None, ge=0, description="s kept after the slow edge, the wave train's tail."
+    )
+
+
 @dataclass(frozen=True)
 class Seen:
     """What look gives: its text, and its figures as PNG files."""
@@ -77,13 +117,36 @@ class Seen:
     figures: tuple[bytes, ...] = ()
 
 
-def look(run_folder: Path, what: What, where: str, vision: bool) -> Seen:
+def look(
+    run_folder: Path,
+    what: What,
+    where: str,
+    vision: bool,
+    mute: Mute | None = None,
+    velocities: Sequence[float] = (),
+) -> Seen:
     """`what` of the run in `run_folder`: a record's (`where`, its file's name) gather or
-    spectra; a window's image (`where`, its xmid, m); a sheet of the windows `where` names
-    (`a-b`, m). Without `vision`, text in the figures' stead."""
+    spectra, `mute` or `velocities` drawn on a gather; a window's image (`where`, its xmid, m);
+    a sheet of the windows `where` names (`a-b`, m). Without `vision`, text in the figures'
+    stead."""
     manifest = RunManifest.model_validate_json((run_folder / "run.json").read_text())
     if what in RECORD_FIGURES:
-        return _record(run_folder, manifest, what, where, vision)
+        record = next((one for one in manifest.records if one.name == where), None)
+        if record is None:
+            names = ", ".join(one.name for one in manifest.records)
+            raise ValueError(f"No record '{where}' on this run: {names}.")
+        shots = str(manifest.preset.mode) != "passive"
+        return _record(
+            run_folder,
+            run_folder / record.folder,
+            record.name,
+            what,
+            vision,
+            mute,
+            velocities,
+            shots,
+            raw=False,
+        )
     folders = [window.folder for window in manifest.windows if window.status == "succeeded"]
     if not folders:
         raise ValueError("The run has no window with an image.")
@@ -105,7 +168,7 @@ def look(run_folder: Path, what: What, where: str, vision: bool) -> Seen:
                 f"{folder}, its image as a ridge table{where_said} (vision is off):\n{table}"
             )
         figure = Figure(figsize=(5, 4), dpi=DPI)
-        _draw(figure.add_subplot(), image, run_folder / folder, folder)
+        draw_image(figure.add_subplot(), image, run_folder / folder, folder)
         return Seen(
             f"{folder}: its dispersion image, its pick, and λ = 2·dx and 3·L.", (_png(figure),)
         )
@@ -122,7 +185,7 @@ def look(run_folder: Path, what: What, where: str, vision: bool) -> Seen:
     rows = (len(shown) + 3) // 4
     figure = Figure(figsize=(12, 2.6 * rows), dpi=DPI, layout="constrained")
     for index, folder in enumerate(shown):
-        _draw(
+        draw_image(
             figure.add_subplot(rows, 4, index + 1),
             load_image(run_folder / folder),
             run_folder / folder,
@@ -163,21 +226,296 @@ def _window(run_folder: Path, manifest: RunManifest, folder: str, what: What, vi
     )
 
 
-def _record(run_folder: Path, manifest: RunManifest, what: What, where: str, vision: bool) -> Seen:
-    """A record's gather or spectra; G1's measures without vision."""
-    record = next((one for one in manifest.records if one.name == where), None)
-    if record is None:
-        names = ", ".join(one.name for one in manifest.records)
-        raise ValueError(f"No record '{where}' on this run: {names}.")
+def look_survey(
+    study: Study,
+    what: What,
+    where: str,
+    vision: bool,
+    mute: Mute | None = None,
+    velocities: Sequence[float] = (),
+) -> Seen:
+    """A raw record of `study`'s survey, unmuted and unfiltered (`where`, the record's file
+    name): its gather or spectra as the survey drew them, `mute` or `velocities` drawn on a
+    gather; G1's measures without vision."""
+    if what not in RECORD_FIGURES:
+        raise ValueError(
+            "Before the first commit, look shows the survey's raw records: their gather or "
+            "spectra. A window's figures come with the line."
+        )
+    saved = study.folder / SAVED
+    if not saved.exists():
+        raise RunError("No survey yet in this study: call survey first.")
+    shots = Survey.model_validate_json(saved.read_text()).kind != "passive"
+    survey = study.folder / SURVEY
+    folders = sorted(path.name for path in (survey / "records").iterdir() if path.is_dir())
+    stem = Path(where).stem
+    if stem not in folders:
+        raise ValueError(f"No record '{where}' in the survey: {', '.join(folders)}.")
+    attempts = read_attempts(survey)
+    name = next((one.unit for one in attempts if Path(one.unit).stem == stem), where)
+    folder = survey / "records" / stem
+    return _record(survey, folder, name, what, vision, mute, velocities, shots, raw=True)
+
+
+def _record(
+    log_folder: Path,
+    folder: Path,
+    name: str,
+    what: What,
+    vision: bool,
+    mute: Mute | None,
+    velocities: Sequence[float],
+    shots: bool,
+    *,
+    raw: bool,
+) -> Seen:
+    """A record's gather or spectra (its figures in `folder`, its G1 in `log_folder`'s log; `raw`
+    when unmuted and unfiltered), a mute or velocities drawn on a gather, a line with `shots`;
+    G1's measures without vision."""
+    if (mute is not None or velocities) and not shots:
+        raise ValueError("A passive line's records have no shot: no mute or velocities to draw.")
     if not vision:
-        attempt = latest(read_attempts(run_folder), record.name, "preprocessing")
+        attempt = latest(read_attempts(log_folder), name, "preprocessing")
         result = attempt.results.get("G1") if attempt is not None else None
-        said = describe_result(record.name, result) if result is not None else "not judged yet"
-        return Seen(f"{record.name}, G1's measures in its {what}'s stead (vision is off): {said}")
-    path = run_folder / record.folder / RECORD_FIGURES[what]
+        said = describe_result(name, result) if result is not None else "not judged yet"
+        return Seen(f"{name}, G1's measures in its {what}'s stead (vision is off): {said}")
+    whose = "its raw" if raw else "its"
+    if what == "gather" and (mute is not None or velocities):
+        return _drawn(folder, f"{name}: {whose} gather", mute, velocities)
+    if mute is not None or velocities:
+        raise ValueError("A mute or velocities are drawn on a gather, not on spectra.")
+    path = folder / RECORD_FIGURES[what]
     if not path.exists():
-        raise ValueError(f"{record.name} has no {what} drawn.")
-    return Seen(f"{record.name}: its {what}.", (path.read_bytes(),))
+        raise ValueError(f"{name} has no {what} drawn.")
+    return Seen(f"{name}: {whose} {what}.", (path.read_bytes(),))
+
+
+def _drawn(folder: Path, said: str, mute: Mute | None, velocities: Sequence[float]) -> Seen:
+    """A record's gather as sigpipe draws it (`said`, what it is), with lines from its shot
+    (draw_lines)."""
+    (stream,) = load_stream([folder / RECORD_FIGURES["gather"]])
+    figure = plot_stream(stream)
+    lines = draw_lines(figure.axes[0], stream, mute, velocities)
+    png = _png(figure)
+    plt.close(figure)
+    return Seen(f"{said}, {'; '.join(lines)}.", (png,))
+
+
+def draw_lines(
+    axes: Axes, stream: Stream, mute: Mute | None, velocities: Sequence[float]
+) -> list[str]:
+    """On `axes`, which hold `stream`'s gather, lines from its shot, t = |x - x_shot| / v:
+    `velocities` dashed, and `mute`'s window solid, from x/vmax to x/vmin plus its width (PACo's
+    when it gives none), the time shown down to half again the window's end; what they are, in
+    words."""
+    source = stream.acquisition.source.x
+    xs = np.array([receiver.x for receiver in stream.acquisition.receivers], dtype=float)
+    span = np.linspace(min(float(xs.min()), source), max(float(xs.max()), source), 200)
+    offsets = np.abs(span - source)
+    said: list[str] = []
+    if mute is not None:
+        width = mute.width if mute.width is not None else MuteRules().width_s
+        last = offsets / mute.vmin + width
+        axes.plot(span, offsets / mute.vmax, color="red", linewidth=1.0)
+        axes.plot(span, last, color="red", linewidth=1.0)
+        axes.set_ylim(min(1.5 * float(last.max()), float(stream.ts[-1])), float(stream.ts[0]))
+        said.append(
+            f"the mute's window in red, from x/{mute.vmax:g} to x/{mute.vmin:g} + {width:g} s"
+        )
+    for velocity in velocities:
+        axes.plot(span, offsets / velocity, "--", color="#2a78d6", linewidth=0.9)
+    if velocities:
+        speeds = ", ".join(f"{velocity:g} m/s" for velocity in velocities)
+        said.append(f"lines from the shot at {speeds} in blue, dashed")
+    return said
+
+
+@dataclass(frozen=True)
+class _Row:
+    """A variant on an experiment's sheet: its changes, its windows' length, m, and its windows
+    with an image (their folder and results), by xmid."""
+
+    label: str
+    changes: dict[str, Any]
+    mode: str
+    length_m: float
+    windows: dict[float, tuple[Path, WindowResult]]
+
+    def at(self, position: float) -> tuple[float, Path, WindowResult] | None:
+        """Its window nearest `position`, m: its xmid, folder and results."""
+        if not self.windows:
+            return None
+        xmid = min(self.windows, key=lambda one: abs(one - position))
+        return (xmid, *self.windows[xmid])
+
+    def score(self, position: float) -> float | None:
+        """The image score of its window nearest `position`."""
+        found = self.at(position)
+        return window_image(found[2].g2, found[2].g3) if found is not None else None
+
+
+type Panel = Callable[[Axes, str, float, Path, WindowResult], None]
+
+
+def look_experiment(study: Study, where: str, vision: bool) -> Seen:
+    """Experiment `where` (E<n>) side by side: its current settings and the three variants with
+    the best images, or the variants named after a colon (up to 4, the current settings
+    `current`); their images and picks at the windows where their image scores differ most, then
+    spread along the line, none overlapping another; on a passive or passive-active line their
+    stacked correlations at the same windows. Without vision, the panels' measures."""
+    name, _, named = where.partition(":")
+    path = study.folder / EXPERIMENTS / f"{name.strip()}.json"
+    if not path.exists():
+        raise ValueError(f"No experiment '{name.strip()}' in this study: where is E<n>[:labels].")
+    experiment = Experiment.model_validate_json(path.read_text())
+    tried = {one.label: one for one in experiment.tried}
+    labels = [label.strip() for label in named.split(",")] if named else _best(experiment)
+    unknown = [label for label in labels if label not in tried]
+    if unknown:
+        raise ValueError(f"No variant {', '.join(unknown)} in {experiment.id}: {', '.join(tried)}.")
+    if len(labels) > ROWS:
+        raise ValueError(f"At most {ROWS} variants side by side.")
+    rows = [_row(study, tried[label]) for label in labels]
+    columns = _columns(experiment.xmids, rows, max(row.length_m for row in rows))
+    at = ", ".join(f"{xmid:g}" for xmid in columns)
+    if not vision:
+        lines = [f"{experiment.id} at {at} m, the panels' measures (vision is off):"]
+        lines += [f"- {row.label}: {_measured(row, columns)}" for row in rows]
+        return Seen("\n".join(lines))
+    figures = [_sheet(rows, columns, _image_panel)]
+    said = "; ".join(
+        f"{row.label} {json.dumps(row.changes)}" if row.changes else row.label for row in rows
+    )
+    text = (
+        f"{experiment.id} side by side, by row: {said}; at the windows nearest {at} m, where their "
+        "image scores differ most. Each image with its automatic pick (white dots), λ = 2·dx "
+        "(dashed) and 3·L (dotted) in red"
+    )
+    correlated = [row for row in rows if row.mode in CORRELATION_MODES]
+    if correlated:
+        figures.append(_sheet(correlated, columns, _correlations_panel))
+        labels = ", ".join(row.label for row in correlated)
+        text += f"; then the stacked correlations of {labels} there, their virtual shot gathers"
+    return Seen(f"{text}.", tuple(figures))
+
+
+def _best(experiment: Experiment) -> list[str]:
+    """The current settings, and three variants: those no other dominates first (a short window's
+    smeared image can score well, not its depth), each by its image score."""
+    ranked = sorted(
+        experiment.tried[1:],
+        key=lambda one: (one.dominated_by is not None, -(one.scorecard.image or 0.0)),
+    )
+    return ["current", *(one.label for one in ranked[: ROWS - 1])]
+
+
+def _row(study: Study, tried: Tried) -> _Row:
+    """`tried`'s trial as a sheet's row."""
+    folder = study.folder / TRIALS / tried.trial
+    run = TrialRun.model_validate_json((folder / RESULT).read_text())
+    found = {xmid_of(path.name): path for path in folder.glob("xmid_*")}
+    windows = {
+        result.xmid: (found[result.xmid], result)
+        for result in run.windows
+        if result.error is None and result.xmid in found
+    }
+    return _Row(tried.label, tried.changes, run.mode, run.length_m, windows)
+
+
+def _columns(xmids: Sequence[float], rows: Sequence[_Row], length_m: float) -> list[float]:
+    """Up to COLUMNS of `xmids`: where `rows`' image scores differ most, then spread along the
+    line, none within `length_m` of another (their windows would overlap); in order along it."""
+
+    def spread(xmid: float) -> float:
+        scores = [score for row in rows if (score := row.score(xmid)) is not None]
+        return max(scores) - min(scores) if len(scores) > 1 else 0.0
+
+    differing = sorted((xmid for xmid in xmids if spread(xmid) > 0), key=spread, reverse=True)
+    even = [xmids[index] for index in trial_indices(len(xmids), COLUMNS)]
+    chosen: list[float] = []
+    for xmid in [*differing, *even]:
+        if len(chosen) < COLUMNS and all(abs(xmid - other) >= length_m for other in chosen):
+            chosen.append(xmid)
+    return sorted(chosen)
+
+
+def _measured(row: _Row, columns: Sequence[float]) -> str:
+    """`row`'s panels in words: each window's image score, background and G3 verdict."""
+    cells = []
+    for position in columns:
+        found = row.at(position)
+        if found is None:
+            cells.append(f"no image near {position:g} m")
+            continue
+        xmid, _, result = found
+        verdict = result.g3.verdict if result.g3 is not None else "no pick"
+        cells.append(f"{xmid:g} m: {_scored(result)}, G3 {verdict}")
+    return "; ".join(cells)
+
+
+def _scored(result: WindowResult) -> str:
+    """A window's image score and background, as known."""
+    score = window_image(result.g2, result.g3)
+    level = measure(result.g2, "background")
+    said = f"image {score:.2f}" if score is not None else "no image score"
+    return f"{said}, background {level:.2f}" if level is not None else said
+
+
+def _sheet(rows: Sequence[_Row], columns: Sequence[float], panel: Panel) -> bytes:
+    """A figure of `rows` by `columns`, each panel drawn by `panel`."""
+    figure = Figure(figsize=(3.2 * len(columns), 2.7 * len(rows)), dpi=DPI, layout="constrained")
+    for index, (row, position) in enumerate(product(rows, columns)):
+        axes = figure.add_subplot(len(rows), len(columns), index + 1)
+        found = row.at(position)
+        if found is None:
+            axes.set_axis_off()
+            axes.set_title(f"{row.label}: no image near {position:g} m", fontsize=8)
+            continue
+        panel(axes, row.label, *found)
+    return _png(figure)
+
+
+def _image_panel(axes: Axes, label: str, xmid: float, folder: Path, result: WindowResult) -> None:
+    title = f"{label}, {xmid:g} m: {_scored(result)}"
+    draw_image(axes, load_image(folder), folder, title, legend=False)
+
+
+def _correlations_panel(
+    axes: Axes, label: str, xmid: float, folder: Path, result: WindowResult
+) -> None:
+    """A window's stacked correlations (draw_correlations), with G2's lateral coherence and SNR
+    of them."""
+    path = folder / WINDOW_FIGURES["correlations"]
+    if path.exists():
+        draw_correlations(axes, load_stream([path])[0])
+    else:
+        axes.set_axis_off()
+    measures = [
+        f"{said} {value:.{digits}f}"
+        for said, value, digits in (
+            ("lateral", measure(result.g2, "lateral_coherence"), 2),
+            ("SNR dB", measure(result.g2, "snr_db"), 0),
+        )
+        if value is not None
+    ]
+    axes.set_title(f"{label}, {xmid:g} m: {', '.join(measures) or 'no measure'}", fontsize=8)
+
+
+def draw_correlations(axes: Axes, stream: Stream) -> None:
+    """A window's stacked correlations, its virtual shot gather, on `axes`: down to half again the
+    time by which 99 % of their energy has arrived."""
+    draw_stream(axes, stream)
+    axes.set_ylim(min(1.5 * _arrived(stream), float(stream.ts[-1])), float(stream.ts[0]))
+
+
+def _arrived(stream: Stream) -> float:
+    """The time by which 99 % of `stream`'s energy has arrived, each trace scaled to its peak: a
+    clean gather's arrivals come early, noise fills the whole of it."""
+    xt = np.asarray(stream.xt, dtype=float)
+    xt = xt / (np.max(np.abs(xt), axis=1, keepdims=True) + 1e-12)
+    energy = np.cumsum(np.sum(xt**2, axis=0))
+    index = int(np.searchsorted(energy, 0.99 * energy[-1]))
+    return float(stream.ts[min(index, len(stream.ts) - 1)])
 
 
 def _model(run_folder: Path, folder: str, what: What, vision: bool) -> Seen:
@@ -232,9 +570,12 @@ def _misfit(value: float | None) -> str:
     return f"{value:.2g}" if value is not None else "no mode"
 
 
-def _draw(axes: Axes, image: DispersionImage, folder: Path, title: str) -> None:
+def draw_image(
+    axes: Axes, image: DispersionImage, folder: Path, title: str, legend: bool = True
+) -> None:
     """A window's dispersion image on `axes`, with its saved pick and the lines λ = 2·dx (under
-    it, the aliasing zone) and λ = 3·L (beyond it, the window's reach)."""
+    it, the aliasing zone) and λ = 3·L (beyond it, the window's reach); their legend unless
+    the text says them."""
     fs, vs = image.fs, image.vs
     axes.pcolormesh(fs, vs, image.fv_map.T, shading="auto", cmap="viridis", vmin=0.0, vmax=1.0)
     curve = saved_m0(folder / CURVES_FILE)
@@ -259,7 +600,8 @@ def _draw(axes: Axes, image: DispersionImage, folder: Path, title: str) -> None:
     axes.set_ylabel("phase velocity (m/s)", fontsize=8)
     axes.set_title(title, fontsize=8)
     axes.tick_params(labelsize=7)
-    axes.legend(fontsize=6, loc="upper right")
+    if legend:
+        axes.legend(fontsize=6, loc="upper right")
 
 
 def _png(figure: Figure) -> bytes:

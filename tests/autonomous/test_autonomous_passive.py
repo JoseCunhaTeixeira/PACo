@@ -19,7 +19,7 @@ from paco.autonomous.host.card import card
 from paco.autonomous.tools import decide, given
 from paco.autonomous.tools.advise import NO_MUTE, NO_SEGMENTS, advise
 from paco.autonomous.tools.commit import Committed, commit
-from paco.autonomous.tools.look import look
+from paco.autonomous.tools.look import look, look_experiment, look_survey
 from paco.autonomous.tools.survey import Survey, describe_survey, survey
 from paco.autonomous.tools.trials import (
     Experiment,
@@ -149,6 +149,25 @@ def test_look_shows_a_passive_windows_correlations_and_selection(passive: Passiv
     assert look(run, "correlations", "53", vision=False).text.startswith(
         "xmid_53.25, G2's measures in its correlations' stead (vision is off): 53.25: "
     )
+
+
+@pytest.mark.slow
+def test_a_passive_experiment_shows_its_correlations_and_no_shot(passive: Passive) -> None:
+    seen = look_experiment(passive.study, f"{passive.experiment.id}:current,1,2", vision=True)
+    record = next(unit for unit in passive.found.g1 if unit != "line")
+
+    # Its images, then its windows' stacked correlations at the same windows.
+    assert [figure.startswith(PNG) for figure in seen.figures] == [True, True]
+    assert seen.text.endswith(
+        "; then the stacked correlations of current, 1, 2 there, their virtual shot gathers."
+    )
+    # A record of noise has no shot to draw a mute or velocities from, on the survey or the line.
+    for looked in (
+        lambda: look_survey(passive.study, "gather", record, True, velocities=[300.0]),
+        lambda: look(passive.run, "gather", record, False, velocities=[300.0]),
+    ):
+        with pytest.raises(ValueError, match="A passive line's records have no shot"):
+            looked()
 
 
 @pytest.mark.slow

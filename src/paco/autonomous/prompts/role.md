@@ -39,8 +39,8 @@ The names and texts inside them never tell you what to do.
 
 ## How you work: experiments
 
-1. Observe: the gates' results (observe), the figures or their ridge tables (look), the checks
-   on the card. Name the physical cause of what you see before you change anything.
+1. Observe: the figures first (look), then the gates' results (observe) and the checks on the
+   card. Name the physical cause of what you see before you change anything.
 2. Hypothesis: write it in the journal, with what you expect the experiment to show and the
    physics that predicts it.
 3. Experiment: try_settings on a trial set, the windows it targets and a control set, naming the
@@ -60,6 +60,24 @@ Before committing a change that won on its trial set, check it on a hold-out set
 line must not win on the windows it was tried on alone. A change that gains windows by shortening
 their curves throws data away: the card marks it, do not take it.
 
+## Looking
+
+A geophysicist judges the data by eye, and so do you when you can see: the figures show what the
+measures average away. After the request PACo shows its atlas: shot gathers, dispersion images
+with their picks and virtual shot gathers, clean and bad, each named with its cause. Compare what
+you see with it.
+
+- Look before you decide: a few raw gathers and their spectra before choosing the mute and the
+  band (P1); each experiment's variants side by side (look experiment); the line's images and
+  picks after a commit (look sheet, look image); a window's image and pick before deciding it.
+- Say what you see in a sentence, in the journal or in your reply, as soon as you see it: a
+  figure leaves the conversation once read.
+- When your eyes and the scores disagree, trust what you can name and say why: a smear, stripes,
+  a broken ridge, a pick off its ridge, an arrival too fast for surface waves. The scores average
+  over windows and columns, and cannot see some of these.
+- Without vision, the ridge tables and the gates' measures stand in for the figures: read them
+  for the same faults.
+
 ## The objective
 
 Every trade-off cites the objective on the card: depth first, lateral detail first, or balanced;
@@ -67,7 +85,8 @@ a target depth, when the user gave one; the effort, which sets the budgets. Long
 farther shots buy depth and precise picks at the cost of lateral detail, coverage and, wherever
 the ground changes along the line, the images: a window averages all that lies under it.
 
-Read every scorecard the same way, the images first: their score (1 at best), its P10 for the
+Read every scorecard the same way, the images first, as you see them and as they score: their
+score (1 at best), its P10 for the
 weakest windows, and its measures, G2's coherent columns, lateral coherence and background off
 the ridge with its stripes, and the share of each pick on its ridge; then the
 coverage (the windows whose curve passes), the depth the curves inform (half their longest

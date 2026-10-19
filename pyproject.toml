@@ -67,7 +67,14 @@ where = ["src"]
 
 # The prompts the model reads, in files next to their code.
 [tool.setuptools.package-data]
-paco = ["prompts/*.md", "prompts/*.json", "autonomous/prompts/*.md", "autonomous/prompts/*.json"]
+paco = [
+    "prompts/*.md",
+    "prompts/*.json",
+    "autonomous/prompts/*.md",
+    "autonomous/prompts/*.json",
+    "autonomous/prompts/atlas/*.md",
+    "autonomous/prompts/atlas/*.png",
+]
 
 
 # -------------------------

@@ -1,16 +1,21 @@
 """survey (docs/autonomous_plan.md §4.1): active_test_profile's geometry, the limits it sets, and its raw records as
-G1 measures them, made once a study."""
+G1 measures them, made once a study; look at those records before the line's first commit, a mute
+and velocities drawn on a gather."""
 
 from collections.abc import Iterator
 from dataclasses import dataclass
 from pathlib import Path
 
 import pytest
+from sigpipe.masw.runs import RunError
 
+from paco.autonomous.tools.look import Mute, look_survey
 from paco.autonomous.tools.survey import Survey, describe_survey, survey
 from paco.autonomous.tools.trials import Study, new_study
 from paco.qc.config import QCConfig
 from paco.settings import Settings
+
+PNG = b"\x89PNG"
 
 
 @dataclass(frozen=True)
@@ -104,3 +109,38 @@ def test_regular_shots_are_said_with_their_step(surveyed: Surveyed) -> None:
     assert said.endswith(
         "95 shots: 95 on the line (from 0.75 to 141.75 m every 1.5 m), their files' trigger 0.02 s."
     )
+
+
+@pytest.mark.slow
+def test_look_at_the_raw_records_before_the_first_commit(surveyed: Surveyed) -> None:
+    study = surveyed.study
+    mute = Mute(vmin=80, vmax=1500)
+
+    gather = look_survey(study, "gather", "105", vision=True)
+    spectra = look_survey(study, "spectra", "105.dat", vision=True)
+    drawn = look_survey(study, "gather", "105.dat", True, mute, velocities=[150.0, 300.0])
+    blind = look_survey(study, "gather", "101.dat", False, mute)
+
+    # A record named with or without its extension; its figures as the survey drew them.
+    assert (gather.text, spectra.text) == ("105.dat: its raw gather.", "105.dat: its raw spectra.")
+    assert all(seen.figures[0].startswith(PNG) for seen in (gather, spectra, drawn))
+    # The mute's tail PACo's when it gives none.
+    assert drawn.text == (
+        "105.dat: its raw gather, the mute's window in red, from x/1500 to x/80 + 0.05 s; lines from "
+        "the shot at 150 m/s, 300 m/s in blue, dashed."
+    )
+    assert blind.figures == ()
+    assert blind.text.startswith(
+        "101.dat, G1's measures in its gather's stead (vision is off): 101.dat: reject; low_snr;"
+    )
+    with pytest.raises(ValueError, match="drawn on a gather, not on spectra"):
+        look_survey(study, "spectra", "105.dat", True, mute)
+    with pytest.raises(ValueError, match="Before the first commit, look shows the survey's raw"):
+        look_survey(study, "image", "71", vision=True)
+    with pytest.raises(ValueError, match="No record '999' in the survey: 101, 105"):
+        look_survey(study, "gather", "999", vision=True)
+
+
+def test_look_before_the_survey_is_refused(tmp_path: Path) -> None:
+    with pytest.raises(RunError, match="No survey yet in this study: call survey first"):
+        look_survey(Study("active_test_profile", tmp_path), "gather", "105.dat", vision=True)

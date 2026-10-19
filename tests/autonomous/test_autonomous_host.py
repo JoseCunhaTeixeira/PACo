@@ -168,8 +168,10 @@ def play(
     *,
     context: int = 131_072,
     raises: type[BaseException] | None = None,
+    vision: bool = False,
 ) -> Played:
-    """The scripted model `answers` the user's `messages`, the host between it and the server."""
+    """The scripted model `answers` the user's `messages`, the host between it and the server;
+    the model sees with `vision`."""
     model = ScriptedServer(*answers)
     events: list[str] = []
 
@@ -177,9 +179,10 @@ def play(
         async with Client(server.server) as client:
             host = await Host.start(
                 client,
-                OpenAIChat(model.client, "scripted"),
+                OpenAIChat(model.client, "scripted", vision=vision),
                 get_settings(),
                 limits=Limits(context=context),
+                vision=vision,
                 on_event=events.append,
             )
             reply = ""
@@ -256,7 +259,7 @@ def test_a_scripted_conversation_runs_p0_to_p5(played: Played) -> None:
     assert "commit" not in offered[-1]
     assert {"invert", "job_status", "decide"} <= offered[-1]
     assert bodies[0]["messages"][0]["content"].endswith(
-        "the first hypotheses to test, a mute on the surface waves' cone among them on a line with "
+        "the first hypotheses to test, a mute on the surface waves' fan among them on a line with "
         "shots. They are where the line's settings start from."
     )
     assert all(body["messages"][-1]["content"].startswith(CARD) for body in bodies)
@@ -417,6 +420,24 @@ def test_a_message_naming_no_profile_there_is_answered_with_the_profiles() -> No
     # The objective's forms alone: no call to the model, no study.
     assert len(model.bodies) == 2
     assert not (get_settings().output_dir / "no_such_line").exists()
+
+
+@pytest.mark.usefixtures("folders")
+def test_a_model_with_vision_sees_the_atlas_after_the_request() -> None:
+    seen = play(
+        [form(SCOPE), call("survey", {}, 1), said("Surveyed."), answer_form("Surveyed.")],
+        [REQUEST],
+        vision=True,
+    )
+
+    first = next(body for body in seen.model.bodies if "tools" in body)
+    request = first["messages"][1]["content"]
+    # The request, then each sheet's caption as data and its figure; the conversation the host
+    # keeps holds the request alone.
+    assert request[0] == {"type": "text", "text": REQUEST}
+    assert [part["type"] for part in request[1:]] == ["text", "image_url"] * 3
+    assert request[1]["text"].startswith('<data from="atlas">\nPACo\'s atlas, shot gathers')
+    assert seen.host.history[0] == {"role": "user", "content": REQUEST}
 
 
 @pytest.mark.usefixtures("folders")

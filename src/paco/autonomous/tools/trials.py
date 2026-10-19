@@ -16,7 +16,8 @@ The study's folder holds it all (<output>/<profile>/studies/<id>/):
 - g1/<key>/: G1 on the records preprocessed one way, made once for the images' band, the reach,
   the cone and the QC configuration it was made with, and given to every trial and commit alike
   (settled.json, each record's spectra beside);
-- trials/<key>/: a variant on its windows: their images (xmid_*/), G1's log, result.json;
+- trials/<key>/: a variant on its windows: their images and automatic picks (xmid_*/), G1's
+  log, result.json;
 - experiments/: each call, E<n>.json, and index.json, the calls by their content."""
 
 import hashlib
@@ -32,8 +33,11 @@ from typing import Any, cast
 
 from pydantic import BaseModel, ConfigDict
 from sigpipe.algorithms.picking.dispersion.tracking import PickingParameters
+from sigpipe.base.dispersion_curve import DispersionCurvesImage
+from sigpipe.dataio.dispersion.saving import save_dispersion_curves
 from sigpipe.dataio.selection_plotting import load_selection
 from sigpipe.dataio.signal_plotting import SPECTRA_STEM
+from sigpipe.masw.picks import CURVES_FILE
 from sigpipe.masw.pipelines import PREPROCESSED
 from sigpipe.masw.presets import (
     ActivePreset,
@@ -65,7 +69,7 @@ from paco import stopping
 from paco.autonomous.pins import paco_code
 from paco.autonomous.sensors.scorecard import Against, Scorecard, against, dominated, scorecard
 from paco.autonomous.tools.given import check_line, given_of, with_line
-from paco.qc.coherence import TrialJudge, near_field_windows, trial_indices, trial_pick
+from paco.qc.coherence import TrialJudge, near_field_windows, trial_curve, trial_indices
 from paco.qc.config import QCConfig
 from paco.qc.g2_image import judge_image, more_data
 from paco.qc.g4_profile import LINE
@@ -818,7 +822,8 @@ def _judged(
     config: QCConfig,
 ) -> WindowResult:
     """G2 on a trial window's image, with its records' usable band, and on a passive or
-    passive-active line its correlations and FK selection; G3 on its automatic pick."""
+    passive-active line its correlations and FK selection; G3 on its automatic pick, kept beside
+    the image for look to draw."""
     xmid = xmid_of(outcome.folder)
     if outcome.status != "succeeded":
         return WindowResult(xmid=xmid, cached=False, error=outcome.error)
@@ -837,7 +842,11 @@ def _judged(
     )
     # A line that can be muted has its mute to try: a flag only a mute fixes is fixable in a
     # trial; a passive line's is not.
-    g3 = trial_pick(window, judge, mutable="muting" in type(trial.preset).model_fields)
+    g3, curve = trial_curve(window, judge, mutable="muting" in type(trial.preset).model_fields)
+    if curve is not None:
+        save_dispersion_curves(
+            DispersionCurvesImage(dispersion_curves=(curve,)), path=window / CURVES_FILE
+        )
     return WindowResult(xmid=xmid, cached=outcome.cached, g2=g2, g3=g3)
 
 

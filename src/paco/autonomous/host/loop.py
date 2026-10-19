@@ -19,6 +19,7 @@ question, or once the curves are frozen, the report; a reply asking nothing befo
 one leaving a model undecided after it, sends the model back once. Every call and its cost go to the
 study's usage log; the conversation's transcript is saved in the study as PACo saves its own."""
 
+import base64
 import json
 import re
 import time
@@ -26,11 +27,12 @@ import uuid
 from collections.abc import Callable, Sequence
 from dataclasses import dataclass
 from datetime import UTC, datetime
+from functools import cache
 from typing import Any, cast
 
 from mcp import Client
 from mcp.types import CallToolResult, RequestParamsMeta, TextContent, Tool
-from openai.types.chat import ChatCompletionMessageParam
+from openai.types.chat import ChatCompletionContentPartParam, ChatCompletionMessageParam
 from sigpipe.masw.profiles import ProfileError, load_profile
 from sigpipe.masw.runs import find_run
 from sigpipe.masw.runs.writing import write_atomic
@@ -82,6 +84,8 @@ KEPT_CALLS = 3
 KEPT_LINES = 2
 TRANSCRIPTS = "transcripts"  # in the study's folder
 CARD = "[PACo] The state card, as it is now:"
+# The phases a model with vision sees PACo's atlas in, with the request: until the freeze.
+ATLAS_PHASES = ("P1", "P2")
 DROPPED = (
     "[PACo] Older calls were dropped from the conversation to keep it short: the journal (journal "
     "read) and the state card hold what they found."
@@ -381,15 +385,19 @@ class Host:
 
     def _messages(self, phase: Phase, tools: int) -> list[ChatCompletionMessageParam]:
         """What the model reads: the role and the phase's manual, the conversation, then the
-        state card as it is now (§7.2)."""
+        state card as it is now (§7.2). A model with vision sees PACo's atlas until the freeze,
+        after the request: kept out of the conversation, which drops a figure once seen."""
         manual = MANUALS.get(phase)
         system = prompts.prompt("role") + (f"\n\n{prompts.prompt(manual)}" if manual else "")
         state(self._study, self._settings)
         self._card = now = card(self._study, self._settings)
         self._dropped(system, now, tools)
+        conversation = self.history
+        if self._vision and phase in ATLAS_PHASES and conversation:
+            conversation = [_with_atlas(conversation[0]), *conversation[1:]]
         return [
             {"role": "system", "content": system},
-            *self.history,
+            *conversation,
             {"role": "user", "content": f"{CARD}\n{now}"},
         ]
 
@@ -808,3 +816,25 @@ def _answer_step(
         prompt_tokens=None,
         completion_tokens=None,
     )
+
+
+def _with_atlas(first: ChatCompletionMessageParam) -> ChatCompletionMessageParam:
+    """The conversation's first message, the user's, with PACo's atlas after it."""
+    if first["role"] != "user":
+        return first
+    content = first["content"]
+    parts: list[ChatCompletionContentPartParam] = (
+        [{"type": "text", "text": content}] if isinstance(content, str) else list(content)
+    )
+    return {"role": "user", "content": [*parts, *_atlas()]}
+
+
+@cache
+def _atlas() -> tuple[ChatCompletionContentPartParam, ...]:
+    """PACo's atlas as the model reads it: each sheet's caption as data, then its figure."""
+    parts: list[ChatCompletionContentPartParam] = []
+    for caption, figure in prompts.atlas():
+        url = f"data:image/png;base64,{base64.b64encode(figure).decode()}"
+        parts.append({"type": "text", "text": as_data("atlas", caption)})
+        parts.append({"type": "image_url", "image_url": {"url": url}})
+    return tuple(parts)

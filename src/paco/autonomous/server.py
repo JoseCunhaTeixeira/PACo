@@ -178,18 +178,53 @@ def look(
         Field(
             description="A record's gather or spectra, a window's image, a passive or "
             "passive-active window's correlations, a passive one's FK selection, a sheet of up to "
-            "12, or a window's model: its profile, fit, marginals or chains."
+            "12, an experiment's variants side by side, or a window's model: its profile, fit, "
+            "marginals or chains."
         ),
     ],
     where: Annotated[
         str,
-        Field(description="A record's file name; a window's xmid, m; a sheet's span, a-b in m."),
+        Field(
+            description="A record's file name; a window's xmid, m; a sheet's span, a-b in m; an "
+            "experiment, E<n>, or E<n>:<labels> for up to 4 of its variants (current among them)."
+        ),
     ],
     ctx: Context,
+    mute: Annotated[
+        looking.Mute | None,
+        Field(
+            description="For a gather: a mute drawn on it, its window from x/vmax to x/vmin "
+            "plus its width (x the offset from the shot)."
+        ),
+    ] = None,
+    velocities: Annotated[
+        list[float] | None,
+        Field(
+            description="For a gather: velocities, m/s, drawn as lines from the shot (t = offset "
+            "/ v), to read the arrivals' speeds."
+        ),
+    ] = None,
 ) -> list[TextContent | ImageContent]:
-    """Figures of the committed line; with no vision, a window's image as a ridge table, and a
-    record's gate measures."""
-    seen = looking.look(_run_folder(_study(profile, ctx)), what, where, _vision(ctx))
+    """Figures of the committed line, and of an experiment's variants side by side; before the
+    line's first commit, the survey's raw records (a gather, spectra). A mute's window or
+    velocities from the shot drawn on a raw gather, to set a mute by eye. With no vision, a
+    window's image as a ridge table, a record's gate measures, an experiment's measures."""
+    study = _study(profile, ctx)
+    line = committing.line_of(study)
+    lines = mute is not None or bool(velocities)
+    if what == "experiment":
+        seen = looking.look_experiment(study, where, _vision(ctx))
+    elif line is None or (what == "gather" and lines):
+        seen = looking.look_survey(study, what, where, _vision(ctx), mute, velocities or ())
+    else:
+        seen = looking.look(
+            find_run(line.run_id, get_settings()),
+            what,
+            where,
+            _vision(ctx),
+            mute,
+            velocities or (),
+        )
     return [
         TextContent(type="text", text=seen.text),
         *(

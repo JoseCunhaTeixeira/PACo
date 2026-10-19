@@ -191,6 +191,15 @@ def test_the_tools_study_the_profile() -> None:
                 ),
                 await client.call_tool("survey", {"profile": "active_test_profile"}),
                 await client.call_tool(
+                    "look",
+                    {
+                        "profile": "active_test_profile",
+                        "what": "gather",
+                        "where": "105.dat",
+                        "mute": {"vmin": 80, "vmax": 1500},
+                    },
+                ),
+                await client.call_tool(
                     "commit", {"profile": "active_test_profile", "changes": first, "reasons": {}}
                 ),
                 await client.call_tool(
@@ -214,20 +223,27 @@ def test_the_tools_study_the_profile() -> None:
                         "windows": "spread:2",
                     },
                 ),
+                await client.call_tool(
+                    "look", {"profile": "active_test_profile", "what": "experiment", "where": "E1"}
+                ),
             ]
 
     results = anyio.run(calls)
 
     assert [result.is_error for result in results] == [
-        True, False, True, False, False, False, False, False,
+        True, False, False, True, False, False, False, False, False, False,
     ]  # fmt: skip
-    no_line, surveyed, refused, committed, curves, image, advice, trial = map(shown, results)
+    no_line, surveyed, raw, refused, committed, curves, image, advice, trial, sheet = map(
+        shown, results
+    )
     # The SDK names the tool before the error.
     assert no_line == (
         "Error executing tool observe: [precondition] No line committed yet in this study: commit "
         "one first."
     )
     assert surveyed.startswith("active_test_profile: 96 receivers 1.5 m apart")
+    # Before the first commit, the survey's raw records: G1's measures, vision being off.
+    assert raw.startswith("105.dat, G1's measures in its gather's stead (vision is off): 105.dat:")
     assert refused.startswith(
         "Error executing tool commit: [bad argument] Give a one-line reason for each setting"
     )
@@ -238,6 +254,7 @@ def test_the_tools_study_the_profile() -> None:
     # Three of the long windows fail G3: the changes it suggests, none applied.
     assert advice.startswith("G3's changes of the picking, by window (not applied):")
     assert trial.startswith("E1: 1 variant on spread:2, against the current settings:")
+    assert sheet.startswith("E1 at ") and "the panels' measures (vision is off):" in sheet
 
 
 @pytest.mark.usefixtures("paco_env")

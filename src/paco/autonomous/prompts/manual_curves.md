@@ -92,9 +92,9 @@ phase velocity v and frequency f.
   the line's length. Beyond them: long wavelengths arrive early, at the cone's fast edge, so a mute
   that cuts the fast side alone (refractions) and keeps the slow edge wide may lose less depth.
 - Compare the candidates on the images, not only a mute against none: their velocities matter.
-  On active_p2 in passive-active, PACo's mute trial kept the cone widened by 2.25 (68 to 2,086
-  m/s), whose images are quieter over 16 to 45 m (background 0.10 to 0.14) than the standard
-  mute's (0.15 to 0.21).
+  The mute you drew by eye on the survey's gathers is one of them. On active_p2 in
+  passive-active, PACo's mute trial kept the cone widened by 2.25 (68 to 2,086 m/s), whose images
+  are quieter over 16 to 45 m (background 0.10 to 0.14) than the standard mute's (0.15 to 0.21).
 - Keeping a mute: PACo keeps one only with 2 more windows passing than no mute, a tie going to no
   mute; on active_p2 a tie kept no mute though the cone's curves reached 59 m against 28 m. Keep a
   mute that passes as many windows with longer curves within the windows' reach; drop one that
@@ -132,20 +132,27 @@ phase velocity v and frequency f.
 
 ## Judging the images
 
-- A good image holds one sharp, continuous ridge over a wide band, the rest of it quiet. The
-  scorecard measures it on every window: G2's coherent columns (the share of the image's columns
-  with a coherent peak) and lateral coherence (how far the window's traces agree), near 1 when
-  clean; G2's background (the image's median level off its ridge, over the ridge's peak) and its
-  stripes (that level's jumps between columns), low when clean; the share of each pick on its
-  ridge (G3's on_data). On active_p2 the clean images read a background of 0.10 to 0.18 and
-  stripes under 0.008, the striped ones up to 0.36 and 0.024. The score averages them, the
-  background as 1 minus it; its P10, the weakest windows', shows a bad stretch the median hides.
-- Compare the variants on the same windows, the image score first, and look at the images of the
-  two or three best on a few windows where they differ (look image), when you can see them.
-- What a bad image shows: vertical stripes (a hard mute's edges, noisy or dead traces, a lateral
-  change under the window); horizontal fringes under the ridge (a short window's side lobes, a
-  hard mute); a ridge broken into pieces (a lateral change, noise); a broad smear at the low
-  frequencies, which is the window's resolution (Δv/v ≈ λ/L), not noise.
+- A good image holds one sharp ridge, continuous over a wide band and rising toward the low
+  frequencies, the rest of it dark, the pick on its crest: the atlas's first image.
+- Look at every experiment (look experiment E<n>): its current settings and best variants side
+  by side, each with its pick, at the windows where they differ most; name others after a colon
+  (E<n>:current,3,5). Judge each panel against the atlas and name its fault and cause before the
+  lever: vertical stripes (a hard mute's edges, noisy or dead traces, a lateral change under the
+  window); horizontal fringes under the ridge (a short window's side lobes, a hard mute); a ridge
+  broken into pieces (a lateral change, noise); a broad smear at the low frequencies (the
+  window's resolution, Δv/v ≈ λ/L: a longer window); no ridge at all (too little signal); bright
+  ridges under the dashed line (aliases) or left of the dotted one (beyond the window's reach).
+- The scorecard measures the same on every window: G2's coherent columns (the share of the
+  image's columns with a coherent peak) and lateral coherence (how far the window's traces
+  agree), near 1 when clean; G2's background (the image's median level off its ridge, over the
+  ridge's peak) and its stripes (that level's jumps between columns), low when clean; the share
+  of each pick on its ridge (G3's on_data). On active_p2 the clean images read a background of
+  0.10 to 0.18 and stripes under 0.008, the striped ones up to 0.36 and 0.024. The score averages
+  them, the background as 1 minus it; its P10, the weakest windows', shows a bad stretch the
+  median hides. Rank many variants by it, then let your eyes choose among the two or three best.
+- The measures cannot see everything: a short window's smear can score well where its columns
+  peak, an arrival too fast for surface waves holds a high SNR and lateral coherence, a pick on
+  a ridge that is not M0 is on its ridge. Where you see one, say so, and trust what you see.
 - The image comes before the pick: a picking change cannot mend a bad image, only settings that
   change the image can (the length, the mute, the shots, the stacking).
 
@@ -176,6 +183,12 @@ phase velocity v and frequency f.
   noisy_correlations) and the share of segments its FK selection kept (few_segments_kept): both
   ask for more of the data, a lower threshold. Its share of coherent columns says little on a
   passive stack. look correlations and look selection show them.
+- Look at the virtual shot gathers at each step, passive and passive-active alike (look
+  experiment shows them under the images, look correlations a line's window): a clean one holds
+  one sharp arrival moving out from the virtual source at the surface waves' speed, little after
+  it; energy all along the traces is noise, and its image stripes; an arrival far faster than the
+  surface waves is body waves or noise common to the receivers, and its image smears at high
+  velocities, however high its SNR. The atlas's correlations show the three.
 - G3's near_field note on a passive window means nothing: its virtual source is its own first
   receiver. decide and freeze leave it out.
 - passive-active, a mode of an active line: each window correlates the shots beyond its ends,
@@ -211,6 +224,10 @@ phase velocity v and frequency f.
 - G4 along the line: a curve off two agreeing neighbours (each side within 7.5 % of itself) by
   more than 15 %, fitting neither side, is an outlier: pick it again along their median curve. A
   change shared with one side is geology: keep it. Never edit a curve to make it fit.
+- Look at the picks after each commit (look sheet, twelve windows at a time; look image for
+  one): each on the crest of the M0 ridge, continuous along it; never in a smear, under the
+  dashed line, left of the dotted one, or jumping to a higher mode. A pick off its ridge is
+  picked again, or its window rejected, whatever G3 said.
 - Order of work: commit a line, read G3 and G4 grouped by flag and by stretches of windows; fix
   single windows for their fixable flags (G3's suggested change, a band cut at a jump, a narrower
   corridor, a lower coherence rule, a guide from the neighbours, a lasso when you see the images);
@@ -261,5 +278,7 @@ phase velocity v and frequency f.
   Reject one only once tried hard: the line's pick, a pick after each fixable flag (or a reason
   naming why none applies), a guide from its neighbours when one side has two passing, a lasso
   when you see the images. decide refuses otherwise, saying what is owed.
+- Look at a window's image and pick before accepting it with notes or rejecting it: a curve G3
+  passed off its ridge is not accepted, and one it failed on a clean ridge is worth a lasso.
 - When every window is decided, freeze. Ask the user first when more than 30 % of the windows
   would be rejected.

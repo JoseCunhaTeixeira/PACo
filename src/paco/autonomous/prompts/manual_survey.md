@@ -37,14 +37,32 @@ hypotheses.
 - The modes the line takes: an active line the active one, or passive-active (the shots beyond
   each window's ends correlated, as noise); a passive line the passive one alone.
 
-Look at two or three gathers and their spectra when they puzzle you: both ends, and the middle.
-In a gather the surface waves are the strong, slow, dispersive fan, their low frequencies
-arriving first; refractions are straight, fast first arrivals; the air wave is a straight line at
-330 to 345 m/s; noise has no moveout from the shot.
+## Looking at the records
+
+The survey's numbers come from medians; the gathers show what they stand for. Before your
+conclusion, when you can see:
+
+- Look at the gathers of three shots, one at each end of the line and one in its middle (look
+  gather), with the cone's slow and fast edges drawn (velocities). Name what you see, as the
+  atlas's gathers do: the surface waves, the strong, slow fan, their low frequencies first and
+  the train spreading with distance; the refractions, straight and fast ahead of it; the air
+  wave, a straight line at 330 to 345 m/s; other sources' trains, with no moveout from the shot;
+  dead, clipped or ringing traces.
+- Set the mute by eye: draw a candidate on a gather (look gather with mute) and move its edges
+  until its window holds the whole fan and little else: the fast edge just ahead of the fan's
+  first energy at the far offsets, the slow edge just after its last, the width the train's tail.
+  Check it on the other two gathers: one mute serves the whole line. Keep it, with the cone's
+  and PACo's standard, as the candidates to try.
+- Look at the spectra of the same records: where the surface waves' energy stands, at the far
+  offsets too, bounds the image's fmax; the image's fmin goes lower than where it fades, since
+  the phase shift normalizes each frequency.
+- On a passive line no shot draws a fan: look at a record or two for dead or ringing traces and
+  bursts of noise.
 
 ## Your conclusion
 
-Write the survey in the journal, as a conclusion: what the site looks like (the surface waves'
-velocities, refractions, the air wave, noise), the reach, the usable band, and the first
-hypotheses to test, a mute on the surface waves' cone among them on a line with shots. They are
-where the line's settings start from.
+Write the survey in the journal, as a conclusion: what you saw on the gathers and spectra (the
+surface waves' velocities, refractions, the air wave, noise, bad traces), the reach, the usable
+band, the mutes you drew with their velocities, and the first hypotheses to test, a mute on the
+surface waves' fan among them on a line with shots. They are where the line's settings start
+from.
