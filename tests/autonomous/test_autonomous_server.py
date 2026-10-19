@@ -14,7 +14,7 @@ from typing import Any
 import anyio
 import pytest
 from mcp import Client
-from mcp.types import CallToolResult
+from mcp.types import CallToolResult, ImageContent
 
 from paco import inspection, qc
 from paco import server as paco_server
@@ -180,8 +180,12 @@ def test_an_unforeseen_failure_reaches_the_model_with_its_reason(
 @pytest.mark.usefixtures("paco_env")
 def test_the_tools_study_the_profile() -> None:
     # A study from its survey to a committed line, the tools' errors tagged as PACo tags them.
-    first = {"masw": {"length": 90}, "dispersion": {"nv": 250}}
-    reasons = {"masw length": "for a test", "dispersion nv": "a coarse grid, for a test"}
+    first = {"masw": {"length": 90, "distance_max": 150.0}, "dispersion": {"nv": 250}}
+    reasons = {
+        "masw length": "for a test",
+        "masw distance_max": "every shot of the line, for a test",
+        "dispersion nv": "a coarse grid, for a test",
+    }
 
     async def calls() -> list[CallToolResult]:
         async with Client(server.server) as client:
@@ -205,6 +209,7 @@ def test_the_tools_study_the_profile() -> None:
                 await client.call_tool(
                     "commit",
                     {"profile": "active_test_profile", "changes": first, "reasons": reasons},
+                    meta={"vision": True},
                 ),
                 await client.call_tool(
                     "observe", {"profile": "active_test_profile", "level": "curves"}
@@ -222,6 +227,7 @@ def test_the_tools_study_the_profile() -> None:
                         "variants": [{"picking": {"fmax": 90.0}}],
                         "windows": "spread:2",
                     },
+                    meta={"vision": True},
                 ),
                 await client.call_tool(
                     "look", {"profile": "active_test_profile", "what": "experiment", "where": "E1"}
@@ -254,6 +260,13 @@ def test_the_tools_study_the_profile() -> None:
     # Three of the long windows fail G3: the changes it suggests, none applied.
     assert advice.startswith("G3's changes of the picking, by window (not applied):")
     assert trial.startswith("E1: 1 variant on spread:2, against the current settings:")
+    # With vision, a commit shows the line's images and picks, an experiment its variants.
+    figures = [
+        [block for block in result.content if isinstance(block, ImageContent)]
+        for result in (results[4], results[8])
+    ]
+    assert [len(one) for one in figures] == [1, 1]
+    assert "Its images and picks: " in committed and "E1 side by side, by row: current" in trial
     assert sheet.startswith("E1 at ") and "the panels' measures (vision is off):" in sheet
 
 

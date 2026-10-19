@@ -4,6 +4,17 @@ decision on every window, and the freeze. Notation: dx the receiver spacing, N a
 receivers, its length L = (N-1)·dx and its aperture N·dx, λ = v/f the wavelength of a point at
 phase velocity v and frequency f.
 
+## Where to start
+
+- Your first commit is PACo's own choice for the line, the result to beat: the length its ladder
+  chooses (advise window_length) and the mute its trial keeps (advise mute), or on a passive line
+  its segments (advise segments), with the preset's other settings and the user's. The line then
+  starts where the workflow ends, and every experiment runs against it as the current settings.
+- Your first experiment tries against it the mute you drew by eye on the survey's gathers, PACo's
+  standard mute (80 to 1,500 m/s) and lengths around PACo's. Commit a change only when its images
+  are cleaner by eye, along the whole line and at its ends, and its scores no worse; else PACo's
+  choice stays, and you say why it could not be beaten.
+
 ## Physics
 
 - Depth and layers: a curve informs the ground down to about λmax/2, and the thinnest layer it
@@ -134,9 +145,9 @@ phase velocity v and frequency f.
 
 - A good image holds one sharp ridge, continuous over a wide band and rising toward the low
   frequencies, the rest of it dark, the pick on its crest: the atlas's first image.
-- Look at every experiment (look experiment E<n>): its current settings and best variants side
-  by side, each with its pick, at the windows where they differ most; name others after a colon
-  (E<n>:current,3,5). Judge each panel against the atlas and name its fault and cause before the
+- Each experiment shows its current settings and best variants side by side, each with its
+  pick, at the windows where they differ most (look experiment E<n>:current,3,5 shows others).
+  Judge each panel against the atlas, before its scores, and name its fault and cause before the
   lever: vertical stripes (a hard mute's edges, noisy or dead traces, a lateral change under the
   window); horizontal fringes under the ridge (a short window's side lobes, a hard mute); a ridge
   broken into pieces (a lateral change, noise); a broad smear at the low frequencies (the
@@ -183,8 +194,8 @@ phase velocity v and frequency f.
   noisy_correlations) and the share of segments its FK selection kept (few_segments_kept): both
   ask for more of the data, a lower threshold. Its share of coherent columns says little on a
   passive stack. look correlations and look selection show them.
-- Look at the virtual shot gathers at each step, passive and passive-active alike (look
-  experiment shows them under the images, look correlations a line's window): a clean one holds
+- Look at the virtual shot gathers at each step, passive and passive-active alike (each
+  experiment shows them under its images, look correlations a line's window): a clean one holds
   one sharp arrival moving out from the virtual source at the surface waves' speed, little after
   it; energy all along the traces is noise, and its image stripes; an arrival far faster than the
   surface waves is body waves or noise common to the receivers, and its image smears at high
@@ -224,8 +235,8 @@ phase velocity v and frequency f.
 - G4 along the line: a curve off two agreeing neighbours (each side within 7.5 % of itself) by
   more than 15 %, fitting neither side, is an outlier: pick it again along their median curve. A
   change shared with one side is geology: keep it. Never edit a curve to make it fit.
-- Look at the picks after each commit (look sheet, twelve windows at a time; look image for
-  one): each on the crest of the M0 ridge, continuous along it; never in a smear, under the
+- Look at the picks after each commit, which shows twelve windows along the line (look sheet
+  for others, look image for one): each on the crest of the M0 ridge, continuous along it; never in a smear, under the
   dashed line, left of the dotted one, or jumping to a higher mode. A pick off its ridge is
   picked again, or its window rejected, whatever G3 said.
 - Order of work: commit a line, read G3 and G4 grouped by flag and by stretches of windows; fix

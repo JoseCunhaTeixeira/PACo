@@ -1,6 +1,6 @@
-The survey (P1): what the line is before any setting is chosen. Call survey first: the curves'
-tools open once it has run. What it measures bounds every later choice, and gives the first
-hypotheses.
+The survey (P1): what the line is before any setting is chosen. Call survey first, look at its
+records, then write your conclusion in the journal: the curves' tools open once it is written.
+What it measures bounds every later choice, and gives the first hypotheses.
 
 ## What the survey gives, and what it means
 

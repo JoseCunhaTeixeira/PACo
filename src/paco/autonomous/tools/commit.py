@@ -66,6 +66,7 @@ from paco.autonomous.tools.trials import (
     fast_cone,
     judge_records,
     line_windows,
+    survey_reach,
 )
 from paco.autonomous.upstream.line import line_settings, log_attempt
 from paco.qc import given as paco_given
@@ -160,7 +161,9 @@ def commit(
     reasons = {key: reason for key, reason in reasons.items() if key not in _named(user.changes())}
     # A setting given at the value it has is no change: none recorded, no reason asked.
     if MODE not in own:
-        before = concrete(line.settings if line is not None else {}, profile, config).preset
+        before = concrete(
+            line.settings if line is not None else {}, profile, config, survey_reach(study)
+        ).preset
         same = _unchanged(own, before)
         kept = _without(own, same)
         gone = {stage for stage in own if stage not in kept}
@@ -173,7 +176,7 @@ def commit(
     if not changed:
         raise ValueError("The line holds these settings already: give one to change.")
     after = deep_merge(line.settings if line is not None else {}, changed)
-    trial = concrete(after, profile, config)
+    trial = concrete(after, profile, config, survey_reach(study))
     if experiment is not None and not (study.folder / EXPERIMENTS / f"{experiment}.json").is_file():
         raise ValueError(f"No experiment '{experiment}' in this study: E<n>, as try_settings says.")
     if not line_windows(profile, trial):
@@ -237,7 +240,8 @@ def describe_commit(committed: Committed) -> str:
 
 def picking_of(study: Study, line: Line, settings: Settings, config: QCConfig) -> PickingParameters:
     """The committed line's picking: PACo's parameters with the line's changes."""
-    return concrete(line.settings, load_profile(study.profile, settings), config).picking
+    profile = load_profile(study.profile, settings)
+    return concrete(line.settings, profile, config, survey_reach(study)).picking
 
 
 def line_state(run_folder: Path) -> LineState:

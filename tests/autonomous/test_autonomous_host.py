@@ -35,8 +35,12 @@ from paco.llm.model import OpenAIChat
 from paco.settings import Settings, get_settings
 
 PROFILE = "active_test_profile"
-LINE = {"masw": {"length": 78}, "dispersion": {"nv": 250}}
-REASONS = {"masw length": "the deepest windows E1 tried", "dispersion nv": "a coarse grid"}
+LINE = {"masw": {"length": 78, "distance_max": 150.0}, "dispersion": {"nv": 250}}
+REASONS = {
+    "masw length": "the deepest windows E1 tried",
+    "masw distance_max": "every shot of the line, for a test",
+    "dispersion nv": "a coarse grid",
+}
 SCOPE = {**BLANK, "invert": True, "profile": PROFILE, "effort": "quick"}
 REQUEST = "Give me the Vs of active_test_profile, quickly."
 INTERPRETATION = "A stiffer layer below 10 m, if the picks are right."
@@ -60,8 +64,8 @@ REJECTED_CURVES = (
 # The curves accepted, then their models inverted and rejected: the 8 from 74.25 m on.
 ACCEPTED = "xmid 74.25-84.75 (8)"
 # A small context, for the oldest calls to drop out (§7.3): P2's tools, role and manual take
-# about 10,100 tokens of it, past its 60 %.
-CONTEXT = 13_000
+# about 11,500 tokens of it, past its 60 %.
+CONTEXT = 14_000
 
 
 def call(
@@ -255,7 +259,9 @@ def test_a_scripted_conversation_runs_p0_to_p5(played: Played) -> None:
     bodies = [body for body in played.model.bodies if "tools" in body]
     offered = [{tool["function"]["name"] for tool in body["tools"]} for body in bodies]
     assert "survey" in offered[0] and "commit" not in offered[0]
-    assert {"commit", "pick", "decide", "freeze"} <= offered[1]
+    # The survey lasts until the model says it in the journal (H1), looking at its records.
+    assert "look" in offered[1] and "commit" not in offered[1]
+    assert {"commit", "pick", "decide", "freeze"} <= offered[2]
     assert "commit" not in offered[-1]
     assert {"invert", "job_status", "decide"} <= offered[-1]
     assert bodies[0]["messages"][0]["content"].endswith(
@@ -281,7 +287,7 @@ def test_the_report_adds_what_was_tried_and_each_windows_outcome(played: Played)
         for message in body["messages"]
         if message["role"] == "user" and '<data from="journal">' in str(message["content"])
     ]
-    assert asked and "Experiments:\n- E1 on spread:3: current 1/3; 1 " in asked[-1]
+    assert asked and "Experiments:\n- E1 on spread:3: current 2/3; 1 " in asked[-1]
     assert f"Each window's outcome:\n- curves accepted: {ACCEPTED}" in report
     assert f"Interpretation, by the model (not a measurement): {INTERPRETATION}" in report
     assert (
@@ -305,7 +311,7 @@ def test_what_was_tried_falls_back_on_the_journal_and_its_numbers_are_checked(
         return report(played.study, played.settings, "Scope: invert.", form)
 
     # Nothing said of it: the journal's lines.
-    assert "What I tried:\n- E1 on spread:3: current 1/3; 1 " in written(None)
+    assert "What I tried:\n- E1 on spread:3: current 2/3; 1 " in written(None)
     # Numbers the journal does not hold, flagged.
     said = written("Windows of 78 receivers passed 33 of 40.")
     assert "What I tried: Windows of 78 receivers passed 33 of 40." in said
@@ -377,6 +383,11 @@ def test_the_commits_budget_refuses_a_third_commit() -> None:
         [
             form(SCOPE),
             call("survey", {}, 1),
+            call(
+                "journal",
+                {"action": "write", "kind": "conclusion", "text": "A fan from 120 to 330 m/s."},
+                9,
+            ),
             call("commit", {"changes": LINE, "reasons": REASONS}, 2),
             call("commit", {"changes": picked, "reasons": {"picking": "the band"}}, 3),
             call(
@@ -388,7 +399,7 @@ def test_the_commits_budget_refuses_a_third_commit() -> None:
         [REQUEST],
     )
 
-    refusal = played.model.bodies[5]["messages"][-2]["content"]
+    refusal = played.model.bodies[6]["messages"][-2]["content"]
     assert refusal == (
         "Not called: the line commits' budget is spent (2 of 2). Pick and decide the windows of "
         "the line as it is."
@@ -420,6 +431,19 @@ def test_a_message_naming_no_profile_there_is_answered_with_the_profiles() -> No
     # The objective's forms alone: no call to the model, no study.
     assert len(model.bodies) == 2
     assert not (get_settings().output_dir / "no_such_line").exists()
+
+
+def test_the_survey_lasts_until_its_conclusion_is_written(tmp_path: Path) -> None:
+    study = Study(PROFILE, tmp_path)
+    journal.objective(study, {}, "balanced, no target depth")
+    phases = [phase_of(study)]
+    (tmp_path / SAVED).write_text("{}")
+    phases.append(phase_of(study))
+    journal.write(study, "conclusion", "A clean fan from 120 to 330 m/s; a mute of 90 to 1,400.")
+    phases.append(phase_of(study))
+
+    # The curves' tools open once the model has said what the survey's records show.
+    assert phases == ["P1", "P1", "P2"]
 
 
 @pytest.mark.usefixtures("folders")
@@ -463,6 +487,11 @@ def test_a_run_stopped_in_p2_resumes_with_the_same_phase_budgets_and_card() -> N
         [
             form(SCOPE),
             call("survey", {}, 1),
+            call(
+                "journal",
+                {"action": "write", "kind": "conclusion", "text": "A fan from 120 to 330 m/s."},
+                9,
+            ),
             call("commit", {"changes": LINE, "reasons": REASONS}, 2),
             500,
         ],

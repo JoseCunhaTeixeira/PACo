@@ -74,7 +74,7 @@ def made(input_dir: Path, tmp_path_factory: pytest.TempPathFactory) -> Iterator[
 def windows(input_dir: Path) -> list[MASWWindow]:
     """active_test_profile's 73 windows of 24 receivers, at xmid 17.25 to 125.25 m, 1.5 m apart."""
     profile = load_profile("active_test_profile", Settings(input_dir=input_dir))
-    return line_windows(profile, concrete(CURRENT, profile, QCConfig()))
+    return line_windows(profile, concrete(CURRENT, profile, QCConfig(), None))
 
 
 def test_a_mute_without_width_or_taper_gets_the_workflows(input_dir: Path) -> None:
@@ -84,7 +84,9 @@ def test_a_mute_without_width_or_taper_gets_the_workflows(input_dir: Path) -> No
     config = QCConfig()
     taper = round(config.mute.taper_s * profile.sampling_rate_hz)
 
-    trial = concrete({"muting": {"method": "mute", "vmin": 80, "vmax": 1500}}, profile, config)
+    trial = concrete(
+        {"muting": {"method": "mute", "vmin": 80, "vmax": 1500}}, profile, config, None
+    )
 
     muting = trial.preset.model_dump()["muting"]
     assert (muting["width"], muting["taper"]) == (config.mute.width_s, taper)
@@ -96,8 +98,21 @@ def test_a_mute_without_width_or_taper_gets_the_workflows(input_dir: Path) -> No
         "taper": taper,
     }
     given = {"muting": {"method": "mute", "vmin": 80, "vmax": 1500, "width": 0.1, "taper": 0}}
-    kept = concrete(given, profile, config).preset.model_dump()["muting"]
+    kept = concrete(given, profile, config, None).preset.model_dump()["muting"]
     assert (kept["width"], kept["taper"]) == (0.1, 0)
+
+
+def test_a_window_stacks_no_shot_past_the_reach(input_dir: Path) -> None:
+    # As PACo's workflow: masw.distance_max at the survey's reach, in each mode with shots,
+    # unless the settings give one; no limit before the survey.
+    profile = load_profile("active_test_profile", Settings(input_dir=input_dir))
+
+    def farthest(settings: dict[str, Any], reach: float | None = 66.64) -> float | None:
+        return concrete(settings, profile, QCConfig(), reach).preset.masw.distance_max
+
+    assert farthest(CURRENT) == farthest({**CURRENT, "mode": "passive-active"}) == 66.64
+    assert farthest({"masw": {"length": 24, "distance_max": 40.0}}) == 40.0
+    assert farthest(CURRENT, None) is None
 
 
 @pytest.mark.slow
@@ -177,7 +192,7 @@ def test_a_trials_images_come_back_when_the_line_is_imaged_with_its_settings(
     # their own, judged by G1, and the line's windows imaged.
     config = QCConfig()
     profile = load_profile("active_test_profile", made.settings)
-    trial = concrete({**CURRENT, "near_field_m": 1.0}, profile, config)
+    trial = concrete({**CURRENT, "near_field_m": 1.0}, profile, config, None)
     records, preprocessed = trials.preprocessed(
         tmp_path, trial.preset, profile, made.settings, config
     )

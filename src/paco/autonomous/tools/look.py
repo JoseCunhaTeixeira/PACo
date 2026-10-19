@@ -196,6 +196,15 @@ def look(
     )
 
 
+def look_line(run_folder: Path) -> Seen:
+    """A sheet of the run's images and picks, up to SHEET windows spread along all of its line."""
+    manifest = RunManifest.model_validate_json((run_folder / "run.json").read_text())
+    xmids = [xmid_of(window.folder) for window in manifest.windows if window.status == "succeeded"]
+    if not xmids:
+        return Seen("The run has no window with an image.")
+    return look(run_folder, "sheet", f"{min(xmids):g}-{max(xmids):g}", vision=True)
+
+
 def _window(run_folder: Path, manifest: RunManifest, folder: str, what: What, vision: bool) -> Seen:
     """A passive or passive-active window's stacked correlations, or a passive one's FK
     selection; G2's measures, or the selection's counts, without vision."""

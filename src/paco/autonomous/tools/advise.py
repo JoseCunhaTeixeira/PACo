@@ -22,12 +22,14 @@ from paco.autonomous.tools.trials import (
     concrete,
     fast_cone,
     settled,
+    survey_reach,
     with_records,
 )
 from paco.qc.coherence import TrialJudge, choose_length, describe_lengths
 from paco.qc.config import QCConfig
 from paco.qc.line_loop import candidates
 from paco.qc.log import latest, read_attempts
+from paco.qc.loops import deep_merge
 from paco.qc.models import Attempt, GateResult, Override, Stage
 from paco.qc.muting import choose_mute, describe_mutes, estimate_cone, mutable
 from paco.qc.report import stretches, xmid_of
@@ -45,6 +47,7 @@ NO_SEGMENTS = (
     "passive-active mode correlates them, without segments)."
 )
 ADVICE = "advice"  # in the study's folder: one folder a topic and settings
+LENGTH = "length.txt"  # beside the ladder's advice: the length it chooses
 
 
 def advise(
@@ -84,15 +87,21 @@ def _trial(
     config: QCConfig,
 ) -> str:
     """The ladder's, the mute trial's or the segment trial's outcome, made once for these
-    settings, the user's among them."""
+    settings, the user's among them. Without a window length, the mute trial runs at the one the
+    ladder chooses, as the workflow orders them."""
     user = given_of(study)
     current = with_line(current, user)
+    laddered = topic == "mute" and "length" not in (current.get("masw") or {})
+    if laddered:
+        current = deep_merge(
+            current, {"masw": {"length": _ladder(study, current, settings, config)}}
+        )
     folder = study.folder / ADVICE / topic / _key(current)
     saved = folder / "advice.txt"
-    if saved.exists():
+    if saved.exists() and (topic != "window_length" or (folder / LENGTH).exists()):
         return saved.read_text()
     profile = load_profile(study.profile, settings)
-    trial = concrete(current, profile, config)
+    trial = concrete(current, profile, config, survey_reach(study))
     if topic == "mute" and not mutable(trial.preset):
         return NO_MUTE
     if topic == "segments" and trial.preset.mode != "passive":
@@ -117,6 +126,7 @@ def _trial(
             *describe_lengths(choice),
             f"It would choose windows of {choice.length} receivers.",
         ]
+        write_atomic(folder / LENGTH, str(choice.length))
     elif topic == "segments":
         # The stages of the trial the user gave stay as they gave them.
         picked, notes = choose_segments(
@@ -155,8 +165,10 @@ def _trial(
         )
         if mute is None:
             return "PACo's mute trial: the line has no trial window."
+        whose = "its ladder's" if laddered else "the line's"
         said = [
-            "PACo's mute trial, on trial windows spread along the line (not applied)"
+            f"PACo's mute trial at {trial.preset.masw.length} receivers ({whose}), on trial "
+            "windows spread along the line (not applied)"
             + (", from the line unmuted, as the trial starts:" if muted else ":"),
             *describe_mutes(mute),
             f"It would keep: {mute.chosen} ({json.dumps(mute.muting)}).",
@@ -164,6 +176,12 @@ def _trial(
     text = "\n".join(said)
     write_atomic(saved, text)
     return text
+
+
+def _ladder(study: Study, current: Mapping[str, Any], settings: Settings, config: QCConfig) -> int:
+    """The window length PACo's ladder chooses from `current` (advise window_length, made once)."""
+    _trial(study, "window_length", current, settings, config)
+    return int((study.folder / ADVICE / "window_length" / _key(current) / LENGTH).read_text())
 
 
 def _line_changes(run_folder: Path) -> str:

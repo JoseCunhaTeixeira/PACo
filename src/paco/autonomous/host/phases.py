@@ -60,6 +60,10 @@ TOOLS: dict[Phase, frozenset[str]] = {
         }
     ),
 }
+# The journal's entries made before the survey is said: the objective and the settings the user
+# typed. Any other closes the survey once it is made: the model's first word on it, or what came
+# after (an experiment, a commit, a reopened study).
+UNSURVEYED = frozenset({"objective", "settings"})
 # Each phase's manual (paco.autonomous/prompts), which loads only in it.
 MANUALS: dict[Phase, str] = {
     "P1": "manual_survey",
@@ -69,8 +73,9 @@ MANUALS: dict[Phase, str] = {
 
 
 def phase_of(study: Study) -> Phase:
-    """The study's phase, from its records: P0 before the objective, P1 before the survey, P2
-    before the freeze, P4 after it, P5 once the report is given, until the study opens again."""
+    """The study's phase, from its records: P0 before the objective, P1 until the survey is made
+    and said in the journal, P2 before the freeze, P4 after it, P5 once the report is given,
+    until the study opens again."""
     kinds = [entry.kind for entry in journal.entries(study)]
     if _last(kinds, "report") > _last(kinds, "reopen"):
         return "P5"
@@ -78,7 +83,7 @@ def phase_of(study: Study) -> Phase:
         return "P0"
     if (study.folder / CURVES).exists():
         return "P4"
-    if not (study.folder / SAVED).exists():
+    if not (study.folder / SAVED).exists() or set(kinds) <= UNSURVEYED:
         return "P1"
     return "P2"
 

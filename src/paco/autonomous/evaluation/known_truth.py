@@ -48,11 +48,12 @@ from paco.settings import Settings, get_settings
 
 PROFILE = "active_test_profile"
 # The line the synthetic curves stand on: 19 windows of 78 receivers, the longest of which some
-# curves pass G3 and G4 on the test profile's shots (8), imaged on a coarse grid (their curves are
-# replaced).
-LINE = {"masw": {"length": 78}, "dispersion": {"nv": 250}}
+# curves pass G3 and G4 on the test profile's shots (8), each taking every shot of the line,
+# imaged on a coarse grid (their curves are replaced).
+LINE = {"masw": {"length": 78, "distance_max": 150.0}, "dispersion": {"nv": 250}}
 REASONS = {
     "masw length": "the known-truth set: few windows, long curves",
+    "masw distance_max": "every shot of the line: windows this long have few beyond their ends",
     "dispersion nv": "a coarse grid: the curves are replaced by synthetic ones",
 }
 ACCEPTED = "the known-truth set: its curve is replaced by a synthetic one"

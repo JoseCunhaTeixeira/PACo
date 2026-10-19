@@ -225,13 +225,7 @@ def look(
             mute,
             velocities or (),
         )
-    return [
-        TextContent(type="text", text=seen.text),
-        *(
-            ImageContent(type="image", data=base64.b64encode(png).decode(), mime_type="image/png")
-            for png in seen.figures
-        ),
-    ]
+    return _content(seen.text, seen.figures)
 
 
 @server.tool(annotations=paco_server.ADDS)
@@ -269,10 +263,11 @@ def try_settings(
     hypothesis: Annotated[
         str | None, Field(description="The journal's hypothesis it tests, by its id (H<n>).")
     ] = None,
-) -> str:
+) -> list[TextContent | ImageContent]:
     """Each variant tried with the current settings on the same trial windows, judged by G1 to
     G3, scored, the windows gained and lost against the current settings; changes no run. A
-    trial made before is not made again. The experiment goes to the journal."""
+    trial made before is not made again. The experiment goes to the journal. With vision, its
+    variants side by side (look experiment)."""
     study = _study(profile, ctx)
     line = committing.line_of(study)
     state = committing.line_state(_run_folder(study)) if line is not None else LineState()
@@ -286,7 +281,11 @@ def try_settings(
         config=_config(),
     )
     journaling.experiment(study, experiment, hypothesis)
-    return trials.describe(experiment)
+    said = trials.describe(experiment)
+    if not _vision(ctx):
+        return _content(said)
+    seen = looking.look_experiment(study, experiment.id, vision=True)
+    return _content(f"{said}\n\n{seen.text}", seen.figures)
 
 
 @server.tool(annotations=paco_server.REPLACES)
@@ -312,16 +311,21 @@ def commit(
     experiment: Annotated[
         str | None, Field(description="The experiment the changes come from, by its id (E<n>).")
     ] = None,
-) -> str:
+) -> list[TextContent | ImageContent]:
     """The line made with these changes of its settings: every window one receiver apart, its
     records judged by G1, its images by G2, each picked (as its recipe says, if it has one) and
     judged by G3, then G4 along the line. The first commit makes the run, in PAC's layout; a later
     one changes the run's settings, what it replaces kept in each window's attempts/; a change of
-    masw makes a new run, without recipes."""
+    masw makes a new run, without recipes. With vision, a sheet of its images and picks along the
+    line."""
     study = _study(profile, ctx)
     committed = committing.commit(study, changes, reasons, experiment, get_settings(), _config())
     journaling.commit(study, committed)
-    return committing.describe_commit(committed)
+    said = committing.describe_commit(committed)
+    if not _vision(ctx):
+        return _content(said)
+    seen = looking.look_line(find_run(committed.line.run_id, get_settings()))
+    return _content(f"{said}\n\nIts images and picks: {seen.text}", seen.figures)
 
 
 Windows = Annotated[str, Field(description=f"The windows: {selecting.SPEC}.")]
@@ -583,6 +587,17 @@ def _retries(ctx: Context) -> int | None:
     meta = ctx.request_context.meta if isinstance(ctx, Context) else None
     found = meta.get("inversion_retries") if isinstance(meta, dict) else None
     return found if isinstance(found, int) else None
+
+
+def _content(text: str, figures: Sequence[bytes] = ()) -> list[TextContent | ImageContent]:
+    """A tool's text and its figures, PNG files, as MCP carries them."""
+    return [
+        TextContent(type="text", text=text),
+        *(
+            ImageContent(type="image", data=base64.b64encode(png).decode(), mime_type="image/png")
+            for png in figures
+        ),
+    ]
 
 
 def _vision(ctx: Context) -> bool:

@@ -15,7 +15,7 @@ from sigpipe.masw.presets import make_preset, resolve_preset
 from sigpipe.masw.profiles import MODES, load_profile
 from sigpipe.masw.runs.writing import write_atomic
 
-from paco.autonomous.tools.trials import Study, settled, with_records
+from paco.autonomous.tools.trials import SURVEY_FILE, Study, settled, with_records
 from paco.qc.coherence import receiver_spacing
 from paco.qc.config import QCConfig
 from paco.qc.g4_profile import LINE
@@ -24,7 +24,7 @@ from paco.qc.muting import estimate_cone, mute_candidates
 from paco.settings import Settings
 
 SURVEY = "survey"  # the study's folder of the raw records' G1 log
-SAVED = "survey.json"
+SAVED = SURVEY_FILE
 # The shots, or the flagged records, said one by one at most; past it, summed up.
 MANY = 8
 # The modes, as the survey says them.

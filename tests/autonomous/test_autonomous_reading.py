@@ -124,7 +124,11 @@ def test_advise_makes_pacos_trials_once(input_dir: Path, tmp_path: Path) -> None
 
     assert ladder.startswith("PACo's ladder, on trial windows spread along the line (not applied):")
     assert ladder.splitlines()[-1].startswith("It would choose windows of ")
-    assert mute.startswith("PACo's mute trial, on trial windows spread along the line")
+    # No length given: the mute trial at the ladder's, as the workflow orders them.
+    length = ladder.splitlines()[-1].split()[-2]
+    assert mute.startswith(
+        f"PACo's mute trial at {length} receivers (its ladder's), on trial windows spread along "
+    )
     assert mute.splitlines()[-1].startswith("It would keep: ")
     # Kept in the study: asked again, the same, made before.
     assert advise(study, "window_length", {}, settings, config) == ladder

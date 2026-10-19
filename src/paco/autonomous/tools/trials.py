@@ -92,6 +92,8 @@ RESULT = "result.json"
 INDEX = "index.json"
 # The frozen curves (freeze): once written, the study is past its curves (P4).
 CURVES = "curves.json"
+# The survey's file (survey.SAVED): what it measured of the line, its reach among it.
+SURVEY_FILE = "survey.json"
 # The most variants a call tries, besides the current settings (§6), and its windows by default:
 # images and picks are cheap, a sweep compares many settings on enough windows.
 MOST_VARIANTS = 12
@@ -359,10 +361,13 @@ def resolve(
     return [windows[index] for index in sorted(chosen)]
 
 
-def concrete(settings: Mapping[str, Any], profile: Profile, config: QCConfig) -> Trial:
+def concrete(
+    settings: Mapping[str, Any], profile: Profile, config: QCConfig, reach_m: float | None
+) -> Trial:
     """The line's `settings` (its mode, a preset's stages as sigpipe overrides them, `picking`
     and `near_field_m`) made concrete for `profile`; refused, saying what to change, when they
-    cannot be."""
+    cannot be. A window stacks no shot past the line's reach (`reach_m`, the survey's) unless the
+    settings give masw.distance_max, as PACo's workflow sets it."""
     stages = {
         key: value for key, value in settings.items() if key not in (PICKING, NEAR_FIELD, MODE)
     }
@@ -389,11 +394,25 @@ def concrete(settings: Mapping[str, Any], profile: Profile, config: QCConfig) ->
     made = dict(settings)
     if (muting := _mute_completed(stages.get("muting"), profile, config)) is not None:
         stages["muting"] = made["muting"] = muting
-    preset = resolve_preset(make_preset(mode, deep_merge(stages, {"masw": {"step": 1}})), profile)
+    windows: dict[str, Any] = {"step": 1}
+    given = cast(Mapping[str, Any], masw) if isinstance(masw, Mapping) else {}
+    if reach_m is not None and mode != "passive" and "distance_max" not in given:
+        windows["distance_max"] = reach_m
+    preset = resolve_preset(make_preset(mode, deep_merge(stages, {"masw": windows})), profile)
     parameters = PickingParameters.model_validate(
         {**config.picking.model_dump(), **cast(Mapping[str, Any], picking)}
     )
     return Trial(made, preset, parameters, float(near) if near is not None else None)
+
+
+def survey_reach(study: Study) -> float | None:
+    """The line's reach the study's survey measured, m: None before the survey, or where it found
+    none."""
+    path = study.folder / SURVEY_FILE
+    if not path.exists():
+        return None
+    reach = json.loads(path.read_text()).get("reach_m")
+    return float(reach) if isinstance(reach, int | float) else None
 
 
 def _mute_completed(muting: object, profile: Profile, config: QCConfig) -> dict[str, Any] | None:
@@ -681,7 +700,10 @@ def try_settings(
     changes = [dict(change) for change in variants]
     for change in changes:
         check_line(change, user)
-    trials = [concrete(deep_merge(base, change), profile, config) for change in [{}, *changes]]
+    reach = survey_reach(study)
+    trials = [
+        concrete(deep_merge(base, change), profile, config, reach) for change in [{}, *changes]
+    ]
     last = _last_xmids(study)
     runs: list[tuple[TrialRun, bool]] = []
     for trial in trials:
