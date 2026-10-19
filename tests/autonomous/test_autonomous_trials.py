@@ -223,8 +223,10 @@ def test_the_experiment_as_the_model_reads_it(made: Made) -> None:
     lines = describe(made.first).splitlines()
 
     assert lines[0] == "E1: 3 variants on spread:3, against the current settings:"
-    # The images first (an active image has no lateral coherence), then the curves.
-    assert lines[1].startswith("- current: 2 of 3 windows pass G3; image 0.73 (coherent 73%, on ")
+    # The images first, their weakest windows and their measures (an active image has no lateral
+    # coherence), then the curves.
+    assert lines[1].startswith("- current: 2 of 3 windows pass G3; image ")
+    assert "(P10 " in lines[1] and "background " in lines[1] and "lateral" not in lines[1]
     assert "; depth " in lines[1]
     # 32 receivers: the same two curves pass, their images less clean and the curves shallower:
     # the current settings dominate. A pick up to 30 Hz: the same images, its picks no better on

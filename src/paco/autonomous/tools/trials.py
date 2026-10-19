@@ -734,20 +734,27 @@ def describe(experiment: Experiment) -> str:
 
 
 def figures(card: Scorecard) -> str:
-    """A scorecard's figures, as an experiment says them: the images (their score and the
-    measures known of it: an active image has no lateral coherence), then depth, span,
-    uncertainty, the near field (a passive line's windows have no shot: none), beyond reach and
-    aliased."""
+    """A scorecard's figures, as an experiment says them: the images (their score, its weakest
+    windows' and the measures known of it: an active image has no lateral coherence), then
+    depth, span, uncertainty, the near field (a passive line's windows have no shot: none),
+    beyond reach and aliased."""
     measured = [
-        f"{name} {_share(value)}"
-        for name, value in (
-            ("coherent", card.coherent),
-            ("lateral", card.lateral),
-            ("on the ridge", card.on_ridge),
+        said
+        for said, value in (
+            (f"coherent {_share(card.coherent)}", card.coherent),
+            (f"lateral {_share(card.lateral)}", card.lateral),
+            (f"on the ridge {_share(card.on_ridge)}", card.on_ridge),
+            (f"background {_value(card.background)}", card.background),
+            (f"stripes {_value(card.stripes)}", card.stripes),
         )
         if value is not None
     ]
-    images = f"image {card.image:.2f} ({', '.join(measured)}); " if card.image is not None else ""
+    weakest = f"P10 {card.image_p10:.2f}; " if card.image_p10 is not None else ""
+    images = (
+        f"image {card.image:.2f} ({weakest}{', '.join(measured)}); "
+        if card.image is not None
+        else ""
+    )
     if not card.covered:
         return f"{images}no curve to score"
     near = f"near field {_share(card.near_field)}, " if card.near_field is not None else ""

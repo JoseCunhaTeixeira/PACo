@@ -69,11 +69,15 @@ def test_a_variant_gaining_windows_by_shortening_its_curves_is_marked() -> None:
     ).shortened
 
 
-def test_the_images_are_scored_by_their_coherence_and_the_picks_on_their_ridge() -> None:
+def test_the_images_are_scored_by_their_coherence_their_background_and_the_picks_on_them() -> None:
     # A clean image and a striped one, as 11 and 20 receivers gave across a lateral change.
     g2 = {
-        1.0: _result("G2", coherent_columns=1.0, lateral_coherence=0.96),
-        2.0: _result("G2", coherent_columns=0.71, lateral_coherence=0.78),
+        1.0: _result(
+            "G2", coherent_columns=1.0, lateral_coherence=0.96, background=0.1, stripes=0.002
+        ),
+        2.0: _result(
+            "G2", coherent_columns=0.71, lateral_coherence=0.78, background=0.3, stripes=0.02
+        ),
     }
     g3 = {1.0: _result("G3", on_data=0.89), 2.0: _result("G3", on_data=0.8)}
 
@@ -82,9 +86,13 @@ def test_the_images_are_scored_by_their_coherence_and_the_picks_on_their_ridge()
     assert card.coherent == pytest.approx(0.855)
     assert card.lateral == pytest.approx(0.87)
     assert card.on_ridge == pytest.approx(0.845)
-    # Each window's mean, then their median.
-    assert card.image == pytest.approx(((1.0 + 0.96 + 0.89) / 3 + (0.71 + 0.78 + 0.8) / 3) / 2)
-    # Without G2's results, the images are not scored.
+    assert (card.background, card.stripes) == (pytest.approx(0.2), pytest.approx(0.011))
+    # Each window's mean, its background counted as 1 minus it; their median, and the 10th
+    # percentile for the weakest windows.
+    clean, striped = (1.0 + 0.96 + 0.89 + 0.9) / 4, (0.71 + 0.78 + 0.8 + 0.7) / 4
+    assert card.image == pytest.approx((clean + striped) / 2)
+    assert card.image_p10 == pytest.approx(striped + 0.1 * (clean - striped))
+    # Without G2's results, the picks alone.
     assert scorecard(g3, 15.0).image == pytest.approx((0.89 + 0.8) / 2)
     assert scorecard({1.0: None}, 15.0).image is None
 

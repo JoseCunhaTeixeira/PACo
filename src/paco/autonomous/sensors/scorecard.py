@@ -5,8 +5,8 @@ another one beats on every count.
 The pick's uncertainty is a function of its wavelength and of the window's receivers alone
 (sigpipe's Lorentzian, capped at 40 % of the velocity): precision grows with the window's length and
 falls as curves reach deeper, whatever the image. It is shown, not counted: variants are compared on
-their images first (G2's coherent columns and lateral coherence, G3's share of each pick on its
-ridge), then on their coverage and depth."""
+their images first (G2's coherent columns, lateral coherence and background off the ridge, G3's
+share of each pick on its ridge), then on their coverage and depth."""
 
 from collections.abc import Collection, Iterable, Mapping
 from dataclasses import dataclass
@@ -38,11 +38,15 @@ class Scorecard:
     outliers: int | None  # G4's outliers among the curves, on the line
     misfit: float | None  # G4's median misfit to the neighbours, on the line
     cpu_s: float | None  # what it cost
-    # The images: each window's mean of the three measures below, their median, 1 at best.
+    # The images: each window's mean of the measures below, the background as 1 minus it (1 at
+    # best); their median, and their 10th percentile for the weakest windows.
     image: float | None = None
+    image_p10: float | None = None
     coherent: float | None = None  # G2: the share of the image's columns holding a coherent peak
     lateral: float | None = None  # G2: the lateral coherence of the window's traces
     on_ridge: float | None = None  # G3: the share of each pick on its image's ridge (on_data)
+    background: float | None = None  # G2: the level off the ridge, over its peak (0 at best)
+    stripes: float | None = None  # G2: that level's jumps between columns (reported)
 
     @property
     def coverage(self) -> float:
@@ -103,9 +107,16 @@ def scorecard(
             _measure(images.get(xmid), "coherent_columns"),
             _measure(images.get(xmid), "lateral_coherence"),
             _measure(g3[xmid], "on_data"),
+            _measure(images.get(xmid), "background"),
         )
         for xmid in g3
     }
+    scores = [
+        score
+        for coherent, lateral, on_ridge, level in measured.values()
+        if (score := _mean((coherent, lateral, on_ridge, 1 - level if level is not None else None)))
+        is not None
+    ]
     return Scorecard(
         windows=tuple(sorted(g3)),
         covered=tuple(kept),
@@ -127,10 +138,13 @@ def scorecard(
         else None,
         misfit=median_known(misfits),
         cpu_s=cpu_s,
-        image=median_known(_mean(values) for values in measured.values()),
+        image=median_known(scores),
+        image_p10=float(np.percentile(scores, 10)) if scores else None,
         coherent=median_known(values[0] for values in measured.values()),
         lateral=median_known(values[1] for values in measured.values()),
         on_ridge=median_known(values[2] for values in measured.values()),
+        background=median_known(values[3] for values in measured.values()),
+        stripes=median_known(_measure(images.get(xmid), "stripes") for xmid in g3),
     )
 
 

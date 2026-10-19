@@ -58,8 +58,8 @@ phase velocity v and frequency f.
   receivers).
 - After the picks, the card's checks: most curves stopping well under 2·L, at the same low
   frequency at every length, mean the data limit the depth: shorten. Many curves beyond 3·L where
-  the target needs that depth: lengthen, or cut the tail (picking max_wavelength), or accept a
-  shallower model and say so.
+  the target needs that depth: lengthen, or cut the tail (picking max_wavelength, in window
+  lengths: 3 cuts at 3·L), or accept a shallower model and say so.
 
 ## Shots
 
@@ -91,6 +91,10 @@ phase velocity v and frequency f.
   the tight cone (its median divided and multiplied by 1.5); advise mute runs PACo's mute trial at
   the line's length. Beyond them: long wavelengths arrive early, at the cone's fast edge, so a mute
   that cuts the fast side alone (refractions) and keeps the slow edge wide may lose less depth.
+- Compare the candidates on the images, not only a mute against none: their velocities matter.
+  On active_p2 in passive-active, PACo's mute trial kept the cone widened by 2.25 (68 to 2,086
+  m/s), whose images are quieter over 16 to 45 m (background 0.10 to 0.14) than the standard
+  mute's (0.15 to 0.21).
 - Keeping a mute: PACo keeps one only with 2 more windows passing than no mute, a tie going to no
   mute; on active_p2 a tie kept no mute though the cone's curves reached 59 m against 28 m. Keep a
   mute that passes as many windows with longer curves within the windows' reach; drop one that
@@ -130,8 +134,12 @@ phase velocity v and frequency f.
 
 - A good image holds one sharp, continuous ridge over a wide band, the rest of it quiet. The
   scorecard measures it on every window: G2's coherent columns (the share of the image's columns
-  with a coherent peak) and lateral coherence (how far the window's traces agree), and the share
-  of each pick on its ridge (G3's on_data). Near 1 each is clean; under 0.9 a window images badly.
+  with a coherent peak) and lateral coherence (how far the window's traces agree), near 1 when
+  clean; G2's background (the image's median level off its ridge, over the ridge's peak) and its
+  stripes (that level's jumps between columns), low when clean; the share of each pick on its
+  ridge (G3's on_data). On active_p2 the clean images read a background of 0.10 to 0.18 and
+  stripes under 0.008, the striped ones up to 0.36 and 0.024. The score averages them, the
+  background as 1 minus it; its P10, the weakest windows', shows a bad stretch the median hides.
 - Compare the variants on the same windows, the image score first, and look at the images of the
   two or three best on a few windows where they differ (look image), when you can see them.
 - What a bad image shows: vertical stripes (a hard mute's edges, noisy or dead traces, a lateral
@@ -198,7 +206,8 @@ phase velocity v and frequency f.
   inverse_dispersion, aliasing_zone, beyond_reach and near_field are notes.
 - Points under 2·dx and beyond 3·L stay, flagged. The inversion's depth follows the longest
   wavelength, so a tail beyond the window's reach or in the near field drives the model's deep
-  part: say so, or cut it (picking max_wavelength).
+  part: say so, or cut it (picking max_wavelength, in window lengths; min_wavelength, the
+  shortest, in receiver spacings: 2 stops at the aliasing limit).
 - G4 along the line: a curve off two agreeing neighbours (each side within 7.5 % of itself) by
   more than 15 %, fitting neither side, is an outlier: pick it again along their median curve. A
   change shared with one side is geology: keep it. Never edit a curve to make it fit.

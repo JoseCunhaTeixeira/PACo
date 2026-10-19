@@ -67,8 +67,9 @@ a target depth, when the user gave one; the effort, which sets the budgets. Long
 farther shots buy depth and precise picks at the cost of lateral detail, coverage and, wherever
 the ground changes along the line, the images: a window averages all that lies under it.
 
-Read every scorecard the same way, the images first: their score (1 at best) and its measures,
-G2's coherent columns and lateral coherence and the share of each pick on its ridge; then the
+Read every scorecard the same way, the images first: their score (1 at best), its P10 for the
+weakest windows, and its measures, G2's coherent columns, lateral coherence and background off
+the ridge with its stripes, and the share of each pick on its ridge; then the
 coverage (the windows whose curve passes), the depth the curves inform (half their longest
 wavelength; its 10th percentile for the weakest windows), the span, the uncertainty, and the
 shares beyond the windows' reach, in the near field and in the aliasing zone. Better is cleaner

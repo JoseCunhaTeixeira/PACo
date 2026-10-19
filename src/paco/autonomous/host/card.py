@@ -187,7 +187,11 @@ def _line(study: Study, line: Line, settings: Settings) -> list[str]:
     lines = [
         f"Line now (L{line.commits[-1].number}, run {line.run_id}): "
         + _settings(manifest, line.settings, length_m),
-        (f"  image {card.image:.2f} · " if card.image is not None else "  ")
+        (
+            f"  image {card.image:.2f} (P10 {card.image_p10:.2f}) · "
+            if card.image is not None and card.image_p10 is not None
+            else "  "
+        )
         + f"G3 {len(card.covered)} of {len(card.windows)} pass · depth (λmax/2) median "
         f"{_value(card.depth_m, ' m')}, P10 {_value(card.depth_p10_m, ' m')} · uncertainty "
         f"{_share(card.precision)} · G4 outliers {card.outliers or 0}"
