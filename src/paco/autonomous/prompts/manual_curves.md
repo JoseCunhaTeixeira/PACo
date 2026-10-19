@@ -30,6 +30,10 @@ phase velocity v and frequency f.
 - The phase shift normalizes every trace's spectrum and stacks the traces along trial
   velocities: every trace weighs the same, the image's noise floor is 1/√N, and a filter or a
   delay common to every trace cannot change the image. Its frequency step is 1/T.
+- A window images the ground under it as one: across a lateral change, or with noisy traces in
+  it, its traces disagree (G2's lateral coherence falls) and the image stripes, fringes and breaks
+  its ridge. On active_p2, windows of 20 receivers across the 36 to 40 m stretch gave 0.71 to 0.83
+  of coherent columns and a lateral coherence of 0.78, where 11 receivers gave 1.00 and 0.96.
 
 ## Windows
 
@@ -44,11 +48,14 @@ phase velocity v and frequency f.
   the line: it climbs while 80 % pass and the uncertainty improves by 10 %, and stops at the first
   length passing with 20 % or less. It favours short windows; where the objective asks depth, a
   longer window is the hypothesis to test against it.
-- To choose, start from the objective: a target depth z needs λmax near 2·z, so L of at least
-  2·z/3 (λmax within 3·L), and z on a noisy line; a lateral priority starts at 5 to 9 receivers; a
-  balanced one in the middle of the range. Try 3 or 4 lengths around it on windows spread along
-  the line, its ends included, with and without the cone's mute: length and mute interact (on
-  active_p2 a mute moved PACo's ladder from 7 to 11 receivers).
+- Choose the length by the images: the shortest window whose images are clean (the image score
+  near its best, coherent columns and lateral coherence near 1) and whose curves serve the
+  objective. A target depth z needs λmax near 2·z, so L of at least 2·z/3 (λmax within 3·L), but
+  only as far as the images stay as clean; a lateral priority starts at 5 to 9 receivers; a
+  balanced one in the middle of the range. Sweep the lengths around PACo's (its ladder's, and two
+  longer) on 15 windows or more spread along the line, its ends included, each with and without
+  the mute: length and mute interact (on active_p2 a mute moved PACo's ladder from 7 to 11
+  receivers).
 - After the picks, the card's checks: most curves stopping well under 2·L, at the same low
   frequency at every length, mean the data limit the depth: shorten. Many curves beyond 3·L where
   the target needs that depth: lengthen, or cut the tail (picking max_wavelength), or accept a
@@ -78,6 +85,8 @@ phase velocity v and frequency f.
   pulse's width, and removes what blurs their ridge: the faster arrivals (direct and refracted P,
   head waves) and the slower noise. It is the first lever of a line with shots, and the
   surface-wave window of a passive-active line: try it in the first experiment, against no mute.
+  A mute cut hard at the slowest arrival rings in the image: PACo gives one without its width the
+  wave train's tail (0.05 s) and without its taper 10 ms, as its own mute trial does.
 - The candidates: PACo's standard 80 to 1,500 m/s, the cone widened by 2.25 or 1.5 each side, and
   the tight cone (its median divided and multiplied by 1.5); advise mute runs PACo's mute trial at
   the line's length. Beyond them: long wavelengths arrive early, at the cone's fast edge, so a mute
@@ -116,6 +125,21 @@ phase velocity v and frequency f.
   79 with the root); the root keeps what every shot sees, a lever where one shot is noisy or in
   its near field. A passive or passive-active line stacks correlations instead, phase-weighted
   (below).
+
+## Judging the images
+
+- A good image holds one sharp, continuous ridge over a wide band, the rest of it quiet. The
+  scorecard measures it on every window: G2's coherent columns (the share of the image's columns
+  with a coherent peak) and lateral coherence (how far the window's traces agree), and the share
+  of each pick on its ridge (G3's on_data). Near 1 each is clean; under 0.9 a window images badly.
+- Compare the variants on the same windows, the image score first, and look at the images of the
+  two or three best on a few windows where they differ (look image), when you can see them.
+- What a bad image shows: vertical stripes (a hard mute's edges, noisy or dead traces, a lateral
+  change under the window); horizontal fringes under the ridge (a short window's side lobes, a
+  hard mute); a ridge broken into pieces (a lateral change, noise); a broad smear at the low
+  frequencies, which is the window's resolution (Δv/v ≈ λ/L), not noise.
+- The image comes before the pick: a picking change cannot mend a bad image, only settings that
+  change the image can (the length, the mute, the shots, the stacking).
 
 ## Passive and passive-active lines
 
@@ -195,8 +219,8 @@ phase velocity v and frequency f.
 - Its scores count G3's passes alone, so it keeps short windows with loose picks, and a tie goes
   to the less cutting change. On active_p2 in passive-active it covers 86 of 86 windows, with its
   curves at the 40 % uncertainty cap and half their points beyond the windows' reach.
-- Where you can do better: a length matched to the objective's depth (its ladder stops at 11
-  receivers); a mute kept on a tie when it lengthens the curves within reach; a mute cutting one
+- Where you can do better: a longer length where the images stay as clean (its ladder stops at
+  11 receivers); a mute kept on a tie when it lengthens the curves within reach; a mute cutting one
   side only; the near field from each window's own λmax within its reach; on a passive line,
   segment lengths and FK bands between its candidates; a score weighing coverage and depth within
   reach together, as the scorecard does. Each is a hypothesis: test it against PACo's choice on
@@ -207,6 +231,9 @@ phase velocity v and frequency f.
 - Few coherent columns, low prominence: noise or refractions. A mute, a shorter distance_max, a
   longer window, the root; on a passive or passive-active line, longer segments or a lower FK
   threshold.
+- Stripes, fringes or a broken ridge along part of the line, with a low lateral coherence: the
+  windows cross a lateral change or noisy traces there. Shorter windows; keep the longer ones
+  only where their images stay clean.
 - Competing ridges, a mode jump at high frequencies: a lower fmax or picking band, a longer
   window.
 - A ridge on the grid's edge: a wider velocity grid; a peak at vmax under f = vmax/L is noise

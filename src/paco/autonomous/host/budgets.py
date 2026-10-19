@@ -36,9 +36,9 @@ class Budgets(BaseModel):
 
 
 EFFORTS: dict[Effort, Budgets] = {
-    "quick": Budgets(experiments=8, commits=2, cpu=3, inversion_retries=2, model_calls=60),
-    "normal": Budgets(experiments=20, commits=4, cpu=8, inversion_retries=6, model_calls=150),
-    "thorough": Budgets(experiments=40, commits=6, cpu=20, inversion_retries=6, model_calls=300),
+    "quick": Budgets(experiments=8, commits=2, cpu=6, inversion_retries=2, model_calls=60),
+    "normal": Budgets(experiments=20, commits=4, cpu=20, inversion_retries=6, model_calls=150),
+    "thorough": Budgets(experiments=40, commits=6, cpu=40, inversion_retries=6, model_calls=300),
 }
 
 

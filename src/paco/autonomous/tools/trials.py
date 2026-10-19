@@ -88,9 +88,10 @@ RESULT = "result.json"
 INDEX = "index.json"
 # The frozen curves (freeze): once written, the study is past its curves (P4).
 CURVES = "curves.json"
-# The most variants a call tries, besides the current settings (§6), and its windows by default.
-MOST_VARIANTS = 6
-WINDOWS = "spread:9"
+# The most variants a call tries, besides the current settings (§6), and its windows by default:
+# images and picks are cheap, a sweep compares many settings on enough windows.
+MOST_VARIANTS = 12
+WINDOWS = "spread:15"
 # What a variant may change besides the preset's stages: the automatic pick's parameters and the
 # near-field distance, m (a window stacks no shot nearer to its nearest receiver, where it has a
 # farther one: PACo's rule, §4.3).
@@ -381,11 +382,28 @@ def concrete(settings: Mapping[str, Any], profile: Profile, config: QCConfig) ->
     picking = settings.get(PICKING) or {}
     if not isinstance(picking, Mapping):
         raise ValueError(f"{PICKING}: the automatic pick's parameters, by name.")
+    made = dict(settings)
+    if (muting := _mute_completed(stages.get("muting"), profile, config)) is not None:
+        stages["muting"] = made["muting"] = muting
     preset = resolve_preset(make_preset(mode, deep_merge(stages, {"masw": {"step": 1}})), profile)
     parameters = PickingParameters.model_validate(
         {**config.picking.model_dump(), **cast(Mapping[str, Any], picking)}
     )
-    return Trial(dict(settings), preset, parameters, float(near) if near is not None else None)
+    return Trial(made, preset, parameters, float(near) if near is not None else None)
+
+
+def _mute_completed(muting: object, profile: Profile, config: QCConfig) -> dict[str, Any] | None:
+    """A mute giving no width or no taper, completed as PACo's mute trial makes its own: the wave
+    train's tail kept after the slowest arrival and the rules' taper; the values given stay.
+    None for any other muting."""
+    if not isinstance(muting, Mapping):
+        return None
+    values = dict(cast(Mapping[str, Any], muting))
+    if values.get("method") != "mute":
+        return None
+    values.setdefault("width", config.mute.width_s)
+    values.setdefault("taper", max(0, round(config.mute.taper_s * profile.sampling_rate_hz)))
+    return values
 
 
 def line_windows(
@@ -716,14 +734,26 @@ def describe(experiment: Experiment) -> str:
 
 
 def figures(card: Scorecard) -> str:
-    """A scorecard's figures, as an experiment says them: depth, span, uncertainty, the near
-    field (a passive line's windows have no shot: none), beyond reach and aliased."""
+    """A scorecard's figures, as an experiment says them: the images (their score and the
+    measures known of it: an active image has no lateral coherence), then depth, span,
+    uncertainty, the near field (a passive line's windows have no shot: none), beyond reach and
+    aliased."""
+    measured = [
+        f"{name} {_share(value)}"
+        for name, value in (
+            ("coherent", card.coherent),
+            ("lateral", card.lateral),
+            ("on the ridge", card.on_ridge),
+        )
+        if value is not None
+    ]
+    images = f"image {card.image:.2f} ({', '.join(measured)}); " if card.image is not None else ""
     if not card.covered:
-        return "no curve to score"
+        return f"{images}no curve to score"
     near = f"near field {_share(card.near_field)}, " if card.near_field is not None else ""
     return (
-        f"depth {_value(card.depth_m, ' m')} (P10 {_value(card.depth_p10_m, ' m')}), span "
-        f"{_value(card.span)}, uncertainty {_share(card.precision)}; {near}beyond reach "
+        f"{images}depth {_value(card.depth_m, ' m')} (P10 {_value(card.depth_p10_m, ' m')}), "
+        f"span {_value(card.span)}, uncertainty {_share(card.precision)}; {near}beyond reach "
         f"{_share(card.beyond)}, aliased {_share(card.aliased)}"
     )
 
@@ -744,6 +774,7 @@ def _experiment(
             run.length_m,
             cpu_s=round(sum(run.seconds.values()), 3),
             shots=run.mode != "passive",
+            g2={result.xmid: result.g2 for result in run.windows},
         )
         for label, (run, _) in zip(labels, runs, strict=True)
     }

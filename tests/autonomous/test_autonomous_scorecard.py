@@ -6,6 +6,7 @@ from autonomous_judged import JudgedLine
 
 from paco.autonomous.sensors.scorecard import Scorecard, against, dominated, scorecard
 from paco.qc.line_loop import LineRules
+from paco.qc.models import GateResult, Metric
 
 
 @pytest.mark.slow
@@ -68,17 +69,46 @@ def test_a_variant_gaining_windows_by_shortening_its_curves_is_marked() -> None:
     ).shortened
 
 
+def test_the_images_are_scored_by_their_coherence_and_the_picks_on_their_ridge() -> None:
+    # A clean image and a striped one, as 11 and 20 receivers gave across a lateral change.
+    g2 = {
+        1.0: _result("G2", coherent_columns=1.0, lateral_coherence=0.96),
+        2.0: _result("G2", coherent_columns=0.71, lateral_coherence=0.78),
+    }
+    g3 = {1.0: _result("G3", on_data=0.89), 2.0: _result("G3", on_data=0.8)}
+
+    card = scorecard(g3, 15.0, g2=g2)
+
+    assert card.coherent == pytest.approx(0.855)
+    assert card.lateral == pytest.approx(0.87)
+    assert card.on_ridge == pytest.approx(0.845)
+    # Each window's mean, then their median.
+    assert card.image == pytest.approx(((1.0 + 0.96 + 0.89) / 3 + (0.71 + 0.78 + 0.8) / 3) / 2)
+    # Without G2's results, the images are not scored.
+    assert scorecard(g3, 15.0).image == pytest.approx((0.89 + 0.8) / 2)
+    assert scorecard({1.0: None}, 15.0).image is None
+
+
 def test_dominated_variants() -> None:
+    # The images first, then the coverage and the depth; the picks' uncertainty, the geometry's,
+    # does not count.
     cards = {
         "A": _card((1.0, 2.0, 3.0)),
         "B": _card((1.0, 2.0, 3.0), depth_m=9.0),  # A is as good, and deeper
-        "C": _card((1.0, 2.0, 3.0, 4.0), depth_m=8.0, precision=0.3),  # it covers the most
+        "C": _card((1.0, 2.0, 3.0, 4.0), depth_m=8.0, image=0.8),  # it covers the most
         "D": _card((1.0, 2.0, 3.0)),  # as A: neither beats the other
         "E": _card((1.0, 2.0, 3.0), depth_m=None),  # its depth unknown, the worst
-        "F": _card((1.0, 2.0, 3.0), precision=0.15),  # A, more precise
+        "F": _card((1.0, 2.0, 3.0), image=0.95),  # A, with cleaner images
+        "G": _card((1.0, 2.0, 3.0), precision=0.1),  # A, more precise: no better
     }
 
-    assert dominated(cards) == {"A": "F", "B": "A", "D": "F", "E": "A"}
+    assert dominated(cards) == {"A": "F", "B": "A", "D": "F", "E": "A", "G": "F"}
+
+
+def _result(gate: str, **values: float) -> GateResult:
+    """A gate's passing result on a window, with `values` its measures."""
+    measured = tuple(Metric(name=name, value=value, passed=True) for name, value in values.items())
+    return GateResult(gate=gate, unit="xmid_1.00", verdict="pass", metrics=measured)
 
 
 def _card(
@@ -86,8 +116,9 @@ def _card(
     depth_m: float | None = 10.0,
     precision: float | None = 0.2,
     windows: tuple[float, ...] = (1.0, 2.0, 3.0, 4.0),
+    image: float | None = 0.9,
 ) -> Scorecard:
-    """A scorecard of `windows` with only what coverage, depth and precision need."""
+    """A scorecard of `windows` with only what coverage, depth, precision and images need."""
     return Scorecard(
         windows=windows,
         covered=covered,
@@ -103,4 +134,5 @@ def _card(
         outliers=None,
         misfit=None,
         cpu_s=None,
+        image=image,
     )

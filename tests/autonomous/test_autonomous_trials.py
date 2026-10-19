@@ -75,6 +75,29 @@ def windows(input_dir: Path) -> list[MASWWindow]:
     return line_windows(profile, concrete(CURRENT, profile, QCConfig()))
 
 
+def test_a_mute_without_width_or_taper_gets_the_workflows(input_dir: Path) -> None:
+    # Given its velocities alone, a mute keeps the wave train's tail after the slowest arrival
+    # and a taper, as PACo's mute trial makes its own; the values given stay.
+    profile = load_profile("active_test_profile", Settings(input_dir=input_dir))
+    config = QCConfig()
+    taper = round(config.mute.taper_s * profile.sampling_rate_hz)
+
+    trial = concrete({"muting": {"method": "mute", "vmin": 80, "vmax": 1500}}, profile, config)
+
+    muting = trial.preset.model_dump()["muting"]
+    assert (muting["width"], muting["taper"]) == (config.mute.width_s, taper)
+    assert trial.settings["muting"] == {
+        "method": "mute",
+        "vmin": 80,
+        "vmax": 1500,
+        "width": config.mute.width_s,
+        "taper": taper,
+    }
+    given = {"muting": {"method": "mute", "vmin": 80, "vmax": 1500, "width": 0.1, "taper": 0}}
+    kept = concrete(given, profile, config).preset.model_dump()["muting"]
+    assert (kept["width"], kept["taper"]) == (0.1, 0)
+
+
 @pytest.mark.slow
 def test_the_current_settings_and_three_variants_are_scored(made: Made) -> None:
     first = made.first
@@ -200,13 +223,15 @@ def test_the_experiment_as_the_model_reads_it(made: Made) -> None:
     lines = describe(made.first).splitlines()
 
     assert lines[0] == "E1: 3 variants on spread:3, against the current settings:"
-    assert lines[1].startswith("- current: 2 of 3 windows pass G3; depth ")
-    # 32 receivers: the same two curves pass G3, shallower but surer: neither dominates. A pick up
-    # to 30 Hz: as deep, less sure: the current settings dominate.
-    assert lines[2].startswith(
-        '- 1 {"masw": {"length": 32}}: 2 of 3 windows pass G3 (+0, -0); depth 8 m (P10 7.6 m), '
-    )
-    assert "dominated" not in lines[2]
+    # The images first (an active image has no lateral coherence), then the curves.
+    assert lines[1].startswith("- current: 2 of 3 windows pass G3; image 0.73 (coherent 73%, on ")
+    assert "; depth " in lines[1]
+    # 32 receivers: the same two curves pass, their images less clean and the curves shallower:
+    # the current settings dominate. A pick up to 30 Hz: the same images, its picks no better on
+    # them: dominated too.
+    assert lines[2].startswith('- 1 {"masw": {"length": 32}}: 2 of 3 windows pass G3 (+0, -0); ')
+    assert "depth 8 m (P10 7.6 m)" in lines[2]
+    assert lines[2].endswith("; dominated by current")
     assert lines[4].startswith('- 3 {"picking": {"fmax": 30.0}}: 2 of 3 windows pass G3 (+0, -0); ')
     assert lines[4].endswith("; dominated by current")
 
@@ -232,7 +257,7 @@ def test_a_variant_that_cannot_be_tried_is_refused_before_anything_runs(
 
 @pytest.mark.slow
 def test_the_number_of_variants_is_bounded(made: Made) -> None:
-    for variants in ([], [{"near_field_m": float(n)} for n in range(7)]):
+    for variants in ([], [{"near_field_m": float(n)} for n in range(trials.MOST_VARIANTS + 1)]):
         with pytest.raises(ValueError, match="variant"):
             try_settings(
                 made.study, variants, current=CURRENT, settings=made.settings, config=QCConfig()

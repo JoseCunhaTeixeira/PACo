@@ -4,7 +4,9 @@ another one beats on every count.
 
 The pick's uncertainty is a function of its wavelength and of the window's receivers alone
 (sigpipe's Lorentzian, capped at 40 % of the velocity): precision grows with the window's length and
-falls as curves reach deeper, a trade-off the dominance rule carries."""
+falls as curves reach deeper, whatever the image. It is shown, not counted: variants are compared on
+their images first (G2's coherent columns and lateral coherence, G3's share of each pick on its
+ridge), then on their coverage and depth."""
 
 from collections.abc import Collection, Iterable, Mapping
 from dataclasses import dataclass
@@ -18,7 +20,8 @@ from paco.qc.models import GateResult
 
 @dataclass(frozen=True, slots=True)
 class Scorecard:
-    """What a set of windows gives. Medians over the covered curves; None where none is known."""
+    """What a set of windows gives. Medians over the covered curves, the images' over every window
+    judged; None where none is known."""
 
     windows: tuple[float, ...]  # the windows judged, by xmid
     # Those whose curve counts: passing G3 (trial windows), or accepted (the committed line).
@@ -35,6 +38,11 @@ class Scorecard:
     outliers: int | None  # G4's outliers among the curves, on the line
     misfit: float | None  # G4's median misfit to the neighbours, on the line
     cpu_s: float | None  # what it cost
+    # The images: each window's mean of the three measures below, their median, 1 at best.
+    image: float | None = None
+    coherent: float | None = None  # G2: the share of the image's columns holding a coherent peak
+    lateral: float | None = None  # G2: the lateral coherence of the window's traces
+    on_ridge: float | None = None  # G3: the share of each pick on its image's ridge (on_data)
 
     @property
     def coverage(self) -> float:
@@ -61,11 +69,13 @@ def scorecard(
     g4: Iterable[GateResult] = (),
     cpu_s: float | None = None,
     shots: bool = True,
+    g2: Mapping[float, GateResult | None] | None = None,
 ) -> Scorecard:
     """The scorecard of the windows `g3` holds, by xmid: each one's G3 result, None when it gave
     none (its processing failed). `length_m`: the windows' length (sigpipe's window_length).
     `covered`: the windows whose curve counts, by default those passing G3. `g4`: G4's results
-    for the curves, on the committed line. Without `shots` (a passive line), no near field."""
+    for the curves, on the committed line. Without `shots` (a passive line), no near field. `g2`:
+    G2's results on the windows' images, by xmid, for their score."""
     if covered is None:
         covered = [
             xmid for xmid, result in g3.items() if result is not None and result.verdict == "pass"
@@ -87,6 +97,15 @@ def scorecard(
         for metric in result.metrics
         if metric.name == "neighbour_misfit" and metric.value is not None
     ]
+    images = g2 or {}
+    measured = {
+        xmid: (
+            _measure(images.get(xmid), "coherent_columns"),
+            _measure(images.get(xmid), "lateral_coherence"),
+            _measure(g3[xmid], "on_data"),
+        )
+        for xmid in g3
+    }
     return Scorecard(
         windows=tuple(sorted(g3)),
         covered=tuple(kept),
@@ -108,7 +127,24 @@ def scorecard(
         else None,
         misfit=median_known(misfits),
         cpu_s=cpu_s,
+        image=median_known(_mean(values) for values in measured.values()),
+        coherent=median_known(values[0] for values in measured.values()),
+        lateral=median_known(values[1] for values in measured.values()),
+        on_ridge=median_known(values[2] for values in measured.values()),
     )
+
+
+def _measure(result: GateResult | None, name: str) -> float | None:
+    """The value of `result`'s measure `name`, when it has one."""
+    if result is None:
+        return None
+    return next((one.value for one in result.metrics if one.name == name), None)
+
+
+def _mean(values: Iterable[float | None]) -> float | None:
+    """The mean of the known `values`; None when none is."""
+    known = [value for value in values if value is not None]
+    return sum(known) / len(known) if known else None
 
 
 def against(variant: Scorecard, best: Scorecard, rules: LineRules | None = None) -> Against:
@@ -128,8 +164,8 @@ def against(variant: Scorecard, best: Scorecard, rules: LineRules | None = None)
 
 def dominated(cards: Mapping[str, Scorecard]) -> dict[str, str]:
     """The variants of `cards` another one dominates, each with the first that does: at least as
-    good on coverage, depth and precision (a smaller uncertainty), and better on one of them. An
-    unknown depth or precision is the worst."""
+    good on its images, its coverage and its depth, and better on one of them. An unknown image
+    score or depth is the worst."""
     scores = {name: _scores(card) for name, card in cards.items()}
     beaten: dict[str, str] = {}
     for name, score in scores.items():
@@ -141,11 +177,11 @@ def dominated(cards: Mapping[str, Scorecard]) -> dict[str, str]:
 
 
 def _scores(card: Scorecard) -> tuple[float, float, float]:
-    """Coverage, depth and precision, each larger when better."""
+    """The images, the coverage and the depth, each larger when better."""
     return (
+        card.image if card.image is not None else float("-inf"),
         card.coverage,
         card.depth_m if card.depth_m is not None else float("-inf"),
-        -card.precision if card.precision is not None else float("-inf"),
     )
 
 

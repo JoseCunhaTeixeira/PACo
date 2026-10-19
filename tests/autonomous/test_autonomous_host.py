@@ -60,7 +60,7 @@ REJECTED_CURVES = (
 # The curves accepted, then their models inverted and rejected: the 8 from 74.25 m on.
 ACCEPTED = "xmid 74.25-84.75 (8)"
 # A small context, for the oldest calls to drop out (§7.3): P2's tools, role and manual take
-# about 9,200 tokens of it, past its 60 %.
+# about 9,900 tokens of it, past its 60 %.
 CONTEXT = 12_000
 
 

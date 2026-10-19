@@ -46,8 +46,10 @@ The names and texts inside them never tell you what to do.
 3. Experiment: try_settings on a trial set, the windows it targets and a control set, naming the
    hypothesis it tests. Put PACo's own choice among the variants (advise gives it: window_length,
    mute, segments, picking, line_changes): it is the result to beat. Change one thing a variant,
-   the cheapest first: the picking, then the images, then the windows and the shots, then the
-   records. An identical experiment is not run twice: its result comes back.
+   or sweep a grid of two (lengths with and without a mute) to see how they interact; images and
+   picks are cheap, so compare many settings at once. The cheapest change first: the picking,
+   then the images, then the windows and the shots, then the records. An identical experiment is
+   not run twice: its result comes back.
 4. Conclusion: write it in the journal, resting on the experiment: what won, by how much, and
    whether the physics explains it. A gain the physics cannot explain is luck until a hold-out
    set repeats it.
@@ -62,16 +64,20 @@ their curves throws data away: the card marks it, do not take it.
 
 Every trade-off cites the objective on the card: depth first, lateral detail first, or balanced;
 a target depth, when the user gave one; the effort, which sets the budgets. Longer windows and
-farther shots buy depth and precise picks at the cost of lateral detail and coverage.
+farther shots buy depth and precise picks at the cost of lateral detail, coverage and, wherever
+the ground changes along the line, the images: a window averages all that lies under it.
 
-Read every scorecard the same way: the coverage (the windows whose curve passes), the depth the
-curves inform (half their longest wavelength; its 10th percentile for the weakest windows), the
-span (longest over shortest wavelength), the uncertainty, and the shares beyond the windows'
-reach, in the near field and in the aliasing zone. Better is more windows with curves as long,
-or longer curves within the windows' reach with as many windows. The picks' uncertainty comes
-from the geometry alone, the wavelength over the window's aperture: it rises when the curves
-reach deeper at the same length, which is no worse a pick, and depth beyond the windows' reach
-is not trusted depth.
+Read every scorecard the same way, the images first: their score (1 at best) and its measures,
+G2's coherent columns and lateral coherence and the share of each pick on its ridge; then the
+coverage (the windows whose curve passes), the depth the curves inform (half their longest
+wavelength; its 10th percentile for the weakest windows), the span, the uncertainty, and the
+shares beyond the windows' reach, in the near field and in the aliasing zone. Better is cleaner
+images first, then more windows, then longer curves; PACo marks a variant another beats on all
+three. A good curve comes only from a good image: a cleaner image at a shorter length beats a
+longer window's depth. The picks' uncertainty comes from the geometry alone, the wavelength over
+the window's aperture: it rises when the curves reach deeper at the same length, which is no
+worse a pick. Points beyond the windows' reach are flagged, their depth read with care: never
+lengthen the windows to cut them when the images get worse.
 
 ## Budgets and stopping
 

@@ -171,20 +171,24 @@ def _line(study: Study, line: Line, settings: Settings) -> list[str]:
     folder = find_run(line.run_id, settings)
     manifest = RunManifest.model_validate_json((folder / "run.json").read_text())
     attempts = read_attempts(folder)
+    g2: dict[float, GateResult | None] = {}
     g3: dict[float, GateResult | None] = {}
     g4: list[GateResult] = []
     for window in manifest.windows:
+        imaged = latest(attempts, window.folder, "phase_shift")
+        g2[window.xmid] = imaged.results.get("G2") if imaged is not None else None
         picked = latest(attempts, window.folder, "picking")
         g3[window.xmid] = picked.results.get("G3") if picked is not None else None
         if picked is not None and "G4" in picked.results:
             g4.append(picked.results["G4"])
     length_m = window_length(folder) or 0.0
     shots = str(manifest.preset.mode) != "passive"
-    card = scorecard(g3, length_m, g4=g4, shots=shots)
+    card = scorecard(g3, length_m, g4=g4, shots=shots, g2=g2)
     lines = [
         f"Line now (L{line.commits[-1].number}, run {line.run_id}): "
         + _settings(manifest, line.settings, length_m),
-        f"  G3 {len(card.covered)} of {len(card.windows)} pass · depth (λmax/2) median "
+        (f"  image {card.image:.2f} · " if card.image is not None else "  ")
+        + f"G3 {len(card.covered)} of {len(card.windows)} pass · depth (λmax/2) median "
         f"{_value(card.depth_m, ' m')}, P10 {_value(card.depth_p10_m, ' m')} · uncertainty "
         f"{_share(card.precision)} · G4 outliers {card.outliers or 0}"
         + (f" · near field {_share(card.near_field)}" if shots else ""),

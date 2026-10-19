@@ -148,10 +148,13 @@ def _line(run_folder: Path, study: Study | None) -> dict[str, object]:
     agent's frozen or accepted ones, PACo's passing G3 and G4), their scorecard, and the models."""
     manifest = RunManifest.model_validate_json((run_folder / "run.json").read_text())
     attempts = read_attempts(run_folder)
+    g2: dict[float, GateResult | None] = {}
     g3: dict[float, GateResult | None] = {}
     g4: list[GateResult] = []
     passing: list[float] = []
     for window in manifest.windows:
+        imaged = latest(attempts, window.folder, "phase_shift")
+        g2[window.xmid] = imaged.results.get("G2") if imaged is not None else None
         picked = latest(attempts, window.folder, "picking")
         results = picked.results if picked is not None else {}
         g3[window.xmid] = results.get("G3")
@@ -169,6 +172,7 @@ def _line(run_folder: Path, study: Study | None) -> dict[str, object]:
         covered=accepted,
         g4=g4,
         shots=str(manifest.preset.mode) != "passive",
+        g2=g2,
     )
     config = read_qc_config(run_folder)
     models: list[tuple[str | None, InversionMeasures, float]] = []
