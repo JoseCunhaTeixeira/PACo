@@ -6,6 +6,7 @@ windows: the 8 whose curves pass accepted, the others rejected once those beside
 again along their neighbours), a commit in seconds."""
 
 import json
+import shutil
 from collections.abc import Iterator
 from dataclasses import dataclass
 from pathlib import Path
@@ -17,17 +18,19 @@ import pytest
 from autonomous_scripted import ScriptedServer, usage
 from mcp import Client
 
+from paco.agent.answer import unfound_numbers
 from paco.autonomous import server
 from paco.autonomous.host import budgets
 from paco.autonomous.host.answer import GeoAnswerForm, report
 from paco.autonomous.host.card import card
 from paco.autonomous.host.loop import CARD, DROPPED, PENDING, Host, Limits
-from paco.autonomous.host.phases import phase_of, study_for
-from paco.autonomous.host.scope import BLANK
+from paco.autonomous.host.phases import phase_of, reopen, study_for, wanted
+from paco.autonomous.host.scope import BLANK, GeoScope
 from paco.autonomous.tools import journal
 from paco.autonomous.tools.commit import LINE_FILE, Line
-from paco.autonomous.tools.given import given_of
-from paco.autonomous.tools.trials import STUDIES, Study
+from paco.autonomous.tools.given import Given, given_of
+from paco.autonomous.tools.survey import SAVED
+from paco.autonomous.tools.trials import CURVES, STUDIES, Study
 from paco.llm.model import OpenAIChat
 from paco.settings import Settings, get_settings
 
@@ -341,6 +344,15 @@ def test_the_context_stays_under_the_set_size(played: Played) -> None:
 
 
 @pytest.mark.slow
+def test_the_state_cards_numbers_are_no_unfound_numbers(played: Played) -> None:
+    # The card the model read last is stored state: its numbers, said in the answer, are found.
+    read = played.host._card  # pyright: ignore[reportPrivateUsage]
+    sources = played.host._sources()  # pyright: ignore[reportPrivateUsage]
+    assert unfound_numbers(read, [one for one in sources if one != read])
+    assert not unfound_numbers(read, sources)
+
+
+@pytest.mark.slow
 def test_every_call_goes_to_the_usage_log_and_the_transcript_is_saved(played: Played) -> None:
     used = budgets.uses(played.study)
 
@@ -511,3 +523,74 @@ def test_a_study_whose_run_is_gone_is_not_resumed(paco_env: Settings) -> None:
     )
     again, said_again = study_for("active_test_profile", paco_env)
     assert (again.folder, said_again) == (study.folder, None)
+
+
+def test_a_follow_up_after_the_report_opens_the_study_again(paco_env: Settings) -> None:
+    folder = paco_env.output_dir / "active_test_profile" / STUDIES / "20200101-000000-0000"
+    folder.mkdir(parents=True)
+    study = Study("active_test_profile", folder)
+    journal.objective(study, {}, "balanced, no target depth, normal effort")
+    (folder / SAVED).write_text("{}")
+    (folder / CURVES).write_text("{}")
+    journal.report(study, "The report.")
+    assert phase_of(study) == "P5"
+
+    # Where a message takes the study: the curves, the inversion, or nowhere (a question).
+    def asked(**fields: Any) -> GeoScope:  # noqa: ANN401
+        return GeoScope.model_validate({**BLANK, **fields})
+
+    assert wanted(asked(process=True), Given()) == "P2"
+    assert wanted(asked(), Given(mode="passive-active")) == "P2"
+    assert wanted(asked(invert=True), Given()) == "P4"
+    assert wanted(asked(), Given(inversion={"n_iterations": 50_000})) == "P4"
+    assert wanted(asked(), Given()) is None
+    # To the inversion: the frozen curves kept.
+    assert (
+        reopen(study, "P4", "now invert it").text == "Back to the inversion after R1: now invert it"
+    )
+    assert phase_of(study) == "P4" and (folder / CURVES).exists()
+    # Reported again, then to the curves: the freeze undone, its curves set aside.
+    journal.report(study, "The second report.")
+    assert reopen(study, "P2", "reprocess using muting").id == "B2"
+    assert phase_of(study) == "P2"
+    assert not (folder / CURVES).exists() and (folder / "curves-B2.json").exists()
+
+
+@pytest.mark.slow
+def test_a_follow_up_asking_to_process_again_reopens_the_reported_study(played: Played) -> None:
+    # The played study, copied, its report given: a message asks to process again. The study
+    # goes back to its curves, its journal kept, and the model works on: here it asks which mute.
+    folder = played.study.folder.parent / "20990101-000000-0000"
+    shutil.copytree(played.study.folder, folder)
+    study = Study(PROFILE, folder)
+    model = ScriptedServer(
+        form({**BLANK, "process": True, "redo": True}),
+        said("Which mute?"),
+        answer_form("Before processing again:", question="Which mute: by velocity, or by offset?"),
+    )
+    events: list[str] = []
+
+    async def run() -> str:
+        async with Client(server.server) as client:
+            host = await Host.start(
+                client,
+                OpenAIChat(model.client, "scripted"),
+                played.settings,
+                on_event=events.append,
+            )
+            host.study = study
+            return await host.answer("can you reprocess using muting")
+
+    answered = anyio.run(run)
+
+    assert [entry.id for entry in journal.entries(study)][-2:] == ["R1", "B1"]
+    assert phase_of(study) == "P2" and (folder / "curves-B1.json").exists()
+    assert "Which mute: by velocity, or by offset?" in answered
+    assert "B1: Back to the curves after R1: can you reprocess using muting" in events
+    # The model read the request, why the study opened again, then the state card.
+    read = model.bodies[1]["messages"]
+    assert read[1]["content"].startswith(
+        "can you reprocess using muting\n\n[PACo] Study 20990101-000000-0000 opens again after "
+        "its report (B1: Back to the curves after R1"
+    )
+    assert read[-1]["content"].startswith(CARD)

@@ -27,6 +27,7 @@ type Kind = Literal[
     "freeze",
     "inversion",
     "report",
+    "reopen",
     "hypothesis",
     "conclusion",
     "decision",
@@ -40,6 +41,7 @@ PREFIXES: dict[str, str] = {
     "freeze": "F",
     "inversion": "I",
     "report": "R",
+    "reopen": "B",
     "hypothesis": "H",
     "conclusion": "C",
     "decision": "D",
@@ -199,7 +201,7 @@ def freeze(study: Study, frozen: Frozen) -> Entry:
     return append(
         study,
         Entry(
-            id="F1",
+            id=next_id(study, "freeze"),
             kind="freeze",
             at=frozen.frozen_at,
             text=(
@@ -221,6 +223,25 @@ def report(study: Study, answer: str) -> Entry:
             at=datetime.now(UTC),
             text="The report, given to the user",
             data={"answer": answer},
+        ),
+    )
+
+
+def reopen(study: Study, back_to: str, request: str) -> Entry:
+    """The study opened again after its report for the user's next `request`: back to the curves
+    (the freeze undone) or to the inversion."""
+    report = next(
+        (one.id for one in reversed(entries(study)) if one.kind == "report"), "the report"
+    )
+    asked = " ".join(request.split())
+    return append(
+        study,
+        Entry(
+            id=next_id(study, "reopen"),
+            kind="reopen",
+            at=datetime.now(UTC),
+            text=f"Back to the {back_to} after {report}: {asked[:200]}",
+            data={"request": asked},
         ),
     )
 

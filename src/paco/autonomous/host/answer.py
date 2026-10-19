@@ -176,7 +176,7 @@ def done(study: Study) -> list[str]:
                 else f"{len(own)} picks of single windows"
             )
             lines.append(f"{picks} ({said})")
-    lines += [entry.text for entry in found if entry.kind == "freeze"]
+    lines += [entry.text for entry in found if entry.kind in ("freeze", "reopen")]
     lines += [f"{entry.id} {entry.text}" for entry in found if entry.kind == "inversion"]
     return lines
 

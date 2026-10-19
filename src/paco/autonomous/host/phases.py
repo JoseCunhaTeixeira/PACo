@@ -9,9 +9,11 @@ from typing import Literal
 from mcp.types import Tool
 from sigpipe.masw.runs import RunError, find_run
 
+from paco.autonomous.host.scope import GeoScope
 from paco.autonomous.tools import journal
 from paco.autonomous.tools.commit import line_of
 from paco.autonomous.tools.freeze import frozen
+from paco.autonomous.tools.given import Given
 from paco.autonomous.tools.survey import SAVED
 from paco.autonomous.tools.trials import CURVES, STUDIES, STUDY_ID, Study, new_study
 from paco.settings import Settings
@@ -68,9 +70,9 @@ MANUALS: dict[Phase, str] = {
 
 def phase_of(study: Study) -> Phase:
     """The study's phase, from its records: P0 before the objective, P1 before the survey, P2
-    before the freeze, P4 after it, P5 once the report is given."""
-    kinds = {entry.kind for entry in journal.entries(study)}
-    if "report" in kinds:
+    before the freeze, P4 after it, P5 once the report is given, until the study opens again."""
+    kinds = [entry.kind for entry in journal.entries(study)]
+    if _last(kinds, "report") > _last(kinds, "reopen"):
         return "P5"
     if "objective" not in kinds:
         return "P0"
@@ -79,6 +81,32 @@ def phase_of(study: Study) -> Phase:
     if not (study.folder / SAVED).exists():
         return "P1"
     return "P2"
+
+
+def _last(kinds: Sequence[str], kind: str) -> int:
+    """Where `kind` comes last in `kinds`; -1 when it never does."""
+    return max((index for index, one in enumerate(kinds) if one == kind), default=-1)
+
+
+def wanted(scope: GeoScope, typed: Given) -> Literal["P2", "P4"] | None:
+    """Where a message after the report takes the study: back to the curves when it asks to
+    process or pick again, or gives their settings; to the inversion when it asks for models or
+    soils, or gives the inversion's settings; nowhere for any other (the report answers it)."""
+    if scope.process or scope.pick or scope.redo or typed.mode or typed.line:
+        return "P2"
+    if scope.invert or scope.soils or typed.inversion:
+        return "P4"
+    return None
+
+
+def reopen(study: Study, back: Literal["P2", "P4"], request: str) -> journal.Entry:
+    """`study` opened again after its report for the user's `request`, its journal and budgets
+    kept: back to the curves, the freeze undone (its frozen curves set aside, as
+    curves-B<n>.json), or to the inversion of the frozen curves."""
+    made = study.folder / CURVES
+    if back == "P2" and made.exists():
+        made.replace(study.folder / f"curves-{journal.next_id(study, 'reopen')}.json")
+    return journal.reopen(study, NAMES[back], request)
 
 
 def study_for(profile: str, settings: Settings) -> tuple[Study, str | None]:

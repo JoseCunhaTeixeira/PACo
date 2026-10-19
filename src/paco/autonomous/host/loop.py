@@ -47,9 +47,20 @@ from paco.autonomous.conversion import tool_messages
 from paco.autonomous.host import answer as answering
 from paco.autonomous.host import budgets
 from paco.autonomous.host.card import card, effort_of, objective_of, state
-from paco.autonomous.host.phases import MANUALS, NAMES, Phase, offered, phase_of, refusal, study_for
+from paco.autonomous.host.phases import (
+    MANUALS,
+    NAMES,
+    Phase,
+    offered,
+    phase_of,
+    refusal,
+    reopen,
+    study_for,
+    wanted,
+)
 from paco.autonomous.host.scope import GeoScope, read_objective
 from paco.autonomous.tools import given, journal, models
+from paco.autonomous.tools.commit import line_of
 from paco.autonomous.tools.freeze import describe_frozen, frozen
 from paco.autonomous.tools.invert import inversions_of
 from paco.autonomous.tools.trials import Study
@@ -163,6 +174,8 @@ class Host:
             self.meta["model"] = name
         # The size of every call's messages, as the host estimated it (§7.3).
         self.sizes: list[int] = []
+        # The state card the model read last: stored state its answer's numbers may come from.
+        self._card = ""
 
     @classmethod
     async def start(
@@ -199,6 +212,11 @@ class Host:
         try:
             if self.study is None:
                 asked = await self._objective(message)
+                if asked is not None:
+                    return asked
+                start = 1
+            elif phase_of(self.study) == "P5":
+                asked = await self._follow_up(message)
                 if asked is not None:
                     return asked
                 start = 1
@@ -276,6 +294,43 @@ class Host:
             budgets.record(study, _use("form", "P0", 0.0, record.prompt_tokens))
         return None
 
+    async def _follow_up(self, message: str) -> str | None:
+        """A message after the report, read as the first one is, the study's profile and run its
+        context. Asking for the curves again (processing, picking, their settings) or for the
+        inversion (models, soils, its settings), the study opens again there, its journal and
+        budgets kept; about another profile, that profile's study; any other, the report."""
+        study = self._study
+        line = line_of(study)
+        context = Context(profile=study.profile, run_id=line.run_id if line is not None else None)
+        started = time.perf_counter()
+        try:
+            read = await read_objective(self._model, message, context)
+        except ScopeError as error:
+            self.steps.append(_scope_step(None, time.perf_counter() - started, str(error)))
+            return f"I could not read what your message asks ({error}). Say it again, please."
+        scope = cast(GeoScope, read.scope)
+        self.steps.append(_scope_step(scope, time.perf_counter() - started))
+        for record in read.fills:
+            budgets.record(study, _use("form", "P5", 0.0, record.prompt_tokens))
+        if scope.profile is not None and scope.profile != study.profile:
+            self.study = None
+            return await self._objective(message)
+        typed = scope.given(receiver_spacing(load_profile(study.profile, self._settings)))
+        back = wanted(scope, typed)
+        if back is None:
+            report = self._report_given()
+            self.history.append({"role": "user", "content": message})
+            self.history.append({"role": "assistant", "content": report})
+            return report
+        if changed := given.give(study, typed):
+            said = journal.settings(study, changed)
+            self._on_event(f"{said.id}: {said.text}")
+        entry = reopen(study, back, message)
+        self.scope, self.request = scope, message
+        self._on_event(f"{entry.id}: {entry.text}")
+        self.history = [{"role": "user", "content": f"{message}\n\n{self._reopened(entry)}"}]
+        return None
+
     async def _run(self) -> str:
         """The model's calls until the turn ends: a reply without a call, the report, or the
         model calls' budget spent."""
@@ -330,7 +385,7 @@ class Host:
         manual = MANUALS.get(phase)
         system = prompts.prompt("role") + (f"\n\n{prompts.prompt(manual)}" if manual else "")
         state(self._study, self._settings)
-        now = card(self._study, self._settings)
+        self._card = now = card(self._study, self._settings)
         self._dropped(system, now, tools)
         return [
             {"role": "system", "content": system},
@@ -595,6 +650,17 @@ class Host:
     def _line(self) -> str:
         return self.scope.line() if self.scope is not None else ""
 
+    def _reopened(self, entry: journal.Entry) -> str:
+        """What the model reads when the study opens again after its report: why, the objective
+        and the journal's last entries; the state card says the rest, its budgets as they were."""
+        goal = objective_of(self._study)
+        last = journal.read(self._study, last=8)
+        return (
+            f"[PACo] Study {self._study.id} opens again after its report ({entry.id}: "
+            f"{entry.text}), its budgets as they were. The objective: "
+            f"{goal.text if goal is not None else 'not read'}. The journal's last entries:\n{last}"
+        )
+
     def _resumed(self, goal: journal.Entry) -> str:
         """What the model reads on resuming a study: its objective and its journal's last
         entries; the state card says the rest."""
@@ -605,12 +671,17 @@ class Host:
         )
 
     def _sources(self) -> list[str]:
-        """What the answer's numbers may come from: the tools' results of the conversation."""
-        return [
-            str(message.get("content") or "")
-            for message in self.history
-            if message["role"] in ("user", "tool")
-        ] + [step.result for step in self.steps if isinstance(step, ToolStep)]
+        """What the answer's numbers may come from: the tools' results of the conversation, and
+        the state card the model read last (stored state)."""
+        return (
+            [
+                str(message.get("content") or "")
+                for message in self.history
+                if message["role"] in ("user", "tool")
+            ]
+            + [step.result for step in self.steps if isinstance(step, ToolStep)]
+            + [self._card]
+        )
 
     def transcript(self) -> Transcript:
         """The conversation so far, and every step with its cost."""
