@@ -2,10 +2,11 @@
 line, accepted, rejected or pending, with its reason. Code refuses (§8, rule 4): accepting a window
 whose curve did not pass G3, carries a blocking flag, or is off its neighbours (G4); accepting a
 curve with notes without a reason; and rejecting a window before it was tried hard (§4.6). Tried
-hard means the line's automatic pick, a pick after each fixable flag it carried (or a reason naming
-the flag, saying why none applies), a pick guided by its neighbours when one side has its two
-passing G3, and a lasso when the model sees the images. A window whose image G2 rejected has nothing
-to pick: its rejection needs its reason alone.
+hard means the line's automatic pick, a pick of the model's after it when it carried fixable flags
+(or a reason naming those flags, saying why none applies), a pick guided by its neighbours when one
+side has its two passing G3, and a lasso when the model sees the images. The model's own picks owe
+nothing more: G3 judges each afresh, and their new flags would make the debt endless. A window whose
+image G2 rejected has nothing to pick: its rejection needs its reason alone.
 
 A decision holds for the curve it was made on: a later pick of the window, or a commit of the line,
 makes the window pending again. The study keeps every decision (decisions.jsonl), a window's last
@@ -251,17 +252,11 @@ def _not_tried_hard(
     owed: list[str] = []
     if not any(one.recipe.how == "line" for one in own):
         owed.append("the line's automatic pick (commit)")
-    untried: list[str] = []
-    for index, one in enumerate(own):
-        # A pick of the model's after it, not a deletion: an attempt.
-        retried = any(later.recipe.how not in ("line", "delete") for later in own[index + 1 :])
-        for name, kind in one.flags.items():
-            if kind == "fixable" and not retried and name not in untried and name not in reason:
-                untried.append(name)
+    untried = owed_flags(own, reason)
     if untried:
         owed.append(
-            f"a pick after its fixable {', '.join(untried)}, or the reason naming "
-            f"{'it' if len(untried) == 1 else 'them'}: why none applies"
+            f"a pick after the line's, which carried the fixable {', '.join(untried)}, or the "
+            f"reason naming {'it' if len(untried) == 1 else 'them'}: why none applies"
         )
     left, right = neighbours(unit, manifest, passing, config.profile)
     full = max(1, config.profile.neighbours // 2)
@@ -273,6 +268,26 @@ def _not_tried_hard(
     if vision and not any(one.recipe.how == "lasso" for one in own):
         owed.append("a lasso around its ridge (how=lasso), since you see the images")
     return f"not tried hard yet: owes {'; '.join(owed)}" if owed else None
+
+
+def owed_flags(own: Sequence[Picked], reason: str) -> list[str]:
+    """The fixable flags a window's rejection still owes a pick for: those the line's latest pick
+    carried, until a pick of the model's follows it (not a deletion), less those `reason` names.
+    The model's own picks owe nothing more: G3 judges each afresh, and their new flags would make
+    the debt endless."""
+    lines = [index for index, one in enumerate(own) if one.recipe.how == "line"]
+    if not lines or any(o.recipe.how not in ("line", "delete") for o in own[lines[-1] + 1 :]):
+        return []
+    return [
+        name
+        for name, kind in own[lines[-1]].flags.items()
+        if kind == "fixable" and not _named(name, reason)
+    ]
+
+
+def _named(flag: str, reason: str) -> bool:
+    """Whether `reason` names `flag`, by its name or in words (no_ridge, no ridge)."""
+    return flag in reason or flag.replace("_", " ") in reason.lower()
 
 
 def _made_on(attempts: tuple[Attempt, ...], unit: str) -> tuple[datetime | None, datetime | None]:

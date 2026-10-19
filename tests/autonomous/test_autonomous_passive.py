@@ -82,8 +82,8 @@ def test_the_survey_says_a_passive_lines_records_of_noise(passive: Passive) -> N
     assert (found.reach_m, found.cone_m_s, found.frequency_step_hz) == (None, None, 1.0)
     lines = describe_survey(found).splitlines()
     assert lines[0] == (
-        "passive_test_profile: 96 receivers 1.5 m apart, 142.5 m long; 2 records of ambient noise, 120 s "
-        "long, no shot."
+        "passive_test_profile: 96 receivers 1.5 m apart, 142.5 m long; 2 records of ambient noise "
+        "(1001.dat, 1002.dat), 120 s long, no shot."
     )
     assert lines[3].startswith("Reach and cone: none, a passive line has no shot")
     assert "Modes: passive (each window correlates the noise's segments and stacks them)." in lines

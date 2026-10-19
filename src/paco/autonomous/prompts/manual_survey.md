@@ -56,8 +56,9 @@ conclusion, when you can see:
 - Look at the spectra of the same records: where the surface waves' energy stands, at the far
   offsets too, bounds the image's fmax; the image's fmin goes lower than where it fades, since
   the phase shift normalizes each frequency.
-- On a passive line no shot draws a fan: look at a record or two for dead or ringing traces and
-  bursts of noise.
+- On a passive line there is no shot and no mute: nothing to set on its raw records (the survey
+  names them, for a look at one G1 flags). Its images are won by the FK selection of its segments
+  (the curves' manual).
 
 ## Your conclusion
 

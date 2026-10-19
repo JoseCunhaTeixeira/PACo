@@ -168,8 +168,8 @@ def describe_survey(found: Survey) -> str:
         return "\n".join(
             [
                 f"{found.profile}: {found.receivers} receivers {found.spacing_m:g} m apart, "
-                f"{found.line_m:g} m long; {len(found.shots)} records of ambient noise, "
-                f"{_range(found.record_s, ' s')} long, no shot.",
+                f"{found.line_m:g} m long; {len(found.shots)} records of ambient noise "
+                f"({_records(found.shots)}), {_range(found.record_s, ' s')} long, no shot.",
                 f"Sampled at {found.sampling_hz:g} Hz (Nyquist {found.nyquist_hz:g} Hz); "
                 f"segments of {found.segment_s or 0:g} s (the preset's), an image's frequency step "
                 f"{found.frequency_step_hz:.3g} Hz: longer segments give a finer step and lower "
@@ -299,6 +299,12 @@ def _said(shot: Shot) -> str:
     where = f"{shot.offset_m:g} m {shot.side}" if shot.side != "on the line" else "on the line"
     trigger = f", its file's trigger {shot.trigger_s:g} s" if shot.trigger_s else ""
     return f"{shot.record} at {shot.x_m:g} m ({where}{trigger})"
+
+
+def _records(shots: Sequence[Shot]) -> str:
+    """A passive line's records by name: each, or the first and the last past MANY."""
+    names = [shot.record for shot in shots]
+    return ", ".join(names) if len(names) <= MANY else f"{names[0]} to {names[-1]}"
 
 
 def _range(values: tuple[float, float] | None, unit: str = "") -> str:

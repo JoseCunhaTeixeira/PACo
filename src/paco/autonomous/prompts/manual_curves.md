@@ -188,8 +188,13 @@ phase velocity v and frequency f.
   or 80 to 1,500 m/s; a candidate counts with 1 % of its segments kept and the virtual shots of its
   two halves agreeing (0.7), and wins by the longest λmax/λmin. On passive_p2, 4.5 s segments with
   FK 0.2 in 80 to 1,500 m/s gave a span of 7.8 against 3.1.
-- The levers of a passive image, in this order: the segments' length, the FK threshold and band,
-  then the window's length; the stacking stays phase-weighted.
+- The FK selection decides whose noise each window stacks, and wins or loses a passive line's
+  images: give it the most experiments. Sweep its threshold (0 to 1, the preset's 0.2: lower keeps
+  more segments and their noise, higher fewer and cleaner, while enough remain to stack) and its
+  velocity band (vmin and vmax: none, 80 to 1,500 m/s, a band around the surface waves the images
+  show), in grids with the windows' length, and keep the variant whose images and virtual shot
+  gathers are cleanest (look selection shows each segment's ratio against the threshold). Then
+  the segments' length, then the window's length; the stacking stays phase-weighted.
 - G2 reads a passive window's correlations (their SNR, usable band and lateral coherence:
   noisy_correlations) and the share of segments its FK selection kept (few_segments_kept): both
   ask for more of the data, a lower threshold. Its share of coherent columns says little on a
@@ -286,9 +291,10 @@ phase velocity v and frequency f.
 ## Deciding and freezing
 
 - Accept a window whose curve passed G3 with no blocking flag, and G4; its notes need your reason.
-  Reject one only once tried hard: the line's pick, a pick after each fixable flag (or a reason
-  naming why none applies), a guide from its neighbours when one side has two passing, a lasso
-  when you see the images. decide refuses otherwise, saying what is owed.
+  Reject one only once tried hard: the line's pick, a pick after it when it carried fixable flags
+  (or a reason naming them: why none applies), a guide from its neighbours when one side has two
+  passing, a lasso when you see the images. decide refuses otherwise, saying what is owed; your
+  own picks owe nothing more.
 - Look at a window's image and pick before accepting it with notes or rejecting it: a curve G3
   passed off its ridge is not accepted, and one it failed on a clean ridge is worth a lasso.
 - When every window is decided, freeze. Ask the user first when more than 30 % of the windows

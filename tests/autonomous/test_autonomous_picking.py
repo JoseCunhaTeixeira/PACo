@@ -9,6 +9,7 @@ import importlib.util
 import json
 from collections.abc import Iterator
 from dataclasses import dataclass
+from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
 
@@ -21,7 +22,9 @@ from sigpipe.masw.picks import CURVES_FILE
 from sigpipe.masw.runs import find_run
 
 from paco.autonomous import server
-from paco.autonomous.tools.pick import Recipe, check_recipe, picks_of
+from paco.autonomous.sensors.flags import FlagClass
+from paco.autonomous.tools.decide import owed_flags
+from paco.autonomous.tools.pick import How, Picked, Recipe, check_recipe, picks_of
 from paco.autonomous.tools.trials import Study
 from paco.autonomous.tools.windows import select
 from paco.call import shown
@@ -184,14 +187,12 @@ def test_decide_refuses_an_unjustified_note(played: Played) -> None:
 def test_decide_refuses_a_rejection_before_the_window_was_tried_hard(played: Played) -> None:
     rows = answer(played, 12).splitlines()[1:]
 
-    assert rows[0] == (
-        "- 18.75: not tried hard yet: owes a pick after its fixable too_few_points, narrow_span, "
-        "or the reason naming them: why none applies"
-    )
-    assert rows[-1] == (
+    # The windows whose line pick carried fixable flags were picked again (the play's third call):
+    # they owe no more, whatever those picks raised; 125.25 still owes its neighbours' guide.
+    assert rows == [
         "- 125.25: not tried hard yet: owes a pick guided by its neighbours (how=guide, "
         "guide=neighbours): 2 on one side pass G3"
-    )
+    ]
     # An accepted window: its rejection owes the same tries.
     assert answer(played, 14).endswith(
         "- 24.75: not tried hard yet: owes a pick guided by its neighbours (how=guide, "
@@ -202,6 +203,31 @@ def test_decide_refuses_a_rejection_before_the_window_was_tried_hard(played: Pla
         "- 18.75 had: line (retry), auto (retry), guide (neighbours) (retry), guide (neighbours) "
         "(retry), guide (neighbours) (retry)."
     )
+
+
+def test_a_rejection_owes_a_pick_for_the_line_picks_fixable_flags_alone() -> None:
+    def picked(how: How, flags: dict[str, FlagClass] | None = None) -> Picked:
+        return Picked(
+            run_id="r",
+            unit="xmid_18.75",
+            recipe=Recipe(how=how),
+            flags=flags or {},
+            at=datetime.now(UTC),
+        )
+
+    line = picked(
+        "line", {"too_few_points": "fixable", "narrow_span": "fixable", "near_field": "note"}
+    )
+    later = picked("auto", {"no_ridge": "fixable", "on_data": "fixable"})
+
+    # The line's pick's fixable flags, a reason naming one in words settling it.
+    assert owed_flags([line], "") == ["too_few_points", "narrow_span"]
+    assert owed_flags([line], "Its narrow span stays: the ridge is short") == ["too_few_points"]
+    # A pick of the model's after it settles them, its own new flags owing nothing; a deletion is
+    # no attempt; a commit's new line pick owes its own.
+    assert owed_flags([line, later], "") == []
+    assert owed_flags([line, picked("delete")], "") == ["too_few_points", "narrow_span"]
+    assert owed_flags([line, later, picked("line", {"on_data": "fixable"})], "") == ["on_data"]
 
 
 @pytest.mark.slow

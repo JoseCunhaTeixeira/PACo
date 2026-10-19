@@ -396,8 +396,8 @@ def decide(
     ] = None,
 ) -> str:
     """The windows decided. Before the freeze, their curves: accepted (passed G3 with no blocking
-    flag, and G4), rejected (once tried hard: the line's pick, a pick after each fixable flag, a
-    guide from its neighbours, a lasso if you see the images), or pending. After it, their
+    flag, and G4), rejected (once tried hard: the line's pick, a pick after it when it carried
+    fixable flags, a guide from its neighbours, a lasso if you see the images), or pending. After it, their
     models: accepted (passed G5, no blocking flag), rejected (once each fixable flag was tried,
     or its retries spent), or pending. Decided whole, or refused whole with each window's
     problem."""
