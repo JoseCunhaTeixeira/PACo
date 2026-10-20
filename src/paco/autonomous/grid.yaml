@@ -62,7 +62,7 @@ active:
       wider: { from: [slow, fast], widen: 2.25 }
       cone: { from: [slow, fast], widen: 1.5 }
       tight: { from: [median, median], widen: 1.5 }
-    values: [none, standard, wider, cone, tight]
+    values: [none, standard, cone, tight]
   filtering:
     description: Band-pass filter of the records
     unit: stage
@@ -81,7 +81,6 @@ active:
       n: { description: Root order, unit: count }
     values:
       - { method: linear }
-      - { method: root, n: 2 }
 
 passive-active:
   length:
@@ -127,7 +126,7 @@ passive-active:
       wider: { from: [slow, fast], widen: 2.25 }
       cone: { from: [slow, fast], widen: 1.5 }
       tight: { from: [median, median], widen: 1.5 }
-    values: [none, standard, wider, cone, tight]
+    values: [none, standard, cone, tight]
   filtering:
     description: Band-pass filter of the records
     unit: stage
@@ -146,7 +145,6 @@ passive-active:
       nu: { description: Phase weight power, unit: count }
       n: { description: Root order, unit: count }
     values:
-      - { method: linear }
       - { method: phase_weighted, nu: 2 }
       - { method: phase_weighted, nu: 4 }
 
@@ -169,7 +167,7 @@ passive:
   segments:
     description: Noise segments, end to end, in crossings of the window at group_velocities.slowest
     unit: crossings
-    values: [2, 3, 4, 6, 8, 11, 16]
+    values: [4, 6, 8, 11]
   fk_threshold:
     description: FK selection keeps |f-k ratio| above this (none kept, no image)
     unit: ratio
@@ -204,6 +202,5 @@ passive:
       nu: { description: Phase weight power, unit: count }
       n: { description: Root order, unit: count }
     values:
-      - { method: linear }
       - { method: phase_weighted, nu: 2 }
       - { method: phase_weighted, nu: 4 }

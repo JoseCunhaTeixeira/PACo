@@ -29,19 +29,30 @@ from paco.settings import Settings
 CONE = Cone(vmin=150.0, vmax=900.0, median=300.0, n_traces=40)
 # The tests' own values, over grid.yaml's (which the user edits).
 LENGTHS: dict[str, Any] = {"values": [5, 7, 10, 48, 96], "longest": 0.5}
+MUTES: dict[str, Any] = {"values": ["none", "standard", "wider", "cone", "tight"]}
+STACKINGS: dict[str, Any] = {
+    "values": [
+        {"method": "linear"},
+        {"method": "phase_weighted", "nu": 2},
+        {"method": "phase_weighted", "nu": 4},
+    ]
+}
 PINNED: dict[str, Any] = {
     "group_velocities": {"slowest": {"value": 80}, "fastest": {"value": 1500}},
     "active": {
         "length": LENGTHS,
         "distance_max": {"values": [0.125, 0.25, 0.5, 1.0]},
         "near_field_m": {"values": [0.0, 0.5, 1.0]},
+        "muting": MUTES,
+        "image_stacking": {"values": [{"method": "linear"}, {"method": "root", "n": 2}]},
     },
-    "passive-active": {"length": LENGTHS},
+    "passive-active": {"length": LENGTHS, "muting": MUTES, "stacking": STACKINGS},
     "passive": {
         "length": LENGTHS,
         "segments": {"values": [2, 3, 4, 6, 8, 11, 16]},
         "fk_threshold": {"values": [round(0.1 * n, 1) for n in range(11)]},
         "fk_band": {"values": ["open", "group_velocities"]},
+        "stacking": STACKINGS,
     },
 }
 GRID = searching.grid_of(PINNED)
