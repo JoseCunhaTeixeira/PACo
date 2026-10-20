@@ -430,6 +430,11 @@ def _sheets(experiment: Experiment) -> list[list[str]]:
 def _row(study: Study, tried: Tried) -> _Row:
     """`tried`'s trial as a sheet's row."""
     folder = study.folder / TRIALS / tried.trial
+    if not (folder / RESULT).exists():
+        raise ValueError(
+            "This experiment's images were removed with the study's working files (at the "
+            "freeze, or when a session ended); before the freeze, try_settings makes them again."
+        )
     run = TrialRun.model_validate_json((folder / RESULT).read_text())
     found = {xmid_of(path.name): path for path in folder.glob("xmid_*")}
     windows = {

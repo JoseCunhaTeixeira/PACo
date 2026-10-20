@@ -57,15 +57,19 @@ async def chat(
     async with Client(server) as client:
         host = await Host.start(client, model, get_settings(), limits=limits, vision=vision)
         print("The autonomous agent. Say which profile, and what you want; exit to leave.")
-        while True:
-            try:
-                message = (await anyio.to_thread.run_sync(read, "\nyou> ")).strip()
-            except EOFError, KeyboardInterrupt:
-                return
-            if message in ("exit", "quit"):
-                return
-            if message:
-                print(f"\npaco> {await host.answer(message)}")
+        try:
+            while True:
+                try:
+                    message = (await anyio.to_thread.run_sync(read, "\nyou> ")).strip()
+                except EOFError, KeyboardInterrupt:
+                    return
+                if message in ("exit", "quit"):
+                    return
+                if message:
+                    print(f"\npaco> {await host.answer(message)}")
+        finally:
+            # Only the results stay after a session: the study's working files removed.
+            host.close()
 
 
 async def listed(server: str | MCPServer) -> list[Tool]:

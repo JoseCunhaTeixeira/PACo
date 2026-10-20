@@ -45,6 +45,7 @@ from paco.autonomous.tools import observe as observing
 from paco.autonomous.tools import pick as picker
 from paco.autonomous.tools import search as searching
 from paco.autonomous.tools import survey as surveying
+from paco.autonomous.tools import tidy as tidying
 from paco.autonomous.tools import trials
 from paco.autonomous.tools import windows as selecting
 from paco.autonomous.tools.commit import Line
@@ -564,12 +565,16 @@ def decide(
 def freeze(profile: ProfileName, ctx: Context) -> str:
     """The curves frozen for the inversion once every window is decided: the one way from the
     curves to the models. Refused before, saying what is missing; no processing or picking
-    after."""
+    after, and the study's working files (its trials, their records) removed."""
     study = _study(profile, ctx)
     line = _line(study)
     made = freezing.freeze(study, find_run(line.run_id, get_settings()), line)
     journaling.freeze(study, made)
-    return freezing.describe_frozen(made)
+    freed = tidying.tidy(study)
+    return (
+        f"{freezing.describe_frozen(made)}\nThe study's working files removed ({freed / 1e9:.2f} "
+        "GB): its trials and their records; the line's run, the curves and the journal stay."
+    )
 
 
 @server.tool(annotations=paco_server.ADDS)

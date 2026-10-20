@@ -2,7 +2,7 @@
 guidelines): the model chooses the variants and the metric; the code runs each variant on the
 same spread of windows (its records preprocessed with it, imaged, picked, judged by G3, as the
 window-length and mute trials do) and computes the metric. Nothing of a run changes: the trials
-are written apart, under the profile's compare/ folder.
+are written apart, under the profile's compare/ folder, and removed once compared.
 
 The metrics, over the curves G3 passed (medians):
 - depth: half the longest wavelength, MASW's depth of investigation (the priors' max_depth);
@@ -10,6 +10,8 @@ The metrics, over the curves G3 passed (medians):
 - curve_length: the wavelengths they span (longest minus shortest), m;
 - windows_passing: the trial windows G3 passed."""
 
+import contextlib
+import shutil
 from collections.abc import Mapping, Sequence
 from datetime import UTC, datetime
 from typing import Any, Literal, cast
@@ -88,63 +90,69 @@ def compare_settings(
     judge = TrialJudge(config.coherence, config.curve, config.picking, config.image)
     spacing = receiver_spacing(loaded)
     tried: list[Variant] = []
-    for index, given in enumerate(variants, start=1):
-        stopping.check()
-        overrides, _ = in_receivers(given, spacing)
-        overrides = dict(overrides or {})
-        mode = str(overrides.pop("mode", loaded.kind))
-        preset = resolve_preset(make_preset(mode, overrides), loaded)
-        trial_preset = resolve_preset(apply_overrides(preset, {"masw": {"step": 1}}), loaded)
-        windows = build_windows(loaded, trial_preset.masw)
-        label = f"variant {index}"
-        if not windows:
-            tried.append(_empty(label, dict(given), preset.masw.length))
-            continue
-        chosen = [windows[at] for at in trial_indices(len(windows), TRIAL_WINDOWS)]
-        needed = sorted({path.name for window in chosen for path in window.selected_files})
-        own = folder / str(index)
-        records = preprocess_records(
-            trial_preset,
-            loaded,
-            own,
-            settings.workers,
-            presets=dict.fromkeys(needed, trial_preset),
-            stop=stopping.current(),
-        )
-        result = try_windows(
-            trial_preset,
-            loaded,
-            chosen,
-            records,
-            own / RECORDS_FOLDER,
-            own / "windows",
-            judge,
-            settings.workers,
-        )
-        depth = (
-            round(config.priors.max_depth * result.wavelengths_m[1], 1)
-            if result.wavelengths_m is not None
-            else None
-        )
-        values: dict[CompareMetric, float | None] = {
-            "depth": depth,
-            "band": _span(result.band_hz),
-            "curve_length": _span(result.wavelengths_m),
-            "windows_passing": float(result.passed),
-        }
-        tried.append(
-            Variant(
-                label=label,
-                settings=dict(given),
-                length=trial_preset.masw.length,
-                passed=result.passed,
-                windows=len(result.verdicts),
-                depth_m=depth,
-                band_hz=result.band_hz,
-                wavelengths_m=result.wavelengths_m,
-                value=values[metric],
+    try:
+        for index, given in enumerate(variants, start=1):
+            stopping.check()
+            overrides, _ = in_receivers(given, spacing)
+            overrides = dict(overrides or {})
+            mode = str(overrides.pop("mode", loaded.kind))
+            preset = resolve_preset(make_preset(mode, overrides), loaded)
+            trial_preset = resolve_preset(apply_overrides(preset, {"masw": {"step": 1}}), loaded)
+            windows = build_windows(loaded, trial_preset.masw)
+            label = f"variant {index}"
+            if not windows:
+                tried.append(_empty(label, dict(given), preset.masw.length))
+                continue
+            chosen = [windows[at] for at in trial_indices(len(windows), TRIAL_WINDOWS)]
+            needed = sorted({path.name for window in chosen for path in window.selected_files})
+            own = folder / str(index)
+            records = preprocess_records(
+                trial_preset,
+                loaded,
+                own,
+                settings.workers,
+                presets=dict.fromkeys(needed, trial_preset),
+                stop=stopping.current(),
             )
-        )
+            result = try_windows(
+                trial_preset,
+                loaded,
+                chosen,
+                records,
+                own / RECORDS_FOLDER,
+                own / "windows",
+                judge,
+                settings.workers,
+            )
+            depth = (
+                round(config.priors.max_depth * result.wavelengths_m[1], 1)
+                if result.wavelengths_m is not None
+                else None
+            )
+            values: dict[CompareMetric, float | None] = {
+                "depth": depth,
+                "band": _span(result.band_hz),
+                "curve_length": _span(result.wavelengths_m),
+                "windows_passing": float(result.passed),
+            }
+            tried.append(
+                Variant(
+                    label=label,
+                    settings=dict(given),
+                    length=trial_preset.masw.length,
+                    passed=result.passed,
+                    windows=len(result.verdicts),
+                    depth_m=depth,
+                    band_hz=result.band_hz,
+                    wavelengths_m=result.wavelengths_m,
+                    value=values[metric],
+                )
+            )
+    finally:
+        # Its records and windows are working files: only the comparison stays.
+        shutil.rmtree(folder, ignore_errors=True)
+        with contextlib.suppress(OSError):
+            folder.parent.rmdir()  # the comparisons' folder, once empty
     scored = [variant for variant in tried if variant.value is not None]
     best = max(scored, key=lambda variant: cast(float, variant.value)) if scored else None
     what, unit = METRICS[metric]

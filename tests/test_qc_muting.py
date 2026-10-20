@@ -209,9 +209,9 @@ def test_compare_tries_settings_apart_from_the_runs(demo_input_dir: Path, tmp_pa
         "Compared 2 variants of active_test_profile on the depth of investigation"
     )
     assert compared.table[0].startswith("variant 1") and "(best)" in " ".join(compared.table)
-    # No run made or changed: the trials sit in the profile's compare folder.
+    # No run made or changed, and the trials' working files removed once compared.
     assert list_runs(settings) == []
-    assert (tmp_path / "active_test_profile" / "compare").is_dir()
+    assert not (tmp_path / "active_test_profile" / "compare").exists()
 
 
 @pytest.mark.slow

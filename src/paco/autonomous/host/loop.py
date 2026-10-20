@@ -65,6 +65,7 @@ from paco.autonomous.tools import given, journal, models
 from paco.autonomous.tools.commit import line_of
 from paco.autonomous.tools.freeze import describe_frozen, frozen
 from paco.autonomous.tools.invert import inversions_of
+from paco.autonomous.tools.tidy import tidy
 from paco.autonomous.tools.trials import Study
 from paco.llm.settings import FRONTIER_CONTEXT, ModelSettings
 from paco.qc.coherence import receiver_spacing
@@ -684,6 +685,11 @@ class Host:
             conversation=str(self.meta["conversation"]),
             prompt_version=prompts.version(),
         )
+
+    def close(self) -> int:
+        """The session's end: its study's working files removed (tidy), its results kept; the
+        bytes freed."""
+        return tidy(self.study) if self.study is not None else 0
 
     def _save(self) -> None:
         """The transcript saved in the study, as PACo saves its own, rewritten after each turn."""
