@@ -130,7 +130,9 @@ def spent(study: Study, effort: Effort) -> Spent:
         experiments=sum(1 for entry in found if entry.kind == "experiment"),
         commits=sum(1 for entry in found if entry.kind == "commit"),
         cpu=_cpu(used),
-        model_calls=sum(1 for one in used if one.kind == "model"),
+        # The calls that judge the search's sheets are the eye's work, not counted.
+        model_calls=sum(1 for one in used if one.kind == "model")
+        - sum(1 for one in used if one.kind == "tool" and one.name == "judge" and not one.refused),
     )
 
 
@@ -159,7 +161,7 @@ def refusal(spent: Spent, tool: str) -> str | None:
 
 def _cpu(used: Sequence[Use]) -> float | None:
     """The time of the tools called in P2, in multiples of the first commit's; None before it.
-    The search, the grid every study runs once, is not counted."""
+    The search, the grid every study runs once, and its judging are not counted."""
     first = next(
         (
             one.seconds
@@ -173,6 +175,9 @@ def _cpu(used: Sequence[Use]) -> float | None:
     total = sum(
         one.seconds
         for one in used
-        if one.kind == "tool" and one.phase == "P2" and not one.refused and one.name != "search"
+        if one.kind == "tool"
+        and one.phase == "P2"
+        and not one.refused
+        and one.name not in ("search", "judge")
     )
     return total / first

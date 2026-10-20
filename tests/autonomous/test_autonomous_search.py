@@ -8,15 +8,17 @@ from pathlib import Path
 from typing import Any
 
 import anyio
+import numpy as np
 import pytest
 import yaml
 from mcp import Client
-from mcp.types import CallToolResult
+from mcp.types import CallToolResult, ImageContent
 from sigpipe.masw.profiles import load_profile
 from sigpipe.masw.quality.cone import Cone
 
 from paco.autonomous import server
-from paco.autonomous.tools import grid, trials
+from paco.autonomous.host import budgets
+from paco.autonomous.tools import grid, look, trials
 from paco.autonomous.tools import search as searching
 from paco.autonomous.tools.given import Given, give
 from paco.autonomous.tools.search import Row
@@ -249,10 +251,11 @@ def test_the_farthest_shot_and_the_near_field_follow_the_window(input_dir: Path)
     assert reaching is None
 
 
-def _row(label: str, length: int, values: dict[str, str], **card: float) -> Row:
+def _row(label: str, length: int, values: dict[str, str], **card: float | None) -> Row:
     filled: dict[str, Any] = {
         "covered": 10,
         "windows": 12,
+        "empty": 0,
         "image": 0.75,
         "image_p10": 0.7,
         "stripes": 0.02,
@@ -265,74 +268,130 @@ def _row(label: str, length: int, values: dict[str, str], **card: float) -> Row:
     return Row(label=label, values=values, changes={}, trial=label, length=length, card=filled)
 
 
-def test_the_shortlist_takes_the_best_by_each_measure_none_alike() -> None:
-    def at(length: int, stacking: str = "nu 2") -> dict[str, str]:
-        return {"length": str(length), "stacking": stacking}
+def test_the_really_bad_are_dropped_and_the_rest_sorted_into_sheets_by_length() -> None:
+    def at(length: int, mute: str) -> dict[str, str]:
+        return {"length": str(length), "muting": mute}
 
-    rows = [
-        _row("g1", 14, at(14), image=0.9),
-        # As g1 in its windows' settings, its stacking alone differs: left out.
-        _row("g2", 14, at(14, "nu 4"), image=0.89),
-        _row("g3", 5, at(5), stripes=0.008),
-        _row("g4", 6, at(6), covered=3, stripes=0.001),
-        _row("g5", 7, at(7), covered=12),
-        _row("g6", 8, at(8), band_hz=80.0),
-        _row("g7", 20, at(20), depth_p10_m=40.0),
-        *(_row(f"g{n}", 9, at(9, f"nu {n}")) for n in range(8, 20)),
-    ]
+    fives = [_row(f"g{n}", 5, at(5, f"m{n:02d}")) for n in range(30)]
+    sevens = [_row(f"g{n}", 7, at(7, f"m{n:02d}")) for n in range(30, 43)]
 
-    found = searching._shortlist(rows)  # pyright: ignore[reportPrivateUsage]
+    sheets = searching.first_sheets(list(reversed([*fives, *sevens])), ["length", "muting"])
 
-    assert len(found) <= searching.SHORTLIST
-    assert "image score" in found["g1"]
-    assert "g2" not in found
-    assert "fewest stripes" in found["g3"]
-    assert "windows passing" in found["g5"]
-    assert "widest band along the line" in found["g6"]
-    assert "depth of the weakest" in found["g7"]
-    # Fewest stripes with a quarter of its windows passing: a smear, not among the fewest stripes.
-    assert "fewest stripes" not in found.get("g4", [])
-    lengths = [next(row.length for row in rows if row.label == label) for label in found]
-    assert lengths == sorted(lengths)
+    # No image anywhere, or fewer than a quarter of the windows passing: dropped.
+    assert searching.really_bad(_row("a", 5, {}, image=None).card)
+    assert searching.really_bad(_row("b", 5, {}, covered=2).card)
+    assert not searching.really_bad(_row("c", 5, {}, covered=3).card)
+    # Twelve a sheet, one length a sheet, by length then by the settings' values.
+    assert [len(sheet.labels) for sheet in sheets] == [12, 12, 6, 12, 1]
+    assert [sheet.number for sheet in sheets] == [1, 2, 3, 4, 5]
+    assert sheets[0].labels[:2] == ("g0", "g1")
+    assert set(sheets[3].labels) | set(sheets[4].labels) == {row.label for row in sevens}
 
 
-def test_the_table_pages_its_rows_sorted_and_filtered() -> None:
-    rows = tuple(
-        _row(
-            f"g{n}", 5 + n % 3, {"length": str(5 + n % 3), "stacking": "nu 2"}, image=0.5 + n / 100
-        )
-        for n in range(40)
-    )
+def _study_with_sheets(folder: Path, rows: list[Row]) -> trials.Study:
+    study = trials.Study("active_test_profile", folder)
+    (folder / searching.SEARCHES).mkdir(parents=True)
     made = searching.Search(
         id="S1",
-        windows="spread:2",
-        axes={"length": ["5", "6", "7"], "stacking": ["nu 2"]},
-        units={"length": "receivers", "stacking": "stage"},
+        windows="spread:12",
+        axes={"length": sorted({str(row.length) for row in rows}), "muting": ["a", "b"]},
+        units={"length": "receivers", "muting": "name"},
         changes={},
-        rows=rows,
+        rows=tuple(rows),
         refused=0,
         refusal=None,
-        shortlist={},
-        experiment="E1",
-        seconds=1.0,
+        places=(15.0, 50.0, 90.0, 125.0),
+        seconds=60.0,
         made_at=datetime.now(UTC),
     )
+    (folder / searching.SEARCHES / "S1.json").write_text(made.model_dump_json())
+    knockout = searching.Knockout(
+        round=1, sheets=searching.first_sheets(rows, ["length", "muting"])
+    )
+    (folder / searching.SEARCHES / searching.KNOCKOUT).write_text(knockout.model_dump_json())
+    return study
 
-    first = searching.table(made)
-    sevens = searching.table(made, where={"length": ["7"]}, sort="widest band along the line")
 
-    assert "40 of its 40 variants, best first by image score, page 1 of 2" in first
-    # The best image first; a setting with one value left out of each row.
-    assert first.splitlines()[1].startswith("- g39: length 5: ")
-    assert "stacking" not in first.splitlines()[1]
-    assert sevens.startswith("S1: 13 of its 40 variants")
-    assert all(line.startswith("- g") and "length 7" in line for line in sevens.splitlines()[1:])
-    with pytest.raises(ValueError, match="sort: one of"):
-        searching.table(made, sort="colour")
-    with pytest.raises(ValueError, match="where length: no value 9"):
-        searching.table(made, where={"length": ["9"]})
-    with pytest.raises(ValueError, match="page: 1 to 2"):
-        searching.table(made, page=3)
+def test_the_knockout_keeps_the_cleanest_round_after_round(tmp_path: Path) -> None:
+    rows = [
+        _row(f"g{n}", 5 if n < 20 else 9, {"length": "5" if n < 20 else "9", "muting": "a"})
+        for n in range(40)
+    ]
+    study = _study_with_sheets(tmp_path / "study", rows)
+
+    waiting = searching.unjudged(study)
+    with pytest.raises(ValueError, match="Sheet 9 is not one left in round 1"):
+        searching.judge(study, {9: ["g0"]}, "why")
+    with pytest.raises(ValueError, match="Sheet 1: keep 1 to 2 of its variants"):
+        searching.judge(study, {1: ["g0", "g1", "g2"]}, "why")
+    with pytest.raises(ValueError, match="Sheet 1: no variant g30 on it"):
+        searching.judge(study, {1: ["g30"]}, "why")
+    # Round 1: 20 variants of 5 receivers in 2 sheets, 20 of 9 in 2.
+    first = searching.judge(study, {1: ["g3"], 2: ["g12", "g15"]}, "one ridge to 80 Hz")
+    second = searching.judge(study, {3: ["g20", "g31"], 4: ["g39"]}, "fewer stripes")
+    # Round 2: the 5 kept, one sheet, by length: the last, up to 3 kept.
+    with pytest.raises(ValueError, match="keep 1 to 3"):
+        searching.judge(study, {1: ["g3", "g12", "g15", "g20"]}, "why")
+    final = searching.judge(study, {1: ["g15", "g31"]}, "the smoothest")
+    judged = [json.loads(line) for line in (study.folder / "searches" / searching.JUDGED).open()]
+
+    assert (
+        waiting
+        == "Judge every sheet first (judge): 4 of round 1's 4 left; search shows them again."
+    )
+    assert (first.round, [sheet.number for sheet in first.left]) == (1, [3, 4])
+    assert second.round == 2 and second.last
+    assert second.sheets[0].labels == ("g3", "g12", "g15", "g20", "g31", "g39")
+    assert final.finalists == ("g15", "g31")
+    assert searching.unjudged(study) is None
+    # Each sheet's judgment recorded: what it showed, what was kept, why.
+    assert [(one["round"], one["sheet"], one["kept"]) for one in judged] == [
+        (1, 1, ["g3"]), (1, 2, ["g12", "g15"]), (1, 3, ["g20", "g31"]), (1, 4, ["g39"]),
+        (2, 1, ["g15", "g31"]),
+    ]  # fmt: skip
+    assert judged[0]["shown"] == [f"g{n}" for n in range(12)] and judged[0]["why"]
+    with pytest.raises(ValueError, match="Every sheet is judged"):
+        searching.judge(study, {1: ["g15"]}, "why")
+
+
+def test_a_sheet_is_drawn_from_the_variants_thumbnails(tmp_path: Path) -> None:
+    def thumb(xmid: float) -> grid.Thumb:
+        image = np.tile(np.linspace(0, 255, grid.THUMB, dtype=np.uint8)[:, None], grid.THUMB)
+        pick = (np.array([10.0, 20.0], dtype=np.float32), np.array([300.0, 250.0], np.float32))
+        return grid.Thumb(xmid, image, (0.0, 100.0, 1.0, 1000.0), 0.33, pick, (3.0, 54.0))
+
+    grid.write_thumbs(tmp_path / "g1.npz", [thumb(15.0), thumb(50.0), thumb(90.0), thumb(125.0)])
+    grid.write_thumbs(tmp_path / "g2.npz", [thumb(15.0), thumb(50.0)])
+
+    read = grid.read_thumbs(tmp_path / "g2.npz")
+    drawn = look.draw_sheet(tmp_path, ["g1", "g2"], {"g1": 7, "g2": 13})
+
+    assert [one.xmid for one in read] == [15.0, 50.0]
+    assert read[0].extent == (0.0, 100.0, 1.0, 1000.0) and read[0].lines_m == (3.0, 54.0)
+    assert np.array_equal(read[0].image, thumb(15.0).image)
+    assert np.array_equal(read[1].pick[1], np.array([300.0, 250.0], np.float32))
+    assert drawn.startswith(b"\x89PNG")
+
+
+def test_judging_the_sheets_spends_no_model_calls_and_no_cpu(tmp_path: Path) -> None:
+    study = trials.Study("active_test_profile", tmp_path)
+    at = datetime.now(UTC)
+    for use in (
+        budgets.Use(kind="model", phase="P2", at=at, seconds=2.0),
+        budgets.Use(kind="tool", phase="P2", at=at, seconds=10.0, name="commit"),
+        budgets.Use(kind="model", phase="P2", at=at, seconds=2.0),
+        budgets.Use(kind="tool", phase="P2", at=at, seconds=300.0, name="search"),
+        budgets.Use(kind="model", phase="P2", at=at, seconds=2.0),
+        budgets.Use(kind="tool", phase="P2", at=at, seconds=5.0, name="judge"),
+        budgets.Use(kind="model", phase="P2", at=at, seconds=2.0),
+        budgets.Use(kind="tool", phase="P2", at=at, seconds=20.0, name="judge"),
+    ):
+        budgets.record(study, use)
+
+    spent = budgets.spent(study, "quick")
+
+    assert spent.model_calls == 2
+    assert spent.cpu == 1.0
 
 
 @pytest.mark.usefixtures("paco_env")
@@ -427,7 +486,7 @@ def test_the_grid_scores_a_variant_as_a_trial_does(
 
 
 @pytest.mark.slow
-def test_a_search_runs_the_grid_once_and_gives_its_shortlist(
+def test_a_search_runs_the_grid_once_and_sorts_it_into_sheets(
     input_dir: Path, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     monkeypatch.chdir(tmp_path)
@@ -445,22 +504,95 @@ def test_a_search_runs_the_grid_once_and_gives_its_shortlist(
         ),
     )
 
-    made, experiment = searching.search(
-        study, line=None, settings=settings, config=QCConfig(), windows="spread:2"
+    made, knockout = searching.search(
+        study, line=None, settings=settings, config=QCConfig(), windows="spread:6"
     )
-    said = searching.describe(made, experiment)
+    said = searching.describe(made, knockout)
 
     moved = {name for name, values in made.axes.items() if len(values) > 1}
     assert moved == {"distance_max", "near_field_m"}
     assert made.axes["dispersion"] == ["fmin 0.0 fmax 100.0 vmin 1.0 vmax 1000.0 nv 1000"]
     assert {name for row in made.rows for name in row.values} <= set(made.axes)
-    assert set(made.shortlist) <= {row.label for row in made.rows}
-    assert len(experiment.tried) == len(made.shortlist) + 1
-    saved = json.loads((study.folder / searching.SEARCHES / f"{made.id}.json").read_text())
-    assert saved["experiment"] == experiment.id
     assert searching.searched(study) == made
+    assert knockout is not None and knockout == searching.knockout_of(study)
+    shown = [label for sheet in knockout.sheets for label in sheet.labels]
+    bad = {row.label for row in made.rows if searching.really_bad(row.card)}
+    assert made.dropped == len(bad) and not bad & set(shown)
+    assert len(shown) + len(bad) == len(made.rows)
+    # Each variant shown kept at its windows nearest the 4 places along the line, as PAC draws it.
+    images = study.folder / searching.SEARCHES / searching.IMAGES
+    assert len(made.places) == grid.PLACES
+    for label in shown:
+        thumbs = grid.read_thumbs(images / f"{label}.npz")
+        assert 1 <= len(thumbs) <= grid.PLACES
+        assert [one.xmid for one in thumbs] == sorted(one.xmid for one in thumbs)
+        assert all(one.image.shape == (grid.THUMB, grid.THUMB) for one in thumbs)
+    assert not any((images / f"{label}.npz").exists() for label in bad)
     assert said.startswith(f"{made.id}: the full grid, {len(made.rows)} variants")
-    assert f"The shortlist is experiment {experiment.id}" in said
-    assert "- distance_max: " in said
+    assert "dropped as really bad" in said and "image " not in said
+    assert searching.unjudged(study) is not None
     with pytest.raises(ValueError, match="The grid has run"):
-        searching.search(study, line=None, settings=settings, config=QCConfig(), windows="spread:2")
+        searching.search(study, line=None, settings=settings, config=QCConfig(), windows="spread:6")
+
+
+@pytest.mark.slow
+def test_every_sheet_is_judged_then_the_finalists_tried_side_by_side(paco_env: Settings) -> None:
+    profile = "active_test_profile"
+    study = new_study(profile, paco_env)
+    give(
+        study,
+        Given(
+            line={
+                "masw": {"length": 24},
+                "muting": {"method": "none"},
+                "image_stacking": {"method": "linear"},
+            }
+        ),
+    )
+
+    async def calls() -> list[CallToolResult]:
+        async with Client(server.server) as client:
+            made = [
+                await client.call_tool(
+                    "search", {"profile": profile, "windows": "spread:6"}, meta={"vision": True}
+                ),
+                await client.call_tool(
+                    "commit",
+                    {"profile": profile, "changes": {}, "reasons": {}},
+                    meta={"vision": True},
+                ),
+            ]
+            # Each sheet shown judged, its first variant kept.
+            while (knockout := searching.knockout_of(study)) is not None and not knockout.finalists:
+                kept = {str(one.number): [one.labels[0]] for one in knockout.left[:3]}
+                made.append(
+                    await client.call_tool(
+                        "judge",
+                        {"profile": profile, "kept": kept, "why": "the first of each"},
+                        meta={"vision": True},
+                    )
+                )
+            return made
+
+    searched, refused, *judged = anyio.run(calls)
+
+    done = searching.knockout_of(study)
+    records = [
+        json.loads(line)
+        for line in (study.folder / searching.SEARCHES / searching.JUDGED).read_text().splitlines()
+    ]
+    first_round = sum(1 for one in records if one["round"] == 1)
+    # The grid's summary, then its first sheets, each a figure.
+    assert shown(searched).startswith("S1: the full grid")
+    assert "Round 1, sheet 1 of " in shown(searched)
+    assert [type(one) for one in searched.content[1:]] == [ImageContent] * min(3, first_round)
+    # Nothing committed before every sheet is judged.
+    assert refused.is_error and "[precondition] Judge every sheet first (judge)" in shown(refused)
+    # Every sheet judged and recorded; the finalists tried side by side at full size.
+    assert done is not None and done.finalists and done.experiment == "E1"
+    assert all(len(one["kept"]) == 1 and one["why"] for one in records)
+    assert "Every sheet is judged. The finalists, tried side by side at full size" in shown(
+        judged[-1]
+    )
+    assert any(isinstance(one, ImageContent) for one in judged[-1].content)
+    assert searching.unjudged(study) is None

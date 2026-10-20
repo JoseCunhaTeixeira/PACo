@@ -270,16 +270,13 @@ def try_settings(
     ] = None,
 ) -> list[TextContent | ImageContent]:
     """Each variant tried with the current settings on the same trial windows, judged by G1 to
-    G3, scored, the windows gained and lost against the current settings; changes no run. A
-    trial made before is not made again. The experiment goes to the journal. With vision, every
-    variant side by side, sheets of the current settings and three (look experiment). After the
-    search: its grid first, then your refinements."""
+    G3, the windows gained and lost against the current settings; changes no run. A trial made
+    before is not made again. The experiment goes to the journal. With vision, every variant side
+    by side, sheets of the current settings and three (look experiment). Once every sheet of the
+    search is judged: to refine around your choice."""
     study = _study(profile, ctx)
-    if searching.searched(study) is None:
-        raise RunError(
-            "Run search first: the full grid of the line's settings, scored in code, and its "
-            "shortlist to choose from; try_settings refines around your choice."
-        )
+    if (left := searching.unjudged(study)) is not None:
+        raise RunError(left)
     line = committing.line_of(study)
     state = committing.line_state(_run_folder(study)) if line is not None else LineState()
     # A row of the search's table, by its label: its changes, with the variant's own over them.
@@ -306,10 +303,6 @@ def try_settings(
     return _content(f"{said}\n\n{seen.text}", seen.figures)
 
 
-# The measures the search's table is sorted by.
-_MEASURES = ", ".join(name for name, _ in searching.MEASURES)
-
-
 def _without_grid(variant: dict[str, Any]) -> dict[str, Any]:
     return {key: value for key, value in variant.items() if key != "grid"}
 
@@ -331,29 +324,19 @@ def search(
             "call for them (their velocities, the values they want). The file stays as it is."
         ),
     ] = None,
-    sort: Annotated[
-        str | None,
-        Field(description="Once the grid has run, its table best first by: " + _MEASURES + "."),
-    ] = None,
-    where: Annotated[
-        dict[str, list[str]] | None,
-        Field(description="Once the grid has run, its rows with these values of settings."),
-    ] = None,
-    page: Annotated[int, Field(description="Once the grid has run, the table's page.", ge=1)] = 1,
 ) -> list[TextContent | ImageContent]:
-    """The full grid of the line's settings, scored in code, once a study: every combination of
-    the values the physics sets for each setting of PAC's page for the line's method, each
-    variant on the same windows, judged by G1 to G3 as try_settings judges it (minutes). The
-    shortlist, the best by each of several measures, becomes an experiment shown side by side;
-    the summary by setting shows where the grid is best. No measure reads an image's quality:
-    judge by eye, and check that your choice makes sense. Called again, a page of the grid's
-    table (its scores alone kept: try_settings makes a row's images)."""
+    """The full grid of the line's settings, once a study (minutes): every combination of the
+    values the physics sets for each setting of PAC's page for the line's method, each variant
+    on the same windows, judged by G1 to G3 as try_settings judges it. The really bad dropped (no
+    image, or too few windows passing for a curve along the line); every other variant shown in
+    sheets by window length, each at the same places along the line, no score: judge every sheet
+    by eye (judge). Called again, the sheets left to judge."""
     study = _study(profile, ctx)
-    if (made_before := searching.searched(study)) is not None:
-        return _content(searching.table(made_before, sort, where, page))
+    if (made := searching.searched(study)) is not None:
+        return _sheets(study, made, searching.knockout_of(study), ctx)
     line = committing.line_of(study)
     state = committing.line_state(_run_folder(study)) if line is not None else LineState()
-    made, experiment = searching.search(
+    made, knockout = searching.search(
         study,
         line=state,
         settings=get_settings(),
@@ -361,12 +344,87 @@ def search(
         windows=windows,
         grid_changes=grid,
     )
+    return _sheets(study, made, knockout, ctx, searching.describe(made, knockout))
+
+
+@server.tool(annotations=paco_server.ADDS)
+@_errors
+def judge(
+    profile: ProfileName,
+    kept: Annotated[
+        dict[int, list[str]],
+        Field(
+            description=f"By sheet number, the variants you keep of it by eye: its cleanest, "
+            f"{searching.KEEP} at most ({searching.LAST_KEEP} of the last sheet)."
+        ),
+    ],
+    why: Annotated[
+        str, Field(description="In a sentence, what the kept show that the others do not.")
+    ],
+    ctx: Context,
+) -> list[TextContent | ImageContent]:
+    """The search's sheets you looked at, judged by eye: each one's cleanest kept, the judgment
+    recorded; then the next sheets. The kept meet again, round after round, until one sheet is
+    left; once it is judged, its kept are tried side by side at full size (an experiment):
+    choose among them, refine with try_settings, then commit."""
+    study = _study(profile, ctx)
+    made = searching.searched(study)
+    knockout = searching.judge(study, kept, why)
+    assert made is not None
+    if not knockout.finalists:
+        return _sheets(study, made, knockout, ctx)
+    line = committing.line_of(study)
+    state = committing.line_state(_run_folder(study)) if line is not None else LineState()
+    experiment = trials.try_settings(
+        study,
+        [searching.row_changes(study, label) for label in knockout.finalists],
+        made.windows,
+        current=line.settings if line is not None else None,
+        line=state,
+        settings=get_settings(),
+        config=_config(),
+    )
     journaling.experiment(study, experiment, None)
-    said = searching.describe(made, experiment)
+    searching.tried(study, experiment.id)
+    named = ", ".join(
+        f"{one.label} = {label}"
+        for one, label in zip(experiment.tried[1:], knockout.finalists, strict=True)
+    )
+    said = (
+        f"Every sheet is judged. The finalists, tried side by side at full size ({named}):\n"
+        + trials.describe(experiment)
+    )
     if not _vision(ctx):
         return _content(said)
-    seen = looking.look_experiment(study, experiment.id, vision=True, ordered=True)
+    seen = looking.look_experiment(study, experiment.id, vision=True)
     return _content(f"{said}\n\n{seen.text}", seen.figures)
+
+
+def _sheets(
+    study: Study,
+    made: searching.Search,
+    knockout: searching.Knockout | None,
+    ctx: Context,
+    said: str = "",
+) -> list[TextContent | ImageContent]:
+    """The knockout's next sheets, searching.A_CALL at most, in words and figures; or where it
+    stands."""
+    if knockout is None:
+        return _content(said or searching.describe(made, None))
+    if knockout.finalists:
+        return _content(
+            f"Every sheet is judged: the finalists {', '.join(knockout.finalists)}, tried side by "
+            f"side as {knockout.experiment} (look experiment shows them again). Refine with "
+            "try_settings, then commit."
+        )
+    shown = knockout.left[: searching.A_CALL]
+    texts = [searching.sheet_text(made, knockout, sheet) for sheet in shown]
+    text = "\n\n".join([*([said] if said else []), *texts])
+    if not _vision(ctx):
+        return _content(text)
+    folder = study.folder / searching.SEARCHES / searching.IMAGES
+    lengths = {row.label: row.length for row in made.rows}
+    return _content(text, [looking.draw_sheet(folder, sheet.labels, lengths) for sheet in shown])
 
 
 @server.tool(annotations=paco_server.REPLACES)
@@ -398,8 +456,10 @@ def commit(
     judged by G3, then G4 along the line. The first commit makes the run, in PAC's layout; a later
     one changes the run's settings, what it replaces kept in each window's attempts/; a change of
     masw makes a new run, without recipes. With vision, a sheet of its images and picks along the
-    line."""
+    line. Once every sheet of the search is judged."""
     study = _study(profile, ctx)
+    if (left := searching.unjudged(study)) is not None:
+        raise RunError(left)
     committed = committing.commit(study, changes, reasons, experiment, get_settings(), _config())
     journaling.commit(study, committed)
     said = committing.describe_commit(committed)

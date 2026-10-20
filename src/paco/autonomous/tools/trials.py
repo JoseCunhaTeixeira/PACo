@@ -806,7 +806,7 @@ def describe(experiment: Experiment) -> str:
         passing = f"{len(card.covered)} of {len(card.windows)} windows pass G3"
         if one.against is not None:
             passing += f" (+{len(one.against.gained)}, -{len(one.against.lost)})"
-        marks = [f"dominated by {one.dominated_by}"] if one.dominated_by else []
+        marks: list[str] = []
         if one.against is not None and one.against.shortened:
             marks.append("gains by shortening its curves (rule 6)")
         cost = "made before" if one.taken else f"{one.seconds:.1f} s"
@@ -817,32 +817,14 @@ def describe(experiment: Experiment) -> str:
 
 
 def figures(card: Scorecard) -> str:
-    """A scorecard's figures, as an experiment says them: the images (their score, its weakest
-    windows' and the measures known of it: an active image has no lateral coherence), then
-    depth, span, uncertainty, the near field (a passive line's windows have no shot: none),
-    beyond reach and aliased."""
-    measured = [
-        said
-        for said, value in (
-            (f"coherent {_share(card.coherent)}", card.coherent),
-            (f"lateral {_share(card.lateral)}", card.lateral),
-            (f"on the ridge {_share(card.on_ridge)}", card.on_ridge),
-            (f"background {_value(card.background)}", card.background),
-            (f"stripes {_value(card.stripes)}", card.stripes),
-        )
-        if value is not None
-    ]
-    weakest = f"P10 {card.image_p10:.2f}; " if card.image_p10 is not None else ""
-    images = (
-        f"image {card.image:.2f} ({weakest}{', '.join(measured)}); "
-        if card.image is not None
-        else ""
-    )
+    """A scorecard's figures, as an experiment says them: depth, span, uncertainty, the near
+    field (a passive line's windows have no shot: none), beyond reach and aliased. No image
+    score: none reads an image's quality as the eye does (the user, 2026-10-20)."""
     if not card.covered:
-        return f"{images}no curve to score"
+        return "no curve to score"
     near = f"near field {_share(card.near_field)}, " if card.near_field is not None else ""
     return (
-        f"{images}depth {_value(card.depth_m, ' m')} (P10 {_value(card.depth_p10_m, ' m')}), "
+        f"depth {_value(card.depth_m, ' m')} (P10 {_value(card.depth_p10_m, ' m')}), "
         f"span {_value(card.span)}, uncertainty {_share(card.precision)}; {near}beyond reach "
         f"{_share(card.beyond)}, aliased {_share(card.aliased)}"
     )

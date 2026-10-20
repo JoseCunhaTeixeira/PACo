@@ -29,7 +29,7 @@ PACO_TOOLS = ["inspect", "preset_settings", "inversion_settings"]
 PETRO_TOOLS = ["petro_models", "invert_petro"]
 TOOLS = [
     *PACO_TOOLS,
-    *("survey", "observe", "look", "advise", "try_settings", "search", "commit"),
+    *("survey", "observe", "look", "advise", "try_settings", "search", "judge", "commit"),
     *("pick", "decide", "freeze", "invert", "job_status", *PETRO_TOOLS, "journal"),
 ]
 # How long the server's command may take to listen: it loads PACo and sigpipe first.
@@ -118,6 +118,7 @@ def test_each_tool_says_what_it_changes() -> None:
     # The study's own files: its survey, advice and trials.
     assert annotations["survey"] == annotations["advise"] == paco_server.ADDS
     assert annotations["try_settings"] == annotations["decide"] == paco_server.ADDS
+    assert annotations["search"] == annotations["judge"] == paco_server.ADDS
     assert annotations["journal"] == annotations["invert"] == paco_server.ADDS
     assert annotations["job_status"] == paco_server.READS
     # A curve or a run replaced, the curves frozen for good.

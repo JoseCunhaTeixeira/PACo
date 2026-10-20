@@ -112,7 +112,11 @@ class Played:
 
 
 @pytest.fixture(scope="module")
-def played(input_dir: Path, tmp_path_factory: pytest.TempPathFactory) -> Iterator[Played]:
+def played(
+    input_dir: Path,
+    tmp_path_factory: pytest.TempPathFactory,
+    searched: None,  # noqa: ARG001
+) -> Iterator[Played]:
     root = tmp_path_factory.mktemp("picking")
     with pytest.MonkeyPatch.context() as patch:
         patch.setitem(Settings.model_config, "env_file", None)

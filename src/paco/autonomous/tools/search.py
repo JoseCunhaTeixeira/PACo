@@ -8,17 +8,20 @@ length; the near field as shares of the window (a shot nearer than half a wavele
 low frequencies); PACo's mutes from the survey's cone; a passive line's segments as crossings of
 the window by the slowest wave, PACo's FK thresholds and bands, the whitening and the
 normalization. Each variant is judged on the same trial windows as try_settings judges it, by the
-grid (paco.autonomous.tools.grid): the scores a trial gives. No score reads an image's quality
-as the eye does (their background favours long windows, the windows passing short ones): the
-shortlist holds the best by each of several measures, a variety of the windows' settings, an
-experiment the model looks at and judges by eye; the summary by setting shows where the grid is
-best.
+grid (paco.autonomous.tools.grid). No score reads an image's quality as the eye does (the user,
+2026-10-20: choose by eye only): the scores only drop the really bad (no image, or too few windows
+passing for a curve along the line); the model judges every other variant by eye, in sheets of
+SHEET by window length, each at the same places along the line, no score on them, keeping the
+cleanest of each sheet (judge); the kept meet again, sheet after sheet, until one sheet is left,
+whose kept are tried side by side at full size.
 
-A study's search: searches/S1.json, each variant with its settings, trial and scorecard."""
+A study's search: searches/S1.json, each variant with its settings, trial and scorecard; its
+thumbnails, searches/S1_images/<label>.npz; the knockout, searches/S1_knockout.json; each sheet's
+judgment, searches/S1_judged.jsonl (what the eye kept and left, to check measures against)."""
 
 import argparse
 import json
-from collections.abc import Callable, Mapping, Sequence
+from collections.abc import Mapping, Sequence
 from dataclasses import dataclass
 from datetime import UTC, datetime
 from functools import cache
@@ -41,20 +44,23 @@ from paco.settings import Settings, get_settings
 
 SEARCHES = "searches"  # in the study's folder
 SEARCH = "S1"  # a study's one search
+IMAGES = f"{SEARCH}_images"
+KNOCKOUT = f"{SEARCH}_knockout.json"
+JUDGED = f"{SEARCH}_judged.jsonl"
 WINDOWS = "spread:12"
-SHORTLIST = trials.MOST_VARIANTS
 # The grid's values, a file beside the code (the user, 2026-10-20: every grid value in one file).
 GRID_FILE = "grid.yaml"
 # The pseudo-settings a value may give, resolved by each variant's window (changes_of): a passive
 # line's segments, their seconds per metre of the window; the near field, its share of the window.
 SEGMENTS = "segment_s_per_m"
 NEAR = "near_field_window"
-# The shortlist: the best PER_MEASURE at least by each measure; a variant counts for a measure other
-# than the windows passing with this share of its windows passing (a smear without a ridge has no
-# stripes); no two alike in these settings, which make an image what it is.
-PER_MEASURE = 3
-PASSING = 0.5
-DISTINCT = ("length", "distance_max", "muting", "segments", "whitening", "normalization")
+# The really bad, which no sheet shows: no image, or fewer than this share of the windows passing.
+PASSING = 0.25
+# The sheets: variants a sheet, sheets a call, variants kept of a sheet (of the last, more).
+SHEET = 12
+A_CALL = 3
+KEEP = 2
+LAST_KEEP = 3
 # The line's settings each setting of the grid sets, by stage and key ("*": the whole stage).
 SETS: dict[str, tuple[tuple[str, str], ...]] = {
     "length": (("masw", "length"),),
@@ -214,8 +220,8 @@ class Row(BaseModel):
 
 class Search(BaseModel):
     """A study's search: its trial set, its settings and their values, every variant scored, how
-    many could not be and why the first could not, the shortlist (its rows' labels, each with the
-    measures it leads) and its experiment."""
+    many could not be and why the first could not, the places along the line its sheets show,
+    how many variants no sheet shows (the really bad)."""
 
     model_config = ConfigDict(frozen=True)
 
@@ -227,16 +233,178 @@ class Search(BaseModel):
     rows: tuple[Row, ...]
     refused: int
     refusal: str | None
-    shortlist: dict[str, list[str]]
-    experiment: str
+    places: tuple[float, ...] = ()
+    dropped: int = 0
     seconds: float
     made_at: datetime
+
+
+class Sheet(BaseModel):
+    """A sheet of the knockout: its number in its round, its variants in reading order."""
+
+    model_config = ConfigDict(frozen=True)
+
+    number: int
+    labels: tuple[str, ...]
+
+
+class Knockout(BaseModel):
+    """The model's look at every variant: the round, its sheets, those judged and what each kept;
+    once one sheet is left and judged, its kept (the finalists) and the experiment trying them
+    side by side."""
+
+    model_config = ConfigDict(frozen=True)
+
+    round: int
+    sheets: tuple[Sheet, ...]
+    kept: dict[int, tuple[str, ...]] = Field(default_factory=dict[int, tuple[str, ...]])
+    finalists: tuple[str, ...] = ()
+    experiment: str | None = None
+
+    @property
+    def left(self) -> list[Sheet]:
+        """This round's sheets still to judge."""
+        return [sheet for sheet in self.sheets if sheet.number not in self.kept]
+
+    @property
+    def last(self) -> bool:
+        """Whether this round's one sheet is the last."""
+        return len(self.sheets) == 1
 
 
 def searched(study: trials.Study) -> Search | None:
     """The study's search, when it has run."""
     path = study.folder / SEARCHES / f"{SEARCH}.json"
     return Search.model_validate_json(path.read_text()) if path.exists() else None
+
+
+def knockout_of(study: trials.Study) -> Knockout | None:
+    """The study's knockout, once its search has run."""
+    path = study.folder / SEARCHES / KNOCKOUT
+    return Knockout.model_validate_json(path.read_text()) if path.exists() else None
+
+
+def unjudged(study: trials.Study) -> str | None:
+    """Why the line's settings cannot be tried or committed yet: no search, or sheets of it the
+    model has not judged; None once every sheet is judged (a search made before the sheets has
+    none)."""
+    if searched(study) is None:
+        return (
+            "Run search first: the full grid of the line's settings, then every variant judged "
+            "by eye, sheet by sheet; try_settings refines around your choice."
+        )
+    knockout = knockout_of(study)
+    if knockout is None or knockout.finalists:
+        return None
+    return (
+        f"Judge every sheet first (judge): {len(knockout.left)} of round {knockout.round}'s "
+        f"{len(knockout.sheets)} left; search shows them again."
+    )
+
+
+def judge(study: trials.Study, kept: Mapping[int, Sequence[str]], why: str) -> Knockout:
+    """The sheets `kept` names judged: each sheet's kept variants (KEEP at most; LAST_KEEP of the
+    last sheet), recorded with `why` (JUDGED); a round judged, its kept sorted into the next
+    round's sheets, or, of the last sheet, the finalists."""
+    made, knockout = searched(study), knockout_of(study)
+    if made is None or knockout is None:
+        raise ValueError("No sheets to judge: run search first.")
+    if knockout.finalists:
+        raise ValueError(
+            f"Every sheet is judged: the finalists {', '.join(knockout.finalists)}, "
+            f"{knockout.experiment}. Refine with try_settings, then commit."
+        )
+    if not kept:
+        raise ValueError("kept: the variants you keep of each sheet, by its number.")
+    left = {sheet.number: sheet for sheet in knockout.left}
+    most = LAST_KEEP if knockout.last else KEEP
+    for number, labels in kept.items():
+        sheet = left.get(number)
+        if sheet is None:
+            raise ValueError(
+                f"Sheet {number} is not one left in round {knockout.round}: "
+                f"{', '.join(str(one) for one in left)}."
+            )
+        if not 1 <= len(labels) <= most or len(set(labels)) != len(labels):
+            raise ValueError(f"Sheet {number}: keep 1 to {most} of its variants, each once.")
+        if lost := [label for label in labels if label not in sheet.labels]:
+            raise ValueError(
+                f"Sheet {number}: no variant {', '.join(lost)} on it; its: "
+                f"{', '.join(sheet.labels)}."
+            )
+    at = datetime.now(UTC).isoformat()
+    with (study.folder / SEARCHES / JUDGED).open("a") as file:
+        for number, labels in kept.items():
+            sheet = left[number]
+            record = {
+                "round": knockout.round,
+                "sheet": number,
+                "shown": list(sheet.labels),
+                "kept": list(labels),
+                "why": why,
+                "at": at,
+            }
+            file.write(json.dumps(record) + "\n")
+    judged = knockout.model_copy(
+        update={"kept": {**knockout.kept, **{n: tuple(one) for n, one in kept.items()}}}
+    )
+    if judged.left:
+        return _keep(study, judged)
+    survivors = [label for sheet in judged.sheets for label in judged.kept[sheet.number]]
+    if judged.last:
+        return _keep(study, judged.model_copy(update={"finalists": tuple(survivors)}))
+    lengths = {row.label: row.length for row in made.rows}
+    ordered = sorted(survivors, key=lambda label: lengths[label])
+    sheets = tuple(
+        Sheet(number=n + 1, labels=tuple(ordered[i : i + SHEET]))
+        for n, i in enumerate(range(0, len(ordered), SHEET))
+    )
+    return _keep(study, Knockout(round=judged.round + 1, sheets=sheets))
+
+
+def tried(study: trials.Study, experiment: str) -> Knockout:
+    """The knockout, its finalists tried side by side as `experiment`."""
+    knockout = knockout_of(study)
+    assert knockout is not None and knockout.finalists
+    return _keep(study, knockout.model_copy(update={"experiment": experiment}))
+
+
+def _keep(study: trials.Study, knockout: Knockout) -> Knockout:
+    write_atomic(study.folder / SEARCHES / KNOCKOUT, knockout.model_dump_json(indent=2))
+    return knockout
+
+
+def places_of(profile: Profile) -> tuple[float, ...]:
+    """The places along the line a sheet shows each variant at: grid.PLACES, evenly spread."""
+    xs = sorted(receiver.x for receiver in profile.receivers)
+    span = xs[-1] - xs[0]
+    return tuple(
+        round(xs[0] + span * (2 * i + 1) / (2 * grid.PLACES), 1) for i in range(grid.PLACES)
+    )
+
+
+def first_sheets(rows: Sequence[Row], moved: Sequence[str]) -> tuple[Sheet, ...]:
+    """The first round's sheets: SHEET variants each, of one window length, by length then by
+    their settings' values in page order."""
+    by_length: dict[int, list[Row]] = {}
+    for row in rows:
+        by_length.setdefault(row.length, []).append(row)
+    labels: list[list[str]] = []
+    for length in sorted(by_length):
+        ordered = sorted(
+            by_length[length],
+            key=lambda row: tuple(row.values.get(name, "") for name in moved),
+        )
+        labels += [
+            [row.label for row in ordered[i : i + SHEET]] for i in range(0, len(ordered), SHEET)
+        ]
+    return tuple(Sheet(number=n + 1, labels=tuple(one)) for n, one in enumerate(labels))
+
+
+def really_bad(card: Mapping[str, Any]) -> bool:
+    """A variant no sheet shows: no image on any window, or fewer than PASSING of its windows
+    passing (no curve along the line)."""
+    return card["image"] is None or card["covered"] < PASSING * card["windows"]
 
 
 def axes(
@@ -413,16 +581,15 @@ def search(
     config: QCConfig,
     windows: str = WINDOWS,
     grid_changes: Mapping[str, Any] | None = None,
-) -> tuple[Search, trials.Experiment]:
+) -> tuple[Search, Knockout | None]:
     """The full grid of the line's settings on the trial set `windows`, from the preset and the
-    user's settings, each variant scored by the grid; `grid_changes`: of grid.yaml's values, for
-    this study. The shortlist tried as an experiment. Once a study, saved in its searches/."""
+    user's settings, each variant scored by the grid, its thumbnails kept; `grid_changes`: of
+    grid.yaml's values, for this study. The really bad dropped, the others sorted into the first
+    round's sheets (none when no variant gave an image to judge). Once a study, saved in its
+    searches/."""
     trials.check_open(study)
-    if (made := searched(study)) is not None:
-        raise ValueError(
-            f"The grid has run: {made.id}, its shortlist {made.experiment}. Refine around your "
-            "choice with try_settings."
-        )
+    if searched(study) is not None:
+        raise ValueError("The grid has run: search shows its sheets left to judge.")
     started = datetime.now(UTC)
     profile = load_profile(study.profile, settings)
     user = given_of(study)
@@ -466,7 +633,12 @@ def search(
         variants[label] = trial
         changes[label] = change
         values[label] = {axis.name: axis.values[point[axis.name]].name for axis in moved}
-    runs, failed = grid.score(study, variants, windows, line, profile, settings, config)
+    folder = study.folder / SEARCHES
+    images = folder / IMAGES
+    places = places_of(profile)
+    runs, failed = grid.score(
+        study, variants, windows, line, profile, settings, config, images, places
+    )
     refused += failed.values()
     rows = [
         Row(
@@ -479,17 +651,10 @@ def search(
         )
         for label, run in runs.items()
     ]
-    shortlist = _shortlist(rows)
-    by_label = {row.label: row for row in rows}
-    experiment = trials.try_settings(
-        study,
-        [by_label[label].changes for label in shortlist],
-        windows,
-        current=None,
-        line=line,
-        settings=settings,
-        config=config,
-    )
+    shown = [row for row in rows if not really_bad(row.card)]
+    for row in rows:
+        if really_bad(row.card):
+            (images / f"{row.label}.npz").unlink(missing_ok=True)
     made = Search(
         id=SEARCH,
         windows=windows,
@@ -499,64 +664,15 @@ def search(
         rows=tuple(rows),
         refused=len(refused),
         refusal=refused[0] if refused else None,
-        shortlist=shortlist,
-        experiment=experiment.id,
+        places=places,
+        dropped=len(rows) - len(shown),
         seconds=round((datetime.now(UTC) - started).total_seconds(), 1),
         made_at=started,
     )
-    folder = study.folder / SEARCHES
     folder.mkdir(exist_ok=True)
     write_atomic(folder / f"{made.id}.json", made.model_dump_json(indent=2))
-    return made, experiment
-
-
-# A page of the search's table, rows.
-PAGE = 30
-
-
-def table(
-    made: Search,
-    sort: str | None = None,
-    where: Mapping[str, Sequence[str]] | None = None,
-    page: int = 1,
-) -> str:
-    """A page of the search's table: its variants with the values `where` keeps of each setting
-    (by the names the table gives), best first by the measure `sort` (one of MEASURES' names; the
-    image score by default), each with its label, its settings and its scores."""
-    measures = dict(MEASURES)
-    named = sort or MEASURES[0][0]
-    if named not in measures:
-        raise ValueError(f"sort: one of {', '.join(measures)}, not {named}.")
-    for name, values in (where or {}).items():
-        if name not in made.axes:
-            raise ValueError(f"where: no setting {name}; the grid's: {', '.join(made.axes)}.")
-        if lost := sorted(set(values) - set(made.axes[name])):
-            raise ValueError(
-                f"where {name}: no value {', '.join(lost)}; its: {', '.join(made.axes[name])}."
-            )
-    value = measures[named]
-    kept = [
-        row
-        for row in made.rows
-        if all(row.values.get(name) in values for name, values in (where or {}).items())
-    ]
-    kept.sort(key=lambda row: -_known(value(row.card)))
-    pages = max(1, -(-len(kept) // PAGE))
-    if not 1 <= page <= pages:
-        raise ValueError(f"page: 1 to {pages}.")
-    moved = {name for name, values in made.axes.items() if len(values) > 1}
-    lines = [
-        f"{made.id}: {len(kept)} of its {len(made.rows)} variants, best first by {named}, page "
-        f'{page} of {pages}. try_settings takes a row as {{"grid": "<label>"}}:'
-    ]
-    for row in kept[(page - 1) * PAGE : page * PAGE]:
-        lines.append(f"- {row.label}: {_named(row, moved)}: {_scored(row.card)}")
-    return "\n".join(lines)
-
-
-def _known(value: float | None) -> float:
-    """A measure's value, the worst when unknown."""
-    return value if value is not None else float("-inf")
+    sheets = first_sheets(shown, [axis.name for axis in moved])
+    return made, _keep(study, Knockout(round=1, sheets=sheets)) if sheets else None
 
 
 def row_changes(study: trials.Study, label: str) -> dict[str, Any]:
@@ -570,11 +686,9 @@ def row_changes(study: trials.Study, label: str) -> dict[str, Any]:
     return dict(row.changes)
 
 
-def describe(made: Search, experiment: trials.Experiment) -> str:
-    """The search in words: the grid it ran, its shortlist (the experiment, each variant with the
-    measures it is among the best by), then each setting's values, the best each gave."""
-    labels = dict(zip(made.shortlist, (one.label for one in experiment.tried[1:]), strict=True))
-    by_label = {row.label: row for row in made.rows}
+def describe(made: Search, knockout: Knockout | None) -> str:
+    """The search in words: the grid it ran, the variants it dropped and how the others are
+    judged, sheet by sheet; no score."""
     moved = {name: values for name, values in made.axes.items() if len(values) > 1}
     grid_said = "; ".join(
         f"{name} ({made.units[name]}) {', '.join(values)}" for name, values in moved.items()
@@ -586,40 +700,48 @@ def describe(made: Search, experiment: trials.Experiment) -> str:
         f"{made.id}: the full grid, {len(made.rows)} variants on {made.windows} in "
         f"{made.seconds / 60:.0f} min, every combination of: {grid_said}."
         + (f" The same in every variant: {fixed}." if fixed else "")
-        + (f" {made.refused} could not be tried: {made.refusal}" if made.refused else ""),
-        f"The shortlist is experiment {experiment.id}: the best {PER_MEASURE} at least by each "
-        "measure (the image score, the fewest stripes, the windows passing, the widest band the "
-        "pick holds along the line, the depth of the weakest windows), no two alike in their windows' "
-        "settings. "
-        "None of them reads an image's quality: judge by eye, and check that your choice makes "
-        "sense. The shortlist, the measures each is among the best by:",
+        + (f" {made.refused} could not be tried: {made.refusal}" if made.refused else "")
     ]
-    for label, measures in made.shortlist.items():
-        row = by_label[label]
+    if knockout is None:
         lines.append(
-            f"- {experiment.id}:{labels[label]} ({', '.join(measures)}) {label}: "
-            f"{_named(row, set(moved))}: {_scored(row.card)}"
+            "No variant gave an image passing enough windows to judge: look at the survey's "
+            "records, and try settings with try_settings."
         )
+        return "\n".join(lines)
+    at = ", ".join(f"{place:g}" for place in made.places)
     lines.append(
-        f"By setting, each value's best image score and widest band among its variants passing "
-        f"{PASSING:.0%} of their windows, and how many do:"
+        f"{made.dropped} dropped as really bad: no image, or fewer than {PASSING:.0%} of their "
+        f"windows passing (no curve along the line). The other {len(made.rows) - made.dropped} "
+        f"are in {len(knockout.sheets)} sheets of up to {SHEET}, by window length, each variant at "
+        f"the same {len(made.places)} places along the line ({at} m). Judge every sheet by eye "
+        f"(judge), keeping its {KEEP} cleanest at most: one ridge, sharp and unbroken at every "
+        "place, the picks on it, over the widest band; stripes at the lowest frequencies and arcs "
+        "apart from the ridge matter little. No score is shown: none reads an image's quality. "
+        "The kept meet again, round after round, until one sheet is left: keep up to "
+        f"{LAST_KEEP} of it, and they are tried side by side at full size."
     )
-    for name, names in moved.items():
-        said = []
-        for value in names:
-            having = [row for row in made.rows if row.values.get(name) == value]
-            passing = [row for row in having if _passing(row.card) >= PASSING]
-            images = [row.card["image"] for row in passing if row.card["image"] is not None]
-            bands = [row.card["band_hz"] for row in passing if row.card["band_hz"] is not None]
-            if images and bands:
-                best = f"{max(images):.2f}, {max(bands):.0f} Hz"
-            elif having and all(row.card["empty"] == row.card["windows"] for row in having):
-                best = "its FK selection keeps no segment"
-            else:
-                best = "none passing"
-            said.append(f"{value}: {best} ({len(passing)}/{len(having)})")
-        lines.append(f"- {name}: " + "; ".join(said))
     return "\n".join(lines)
+
+
+def sheet_text(made: Search, knockout: Knockout, sheet: Sheet) -> str:
+    """A sheet in words: where it is in the knockout, then each of its variants' settings in
+    reading order (two a row, left then right)."""
+    moved = {name for name, values in made.axes.items() if len(values) > 1}
+    by_label = {row.label: row for row in made.rows}
+    last = " (the last: keep up to 3)" if knockout.last else ""
+    head = (
+        f"Round {knockout.round}, sheet {sheet.number} of {len(knockout.sheets)}{last}: "
+        f"{len(sheet.labels)} variants, two a row, left then right, each at "
+        + ", ".join(f"{place:g}" for place in made.places)
+        + " m:"
+    )
+    return "\n".join(
+        [head]
+        + [
+            f"- {label}: {_named(by_label[label], moved) or 'the one variant'}"
+            for label in sheet.labels
+        ]
+    )
 
 
 def _named(row: Row, moved: set[str]) -> str:
@@ -663,84 +785,6 @@ def _card(run: trials.TrialRun) -> dict[str, Any]:
         "depth_p10_m": card.depth_p10_m,
         "beyond": card.beyond,
     }
-
-
-MEASURES: tuple[tuple[str, Callable[[Mapping[str, Any]], float | None]], ...] = (
-    ("image score", lambda card: card["image"]),
-    ("fewest stripes", lambda card: -card["stripes"] if card["stripes"] is not None else None),
-    (
-        "windows passing",
-        lambda card: card["covered"] / card["windows"] if card["windows"] else None,
-    ),
-    ("widest band along the line", lambda card: card["band_hz"]),
-    ("depth of the weakest", lambda card: card["depth_p10_m"]),
-)
-
-
-def _shortlist(rows: Sequence[Row]) -> dict[str, list[str]]:
-    """The best by each measure in turn, PER_MEASURE of each at least, then deeper while there is
-    room, SHORTLIST at most, none alike another in the DISTINCT settings: each row's label with the
-    measures it is among the best by, by window length."""
-    rankings: list[tuple[str, list[Row]]] = []
-    for name, value in MEASURES:
-        counted = [
-            row
-            for row in rows
-            if value(row.card) is not None
-            and (name == "windows passing" or _passing(row.card) >= PASSING)
-        ]
-        # Ties to the band along the line: the ridge unbroken over a wide band comes first.
-        rankings.append(
-            (
-                name,
-                sorted(
-                    counted,
-                    key=lambda row: (-(value(row.card) or 0.0), -(row.card["band_hz"] or 0.0)),
-                ),
-            )
-        )
-    chosen: dict[str, list[str]] = {}
-    held: dict[tuple[str | None, ...], str] = {}
-    turn = 0
-    while True:
-        added = False
-        for name, ranking in rankings:
-            while ranking:
-                row = ranking.pop(0)
-                alike = tuple(row.values.get(setting) for setting in DISTINCT)
-                if row.label in chosen:
-                    chosen[row.label].append(name)
-                elif alike in held:
-                    continue
-                elif len(chosen) < SHORTLIST:
-                    chosen[row.label] = [name]
-                    held[alike] = row.label
-                else:
-                    break
-                added = True
-                break
-        turn += 1
-        if not added or (len(chosen) >= SHORTLIST and turn >= PER_MEASURE):
-            break
-    order = {row.label: (row.length, -(row.card["image"] or 0.0)) for row in rows}
-    return dict(sorted(chosen.items(), key=lambda item: order[item[0]]))
-
-
-def _passing(card: Mapping[str, Any]) -> float:
-    return card["covered"] / card["windows"] if card["windows"] else 0.0
-
-
-def _scored(card: Mapping[str, Any]) -> str:
-    def part(name: str, spec: str) -> str:
-        value = card.get(name)
-        return format(value, spec) if value is not None else "-"
-
-    return (
-        f"{card['covered']}/{card['windows']} pass, image {part('image', '.2f')} (P10 "
-        f"{part('image_p10', '.2f')}), stripes {part('stripes', '.3f')}, band "
-        f"{part('band_hz', '.0f')} Hz, depth {part('depth_m', '.0f')} m, beyond reach "
-        f"{part('beyond', '.0%')}"
-    )
 
 
 def _spacing(profile: Profile) -> float:

@@ -7,8 +7,8 @@ passive-active line's correlation of each shot, a passive line's correlations of
 (straight and space-flipped) and their f-k ratios; then each variant takes its own from it (the
 shots its distances keep, the segments its FK selection keeps, flipped where their energy runs
 the other way), stacks them as sigpipe's pipeline does, and its image is judged as a trial's
-(trials.judged): the scores a trial gives it. The images are not kept: the shortlist is tried
-again as an experiment, whose images the model looks at.
+(trials.judged): the scores a trial gives it. Each variant's images at PLACES places along the line
+are kept small (thumbnails), as PAC draws them, for the sheets the model judges by eye.
 
 Its scratch: <study>/grid/, removed after."""
 
@@ -25,6 +25,10 @@ from typing import Any
 import matplotlib
 import numpy as np
 from sigpipe.algorithms.flipping.flipping import FlipAxis, flip
+from sigpipe.algorithms.picking.dispersion.curve import (
+    longest_reached_wavelength,
+    min_resolvable_wavelength,
+)
 from sigpipe.algorithms.selection.stream.fk import fk_ratios
 from sigpipe.algorithms.stacking.stream.phase_weighted import (
     instantaneous_phase,
@@ -32,10 +36,11 @@ from sigpipe.algorithms.stacking.stream.phase_weighted import (
 )
 from sigpipe.base import Stream
 from sigpipe.dataio.selection_plotting import selection_scores
+from sigpipe.masw.picks import CURVES_FILE
 from sigpipe.masw.pipelines import PREPROCESSED
 from sigpipe.masw.pipelines.common import load_preprocessed, stage_kwargs
 from sigpipe.masw.profiles import Profile
-from sigpipe.masw.runs import WindowOutcome
+from sigpipe.masw.runs import WindowOutcome, load_image
 from sigpipe.masw.runs.processing import GEOMETRIES, RECORDS_FOLDER
 from sigpipe.masw.runs.stopping import finished
 from sigpipe.masw.runs.writing import write_atomic
@@ -58,9 +63,14 @@ from paco import stopping
 from paco.autonomous.tools import trials
 from paco.qc.coherence import TrialJudge
 from paco.qc.config import QCConfig
+from paco.qc.judging import saved_m0
 from paco.settings import Settings
 
 GRID = "grid"  # the scratch, in the study's folder
+# A variant's thumbnails: its windows nearest PLACES places along the line, each image THUMB
+# frequencies by THUMB velocities.
+PLACES = 4
+THUMB = 150
 # A passive window's selection, as sigpipe's PlotSelection saves it for G2.
 SELECTION = "Selection_0000.json"
 # The stage a passive base holds besides the length and the preprocessing: its segments (their
@@ -71,12 +81,93 @@ SEGMENTED = ("slicing",)
 @dataclass(frozen=True)
 class Entry:
     """A variant on one window of its base: its label, its trial, and its window (None when it
-    has none to image, `error` saying why)."""
+    has none to image, `error` saying why); `sheet`: its image kept as a thumbnail."""
 
     label: str
     trial: trials.Trial
     window: MASWWindow | None
     error: str | None = None
+    sheet: bool = False
+
+
+@dataclass(frozen=True)
+class Thumb:
+    """A variant's window on a sheet: where it is, its image as PAC draws it (each frequency's
+    row scaled from its least value to its largest, 0 to 255; rows the velocities from the
+    lowest, columns the frequencies), the frequencies and velocities it spans, its frequency
+    step, its automatic pick, and the wavelengths of the lines λ = 2·dx and 3·L (0: none)."""
+
+    xmid: float
+    image: np.ndarray
+    extent: tuple[float, float, float, float]  # fmin, fmax, vmin, vmax
+    step_hz: float
+    pick: tuple[np.ndarray, np.ndarray]  # frequencies, velocities
+    lines_m: tuple[float, float]
+
+
+def write_thumbs(path: Path, thumbs: Sequence[Thumb]) -> None:
+    """A variant's thumbnails into `path` (.npz), in order along the line."""
+    arrays: dict[str, np.ndarray] = {
+        "xmids": np.array([one.xmid for one in thumbs], dtype=np.float32),
+        "images": np.stack([one.image for one in thumbs]),
+        "extents": np.array([one.extent for one in thumbs], dtype=np.float32),
+        "steps": np.array([one.step_hz for one in thumbs], dtype=np.float32),
+        "lines": np.array([one.lines_m for one in thumbs], dtype=np.float32),
+    }
+    for i, one in enumerate(thumbs):
+        arrays[f"pick_f{i}"], arrays[f"pick_v{i}"] = one.pick
+    np.savez_compressed(path, **arrays)  # pyright: ignore[reportArgumentType]  # every key an array
+
+
+def read_thumbs(path: Path) -> list[Thumb]:
+    """A variant's thumbnails, as write_thumbs keeps them."""
+    with np.load(path) as found:
+        return [
+            Thumb(
+                xmid=float(found["xmids"][i]),
+                image=found["images"][i],
+                extent=tuple(float(one) for one in found["extents"][i]),  # pyright: ignore[reportArgumentType]
+                step_hz=float(found["steps"][i]),
+                pick=(found[f"pick_f{i}"], found[f"pick_v{i}"]),
+                lines_m=(float(found["lines"][i][0]), float(found["lines"][i][1])),
+            )
+            for i in range(len(found["xmids"]))
+        ]
+
+
+def thumbnail(folder: Path, xmid: float) -> Thumb:
+    """The thumbnail of the window in `folder`: each column its nearest frequency (a coarse step
+    stays blocky, as PAC draws it), each row the largest of its velocities (a thin ridge stays)."""
+    image = load_image(folder)
+    fv = np.asarray(image.fv_map, dtype=float)  # a row a frequency
+    low, high = fv.min(axis=1, keepdims=True), fv.max(axis=1, keepdims=True)
+    scaled = (fv - low) / np.where(high > low, high - low, 1.0)
+    fs, vs = np.asarray(image.fs, dtype=float), np.asarray(image.vs, dtype=float)
+    columns = np.abs(fs[None, :] - np.linspace(fs[0], fs[-1], THUMB)[:, None]).argmin(axis=1)
+    rows = np.unique(np.linspace(0, len(vs), THUMB + 1).astype(int)[:-1])
+    pooled = np.maximum.reduceat(scaled[columns], rows, axis=1)
+    curve = saved_m0(folder / CURVES_FILE)
+    pick = (
+        (np.asarray(curve.fs, dtype=np.float32), np.asarray(curve.vs, dtype=np.float32))
+        if curve is not None
+        else (np.zeros(0, dtype=np.float32), np.zeros(0, dtype=np.float32))
+    )
+    return Thumb(
+        xmid=xmid,
+        image=np.round(pooled.T * 255).astype(np.uint8),
+        extent=(float(fs[0]), float(fs[-1]), float(vs[0]), float(vs[-1])),
+        step_hz=float(np.median(np.diff(fs))) if len(fs) > 1 else 0.0,
+        pick=pick,
+        lines_m=(
+            float(min_resolvable_wavelength(image.acquisition) or 0.0),
+            float(longest_reached_wavelength(image.acquisition) or 0.0),
+        ),
+    )
+
+
+def nearest(xmids: Sequence[float], places: Sequence[float]) -> set[float]:
+    """Of a variant's windows (by xmid), those nearest each of `places`."""
+    return {min(xmids, key=lambda xmid: abs(xmid - place)) for place in places} if xmids else set()
 
 
 @dataclass(frozen=True)
@@ -114,9 +205,12 @@ def score(
     profile: Profile,
     settings: Settings,
     config: QCConfig,
+    sheets: Path | None = None,
+    places: Sequence[float] = (),
 ) -> tuple[dict[str, trials.TrialRun], dict[str, str]]:
     """Each of `variants` (by label) on the trial set `windows`, judged as `tried` judges it:
-    its run, and why each variant that could not be tried could not."""
+    its run, and why each variant that could not be tried could not. With `sheets`, each
+    variant's thumbnails at its windows nearest `places` written there, <label>.npz."""
     parts = trials.parse_windows(windows)
     last = trials.last_xmids(study)
     bases: dict[str, list[str]] = {}
@@ -164,8 +258,9 @@ def score(
                     "length_m": round(max(xs) - min(xs), 3),
                     "g1": g1,
                 }
+                shown = nearest([w.xmid for w in chosen], places) if sheets is not None else set()
                 for window in chosen:
-                    entry = _entry(label, trial, window, exclusions, failed)
+                    entry = _entry(label, trial, window, exclusions, failed, window.xmid in shown)
                     by_xmid.setdefault(window.xmid, []).append(entry)
             for i, (xmid, entries) in enumerate(sorted(by_xmid.items())):
                 tasks.append(
@@ -178,9 +273,13 @@ def score(
                         tuple(entries),
                     )
                 )
-        results = _made(tasks, scratch, settings.workers)
+        results, thumbs = _made(tasks, scratch, settings.workers)
     finally:
         shutil.rmtree(scratch, ignore_errors=True)
+    if sheets is not None:
+        sheets.mkdir(parents=True, exist_ok=True)
+        for label, kept in thumbs.items():
+            write_thumbs(sheets / f"{label}.npz", sorted(kept, key=lambda one: one.xmid))
     now = datetime.now(UTC)
     runs: dict[str, trials.TrialRun] = {}
     for label, held in made.items():
@@ -226,6 +325,7 @@ def _entry(
     window: MASWWindow,
     exclusions: Exclusions,
     failed: Mapping[str, str],
+    sheet: bool = False,
 ) -> Entry:
     """A variant's window without G1's exclusions, as process_windows takes it: none to image
     when G1 left it too little, or a record it reads failed its preprocessing."""
@@ -241,16 +341,18 @@ def _entry(
         return Entry(
             label, trial, None, f"record {missing[0]} failed preprocessing: {failed[missing[0]]}"
         )
-    return Entry(label, trial, applied)
+    return Entry(label, trial, applied, sheet=sheet)
 
 
 def _made(
     tasks: Sequence[Task], scratch: Path, workers: int
-) -> dict[str, list[tuple[trials.WindowResult, float]]]:
-    """Every task on `workers` processes: each variant's window results, with what each cost."""
+) -> tuple[dict[str, list[tuple[trials.WindowResult, float]]], dict[str, list[Thumb]]]:
+    """Every task on `workers` processes: each variant's window results, with what each cost,
+    and its thumbnails."""
     results: dict[str, list[tuple[trials.WindowResult, float]]] = {}
+    thumbs: dict[str, list[Thumb]] = {}
     if not tasks:
-        return results
+        return results, thumbs
     one_thread_each()  # the workers are the cores the search takes
     scratch.mkdir(parents=True, exist_ok=True)
     with ProcessPoolExecutor(
@@ -258,9 +360,11 @@ def _made(
     ) as executor:
         futures = [executor.submit(made_window, task) for task in tasks]
         for future in finished(executor, futures, stopping.current()):
-            for label, result, cost in future.result():
+            for label, result, cost, thumb in future.result():
                 results.setdefault(label, []).append((result, cost))
-    return results
+                if thumb is not None:
+                    thumbs.setdefault(label, []).append(thumb)
+    return results, thumbs
 
 
 def _start(scratch: Path) -> None:
@@ -271,10 +375,11 @@ def _start(scratch: Path) -> None:
     matplotlib.use("Agg")
 
 
-def made_window(task: Task) -> list[tuple[str, trials.WindowResult, float]]:
+def made_window(task: Task) -> list[tuple[str, trials.WindowResult, float, Thumb | None]]:
     """Runs in a worker: the task's base made once on its window, then each variant's image from
-    it, judged as a trial's; each with what it cost, seconds (the base's share included)."""
-    out: list[tuple[str, trials.WindowResult, float]] = []
+    it, judged as a trial's; each with what it cost, seconds (the base's share included), and its
+    thumbnail where its entry keeps one."""
+    out: list[tuple[str, trials.WindowResult, float, Thumb | None]] = []
     products: _Products | None = None
     for entry in sorted(task.entries, key=_prepared):
         started = time.perf_counter()
@@ -284,6 +389,7 @@ def made_window(task: Task) -> list[tuple[str, trials.WindowResult, float]]:
                     entry.label,
                     trials.WindowResult(xmid=task.xmid, cached=False, error=entry.error),
                     0.0,
+                    None,
                 )
             )
             continue
@@ -306,8 +412,11 @@ def made_window(task: Task) -> list[tuple[str, trials.WindowResult, float]]:
             result = trials.judged(
                 task.folder, outcome, entry.trial, judge, task.usable, task.config
             )
+        thumb = None
+        if entry.sheet and result.error is None:
+            thumb = thumbnail(folder, entry.window.xmid)
         shutil.rmtree(folder, ignore_errors=True)
-        out.append((entry.label, result, round(time.perf_counter() - started, 3)))
+        out.append((entry.label, result, round(time.perf_counter() - started, 3), thumb))
     return out
 
 

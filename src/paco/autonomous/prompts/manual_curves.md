@@ -6,7 +6,7 @@ phase velocity v and frequency f.
 
 ## Where to start: the search, then your eye
 
-- After the survey, call search, once: the full grid of the line's settings, scored in code
+- After the survey, call search, once: the full grid of the line's settings, made in code
   (minutes). Every setting of PAC's page for the line's method takes the values the physics sets
   (the windows' length over the line's range; the farthest shot as shares of the survey's reach;
   the near field as shares of the window; PACo's mutes from the survey's cone; on a passive line
@@ -16,18 +16,23 @@ phase velocity v and frequency f.
   grid.yaml). Where the user's words call for it (their group velocities, the values they want),
   give search's grid the changes, for this study alone. It does not start from PACo's workflow,
   which is another way to process the line.
-- Its shortlist, an experiment shown side by side, holds the best by each measure (the image score,
-  the fewest stripes, the windows passing, the widest band the pick holds along the line, the depth
-  of the weakest windows), no two alike in their windows' settings; its summary gives each setting's
-  values, the best each gave. search again pages the whole table (sort by a measure, where some
-  settings' values); try_settings makes any row's images, given as {"grid": "<label>"}. No measure
-  reads an image's quality: choose by eye, the ridge unbroken over the widest band, a quiet
-  background, no stripes, the picks on the ridge, along the line.
-- Then check that your choice makes sense: the picks on M0 and not on a higher mode or an
-  artefact, few points beyond the windows' reach or in the near field, none aliased, the same
-  ridge from window to window, the physics explaining why it wins. Refine around it with
-  try_settings (a value between two of the grid's, a setting's neighbours), check the best two or
-  three on a hold-out set, and commit the best. The image's band stays the preset's or the
+- Only the really bad are dropped: no image, or fewer than a quarter of the windows passing (no
+  curve along the line). Every other variant comes in sheets of 12, by window length, each at the
+  same four places along the line, drawn as PAC draws images, with no score: none reads an
+  image's quality. Judge every sheet by eye with judge, keeping its cleanest, 2 at most: one
+  ridge, sharp and unbroken at every place (a break or a jump at one place is the worst fault),
+  without blocks, the picks on it, over the widest band. Stripes at the lowest frequencies, left
+  of where the ridge starts, and arcs of other waves apart from it matter little; a short
+  window's wide ridge at the low frequencies is its resolution, not a fault; near-field notes and
+  a shallower depth do not disqualify a clean image unless the user asked for depth (the user's
+  own ratings, 2026-10-20). The kept meet again, round after round; of the last
+  sheet keep up to 3: they are tried side by side at full size. search again shows the sheets
+  left; try_settings and commit wait until every sheet is judged.
+- Then choose among the finalists by eye and check that your choice makes sense: the picks on M0
+  and not on a higher mode or an artefact, few points beyond the windows' reach, none aliased,
+  the same ridge from window to window, the physics explaining why it wins. Refine around it
+  with try_settings (a value between two of the grid's, a setting's neighbours; a grid row as
+  {"grid": "<label>"}), check the best two or three on a hold-out set, and commit the best. The image's band stays the preset's or the
   records' usable band: a narrower one hides the ridge, it does not mend it.
 
 ## Physics
@@ -160,33 +165,26 @@ phase velocity v and frequency f.
 ## Judging the images
 
 - A good image holds one sharp ridge, continuous over a wide band and rising toward the low
-  frequencies, the rest of it dark, the pick on its crest: the atlas's first image.
-- Each experiment shows every variant side by side, in sheets of its current settings and three,
-  each with its pick, at the windows where they differ most (look experiment E<n>:current,3,5
-  shows others there), drawn as PAC draws them: each frequency's row from its least value
-  (yellow) to its largest (black). Judge each panel against the atlas, before its scores, and
-  name its fault and cause before the lever: vertical stripes (a hard mute's edges, noisy or dead
+  frequencies, smooth, the rest of it pale, the pick on its crest: the atlas's first image.
+- The search's sheets, and each experiment's (every variant side by side, in sheets of its
+  current settings and three, each with its pick; look experiment E<n>:current,3,5 shows others),
+  are drawn as PAC draws images: each frequency's row from its least value (yellow) to its
+  largest (black). Judge each panel against the atlas and name its fault and cause before the
+  lever: vertical stripes (a hard mute's edges, noisy or dead
   traces, a lateral change under the window); horizontal fringes under the ridge (a short
   window's side lobes, a hard mute); a ridge broken into pieces, or jumping at a vertical edge (a
   lateral change under a long window, noise); a broad dark area at the low frequencies (a short
   window's resolution, Δv/v ≈ λ/L, not noise: a longer window sharpens it, and is better only
   where its ridge stays as unbroken at the higher frequencies); a weak ridge (scaled row by row,
-  any peak looks dark: its background tells); dark ridges under the dashed line (aliases) or left
-  of the dotted one (beyond the window's reach).
-- The scorecard measures the same on every window: G2's coherent columns (the share of the
-  image's columns with a coherent peak) and lateral coherence (how far the window's traces
-  agree), near 1 when clean; G2's background (the image's median level off its ridge, over the
-  ridge's peak) and its stripes (that level's jumps between columns), low when clean; the share
-  of each pick on its ridge (G3's on_data). On active_p2 the clean images read a background of
-  0.10 to 0.18 and stripes under 0.008, the striped ones up to 0.36 and 0.024. The score averages
-  them, the background as 1 minus it; its P10, the weakest windows', shows a bad stretch the
-  median hides. The background compares a column's level off its ridge with its peak: a short
-  window's floor (1/√N) and wider ridge raise it, so it and the score favour long windows:
-  compare them between variants of the same length. Your eyes choose among all the variants; the
-  scores add what a sheet cannot show: every window, the weakest, the coverage and the depth.
-- The measures cannot see everything: a short window's smear can score well where its columns
-  peak, an arrival too fast for surface waves holds a high SNR and lateral coherence, a pick on
-  a ridge that is not M0 is on its ridge. Where you see one, say so, and trust what you see.
+  any peak looks dark: the yellow around it tells); blocks (a coarse frequency step: segments too
+  short for the window); dark ridges under the dashed line (aliases) or left of the dotted one
+  (beyond the window's reach).
+- No score reads an image's quality as the eye does (the user's verdict): G2's background and
+  its image score favour long windows (a short window's floor, 1/√N, and wider ridge raise it), a
+  short window's smear can score well where its columns peak, an arrival too fast for surface
+  waves holds a high SNR and lateral coherence, a pick on a ridge that is not M0 is on its ridge.
+  Your eyes choose; the gates say which curves pass, and the scorecard the coverage and the
+  depth.
 - The image comes before the pick: a picking change cannot mend a bad image, only settings that
   change the image can (the length, the mute, the shots, the stacking).
 

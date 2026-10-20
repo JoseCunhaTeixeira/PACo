@@ -8,13 +8,14 @@ PAC's layout, so PAC opens them. A quality gate checks each stage and fixes what
 
 PACo works in one of two modes, with the same model:
 
-- **workflow** (the default): PACo leads the model step by step through its tools. The model
-  never sees the data, only the gates' short summaries. A small model on your own GPU is enough
-  (Qwen3-14B).
-- **autonomous**: the model surveys the line, tries its own settings and judges them with the
-  gates, decides each window, then inverts. It keeps a journal of what it tried and why. It needs
-  a frontier model (Claude, GPT, Gemini) with vision and a long context, and uses many more
-  tokens. See [The autonomous mode](#the-autonomous-mode).
+- **workflow** (the default): cheaper, but its results are less good. PACo leads the model step
+  by step through its tools and chooses the settings by fixed rules. The model never sees the
+  data, only the gates' short summaries. A small model on your own GPU is enough (Qwen3-14B).
+- **autonomous**: better results, but costly. PACo tries every combination of the line's
+  settings, the model looks at all the images and keeps the cleanest, then decides each window
+  and inverts. It keeps a journal of what it tried and why. It needs a frontier model (Claude,
+  GPT, Gemini) with vision and a long context, and uses many more tokens. See
+  [The autonomous mode](#the-autonomous-mode).
 
 `PACO_AGENT_MODE` chooses the mode (or `--mode` on the commands).
 
@@ -155,7 +156,12 @@ The evaluations use the model of `.env`, which also judges the answers.
 
 ## The workflow mode
 
-In this mode, PACo's server leads the model through these tools:
+PACo chooses the settings by fixed rules: trials of the window length, the mute and a passive
+line's segments, then the gates judge each stage and fix what they can. It is fast and cheap, but
+fixed rules miss settings a full search finds: on PAC's test lines its images hold their ridge to
+about 50 Hz, where the best settings hold it to 80 to 100 Hz.
+
+PACo's server leads the model through these tools:
 
 | Tool | What it does |
 |---|---|
@@ -174,7 +180,30 @@ In this mode, PACo's server leads the model through these tools:
 
 ## The autonomous mode
 
-In this mode, the tools work on a profile's **study**: a folder in `<output>/<profile>/studies/`
+How a line goes:
+
+1. **Survey.** The line's geometry, its records checked by G1, the shots' reach, the usable band,
+   the surface waves' velocities.
+2. **The full grid, in code.** Every combination of the values the physics sets for each setting
+   of PAC's page: the window length, the shots, the mute, a passive line's segments, FK
+   selection, normalization and stacking. Each variant is processed on 12 windows along the line
+   and checked by the gates. The values are in `src/paco/autonomous/grid.yaml`, and `paco-grid`
+   prints the grid's size.
+3. **The model's eye.** Only the really bad variants are dropped: no image, or no curve along the
+   line. The model looks at all the others, in sheets of 12, each variant at the same 4 places
+   along the line, with no score: no score tells a clean image as the eye does. It keeps the
+   cleanest of each sheet: one ridge, sharp and unbroken at every place, the picks on it, over a
+   wide band.
+   The kept meet again until a last sheet, whose kept are compared at full size. Each sheet's
+   judgment is saved in the study.
+4. **The line.** The model refines its choice, applies it to the whole line, picks and decides
+   each window, freezes the curves, inverts them and reports.
+
+It costs more than the workflow mode, for better results: about 25 to 45 minutes and $3 to $7 a
+line with Claude Opus and 11 workers, before the inversion (estimates from PAC's test lines). The
+grid takes longer with fewer workers.
+
+The tools work on a profile's **study**: a folder in `<output>/<profile>/studies/`
 that keeps everything (the survey, each experiment and its trials, the line committed as a run PAC
 opens, the journal, the decisions, the frozen curves and the inversions). If a conversation stops,
 the next one on the profile resumes the study. A message names its profile; without one, PACo
@@ -183,7 +212,9 @@ lists the profiles.
 | Tool | What it does |
 |---|---|
 | `survey` | The line before any setting: its geometry, its records as G1 measures them, the reach, the usable band, the surface waves' cone, the modes it takes |
-| `try_settings` | Tries variants of the line's settings on chosen windows, judged by the gates, against the current settings |
+| `search` | Runs the full grid of the line's settings in code, drops the really bad variants, and shows the others in sheets of images to judge by eye |
+| `judge` | Keeps the cleanest variants of each sheet, round after round; the last sheet's are tried side by side at full size |
+| `try_settings` | Refines around the choice: variants of the line's settings on chosen windows, judged by the gates. Waits, like `commit`, until every sheet is judged |
 | `commit` | Applies settings to the whole line, with their reasons: a run that PAC opens |
 | `observe`, `look` | Reads the checks of the line committed; looks at a window's records, image, curve or model |
 | `advise` | PACo's own choice for a lever (the window length, the mute, a passive line's segments, the picking), not applied |
@@ -194,8 +225,9 @@ lists the profiles.
 
 Code keeps the work honest. The settings you type are never changed. The phases go in order:
 survey, curves, inversion, report. A window is rejected only after real tries. Budgets stop a run
-that spends too much. The model sees the figures: the autonomous mode judges every image by eye,
-so it needs a model that takes images. The design is in `docs/autonomous_plan.md`.
+that spends too much; judging the sheets does not count against them. The model sees the
+figures: the autonomous mode judges every image by eye, so it needs a model that takes images.
+The design is in `docs/autonomous_plan.md`.
 
 ## How PACo works
 
