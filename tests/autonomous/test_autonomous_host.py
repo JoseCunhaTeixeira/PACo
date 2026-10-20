@@ -7,26 +7,29 @@ again along their neighbours), a commit in seconds."""
 
 import json
 import shutil
-from collections.abc import Iterator
+from collections.abc import Callable, Iterator
 from dataclasses import dataclass
+from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
 
 import anyio
+import numpy as np
 import openai
 import pytest
 from autonomous_scripted import ScriptedServer, usage
 from mcp import Client
 
 from paco.agent.answer import unfound_numbers
-from paco.autonomous import server
+from paco.autonomous import prompts, server
 from paco.autonomous.host import budgets
 from paco.autonomous.host.answer import GeoAnswerForm, report
 from paco.autonomous.host.card import card
 from paco.autonomous.host.loop import CARD, DROPPED, PENDING, Host, Limits
 from paco.autonomous.host.phases import phase_of, reopen, study_for, wanted
 from paco.autonomous.host.scope import BLANK, GeoScope
-from paco.autonomous.tools import journal
+from paco.autonomous.tools import grid, journal
+from paco.autonomous.tools import search as searching
 from paco.autonomous.tools.commit import LINE_FILE, Line
 from paco.autonomous.tools.given import Given, given_of
 from paco.autonomous.tools.survey import SAVED
@@ -64,8 +67,8 @@ REJECTED_CURVES = (
 # The curves accepted, then their models inverted and rejected: the 8 from 74.25 m on.
 ACCEPTED = "xmid 74.25-84.75 (8)"
 # A small context, for the oldest calls to drop out (§7.3): P2's tools, role and manual take
-# about 12,000 tokens of it, past its 60 %.
-CONTEXT = 15_000
+# about 13,400 tokens of it, past its 60 %.
+CONTEXT = 16_000
 
 
 def call(
@@ -109,25 +112,34 @@ def answer_form(
 PLAY = [
     form(SCOPE),
     call("survey", {}, 1),
+    call("journal", {"action": "write", "kind": "conclusion", "text": "A fan, 120-330 m/s."}, 2),
+    # The hypothesis given to the experiment testing it, the conclusion to the commit: each
+    # written in the journal with them.
     call(
-        "journal",
+        "try_settings",
         {
-            "action": "write",
-            "kind": "hypothesis",
-            "text": "Windows of 78 receivers reach deepest.",
+            "variants": [LINE],
+            "windows": "spread:3",
+            "hypothesis": "Windows of 78 receivers reach deepest.",
             "expect": "more trial windows pass",
         },
-        2,
+        3,
     ),
-    call("try_settings", {"variants": [LINE], "windows": "spread:3", "hypothesis": "H1"}, 3),
+    call("journal", {"action": "read", "last": 2}, 4),
     call(
-        "journal",
-        {"action": "write", "kind": "conclusion", "text": "1 of 3 pass, as now.", "of": ["E1"]},
-        4,
+        "commit",
+        {
+            "changes": LINE,
+            "reasons": REASONS,
+            "experiment": "E1",
+            "conclusion": "1 of 3 pass, as now: the deeper windows kept.",
+        },
+        5,
     ),
-    call("commit", {"changes": LINE, "reasons": REASONS, "experiment": "E1"}, 5),
     call("observe", {"level": "curves"}, 6),
-    call("pick", {"windows": "verdict:retry", "how": "guide", "guide": "neighbours"}, 7),
+    call(
+        "pick", {"ways": [{"windows": "verdict:retry", "how": "guide", "guide": "neighbours"}]}, 7
+    ),
     call("decide", {"windows": "verdict:pass", "status": "accepted"}, 8),
     call(
         "decide",
@@ -243,16 +255,14 @@ def played(
 
 @pytest.mark.slow
 def test_a_scripted_conversation_runs_p0_to_p5(played: Played) -> None:
-    assert [entry.id for entry in journal.entries(played.study)] == [
-        "O1",
-        "H1",
-        "E1",
-        "C1",
-        "L1",
-        "F1",
-        "I1",
-        "R1",
-    ]
+    found = journal.entries(played.study)
+    assert [entry.id for entry in found] == ["O1", "C1", "H1", "E1", "C2", "L1", "F1", "I1", "R1"]
+    # The experiment rests on the hypothesis it was given, the conclusion on the experiment.
+    assert (found[2].expect, found[3].of, found[4].of) == (
+        "more trial windows pass",
+        ("H1",),
+        ("E1",),
+    )
     assert phase_of(played.study) == "P5"
     assert played.events[0] == (
         f"Objective: balanced, no target depth, quick effort. Study {played.study.id} of "
@@ -263,7 +273,7 @@ def test_a_scripted_conversation_runs_p0_to_p5(played: Played) -> None:
     bodies = [body for body in played.model.bodies if "tools" in body]
     offered = [{tool["function"]["name"] for tool in body["tools"]} for body in bodies]
     assert "survey" in offered[0] and "commit" not in offered[0]
-    # The survey lasts until the model says it in the journal (H1), looking at its records.
+    # The survey lasts until the model says it in the journal (C1), looking at its records.
     assert "look" in offered[1] and "commit" not in offered[1]
     assert {"commit", "pick", "decide", "freeze"} <= offered[2]
     assert "commit" not in offered[-1]
@@ -651,3 +661,184 @@ def test_a_follow_up_asking_to_process_again_reopens_the_reported_study(played: 
         "its report (B1: Back to the curves after R1"
     )
     assert read[-1]["content"].startswith(CARD)
+
+
+# The survey, said: the curves' tools open.
+SURVEYED = [
+    call("survey", {}, 1),
+    call("journal", {"action": "write", "kind": "conclusion", "text": "A fan, 120-330 m/s."}, 2),
+]
+# 14 variants: 12 of 5 receivers (round 1's sheet 1), 2 of 9 (its sheet 2); each picks to its
+# own fmax, a trial in seconds.
+ROWS = [
+    searching.Row(
+        label=f"g{n}",
+        values={"length": "5" if n <= 12 else "9", "muting": "ab"[n % 2]},
+        changes={"picking": {"fmax": 60.0 + n}},
+        trial=f"t{n}",
+        length=5 if n <= 12 else 9,
+        card={"image": 1.0, "covered": 3, "windows": 3},
+    )
+    for n in range(1, 15)
+]
+
+
+def canned(windows: str, *, thumbs: bool = False) -> Callable[..., Any]:
+    """A search that runs no grid: ROWS its variants on `windows`, sorted into sheets, with
+    `thumbs` each variant's thumbnails at the 4 places."""
+
+    def search(study: Study, **_: Any) -> tuple[searching.Search, searching.Knockout]:  # noqa: ANN401
+        made = searching.Search(
+            id=searching.SEARCH,
+            windows=windows,
+            axes={"length": ["5", "9"], "muting": ["a", "b"]},
+            units={"length": "receivers", "muting": "name"},
+            changes={},
+            rows=tuple(ROWS),
+            refused=0,
+            refusal=None,
+            places=(15.0, 50.0, 90.0, 125.0),
+            seconds=60.0,
+            made_at=datetime.now(UTC),
+        )
+        folder = study.folder / searching.SEARCHES
+        (folder / searching.IMAGES).mkdir(parents=True)
+        (folder / f"{made.id}.json").write_text(made.model_dump_json())
+        knockout = searching.Knockout(
+            round=1, sheets=searching.first_sheets(ROWS, ["length", "muting"])
+        )
+        (folder / searching.KNOCKOUT).write_text(knockout.model_dump_json())
+        image = np.tile(np.linspace(0, 255, grid.THUMB, dtype=np.uint8)[:, None], grid.THUMB)
+        pick = (np.array([10.0, 20.0], np.float32), np.array([300.0, 250.0], np.float32))
+        for row in ROWS if thumbs else []:
+            grid.write_thumbs(
+                folder / searching.IMAGES / f"{row.label}.npz",
+                [
+                    grid.Thumb(x, image, (0.0, 100.0, 1.0, 1000.0), 0.33, pick, (3.0, 54.0))
+                    for x in made.places
+                ],
+            )
+        return made, knockout
+
+    return search
+
+
+def kept(*sheets: tuple[int, list[str]]) -> Any:  # noqa: ANN401
+    """The judge's form: the variants kept of each sheet."""
+    return form(
+        {"why": "One ridge at every place.", "sheets": [{"sheet": n, "kept": k} for n, k in sheets]}
+    )
+
+
+def judged(played: Played) -> list[dict[str, Any]]:
+    """The judge's requests."""
+    judge = prompts.prompt("judge")
+    return [body for body in played.model.bodies if body["messages"][0]["content"] == judge]
+
+
+@pytest.mark.usefixtures("folders")
+def test_the_sheets_are_judged_in_calls_of_their_own_until_refused_three_times(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr(searching, "search", canned("spread:3"))
+    wrong = kept((2, ["g1"]))
+    played = play(
+        [
+            form(SCOPE),
+            *SURVEYED,
+            call("search", {}, 3),
+            # The judge's calls: a variant not on the sheet, then sheet 1 judged; then sheet 2
+            # judged wrong three times.
+            kept((1, ["g99"])),
+            kept((1, ["g1", "g2"])),
+            wrong,
+            wrong,
+            wrong,
+            said("The judging stopped: shall I search again?"),
+            answer_form("The judging stopped.", question="Shall I search again?"),
+        ],
+        [REQUEST],
+    )
+
+    asked = judged(played)
+    first, again, second = (one["messages"][-1]["content"][0]["text"] for one in asked[:3])
+    read = next(
+        message["content"]
+        for message in played.model.bodies[-2]["messages"]
+        if message["role"] == "tool" and message["tool_call_id"] == "call_3"
+    )
+    records = (played.study.folder / searching.SEARCHES / searching.JUDGED).read_text()
+    used = budgets.uses(played.study)
+    steps = [step for step in played.host.transcript().host_steps if step.name == "judge"]
+    # Each judge's call, a form, reads its prompt, the line's facts and the sheets alone: no
+    # conversation, no state card, no tools.
+    assert len(asked) == 5 and all(len(one["messages"]) == 2 for one in asked)
+    assert all("tools" not in one and "response_format" in one for one in asked)
+    assert first.startswith(
+        "Line active_test_profile, active: each window stacks its shots' images. The objective: "
+    )
+    assert "Round 1, sheet 1 of 2 (keep 1 or 2):" in first and "sheet 2 of 2 (keep" in first
+    assert "S1: the full grid" not in first
+    # A refused answer said again with the same sheets; the next call, the sheet left.
+    assert "Your last answer was not recorded: " in again and "no variant g99 on it" in again
+    assert "Round 1, sheet 2 of 2 (keep 1 or 2):" in second and "sheet 1 of 2" not in second
+    # The model reads the search's words and why the judging stopped, never the sheets, and is
+    # not offered the judge.
+    assert read.startswith('<data from="search">\nS1: the full grid, 14 variants')
+    assert "The sheets could not be judged (" in read and "search again judges those left" in read
+    assert "Round 1, sheet" not in read
+    assert "judge" not in {tool["function"]["name"] for tool in played.model.bodies[3]["tools"]}
+    # Sheet 1's judgment recorded, once; the judge's forms out of the model calls' budget, their
+    # tokens in the transcript.
+    assert [json.loads(line)["kept"] for line in records.splitlines()] == [["g1", "g2"]]
+    assert sum(1 for one in used if one.kind == "form" and one.name == "judge") == 5
+    assert budgets.spent(played.study, "quick").model_calls == 4
+    assert [step.is_error for step in steps] == [True, False, True, True, True]
+    assert "   Round 1, judged by eye: sheet 1: g1, g2." in played.events
+
+
+@pytest.mark.slow
+@pytest.mark.usefixtures("folders")
+def test_the_judged_finalists_come_to_the_model_tried_side_by_side(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr(searching, "search", canned("spread:3", thumbs=True))
+    played = play(
+        [
+            form(SCOPE),
+            *SURVEYED,
+            call("search", {}, 3),
+            kept((1, ["g1", "g2"]), (2, ["g13"])),
+            kept((1, ["g2", "g13"])),
+            said("Which of the two?"),
+            answer_form("The finalists are tried.", question="Which of the two?"),
+        ],
+        [REQUEST],
+        vision=True,
+    )
+
+    first, last = (one["messages"] for one in judged(played))
+    messages = played.model.bodies[-2]["messages"]
+    at = next(i for i, one in enumerate(messages) if one.get("tool_call_id") == "call_3")
+    knockout = searching.knockout_of(played.study)
+    # Each call sees the atlas's dispersion images, in a turn of their own, then its sheets: round
+    # 1's two, then round 2's last.
+    assert first[1]["content"][0]["text"].startswith(
+        '<data from="atlas">\nPACo\'s atlas, dispersion images'
+    )
+    assert [part["type"] for part in first[1]["content"]] == ["text", "image_url"]
+    assert first[2]["role"] == "assistant" and first[1:3] == last[1:3]
+    assert [part["type"] for part in first[3]["content"]] == ["text", "image_url", "image_url"]
+    assert [part["type"] for part in last[3]["content"]] == ["text", "image_url"]
+    assert "Round 2, sheet 1 of 1 (the last: keep 1 to 3)" in last[3]["content"][0]["text"]
+    assert knockout is not None and knockout.finalists == ("g2", "g13")
+    assert knockout.experiment == "E1"
+    # The model reads the search's words, then the finalists tried side by side, with figures.
+    read = messages[at]["content"]
+    assert "S1: the full grid, 14 variants" in read
+    assert "The sheets judged by eye in 2 short calls. Every sheet is judged. The finalists" in read
+    assert messages[at + 1]["role"] == "user" and messages[at + 1]["content"][1]["type"] == (
+        "image_url"
+    )
+    assert "   Round 1, judged by eye: sheet 1: g1, g2; sheet 2: g13." in played.events
+    assert "   Round 2, judged by eye: sheet 1: g2, g13." in played.events

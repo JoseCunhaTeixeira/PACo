@@ -85,6 +85,26 @@ def write(
 ) -> Entry:
     """The model's entry: a hypothesis (what it expects, `expect`), a conclusion or a decision, in
     one paragraph of MOST_TEXT characters at most, resting on the entries `of`."""
+    said = check(study, kind, text, of, expect)
+    return append(
+        study,
+        Entry(
+            id=next_id(study, kind),
+            kind=kind,
+            at=datetime.now(UTC),
+            text=said,
+            of=tuple(of),
+            expect=" ".join(expect.split()) if expect else None,
+        ),
+    )
+
+
+def check(
+    study: Study, kind: ModelKind, text: str, of: Sequence[str] = (), expect: str | None = None
+) -> str:
+    """Refused, saying why, unless the model's entry can be written: its text, one paragraph of
+    MOST_TEXT characters at most; the entries `of` in the journal; a hypothesis's `expect`. Its
+    text on one line."""
     said = " ".join(text.split())
     if not said:
         raise ValueError("text: what the entry says, one paragraph.")
@@ -97,17 +117,7 @@ def write(
         )
     if kind == "hypothesis" and not expect:
         raise ValueError("expect: what a hypothesis expects the experiment to show.")
-    return append(
-        study,
-        Entry(
-            id=next_id(study, kind),
-            kind=kind,
-            at=datetime.now(UTC),
-            text=said,
-            of=tuple(of),
-            expect=" ".join(expect.split()) if expect else None,
-        ),
-    )
+    return said
 
 
 def next_id(study: Study, kind: Kind) -> str:

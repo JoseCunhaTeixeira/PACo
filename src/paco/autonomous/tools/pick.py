@@ -65,6 +65,35 @@ class Recipe(BaseModel):
     polygon: tuple[tuple[float, float], ...] | None = None
 
 
+class Way(BaseModel):
+    """One way of picking a pick call asks for: the windows a spec names, and how."""
+
+    model_config = ConfigDict(frozen=True, extra="forbid")
+
+    windows: str
+    how: Literal["auto", "guide", "lasso", "delete"] = Field(
+        description="The tracker (auto), its corridor on a guide (guide), on the maxima inside a "
+        "polygon (lasso), or the curve deleted (delete)."
+    )
+    picking: dict[str, Any] = Field(
+        default_factory=dict[str, Any],
+        description="Changes of the line's picking parameters, for auto, guide and lasso.",
+    )
+    guide: tuple[tuple[float, float], ...] | Literal["neighbours"] | None = Field(
+        default=None,
+        description="For guide: points [f Hz, v m/s] the corridor follows, or 'neighbours', "
+        "their median curve as G4 gives it.",
+    )
+    polygon: tuple[tuple[float, float], ...] | None = Field(
+        default=None,
+        description="For lasso: vertices [f Hz, v m/s] around the ridge, read off its image.",
+    )
+
+    @property
+    def recipe(self) -> Recipe:
+        return Recipe(how=self.how, picking=self.picking, guide=self.guide, polygon=self.polygon)
+
+
 class Picked(BaseModel):
     """A window's pick as the study keeps it: the run, the window, its recipe, the parameters the
     tracker ran with, G3's verdict and flags (each with its class), or why it was not picked."""
@@ -84,9 +113,9 @@ class Picked(BaseModel):
 
 @dataclass(frozen=True)
 class Picks:
-    """A pick call: its recipe, each window's pick and G3's result, then G4's on the line."""
+    """A pick call: each window's pick (its recipe with it) and G3's result, then G4's on the
+    line."""
 
-    recipe: Recipe
     picked: dict[str, Picked]
     g3: dict[str, GateResult]
     g4: tuple[GateResult, ...]
@@ -133,31 +162,31 @@ def check_recipe(recipe: Recipe, base: PickingParameters) -> None:
 def pick(
     study: Study,
     run_folder: Path,
-    units: Sequence[str],
-    recipe: Recipe,
+    recipes: Mapping[str, Recipe],
     base: PickingParameters,
     config: QCConfig,
     workers: int,
 ) -> Picks:
-    """`units` of the committed line in `run_folder` picked as `recipe` says, from the line's
-    picking `base`, then G4 over the line."""
+    """Each window of the committed line in `run_folder` picked as its recipe in `recipes` says,
+    from the line's picking `base`, then G4 over the line, once."""
     check_open(study)
-    check_recipe(recipe, base)
+    for recipe in recipes.values():
+        check_recipe(recipe, base)
     manifest = manifest_of(run_folder)
     ready = imaged_windows(run_folder, manifest)
-    if unready := [unit for unit in units if unit not in ready]:
+    if unready := [unit for unit in recipes if unit not in ready]:
         raise ValueError(
             f"Nothing to pick at {_where(unready)}: no image, or one G2 rejected. Reject "
             "them (decide) with G2's reasons."
         )
-    picked = apply(study, run_folder, manifest, dict.fromkeys(units, recipe), base, config, workers)
+    picked = apply(study, run_folder, manifest, recipes, base, config, workers)
     attempts = read_attempts(run_folder)
     g3: dict[str, GateResult] = {}
-    for unit in units:
+    for unit in recipes:
         attempt = latest(attempts, unit, "picking")
         if picked[unit].verdict is not None and attempt is not None and "G3" in attempt.results:
             g3[unit] = attempt.results["G3"]
-    return Picks(recipe, picked, g3, finish(run_folder, manifest, config))
+    return Picks(picked, g3, finish(run_folder, manifest, config))
 
 
 def apply(
@@ -311,19 +340,32 @@ def manifest_of(run_folder: Path) -> RunManifest:
 
 def describe_picks(picks: Picks) -> str:
     """A pick call as the model reads it: each window's G3 verdict, its flags with their class
-    and hint, what its curve keeps; then G4 on the line."""
+    and hint, what its curve keeps, under each way it was picked; then G4 on the line."""
     picked = picks.picked
-    head = f"Picked {len(picked)} window{'s' if len(picked) > 1 else ''}, {_recipe(picks.recipe)}:"
+    ways: list[Recipe] = []
+    for one in picked.values():
+        if one.recipe not in ways:
+            ways.append(one.recipe)
+    windows = f"{len(picked)} window{'s' if len(picked) > 1 else ''}"
+    head = f"Picked {windows}, {_recipe(ways[0])}:"
+    if len(ways) > 1:
+        head = f"Picked {windows} in {len(ways)} ways:"
     shown = list(picked)
     if len(shown) > ROWS:
         shown = [unit for unit in shown if picked[unit].verdict != "pass"][:ROWS]
         passed = len(picked) - sum(1 for one in picked.values() if one.verdict != "pass")
         head += f" {passed} pass G3 (observe curves for their rows); those that do not:"
-    lines = [head, *(_row(picked[unit], picks.g3.get(unit)) for unit in shown)]
-    windows = [result for result in picks.g4 if result.unit != LINE]
-    off = [result.unit for result in windows if result.verdict != "pass"]
-    passing = len(windows) - len(off)
-    said = f"G4 on the line now: {passing} of {len(windows)} curves pass"
+    lines = [head]
+    for way in ways:
+        units = [unit for unit in shown if picked[unit].recipe == way]
+        if len(ways) > 1 and units:
+            said = _recipe(way)
+            lines.append(f"{said[0].upper()}{said[1:]}:")
+        lines += [_row(picked[unit], picks.g3.get(unit)) for unit in units]
+    curves = [result for result in picks.g4 if result.unit != LINE]
+    off = [result.unit for result in curves if result.verdict != "pass"]
+    passing = len(curves) - len(off)
+    said = f"G4 on the line now: {passing} of {len(curves)} curves pass"
     if off:
         said += f"; off their neighbours: {_where(off)}"
     lines.append(said + ".")

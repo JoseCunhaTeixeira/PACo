@@ -130,9 +130,8 @@ def spent(study: Study, effort: Effort) -> Spent:
         experiments=sum(1 for entry in found if entry.kind == "experiment"),
         commits=sum(1 for entry in found if entry.kind == "commit"),
         cpu=_cpu(used),
-        # The calls that judge the search's sheets are the eye's work, not counted.
-        model_calls=sum(1 for one in used if one.kind == "model")
-        - sum(1 for one in used if one.kind == "tool" and one.name == "judge" and not one.refused),
+        # The run's calls alone: the forms, the search's judging among them, are not counted.
+        model_calls=sum(1 for one in used if one.kind == "model"),
     )
 
 

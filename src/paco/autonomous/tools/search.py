@@ -12,8 +12,9 @@ grid (paco.autonomous.tools.grid). No score reads an image's quality as the eye 
 2026-10-20: choose by eye only): the scores only drop the really bad (no image, or too few windows
 passing for a curve along the line); the model judges every other variant by eye, in sheets of
 SHEET by window length, each at the same places along the line, no score on them, keeping the
-cleanest of each sheet (judge); the kept meet again, sheet after sheet, until one sheet is left,
-whose kept are tried side by side at full size.
+cleanest of each sheet (judge, which the host calls from short calls of their own: the user,
+2026-10-20, judging in the conversation cost too much); the kept meet again, sheet after sheet,
+until one sheet is left, whose kept are tried side by side at full size.
 
 A study's search: searches/S1.json, each variant with its settings, trial and scorecard; its
 thumbnails, searches/S1_images/<label>.npz; the knockout, searches/S1_knockout.json; each sheet's
@@ -297,8 +298,8 @@ def unjudged(study: trials.Study) -> str | None:
     if knockout is None or knockout.finalists:
         return None
     return (
-        f"Judge every sheet first (judge): {len(knockout.left)} of round {knockout.round}'s "
-        f"{len(knockout.sheets)} left; search shows them again."
+        f"Every sheet is judged first: {len(knockout.left)} of round {knockout.round}'s "
+        f"{len(knockout.sheets)} left; search again judges them."
     )
 
 
@@ -602,7 +603,7 @@ def search(
         if found.cone_m_s is not None
         else None
     )
-    mode = str(base.get(trials.MODE) or profile.kind)
+    mode = mode_of(study, profile)
     try:
         grid_file = grid_of(grid_changes)
     except ValueError as error:
@@ -675,6 +676,11 @@ def search(
     return made, _keep(study, Knockout(round=1, sheets=sheets)) if sheets else None
 
 
+def mode_of(study: trials.Study, profile: Profile) -> str:
+    """The line's method: the mode the user gave, else its profile's kind."""
+    return str(with_line({}, given_of(study)).get(trials.MODE) or profile.kind)
+
+
 def row_changes(study: trials.Study, label: str) -> dict[str, Any]:
     """The changes of the search's variant `label`, as try_settings takes them."""
     made = searched(study)
@@ -713,14 +719,9 @@ def describe(made: Search, knockout: Knockout | None) -> str:
         f"{made.dropped} dropped as really bad: no image, or fewer than {PASSING:.0%} of their "
         f"windows passing (no curve along the line). The other {len(made.rows) - made.dropped} "
         f"are in {len(knockout.sheets)} sheets of up to {SHEET}, by window length, each variant at "
-        f"the same {len(made.places)} places along the line ({at} m). Judge every sheet by eye "
-        f"(judge), keeping its {KEEP} cleanest at most: one ridge, sharp and unbroken at every "
-        "place, the picks on it, over the widest band, rising into the low frequencies on a line "
-        "with shots (not a dark mass where the curve bends down: the near field); stripes at the "
-        "lowest frequencies and arcs apart from the ridge matter little; compare place by place. "
-        "No score is shown: none reads an image's quality. "
-        "The kept meet again, round after round, until one sheet is left: keep up to "
-        f"{LAST_KEEP} of it, and they are tried side by side at full size."
+        f"the same {len(made.places)} places along the line ({at} m), judged by eye with no "
+        f"score: each sheet's {KEEP} cleanest at most kept, round after round, until one sheet is "
+        f"left, whose {LAST_KEEP} cleanest at most are tried side by side at full size."
     )
     return "\n".join(lines)
 
@@ -730,9 +731,9 @@ def sheet_text(made: Search, knockout: Knockout, sheet: Sheet) -> str:
     reading order (two a row, left then right)."""
     moved = {name for name, values in made.axes.items() if len(values) > 1}
     by_label = {row.label: row for row in made.rows}
-    last = " (the last: keep up to 3)" if knockout.last else ""
+    keep = f"the last: keep 1 to {LAST_KEEP}" if knockout.last else f"keep 1 or {KEEP}"
     head = (
-        f"Round {knockout.round}, sheet {sheet.number} of {len(knockout.sheets)}{last}: "
+        f"Round {knockout.round}, sheet {sheet.number} of {len(knockout.sheets)} ({keep}): "
         f"{len(sheet.labels)} variants, two a row, left then right, each at "
         + ", ".join(f"{place:g}" for place in made.places)
         + " m:"

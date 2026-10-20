@@ -190,17 +190,18 @@ How a line goes:
    and checked by the gates. The values are in `src/paco/autonomous/grid.yaml`, and `paco-grid`
    prints the grid's size.
 3. **The model's eye.** Only the really bad variants are dropped: no image, or no curve along the
-   line. The model looks at all the others, in sheets of 12, each variant at the same 4 places
-   along the line, with no score: no score tells a clean image as the eye does. It keeps the
-   cleanest of each sheet: one ridge, sharp and unbroken at every place, the picks on it, over a
-   wide band.
-   The kept meet again until a last sheet, whose kept are compared at full size. Each sheet's
-   judgment is saved in the study.
+   line. The model judges all the others by eye, in sheets of 12, each variant at the same 4
+   places along the line, with no score: no score tells a clean image as the eye does. Each
+   sheet is judged in a short call of its own, which sees the sheets alone, not the
+   conversation, so judging costs little. The cleanest of each sheet are kept: one ridge, sharp
+   and unbroken at every place, the picks on it, over a wide band. The kept meet again until a
+   last sheet, whose kept come to the model compared at full size. Each sheet's judgment is
+   saved in the study.
 4. **The line.** The model refines its choice, applies it to the whole line, picks and decides
    each window, freezes the curves, inverts them and reports.
 
-It costs more than the workflow mode, for better results: about 25 to 45 minutes and $3 to $7 a
-line with Claude Opus and 11 workers, before the inversion (estimates from PAC's test lines). The
+It costs more than the workflow mode, for better results: about 12 to 21 minutes and $1.5 to $3
+a line with Claude Opus and 11 workers, before the inversion (estimates from PAC's test lines). The
 grid takes longer with fewer workers.
 
 The tools work on a profile's **study**: a folder in `<output>/<profile>/studies/`
@@ -214,8 +215,8 @@ without one, PACo lists the profiles.
 | Tool | What it does |
 |---|---|
 | `survey` | The line before any setting: its geometry, its records as G1 measures them, the reach, the usable band, the surface waves' cone, the modes it takes |
-| `search` | Runs the full grid of the line's settings in code, drops the really bad variants, and shows the others in sheets of images to judge by eye |
-| `judge` | Keeps the cleanest variants of each sheet, round after round; the last sheet's are tried side by side at full size |
+| `search` | Runs the full grid of the line's settings in code, drops the really bad variants, and has the others judged by eye in sheets; the finalists come back tried side by side at full size |
+| `judge` | Records the cleanest variants of each sheet, round after round; the last sheet's are tried side by side at full size. PACo's short judging calls use it, not the model |
 | `try_settings` | Refines around the choice: variants of the line's settings on chosen windows, judged by the gates. Waits, like `commit`, until every sheet is judged |
 | `commit` | Applies settings to the whole line, with their reasons: a run that PAC opens |
 | `observe`, `look` | Reads the checks of the line committed; looks at a window's records, image, curve or model |

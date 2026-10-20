@@ -29,7 +29,8 @@ NAMES: dict[Phase, str] = {
 }
 # PACo's read-only tools and the journal, in every phase (§6).
 ALWAYS = ("inspect", "preset_settings", "inversion_settings", "journal")
-# The tools each phase the model works in offers.
+# The tools each phase the model works in offers; the search's sheets are judged in calls of their
+# own, with the server's judge.
 TOOLS: dict[Phase, frozenset[str]] = {
     "P1": frozenset({*ALWAYS, "survey", "look"}),
     "P2": frozenset(
@@ -40,7 +41,6 @@ TOOLS: dict[Phase, frozenset[str]] = {
             "look",
             "advise",
             "search",
-            "judge",
             "try_settings",
             "commit",
             "pick",

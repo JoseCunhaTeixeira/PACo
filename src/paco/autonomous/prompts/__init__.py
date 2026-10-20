@@ -1,8 +1,9 @@
 """The prompts the autonomous agent reads, in files (docs/autonomous_plan.md §4): its role,
 each phase's manual (which loads only in its phase), what the objective form and the answer form
-add to PACo's own (PACo's scope and answer prompts, imported with their worked examples), and the
-atlas, reference figures of good and bad data with their captions, which a model with vision sees
-until the freeze. Their version, logged with every call, is a hash of every prompt as the model
+add to PACo's own (PACo's scope and answer prompts, imported with their worked examples), the
+judge's, which the search's sheets are judged with in short calls of their own, and the atlas,
+reference figures of good and bad data with their captions, which a model with vision sees until
+the freeze. Their version, logged with every call, is a hash of every prompt as the model
 reads it, PACo's and the atlas among them; tests/test_prompts.py pins it, so that every change to a
 prompt is a reviewed one."""
 
@@ -23,6 +24,7 @@ NAMES = (
     "manual_inversion",
     "objective",
     "answer",
+    "judge",
 )
 # The atlas's sheets, each a figure (paco.autonomous.atlas draws them again) and its caption.
 ATLAS = ("gathers", "images", "correlations")

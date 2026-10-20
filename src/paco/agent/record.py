@@ -15,14 +15,15 @@ class ModelStep(BaseModel):
     duration_s: float
     prompt_tokens: int | None  # the context it read: the number to watch in an 8k window
     completion_tokens: int | None
-    tool_calls: int  # how many it asked for; 0 when it answered the user
+    # How many it asked for; 0 when it answered the user, or judged the autonomous mode's sheets.
+    tool_calls: int
     # Of the prompt's tokens, those the server read from its cache (none in older transcripts).
     cached_tokens: int | None = None
 
 
 class ToolStep(BaseModel):
     """One tool call the model asked for, or the host made for it (job_status following a job
-    the model started)."""
+    the model started; the autonomous mode's judge, recording its sheets judged)."""
 
     kind: Literal["tool"] = "tool"
     name: str
@@ -33,7 +34,8 @@ class ToolStep(BaseModel):
     is_error: bool  # the call failed, or was refused
     duration_s: float
     result: str  # what the model read back
-    by_host: bool = False  # the host followed a job with it; the model read its last result
+    # The host made it: following a job, the model read its last result; judging the sheets.
+    by_host: bool = False
     # The arguments the host left out, which the tool does not declare, each with why.
     ignored: tuple[str, ...] = ()
 
@@ -86,7 +88,7 @@ class Transcript(BaseModel):
 
     @property
     def host_steps(self) -> list[ToolStep]:
-        """The calls the host made for the model: job_status following a job."""
+        """The calls the host made for the model: job_status following a job, judge."""
         return [step for step in self.steps if isinstance(step, ToolStep) and step.by_host]
 
     @property

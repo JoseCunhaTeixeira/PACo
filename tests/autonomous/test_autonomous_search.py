@@ -336,8 +336,7 @@ def test_the_knockout_keeps_the_cleanest_round_after_round(tmp_path: Path) -> No
     judged = [json.loads(line) for line in (study.folder / "searches" / searching.JUDGED).open()]
 
     assert (
-        waiting
-        == "Judge every sheet first (judge): 4 of round 1's 4 left; search shows them again."
+        waiting == "Every sheet is judged first: 4 of round 1's 4 left; search again judges them."
     )
     assert (first.round, [sheet.number for sheet in first.left]) == (1, [3, 4])
     assert second.round == 2 and second.last
@@ -381,9 +380,9 @@ def test_judging_the_sheets_spends_no_model_calls_and_no_cpu(tmp_path: Path) -> 
         budgets.Use(kind="tool", phase="P2", at=at, seconds=10.0, name="commit"),
         budgets.Use(kind="model", phase="P2", at=at, seconds=2.0),
         budgets.Use(kind="tool", phase="P2", at=at, seconds=300.0, name="search"),
-        budgets.Use(kind="model", phase="P2", at=at, seconds=2.0),
+        budgets.Use(kind="form", phase="P2", at=at, seconds=2.0, name="judge"),
         budgets.Use(kind="tool", phase="P2", at=at, seconds=5.0, name="judge"),
-        budgets.Use(kind="model", phase="P2", at=at, seconds=2.0),
+        budgets.Use(kind="form", phase="P2", at=at, seconds=2.0, name="judge"),
         budgets.Use(kind="tool", phase="P2", at=at, seconds=20.0, name="judge"),
     ):
         budgets.record(study, use)
@@ -582,12 +581,12 @@ def test_every_sheet_is_judged_then_the_finalists_tried_side_by_side(paco_env: S
         for line in (study.folder / searching.SEARCHES / searching.JUDGED).read_text().splitlines()
     ]
     first_round = sum(1 for one in records if one["round"] == 1)
-    # The grid's summary, then its first sheets, each a figure.
+    # The grid's summary in a text of its own, then its first sheets, each a figure.
     assert shown(searched).startswith("S1: the full grid")
-    assert "Round 1, sheet 1 of " in shown(searched)
-    assert [type(one) for one in searched.content[1:]] == [ImageContent] * min(3, first_round)
+    assert searched.content[1].text.startswith("Round 1, sheet 1 of ")  # pyright: ignore[reportAttributeAccessIssue]
+    assert [type(one) for one in searched.content[2:]] == [ImageContent] * min(3, first_round)
     # Nothing committed before every sheet is judged.
-    assert refused.is_error and "[precondition] Judge every sheet first (judge)" in shown(refused)
+    assert refused.is_error and "[precondition] Every sheet is judged first" in shown(refused)
     # Every sheet judged and recorded; the finalists tried side by side at full size.
     assert done is not None and done.finalists and done.experiment == "E1"
     assert all(len(one["kept"]) == 1 and one["why"] for one in records)

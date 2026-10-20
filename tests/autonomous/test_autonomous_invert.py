@@ -83,7 +83,7 @@ def inverted(input_dir: Path, tmp_path_factory: pytest.TempPathFactory) -> Itera
         run = find_run(line.run_id, settings)
         base = committing.picking_of(study, line, settings, config)
         neighbours = pick.Recipe(how="guide", guide="neighbours")
-        pick.pick(study, run, GUIDED, neighbours, base, config, settings.workers)
+        pick.pick(study, run, dict.fromkeys(GUIDED, neighbours), base, config, settings.workers)
         decide.decide(study, run, ACCEPTED, "accepted", "the near field noted", False, config)
         others = [path.name for path in sorted(run.glob("xmid_*")) if path.name not in ACCEPTED]
         decide.decide(study, run, others, "rejected", REJECTED, False, config)

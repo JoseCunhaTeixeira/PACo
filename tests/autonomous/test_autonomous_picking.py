@@ -59,22 +59,36 @@ REJECTED = (
     "prominence remain after G3's fixes and a guide from the neighbours"
 )
 # The play: each call, and whether the tool refuses it.
+
+
+def ways(*asked: dict[str, Any]) -> dict[str, Any]:
+    """A pick call's arguments: each way of picking with its windows."""
+    return {"ways": list(asked)}
+
+
 PLAY: list[tuple[str, dict[str, Any], bool]] = [
     ("survey", {}, False),
     ("commit", {"changes": L1, "reasons": L1_REASONS}, False),
-    ("pick", {"windows": "verdict:retry", "how": "auto", "picking": FIXES}, False),
+    ("pick", ways({"windows": "verdict:retry", "how": "auto", "picking": FIXES}), False),
     # Some of those windows have no passing neighbour to follow: said, the others picked.
-    ("pick", {"windows": "verdict:retry", "how": "guide", "guide": "neighbours"}, False),
-    ("pick", {"windows": "xmids:[29.25, 30.75]", "how": "lasso", "polygon": LASSO}, False),
-    ("pick", {"windows": "xmids:[125.25]", "how": "delete"}, False),
+    ("pick", ways({"windows": "verdict:retry", "how": "guide", "guide": "neighbours"}), False),
+    # Two ways in one call.
+    (
+        "pick",
+        ways(
+            {"windows": "xmids:[29.25, 30.75]", "how": "lasso", "polygon": LASSO},
+            {"windows": "xmids:[125.25]", "how": "delete"},
+        ),
+        False,
+    ),
     (
         "commit",
         {"changes": {"picking": {"fmax": 90}}, "reasons": {"picking fmax": "the band G2 keeps"}},
         False,
     ),
-    ("pick", {"windows": "xmids:[66.75]", "how": "guide", **AIR_WAVE}, False),
+    ("pick", ways({"windows": "xmids:[66.75]", "how": "guide", **AIR_WAVE}), False),
     ("decide", {"windows": "xmids:[66.75]", "status": "accepted", "reason": "fine"}, True),
-    ("pick", {"windows": "xmids:[66.75]", "how": "auto"}, False),
+    ("pick", ways({"windows": "xmids:[66.75]", "how": "auto"}), False),
     ("decide", {"windows": "verdict:pass", "status": "accepted"}, True),
     (
         "decide",
@@ -82,10 +96,16 @@ PLAY: list[tuple[str, dict[str, Any], bool]] = [
         False,
     ),
     ("decide", {"windows": "status:pending", "status": "rejected", "reason": "no ridge"}, True),
-    ("pick", {"windows": "xmids:[125.25]", "how": "guide", "guide": "neighbours"}, False),
+    ("pick", ways({"windows": "xmids:[125.25]", "how": "guide", "guide": "neighbours"}), False),
     # A window accepted, rejected only once it was tried hard: its neighbours' guide first.
     ("decide", {"windows": "xmids:[24.75]", "status": "rejected", "reason": "no ridge"}, True),
-    ("pick", {"windows": "status:pending", "how": "guide", "guide": "neighbours"}, False),
+    ("pick", ways({"windows": "status:pending", "how": "guide", "guide": "neighbours"}), False),
+    # A window in two ways of one call: refused.
+    (
+        "pick",
+        ways({"windows": "xmids:[17.25]", "how": "auto"}, {"windows": "xmids:17", "how": "auto"}),
+        True,
+    ),
     (
         "decide",
         {"windows": "status:pending+verdict:pass", "status": "accepted", "reason": "near field"},
@@ -93,7 +113,7 @@ PLAY: list[tuple[str, dict[str, Any], bool]] = [
     ),
     ("decide", {"windows": "status:pending", "status": "rejected", "reason": REJECTED}, False),
     ("freeze", {}, False),
-    ("pick", {"windows": "all", "how": "auto"}, True),
+    ("pick", ways({"windows": "all", "how": "auto"}), True),
     # After the freeze, decide is the models': none yet to accept.
     ("decide", {"windows": "all", "status": "accepted", "reason": "fine"}, True),
     ("commit", {"changes": {"picking": {"fmax": 80}}, "reasons": {"picking": "late"}}, True),
@@ -168,9 +188,9 @@ def test_the_scripted_agent_decides_every_window_and_freezes(played: Played) -> 
 
 @pytest.mark.slow
 def test_decide_refuses_a_blocking_flag(played: Played) -> None:
-    assert answer(played, 7).splitlines()[1].startswith("- 66.75: reject;")
-    assert "air_wave (blocking)" in answer(played, 7)
-    assert answer(played, 8).endswith(
+    assert answer(played, 6).splitlines()[1].startswith("- 66.75: reject;")
+    assert "air_wave (blocking)" in answer(played, 6)
+    assert answer(played, 7).endswith(
         "- 66.75: blocking flag sharpness, air_wave: it cannot be accepted until a later pick "
         "clears it"
     )
@@ -178,18 +198,18 @@ def test_decide_refuses_a_blocking_flag(played: Played) -> None:
 
 @pytest.mark.slow
 def test_decide_refuses_an_unjustified_note(played: Played) -> None:
-    said = answer(played, 10)
+    said = answer(played, 9)
 
     assert "accepting curves with notes needs a reason, one line that covers them" in said
     assert "near_field at xmid " in said
     assert (
-        answer(played, 11).splitlines()[1].startswith("The reason covers their notes: near_field")
+        answer(played, 10).splitlines()[1].startswith("The reason covers their notes: near_field")
     )
 
 
 @pytest.mark.slow
 def test_decide_refuses_a_rejection_before_the_window_was_tried_hard(played: Played) -> None:
-    rows = answer(played, 12).splitlines()[1:]
+    rows = answer(played, 11).splitlines()[1:]
 
     # The windows whose line pick carried fixable flags were picked again (the play's third call):
     # they owe no more, whatever those picks raised; 125.25 still owes its neighbours' guide.
@@ -198,7 +218,7 @@ def test_decide_refuses_a_rejection_before_the_window_was_tried_hard(played: Pla
         "guide=neighbours): 2 on one side pass G3"
     ]
     # An accepted window: its rejection owes the same tries.
-    assert answer(played, 14).endswith(
+    assert answer(played, 13).endswith(
         "- 24.75: not tried hard yet: owes a pick guided by its neighbours (how=guide, "
         "guide=neighbours): 2 on one side pass G3"
     )
@@ -236,7 +256,7 @@ def test_a_rejection_owes_a_pick_for_the_line_picks_fixable_flags_alone() -> Non
 
 @pytest.mark.slow
 def test_a_commit_picks_each_window_again_with_its_recipe(played: Played) -> None:
-    assert answer(played, 6).startswith(
+    assert answer(played, 5).startswith(
         f"L2 changed the line's settings in run {played.run.name}. The windows' own recipes, "
         "picked again: 37 (guide 28, lasso 2, auto 6, delete 1)."
     )
@@ -264,6 +284,21 @@ def test_a_lasso_guides_the_tracker_inside_its_band(played: Played) -> None:
     assert all(10 <= f <= 40 and 230 <= v <= 420 for f, v in parameters.guide)
     # The ridge it holds stands out too little: G3 blocks it.
     assert "- 29.25: reject; prominence (blocking)" in answer(played, 4)
+
+
+@pytest.mark.slow
+def test_several_ways_of_picking_in_one_call(played: Played) -> None:
+    lines = answer(played, 4).splitlines()
+
+    # Each way's windows under it, G4 once after them.
+    assert lines[0] == "Picked 3 windows in 2 ways:"
+    assert lines[1] == "On a lasso of 4 vertices:" and lines[4:6] == [
+        "Their curves deleted:",
+        "- 125.25: its curve deleted",
+    ]
+    assert lines[6].startswith("G4 on the line now:") and len(lines) == 7
+    # A window in two ways of one call: refused, nothing picked.
+    assert answer(played, 15).endswith("xmid 17.25 is in two ways: a window in one of them.")
 
 
 @pytest.mark.slow
@@ -301,7 +336,7 @@ def test_paco_replay_makes_the_picked_line_again(played: Played) -> None:
     replay = replay_run(played.run.name, played.settings)
 
     assert replay.same
-    # The deleted window's curve was picked again (step 13); the others too: every window's curve.
+    # The deleted window's curve was picked again (step 12); the others too: every window's curve.
     curves = [one for one in replay.compared if one.stage == "picking"]
     assert len(curves) == 73
 

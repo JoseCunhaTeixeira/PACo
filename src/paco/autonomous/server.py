@@ -15,6 +15,7 @@ import argparse
 import base64
 import functools
 import logging
+import re
 import time
 from collections.abc import Callable, Sequence
 from pathlib import Path
@@ -267,7 +268,14 @@ def try_settings(
     ctx: Context,
     windows: Annotated[str, Field(description=f"The trial set: {trials.SPEC}.")] = trials.WINDOWS,
     hypothesis: Annotated[
-        str | None, Field(description="The journal's hypothesis it tests, by its id (H<n>).")
+        str | None,
+        Field(
+            description="The hypothesis it tests: the journal's, by its id (H<n>), or a new one "
+            "in words, which goes to the journal with expect."
+        ),
+    ] = None,
+    expect: Annotated[
+        str | None, Field(description="With a new hypothesis: what the experiment should show.")
     ] = None,
 ) -> list[TextContent | ImageContent]:
     """Each variant tried with the current settings on the same trial windows, judged by G1 to
@@ -278,6 +286,9 @@ def try_settings(
     study = _study(profile, ctx)
     if (left := searching.unjudged(study)) is not None:
         raise RunError(left)
+    new = hypothesis is not None and _HYPOTHESIS.fullmatch(hypothesis) is None
+    if new:
+        journaling.check(study, "hypothesis", str(hypothesis), expect=expect)
     line = committing.line_of(study)
     state = committing.line_state(_run_folder(study)) if line is not None else LineState()
     # A row of the search's table, by its label: its changes, with the variant's own over them.
@@ -296,8 +307,12 @@ def try_settings(
         settings=get_settings(),
         config=_config(),
     )
+    written = ""
+    if new:
+        entry = journaling.write(study, "hypothesis", str(hypothesis), expect=expect)
+        hypothesis, written = entry.id, f"Written: {journaling.line(entry)}\n"
     journaling.experiment(study, experiment, hypothesis)
-    said = trials.describe(experiment)
+    said = written + trials.describe(experiment)
     if not _vision(ctx):
         return _content(said)
     seen = looking.look_experiment(study, experiment.id, vision=True)
@@ -329,12 +344,15 @@ def search(
     """The full grid of the line's settings, once a study (minutes): every combination of the
     values the physics sets for each setting of PAC's page for the line's method, each variant
     on the same windows, judged by G1 to G3 as try_settings judges it. The really bad dropped (no
-    image, or too few windows passing for a curve along the line); every other variant shown in
-    sheets by window length, each at the same places along the line, no score: judge every sheet
-    by eye (judge). Called again, the sheets left to judge."""
+    image, or too few windows passing for a curve along the line); every other variant judged by
+    eye, no score, in sheets by window length, each at the same places along the line, in short
+    calls of their own, round after round, until the finalists: tried side by side at full size
+    (an experiment). Choose among them, refine with try_settings, then commit. Called again,
+    the sheets left are judged."""
     study = _study(profile, ctx)
     if (made := searching.searched(study)) is not None:
-        return _sheets(study, made, searching.knockout_of(study), ctx)
+        knockout = searching.knockout_of(study)
+        return _sheets(study, made, knockout, ctx, searching.describe(made, knockout))
     line = committing.line_of(study)
     state = committing.line_state(_run_folder(study)) if line is not None else LineState()
     made, knockout = searching.search(
@@ -364,10 +382,10 @@ def judge(
     ],
     ctx: Context,
 ) -> list[TextContent | ImageContent]:
-    """The search's sheets you looked at, judged by eye: each one's cleanest kept, the judgment
-    recorded; then the next sheets. The kept meet again, round after round, until one sheet is
-    left; once it is judged, its kept are tried side by side at full size (an experiment):
-    choose among them, refine with try_settings, then commit."""
+    """The search's sheets judged by eye, the host's (its short calls judge them): each one's
+    cleanest kept, the judgment recorded; then the next sheets. The kept meet again, round after
+    round, until one sheet is left; once it is judged, its kept are tried side by side at full
+    size (an experiment)."""
     study = _study(profile, ctx)
     made = searching.searched(study)
     knockout = searching.judge(study, kept, why)
@@ -408,8 +426,8 @@ def _sheets(
     ctx: Context,
     said: str = "",
 ) -> list[TextContent | ImageContent]:
-    """The knockout's next sheets, searching.A_CALL at most, in words and figures; or where it
-    stands."""
+    """The knockout's next sheets, searching.A_CALL at most, in words and figures, after `said`
+    in a text of its own (the host judges the sheets alone); or where it stands."""
     if knockout is None:
         return _content(said or searching.describe(made, None))
     if knockout.finalists:
@@ -418,14 +436,15 @@ def _sheets(
             f"side as {knockout.experiment} (look experiment shows them again). Refine with "
             "try_settings, then commit."
         )
+    head = [TextContent(type="text", text=said)] if said else []
     shown = knockout.left[: searching.A_CALL]
-    texts = [searching.sheet_text(made, knockout, sheet) for sheet in shown]
-    text = "\n\n".join([*([said] if said else []), *texts])
+    text = "\n\n".join(searching.sheet_text(made, knockout, sheet) for sheet in shown)
     if not _vision(ctx):
-        return _content(text)
+        return [*head, *_content(text)]
     folder = study.folder / searching.SEARCHES / searching.IMAGES
     lengths = {row.label: row.length for row in made.rows}
-    return _content(text, [looking.draw_sheet(folder, sheet.labels, lengths) for sheet in shown])
+    figures = [looking.draw_sheet(folder, sheet.labels, lengths) for sheet in shown]
+    return [*head, *_content(text, figures)]
 
 
 @server.tool(annotations=paco_server.REPLACES)
@@ -451,6 +470,13 @@ def commit(
     experiment: Annotated[
         str | None, Field(description="The experiment the changes come from, by its id (E<n>).")
     ] = None,
+    conclusion: Annotated[
+        str | None,
+        Field(
+            description="What the experiment showed, in words: the journal's conclusion, "
+            "resting on it, written with the commit."
+        ),
+    ] = None,
 ) -> list[TextContent | ImageContent]:
     """The line made with these changes of its settings: every window one receiver apart, its
     records judged by G1, its images by G2, each picked (as its recipe says, if it has one) and
@@ -461,9 +487,16 @@ def commit(
     study = _study(profile, ctx)
     if (left := searching.unjudged(study)) is not None:
         raise RunError(left)
+    of = (experiment,) if experiment else ()
+    if conclusion is not None:
+        journaling.check(study, "conclusion", conclusion, of)
     committed = committing.commit(study, changes, reasons, experiment, get_settings(), _config())
+    written = ""
+    if conclusion is not None:
+        entry = journaling.write(study, "conclusion", conclusion, of)
+        written = f"Written: {journaling.line(entry)}\n"
     journaling.commit(study, committed)
-    said = committing.describe_commit(committed)
+    said = written + committing.describe_commit(committed)
     if not _vision(ctx):
         return _content(said)
     seen = looking.look_line(find_run(committed.line.run_id, get_settings()))
@@ -471,51 +504,40 @@ def commit(
 
 
 Windows = Annotated[str, Field(description=f"The windows: {selecting.SPEC}.")]
-Points = list[tuple[float, float]]
+# A hypothesis of the journal, by its id.
+_HYPOTHESIS = re.compile(r"H\d+")
 
 
 @server.tool(annotations=paco_server.REPLACES)
 @_errors
 def pick(
     profile: ProfileName,
-    windows: Windows,
-    how: Annotated[
-        Literal["auto", "guide", "lasso", "delete"],
+    ways: Annotated[
+        list[picker.Way],
         Field(
-            description="The tracker (auto), its corridor on a guide (guide), on the maxima "
-            "inside a polygon (lasso), or the curve deleted (delete)."
+            min_length=1,
+            description=f"Each way of picking and its windows ({selecting.SPEC}), a window in one "
+            "of them: every fix you have, in one call.",
         ),
     ],
     ctx: Context,
-    picking: Annotated[
-        dict[str, Any] | None,
-        Field(description="Changes of the line's picking parameters, for auto, guide and lasso."),
-    ] = None,
-    guide: Annotated[
-        Points | Literal["neighbours"] | None,
-        Field(
-            description="For guide: points [f Hz, v m/s] the corridor follows, or 'neighbours', "
-            "their median curve as G4 gives it."
-        ),
-    ] = None,
-    polygon: Annotated[
-        Points | None,
-        Field(
-            description="For lasso: vertices [f Hz, v m/s] around the ridge, read off its image."
-        ),
-    ] = None,
 ) -> str:
-    """Each window's M0 picked as `how` says, from the line's picking, then judged by G3; then G4
-    along the line. A window keeps its recipe: a later commit picks it the same way."""
+    """Each window's M0 picked as its way says, from the line's picking, then judged by G3; then
+    G4 along the line, once. A window keeps its recipe: a later commit picks it the same way."""
     study = _study(profile, ctx)
     line = _line(study)
     folder = find_run(line.run_id, get_settings())
-    units = selecting.select(folder, windows, deciding.statuses(study, folder, line.run_id))
-    recipe = picker.Recipe.model_validate(
-        {"how": how, "picking": picking or {}, "guide": guide, "polygon": polygon}
-    )
+    statuses = deciding.statuses(study, folder, line.run_id)
+    recipes: dict[str, picker.Recipe] = {}
+    for way in ways:
+        for unit in selecting.select(folder, way.windows, statuses):
+            if unit in recipes:
+                raise ValueError(
+                    f"xmid {unit.removeprefix('xmid_')} is in two ways: a window in one of them."
+                )
+            recipes[unit] = way.recipe
     base = committing.picking_of(study, line, get_settings(), _config())
-    picks = picker.pick(study, folder, units, recipe, base, _config(), get_settings().workers)
+    picks = picker.pick(study, folder, recipes, base, _config(), get_settings().workers)
     return picker.describe_picks(picks)
 
 

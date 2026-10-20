@@ -41,13 +41,13 @@ from paco import inspection
 from paco.agent.answer import AnswerError
 from paco.agent.conversion import tools_for_model
 from paco.agent.loop import as_data, from_data
-from paco.agent.model import ChatModel, Reply, ToolCall
+from paco.agent.model import ChatModel, Filled, Reply, ToolCall
 from paco.agent.record import AnswerStep, ModelStep, ScopeStep, Step, ToolStep, Transcript
 from paco.agent.scope import Context, ScopeError
 from paco.autonomous import prompts
 from paco.autonomous.conversion import tool_messages
 from paco.autonomous.host import answer as answering
-from paco.autonomous.host import budgets
+from paco.autonomous.host import budgets, judging
 from paco.autonomous.host.card import card, effort_of, objective_of, state
 from paco.autonomous.host.phases import (
     MANUALS,
@@ -62,6 +62,7 @@ from paco.autonomous.host.phases import (
 )
 from paco.autonomous.host.scope import GeoScope, read_objective
 from paco.autonomous.tools import given, journal, models
+from paco.autonomous.tools import search as searching
 from paco.autonomous.tools.commit import line_of
 from paco.autonomous.tools.freeze import describe_frozen, frozen
 from paco.autonomous.tools.invert import inversions_of
@@ -102,6 +103,8 @@ PENDING = (
     "it, or reject it with its reason), then answer; or ask the user what you need from them."
 )
 SPENT = "The run's budget of model calls is spent ({used} of {budget}): it stops here."
+# The judge's answers the server may refuse in a row before the judging stops.
+JUDGE_TRIES = 3
 # The experiment a try_settings result names first.
 _EXPERIMENT = re.compile(r"\b(E\d+):")
 # An inversion job's id, as invert gives it.
@@ -427,6 +430,11 @@ class Host:
         seconds = time.perf_counter() - started
         failed = bool(result.is_error)
         budgets.record(study, _use("tool", phase, seconds, name=call.name, failed=failed))
+        knockout = searching.knockout_of(study) if call.name == "search" else None
+        if not failed and knockout is not None and not knockout.finalists:
+            # The model reads the finalists, not the sheets: the host has them judged.
+            result = await self._judged(result, phase)
+            failed = bool(result.is_error)
         carried: list[ChatCompletionMessageParam] = tool_messages(
             call.id, call.name, result, self._vision
         )
@@ -481,6 +489,112 @@ class Host:
             self._on_event(f"   {head}")
             if result.is_error or "Call job_status again" not in text:
                 return text
+
+    async def _judged(self, searched: CallToolResult, phase: Phase) -> CallToolResult:
+        """The search's sheets judged by eye in short calls of their own (judging), round after
+        round, the server's judge recording each answer and giving the next sheets, a line for
+        the user each time: the search's words, then the finalists tried side by side, as the
+        model reads them; or, refused JUDGE_TRIES times in a row, why the judging stopped."""
+        study = self._study
+        goal = objective_of(study)
+        mode = searching.mode_of(study, load_profile(study.profile, self._settings))
+        line = judging.facts(study.profile, mode, goal.text if goal is not None else "none")
+        head, *rest = searched.content
+        said = head.text if isinstance(head, TextContent) else ""
+        sheets = CallToolResult(content=rest)
+        refused: str | None = None
+        tries = calls = 0
+        while True:
+            started = time.perf_counter()
+            calls += 1
+            before = searching.knockout_of(study)
+            try:
+                judged = await judging.judge(
+                    self._model, line, sheets, vision=self._vision, refused=refused
+                )
+            except judging.JudgeError as error:
+                self._judge_steps(error.fills, phase, time.perf_counter() - started)
+                refused, result = f"the form did not parse ({error})", None
+            else:
+                self._judge_steps(judged.fills, phase, time.perf_counter() - started)
+                result = await self._judge(judging.as_arguments(study.profile, judged), phase)
+                refused = judging.text_of(result) if result.is_error else None
+                if not result.is_error and before is not None:
+                    self._on_event(f"   Round {before.round}, judged by eye: {judged.said()}.")
+            if refused is not None:
+                tries += 1
+                if tries == JUDGE_TRIES:
+                    stopped = (
+                        f"{said}\n\nThe sheets could not be judged ({refused}): search again "
+                        "judges those left."
+                    )
+                    return CallToolResult(
+                        content=[TextContent(type="text", text=stopped)], is_error=True
+                    )
+                continue
+            assert result is not None
+            tries = 0
+            knockout = searching.knockout_of(study)
+            if knockout is not None and knockout.finalists:
+                text = f"{said}\n\nThe sheets judged by eye in {calls} short calls. "
+                text += judging.text_of(result)
+                figures = [block for block in result.content if not isinstance(block, TextContent)]
+                return CallToolResult(content=[TextContent(type="text", text=text), *figures])
+            sheets = result
+
+    async def _judge(self, arguments: dict[str, Any], phase: Phase) -> CallToolResult:
+        """The server's judge called with `arguments`, for the model: its result."""
+        started = time.perf_counter()
+        try:
+            result = await self._client.call_tool(
+                "judge", arguments, read_timeout_seconds=self._limits.tool_seconds, meta=self.meta
+            )
+        except Exception as error:
+            result = CallToolResult(
+                content=[TextContent(type="text", text=f"The call failed: {error}")],
+                is_error=True,
+            )
+        seconds = time.perf_counter() - started
+        failed = bool(result.is_error)
+        budgets.record(self._study, _use("tool", phase, seconds, name="judge", failed=failed))
+        self.steps.append(
+            ToolStep(
+                name="judge",
+                arguments=json.dumps(arguments),
+                called=True,
+                is_error=failed,
+                duration_s=round(seconds, 3),
+                result=judging.text_of(result),
+                by_host=True,
+            )
+        )
+        return result
+
+    def _judge_steps(self, fills: Sequence[Filled], phase: Phase, seconds: float) -> None:
+        """The judge's forms recorded: in the usage log, out of the model calls' budget; in the
+        transcript as the model's calls, their tokens counted."""
+        each = seconds / len(fills)
+        for filled in fills:
+            budgets.record(
+                self._study,
+                _use(
+                    "form",
+                    phase,
+                    each,
+                    filled.prompt_tokens,
+                    filled.completion_tokens,
+                    name="judge",
+                ),
+            )
+            self.steps.append(
+                ModelStep(
+                    duration_s=round(each, 3),
+                    prompt_tokens=filled.prompt_tokens,
+                    completion_tokens=filled.completion_tokens,
+                    tool_calls=0,
+                    cached_tokens=filled.cached_tokens,
+                )
+            )
 
     def _said(self, name: str) -> None:
         """The progress line after a tool that changed the study: its journal entry (§11)."""

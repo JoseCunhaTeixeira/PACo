@@ -17,22 +17,23 @@ phase velocity v and frequency f.
   give search's grid the changes, for this study alone. It does not start from PACo's workflow,
   which is another way to process the line.
 - Only the really bad are dropped: no image, or fewer than a quarter of the windows passing (no
-  curve along the line). Every other variant comes in sheets of 12, by window length, each at the
-  same four places along the line, drawn as PAC draws images, with no score: none reads an
-  image's quality. Judge every sheet by eye with judge, keeping its cleanest, 2 at most: one
-  ridge, sharp and unbroken at every place (a break or a jump at one place is the worst fault),
-  without blocks, the picks on it, over the widest band. Stripes at the lowest frequencies, left
-  of where the ridge starts, and arcs of other waves apart from it matter little; a short
-  window's wide ridge at the low frequencies is its resolution, not a fault. On a line with
-  shots, the ridge rising into the low frequencies with the picks on it comes first: a broad dark
-  mass there where the curve bends down (shots too near: the near field) is a fault even under a
-  clean high band, while a near-field note alone is not. Compare place by place, the variant clean
-  at the most places first; a place every variant fails is the data's (the user's own ratings and
-  choices, 2026-10-20). The kept meet again, round after round; of the last
-  sheet keep up to 3: they are tried side by side at full size. search again shows the sheets
-  left; try_settings and commit wait until every sheet is judged.
-- Then choose among the finalists by eye and check that your choice makes sense: the picks on M0
-  and not on a higher mode or an artefact, few points beyond the windows' reach, none aliased,
+  curve along the line). Every other variant is judged by eye in sheets of 12, by window length,
+  each at the same four places along the line, drawn as PAC draws images, with no score (none
+  reads an image's quality), in short calls of their own: each sheet's cleanest kept, 2 at most,
+  round after round, until the last sheet's, up to 3, come to you tried side by side at full
+  size. Should the judging stop, search again judges the sheets left; try_settings and commit
+  wait until every sheet is judged.
+- Then choose among the finalists by eye. The cleanest: one ridge, sharp and unbroken at every
+  place (a break or a jump at one place is the worst fault), without blocks, the picks on it,
+  over the widest band. Stripes at the lowest frequencies, left of where the ridge starts, and
+  arcs of other waves apart from it matter little; a short window's wide ridge at the low
+  frequencies is its resolution, not a fault. On a line with shots, the ridge rising into the low
+  frequencies with the picks on it comes first: a broad dark mass there where the curve bends
+  down (shots too near: the near field) is a fault even under a clean high band, while a
+  near-field note alone is not. Compare place by place, the variant clean at the most places
+  first; a place every variant fails is the data's (the user's own ratings and choices,
+  2026-10-20). Check that your choice makes sense: the picks on M0 and not on a higher mode or an
+  artefact, few points beyond the windows' reach, none aliased,
   the same ridge from window to window, the physics explaining why it wins. Refine around it
   with try_settings (a value between two of the grid's, a setting's neighbours; a grid row as
   {"grid": "<label>"}), check the best two or three on a hold-out set, and commit the best. The image's band stays the preset's or the
@@ -169,7 +170,7 @@ phase velocity v and frequency f.
 
 - A good image holds one sharp ridge, continuous over a wide band and rising toward the low
   frequencies, smooth, the rest of it pale, the pick on its crest: the atlas's first image.
-- The search's sheets, and each experiment's (every variant side by side, in sheets of its
+- The search's finalists, and each experiment's variants (side by side, in sheets of its
   current settings and three, each with its pick; look experiment E<n>:current,3,5 shows others),
   are drawn as PAC draws images: each frequency's row from its least value (yellow) to its
   largest (black). Judge each panel against the atlas and name its fault and cause before the
@@ -280,9 +281,10 @@ phase velocity v and frequency f.
   picked again, or its window rejected, whatever G3 said.
 - Order of work: commit a line, read G3 and G4 grouped by flag and by stretches of windows; fix
   single windows for their fixable flags (G3's suggested change, a band cut at a jump, a narrower
-  corridor, a lower coherence rule, a guide from the neighbours, a lasso when you see the images);
-  when many windows fail for one reason, suspect the line's settings and go back with a
-  hypothesis. A window's own pick is its recipe: a later commit picks it the same way.
+  corridor, a lower coherence rule, a guide from the neighbours, a lasso when you see the images),
+  every fix in one pick, each way with its windows; when many windows fail for one reason,
+  suspect the line's settings and go back with a hypothesis. A window's own pick is its recipe: a
+  later commit picks it the same way.
 
 ## PACo's workflow, and where to beat it
 
