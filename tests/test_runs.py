@@ -17,9 +17,10 @@ from sigpipe.masw.runs import (
     processing,
     run_processing,
 )
+from sigpipe.masw.runs.caching import Cache
 from sigpipe.masw.windows import MASWWindow, build_windows
 
-from paco.runs import PACKAGES, RunSummary, summarize_run
+from paco.runs import PACKAGES, RunSummary, clear_image_cache, summarize_run
 from paco.settings import Settings
 
 # Four 24-receiver windows along the 96-receiver demo lines.
@@ -454,3 +455,23 @@ def test_a_record_that_fails_preprocessing_fails_its_windows(
         assert outcome.status == "failed"
         assert outcome.error == f"record missing.dat failed preprocessing: {records[1].error}"
         assert not (run_folder / outcome.folder / "DispersionImage_0000.hdf5").exists()
+
+
+def test_the_images_cache_is_emptied_but_a_copy_in_progress_left(tmp_path: Path) -> None:
+    settings = Settings(input_dir=tmp_path, output_dir=tmp_path / "output")
+    made = tmp_path / "made"
+    made.mkdir()
+    (made / "image.h5").write_bytes(b"x" * 1000)
+    cache = Cache(settings.cache_folder, max_bytes=10**9)
+    cache.keep("ab12", made, ["image.h5"])
+    cache.keep("cd34", made, ["image.h5"])
+    copying = settings.cache_folder / "ab" / ".ab56.0f0f"  # another process's copy, unfinished
+    copying.mkdir()
+    (copying / "image.h5").write_bytes(b"x" * 10)
+
+    freed = clear_image_cache(settings)
+
+    assert freed == 2000
+    assert not cache.take("ab12", tmp_path) and not cache.take("cd34", tmp_path)
+    assert (copying / "image.h5").exists()
+    assert clear_image_cache(Settings(input_dir=tmp_path, output_dir=tmp_path / "none")) == 0

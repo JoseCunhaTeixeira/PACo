@@ -17,6 +17,8 @@ from paco.agent.settings import AgentSettings
 from paco.llm.chat import chat_model
 from paco.llm.settings import NO_MODEL, missing
 from paco.modes import MODES, ModeSettings
+from paco.runs import clear_image_cache
+from paco.settings import get_settings
 
 
 def main(argv: Sequence[str] | None = None) -> None:
@@ -68,3 +70,5 @@ async def chat() -> None:
             if agent.steps:
                 path = save_transcript(agent.transcript(settings.llm_model), settings.logs)
                 print(f"\nConversation saved in {path}")
+            # Only the results stay after a session: the images' cache emptied.
+            clear_image_cache(get_settings())

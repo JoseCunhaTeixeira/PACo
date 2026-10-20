@@ -94,7 +94,7 @@ PACO_LLM_CONTEXT=16384
 Rarely needed: `PACO_HOST` and `PACO_PORT` (where `paco-server` listens, `127.0.0.1:8000`),
 `PACO_MCP_URL` (where the chat finds it), `PACO_ALLOWED_HOSTS` (host names the server accepts
 when it listens beyond this machine), `PACO_QC_CONFIG` (a JSON file of the gates' thresholds) and
-`PACO_CACHE_GB` (the size of the images' cache, 2 GB; 0 for none).
+`PACO_CACHE_GB` (the size of the images' cache, 2 GB, emptied when a session ends; 0 for none).
 
 ## Run
 

@@ -1,6 +1,8 @@
 """The short description of a run that the agent reads. Runs themselves are sigpipe's
 (sigpipe.masw.runs): processed, found and read there."""
 
+from pathlib import Path
+
 from pydantic import BaseModel, ConfigDict
 from sigpipe.masw.runs import RunManifest
 from sigpipe.masw.runs.caching import Cache
@@ -16,6 +18,22 @@ def image_cache(settings: Settings) -> Cache | None:
     if settings.cache_gb <= 0:
         return None
     return Cache(settings.cache_folder, max_bytes=int(settings.cache_gb * 1e9))
+
+
+def clear_image_cache(settings: Settings) -> int:
+    """The images' cache emptied when a session ends (the user, 2026-10-20: only the results
+    after a session): every image kept removed as its trim removes them, a copy another process
+    is making left alone; the bytes freed."""
+    folder = settings.cache_folder
+    if not folder.is_dir():
+        return 0
+    before = _bytes(folder)
+    Cache(folder, max_bytes=0).trim()
+    return before - _bytes(folder)
+
+
+def _bytes(folder: Path) -> int:
+    return sum(path.stat().st_size for path in folder.rglob("*") if path.is_file())
 
 
 class RunSummary(BaseModel):

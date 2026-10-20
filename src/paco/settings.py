@@ -42,7 +42,8 @@ class Settings(BaseSettings):
     qc_config: Path | None = None
     # The windows' images kept, to be taken again when a call makes the same image (the same
     # code, records and settings: sigpipe.masw.runs.caching): where (None: <output_dir>/.cache),
-    # and how many GB at most, the images used longest ago removed first; 0 keeps none.
+    # and how many GB at most, the images used longest ago removed first; 0 keeps none. Emptied
+    # when a session ends (paco.runs.clear_image_cache).
     cache_dir: Path | None = None
     cache_gb: float = Field(default=2.0, ge=0)
     # The largest difference paco-replay allows between a run's value and the replay's, relative

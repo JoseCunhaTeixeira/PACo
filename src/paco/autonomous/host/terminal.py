@@ -1,7 +1,8 @@
 """The autonomous agent's chat in a terminal (paco-agent --mode autonomous). It reaches its server
 (paco-server --mode autonomous), lists the tools the model will be given, then runs the
-conversation with the model of .env (PACO_LLM_*) until the user types exit. The study keeps all
-the work: stopped (Ctrl+C), the next chat on the same profile resumes it (docs/autonomous_plan.md §14)."""
+conversation with the model of .env (PACO_LLM_*) until the user types exit. The study keeps the
+work: stopped (Ctrl+C), the next chat on the same profile resumes it (docs/autonomous_plan.md
+§14), making again the working files removed at the chat's end (tidy, the images' cache)."""
 
 import sys
 from collections.abc import Callable
@@ -17,6 +18,7 @@ from paco.agent.model import ChatModel
 from paco.autonomous.host.loop import Host, Limits, short_context
 from paco.llm.chat import blind, chat_model
 from paco.llm.settings import NO_MODEL, ModelSettings, missing
+from paco.runs import clear_image_cache
 from paco.settings import get_settings
 
 
@@ -68,8 +70,10 @@ async def chat(
                 if message:
                     print(f"\npaco> {await host.answer(message)}")
         finally:
-            # Only the results stay after a session: the study's working files removed.
+            # Only the results stay after a session: the study's working files removed, and the
+            # images' cache emptied.
             host.close()
+            clear_image_cache(get_settings())
 
 
 async def listed(server: str | MCPServer) -> list[Tool]:
