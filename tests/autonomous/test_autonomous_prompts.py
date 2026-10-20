@@ -13,7 +13,7 @@ from paco.autonomous import prompts, server
 from paco.autonomous.host.phases import MANUALS, TOOLS, offered
 
 # The prompts' version: update it with the prompt, once the change is reviewed.
-VERSION = "autonomous-prompts-818da9e0"
+VERSION = "autonomous-prompts-7101fc52"
 # Each phase's fixed part, the role, its manual and its tools' cards, takes this many tokens at
 # most of the 128k context the autonomous mode needs: room for the physics and the procedures.
 PHASE_TOKENS = 16_384

@@ -98,7 +98,11 @@ ridge: one ridge, sharp and unbroken at every place along the line, the picks on
 widest band. A break or a jump of the ridge at any place is the worst fault; stripes at the
 lowest frequencies, left of where the ridge starts, and arcs of other waves standing apart from
 it matter little; a short window's broad band at the low frequencies is its resolution, not a
-fault.
+fault. On a line with shots, the ridge must rise into the low frequencies with the picks on it:
+shots too near turn that branch into a broad dark mass where the curve bends down (the near
+field), which a clean flat high band does not make up for. Compare variants place by place: a
+place where every variant fails says the data are poor there, not the settings; prefer the
+variant clean at the most places.
 Unless the user asks for depth, the images' quality comes before the depth the curves inform:
 near-field notes and a shallower depth do not disqualify a clean image. The picks' uncertainty comes from the geometry alone,
 the wavelength over the window's aperture: it rises when the curves reach deeper at the same

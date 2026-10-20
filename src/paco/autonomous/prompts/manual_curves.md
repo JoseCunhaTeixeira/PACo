@@ -23,9 +23,12 @@ phase velocity v and frequency f.
   ridge, sharp and unbroken at every place (a break or a jump at one place is the worst fault),
   without blocks, the picks on it, over the widest band. Stripes at the lowest frequencies, left
   of where the ridge starts, and arcs of other waves apart from it matter little; a short
-  window's wide ridge at the low frequencies is its resolution, not a fault; near-field notes and
-  a shallower depth do not disqualify a clean image unless the user asked for depth (the user's
-  own ratings, 2026-10-20). The kept meet again, round after round; of the last
+  window's wide ridge at the low frequencies is its resolution, not a fault. On a line with
+  shots, the ridge rising into the low frequencies with the picks on it comes first: a broad dark
+  mass there where the curve bends down (shots too near: the near field) is a fault even under a
+  clean high band, while a near-field note alone is not. Compare place by place, the variant clean
+  at the most places first; a place every variant fails is the data's (the user's own ratings and
+  choices, 2026-10-20). The kept meet again, round after round; of the last
   sheet keep up to 3: they are tried side by side at full size. search again shows the sheets
   left; try_settings and commit wait until every sheet is judged.
 - Then choose among the finalists by eye and check that your choice makes sense: the picks on M0

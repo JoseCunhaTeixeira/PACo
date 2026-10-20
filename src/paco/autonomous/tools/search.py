@@ -715,8 +715,10 @@ def describe(made: Search, knockout: Knockout | None) -> str:
         f"are in {len(knockout.sheets)} sheets of up to {SHEET}, by window length, each variant at "
         f"the same {len(made.places)} places along the line ({at} m). Judge every sheet by eye "
         f"(judge), keeping its {KEEP} cleanest at most: one ridge, sharp and unbroken at every "
-        "place, the picks on it, over the widest band; stripes at the lowest frequencies and arcs "
-        "apart from the ridge matter little. No score is shown: none reads an image's quality. "
+        "place, the picks on it, over the widest band, rising into the low frequencies on a line "
+        "with shots (not a dark mass where the curve bends down: the near field); stripes at the "
+        "lowest frequencies and arcs apart from the ridge matter little; compare place by place. "
+        "No score is shown: none reads an image's quality. "
         "The kept meet again, round after round, until one sheet is left: keep up to "
         f"{LAST_KEEP} of it, and they are tried side by side at full size."
     )
