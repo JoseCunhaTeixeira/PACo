@@ -43,6 +43,7 @@ from paco.autonomous.tools import look as looking
 from paco.autonomous.tools import models as modelling
 from paco.autonomous.tools import observe as observing
 from paco.autonomous.tools import pick as picker
+from paco.autonomous.tools import search as searching
 from paco.autonomous.tools import survey as surveying
 from paco.autonomous.tools import trials
 from paco.autonomous.tools import windows as selecting
@@ -285,6 +286,49 @@ def try_settings(
     if not _vision(ctx):
         return _content(said)
     seen = looking.look_experiment(study, experiment.id, vision=True)
+    return _content(f"{said}\n\n{seen.text}", seen.figures)
+
+
+@server.tool(annotations=paco_server.ADDS)
+@_errors
+def search(
+    profile: ProfileName,
+    ctx: Context,
+    windows: Annotated[str, Field(description=f"The trial set: {trials.SPEC}.")] = (
+        searching.WINDOWS
+    ),
+    ranges: Annotated[
+        dict[str, list[Any]] | None,
+        Field(
+            description="Narrower ranges, by setting: [low, high] for a number (the segments in "
+            "crossings of the window), the values kept for a choice (by the names the table "
+            "gives); the others searched whole. None: every setting over its whole range."
+        ),
+    ] = None,
+) -> list[TextContent | ImageContent]:
+    """The line's settings tried on a grid in code, against the current settings: each value of
+    every setting of PAC's page for the line's method alone, over its whole range, then the best of
+    those changes together, in pairs and all at once; all on the same windows, several at once,
+    and scored. The shortlist, the best by each of several measures, becomes an experiment shown
+    side by side; the table gives every variant. No measure reads an image's quality: judge by
+    eye."""
+    study = _study(profile, ctx)
+    line = committing.line_of(study)
+    state = committing.line_state(_run_folder(study)) if line is not None else LineState()
+    made, experiment = searching.search(
+        study,
+        current=line.settings if line is not None else None,
+        line=state,
+        settings=get_settings(),
+        config=_config(),
+        windows=windows,
+        ranges=ranges,
+    )
+    journaling.experiment(study, experiment, None)
+    said = searching.describe(made, experiment)
+    if not _vision(ctx):
+        return _content(said)
+    seen = looking.look_experiment(study, experiment.id, vision=True, ordered=True)
     return _content(f"{said}\n\n{seen.text}", seen.figures)
 
 

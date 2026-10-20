@@ -38,8 +38,6 @@ paco-evaluate = "paco.evaluation.cli:main"
 paco-trace = "paco.agent.trace:main"
 paco-replay = "paco.qc.replay:main"
 paco-call = "paco.call:main"
-# The A/B evaluation of both modes, workflow and autonomous (paco.autonomous).
-paco-ab = "paco.autonomous.evaluation.cli:main"
 
 [dependency-groups]
 dev = ["pytest>=8", "ruff>=0.14", "pyright>=1.1", "pre-commit>=4"]

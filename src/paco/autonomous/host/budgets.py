@@ -18,6 +18,8 @@ from paco.autonomous.tools.trials import Study
 
 USAGE = "usage.jsonl"  # in the study's folder
 WARN = 0.8  # the share of a budget past which the state card says so
+# The tools that spend experiments and CPU: an experiment each call.
+EXPERIMENTING = ("try_settings", "search")
 type Effort = Literal["quick", "normal", "thorough"]
 
 
@@ -37,8 +39,8 @@ class Budgets(BaseModel):
 
 EFFORTS: dict[Effort, Budgets] = {
     "quick": Budgets(experiments=8, commits=2, cpu=6, inversion_retries=2, model_calls=60),
-    "normal": Budgets(experiments=20, commits=4, cpu=20, inversion_retries=6, model_calls=150),
-    "thorough": Budgets(experiments=40, commits=6, cpu=40, inversion_retries=6, model_calls=300),
+    "normal": Budgets(experiments=30, commits=6, cpu=60, inversion_retries=6, model_calls=200),
+    "thorough": Budgets(experiments=60, commits=8, cpu=120, inversion_retries=6, model_calls=400),
 }
 
 
@@ -136,12 +138,12 @@ def refusal(spent: Spent, tool: str) -> str | None:
     """Why the host does not call `tool` now: a budget it would go past, and what to do instead;
     none within the budgets."""
     budgets = spent.budgets
-    if tool == "try_settings" and spent.experiments >= budgets.experiments:
+    if tool in EXPERIMENTING and spent.experiments >= budgets.experiments:
         return (
             f"Not called: the experiments' budget is spent ({spent.experiments} of "
             f"{budgets.experiments}). Commit your best settings and move on."
         )
-    if tool == "try_settings" and spent.cpu is not None and spent.cpu >= budgets.cpu:
+    if tool in EXPERIMENTING and spent.cpu is not None and spent.cpu >= budgets.cpu:
         return (
             f"Not called: the CPU budget of the curves is spent ({spent.cpu:.1f} of "
             f"{budgets.cpu:g} times the line's first processing). Commit your best settings "

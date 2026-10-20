@@ -1,4 +1,4 @@
-"""The prompts the autonomous agent reads, in files (docs/autonomous_plan.md §13, M6 and M8): its role,
+"""The prompts the autonomous agent reads, in files (docs/autonomous_plan.md §4): its role,
 each phase's manual (which loads only in its phase), what the objective form and the answer form
 add to PACo's own (PACo's scope and answer prompts, imported with their worked examples), and the
 atlas, reference figures of good and bad data with their captions, which a model with vision sees

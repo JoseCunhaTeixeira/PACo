@@ -1,4 +1,4 @@
-"""The host (docs/autonomous_plan.md §13 M6): a scripted conversation runs P0 to P5 on active_test_profile through
+"""The host (docs/autonomous_plan.md §4): a scripted conversation runs P0 to P5 on active_test_profile through
 the autonomous agent's tools; the context stays under the set size; the budgets stop the run as
 designed; a run stopped in P2 resumes from the journal with the same phase, budgets and state card.
 The model is scripted (tests/scripted.py); the line, 78-receiver windows on a coarse grid (19
@@ -64,8 +64,8 @@ REJECTED_CURVES = (
 # The curves accepted, then their models inverted and rejected: the 8 from 74.25 m on.
 ACCEPTED = "xmid 74.25-84.75 (8)"
 # A small context, for the oldest calls to drop out (§7.3): P2's tools, role and manual take
-# about 11,500 tokens of it, past its 60 %.
-CONTEXT = 14_000
+# about 12,000 tokens of it, past its 60 %.
+CONTEXT = 15_000
 
 
 def call(

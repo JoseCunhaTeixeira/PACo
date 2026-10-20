@@ -144,17 +144,11 @@ class Host:
         *,
         limits: Limits | None = None,
         vision: bool = False,
-        without: frozenset[str] = frozenset(),
-        effort: budgets.Effort | None = None,
         on_event: OnEvent = print,
     ) -> None:
         self._client = client
         self._model = model
-        # `without`: tools this conversation does not offer; `effort`: the one it runs at,
-        # whatever the message asks (an evaluation's variants, §12).
-        self._without = without
-        self._effort = effort
-        self._tools = [tool for tool in tools if tool.name not in without]
+        self._tools = list(tools)
         self._settings = settings
         self._limits = limits or Limits()
         self._vision = vision
@@ -190,8 +184,6 @@ class Host:
         *,
         limits: Limits | None = None,
         vision: bool = False,
-        without: frozenset[str] = frozenset(),
-        effort: budgets.Effort | None = None,
         on_event: OnEvent = print,
     ) -> Host:
         """A host with the tools of the server `client` is connected to."""
@@ -203,8 +195,6 @@ class Host:
             settings,
             limits=limits,
             vision=vision,
-            without=without,
-            effort=effort,
             on_event=on_event,
         )
 
@@ -259,8 +249,6 @@ class Host:
             self.steps.append(_scope_step(None, time.perf_counter() - started, str(error)))
             return f"I could not read what your message asks ({error}). Say it again, please."
         scope = cast(GeoScope, read.scope)
-        if self._effort is not None:
-            scope = scope.model_copy(update={"effort": self._effort})
         self.steps.append(_scope_step(scope, time.perf_counter() - started))
         if scope.profile is None:
             return self._profiles()
@@ -413,11 +401,6 @@ class Host:
         else:
             said = (
                 refusal(phase, call.name)
-                or (
-                    f"Not called: {call.name} is not offered in this conversation."
-                    if call.name in self._without
-                    else None
-                )
                 or budgets.refusal(spent, call.name)
                 or (None if isinstance(arguments, dict) else "Not called: arguments are an object.")
             )

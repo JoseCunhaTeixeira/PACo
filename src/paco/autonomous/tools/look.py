@@ -368,10 +368,11 @@ class _Row:
 type Panel = Callable[[Axes, str, float, Path, WindowResult], None]
 
 
-def look_experiment(study: Study, where: str, vision: bool) -> Seen:
+def look_experiment(study: Study, where: str, vision: bool, ordered: bool = False) -> Seen:
     """Experiment `where` (E<n>) side by side: its current settings and every variant, sheets of
-    the current settings and three variants (those no other dominates first, by image score), or
-    the variants named after a colon (up to 4, the current settings `current`); their images and
+    the current settings and three variants (those no other dominates first, by image score; in
+    the experiment's order when `ordered`, a search's by window length), or the variants named
+    after a colon (up to 4, the current settings `current`); their images and
     picks at the windows where their image scores differ most, then spread along the line, none
     overlapping another; on a passive or passive-active line the first sheet's stacked
     correlations at the same windows. Without vision, the panels' measures."""
@@ -381,7 +382,9 @@ def look_experiment(study: Study, where: str, vision: bool) -> Seen:
         raise ValueError(f"No experiment '{name.strip()}' in this study: where is E<n>[:labels].")
     experiment = Experiment.model_validate_json(path.read_text())
     tried = {one.label: one for one in experiment.tried}
-    sheets = [[label.strip() for label in named.split(",")]] if named else _sheets(experiment)
+    sheets = (
+        [[label.strip() for label in named.split(",")]] if named else _sheets(experiment, ordered)
+    )
     unknown = [label for label in sheets[0] if label not in tried]
     if unknown:
         raise ValueError(f"No variant {', '.join(unknown)} in {experiment.id}: {', '.join(tried)}.")
@@ -417,12 +420,17 @@ def look_experiment(study: Study, where: str, vision: bool) -> Seen:
     return Seen(f"{text}.", tuple(figures))
 
 
-def _sheets(experiment: Experiment) -> list[list[str]]:
+def _sheets(experiment: Experiment, ordered: bool = False) -> list[list[str]]:
     """Every variant, by sheets of the current settings and three: those no other dominates first
-    (a short window's smeared image can score well, not its depth), each by its image score."""
-    ranked = sorted(
-        experiment.tried[1:],
-        key=lambda one: (one.dominated_by is not None, -(one.scorecard.image or 0.0)),
+    (a short window's smeared image can score well, not its depth), each by its image score; or
+    in the experiment's order."""
+    ranked = (
+        list(experiment.tried[1:])
+        if ordered
+        else sorted(
+            experiment.tried[1:],
+            key=lambda one: (one.dominated_by is not None, -(one.scorecard.image or 0.0)),
+        )
     )
     labels = [one.label for one in ranked]
     step = ROWS - 1

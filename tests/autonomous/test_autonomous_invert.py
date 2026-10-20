@@ -1,4 +1,4 @@
-"""invert, job_status, and the models after the freeze (docs/autonomous_plan.md §4.8, §10, §13 M7): on
+"""invert, job_status, and the models after the freeze (docs/autonomous_plan.md §4.8, §10): on
 active_test_profile's frozen curves (windows of 78 receivers on a coarse grid, 8 accepted and 11 rejected),
 one pass then one group rerun, through the autonomous agent's tools at the quick effort; G5's and G6's
 results in the journal and on the state card; each inversion seeded, the same seed making the same
@@ -16,6 +16,7 @@ import pytest
 from mcp import Client
 from sigpipe.masw.inversion import InversionParameters
 from sigpipe.masw.inversion.priors import MIN_LAYERS, Derived, derive_inversion
+from sigpipe.masw.inversion.window import invert_window
 from sigpipe.masw.picks import CURVES_FILE
 from sigpipe.masw.runs import find_run
 
@@ -25,9 +26,8 @@ from paco.autonomous.tools import commit as committing
 from paco.autonomous.tools import decide, freeze, given, invert, journal, pick
 from paco.autonomous.tools.trials import Study, new_study
 from paco.autonomous.tools.windows import select
-from paco.autonomous.upstream import inverting
-from paco.autonomous.upstream.inversion import invert_window
 from paco.call import shown
+from paco.qc import inverting
 from paco.qc.config import QCConfig
 from paco.qc.inverting import QUICK_SAMPLER
 from paco.qc.judging import saved_m0
@@ -241,7 +241,7 @@ def test_each_inversion_is_seeded_and_logged(inverted: Inverted) -> None:
 
 @pytest.mark.slow
 def test_the_same_seed_makes_the_same_models(inverted: Inverted, tmp_path: Path) -> None:
-    # sigpipe's Invert passes the seed on to inversion_mcmc: the copy of invert_window gives it.
+    # sigpipe's Invert passes the seed on to inversion_mcmc, and its invert_window gives it.
     window = inverted.run / "xmid_74.25"
     curve = saved_m0(window / CURVES_FILE)
     assert curve is not None
@@ -334,8 +334,15 @@ def test_g5_keeps_a_model_past_the_studys_longer_runs(inverted: Inverted, tmp_pa
     flags: dict[int, set[str]] = {}
     for longer in (0, 2):
         loop = inverting.Loop(MIN_LAYERS, longer, False)
-        inverting.invert(
-            run, {unit: short}, {unit: 11}, (5.0,), QCConfig(), "backtrack", 2, loops={unit: loop}
+        inverting.invert_windows(
+            run,
+            {unit: short},
+            (5.0,),
+            QCConfig(),
+            "backtrack",
+            2,
+            seeds={unit: 11},
+            loops={unit: loop},
         )
         attempt = latest(read_attempts(run), unit, "inversion")
         assert attempt is not None

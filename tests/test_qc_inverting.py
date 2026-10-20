@@ -252,11 +252,13 @@ def test_a_failed_inversion_is_tried_once_more_with_the_same_parameters(
         )
     inverted: list[tuple[dict[str, InversionParameters], str]] = []
 
-    def invert(_: Path, jobs: Mapping[str, Derived], *args: object) -> tuple[()]:
+    def invert(
+        _: Path, jobs: Mapping[str, Derived], *args: object
+    ) -> tuple[tuple[()], dict[str, object]]:
         inverted.append(({unit: job.parameters for unit, job in jobs.items()}, str(args[2])))
-        return ()
+        return (), {}
 
-    monkeypatch.setattr(inverting, "_invert", invert)
+    monkeypatch.setattr(inverting, "invert_windows", invert)
     curve = DispersionCurve(
         fs=np.array([5.0, 12.0, 24.0, 43.0, 100.0]),
         vs=np.array([150.0, 180.0, 220.0, 260.0, 300.0]),
@@ -273,7 +275,7 @@ def test_a_failed_inversion_is_tried_once_more_with_the_same_parameters(
 
     assert inverted == [({"xmid_1.00": parameters}, "S4:failed")]
     # No budget left for the window: it stays failed.
-    monkeypatch.setattr(inverting, "_invert", invert)
+    monkeypatch.setattr(inverting, "invert_windows", invert)
     inverted.clear()
     # A failed inversion's retry is on the window's inversion budget.
     none_left = QCConfig(budgets=Budgets(inversion_per_window=0))
@@ -365,11 +367,13 @@ def test_a_retry_keeps_the_bounds_the_user_gave_for_every_window(
     ]
     inverted: dict[str, Derived] = {}
 
-    def invert(_: Path, jobs: Mapping[str, Derived], *__: object) -> tuple[()]:
+    def invert(
+        _: Path, jobs: Mapping[str, Derived], *__: object
+    ) -> tuple[tuple[()], dict[str, object]]:
         inverted.update(jobs)
-        return ()
+        return (), {}
 
-    monkeypatch.setattr(inverting, "_invert", invert)
+    monkeypatch.setattr(inverting, "invert_windows", invert)
     curve = DispersionCurve(
         fs=np.array([5.0, 12.0, 24.0, 43.0, 100.0]),
         vs=np.array([150.0, 180.0, 220.0, 260.0, 300.0]),

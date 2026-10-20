@@ -14,7 +14,7 @@ from dataclasses import dataclass, replace
 from datetime import UTC, datetime
 from itertools import pairwise
 from pathlib import Path
-from typing import Any, cast
+from typing import Any, NamedTuple, cast
 
 import numpy as np
 from pydantic import ValidationError
@@ -327,7 +327,7 @@ def judge_inversions(
         # line's other windows inverted all the same.
         _not_invertible(run_folder, unit, error, on_window)
     depths = line_depths(ready)
-    results = _invert(
+    results, _ = invert_windows(
         run_folder, jobs, depths, config, "initial", settings.workers, on_progress, on_window
     )
     settle_models(run_folder, manifest, config, settings, ready, depths, on_window, on_progress)
@@ -385,7 +385,7 @@ def rerun_inversion(
             derive_inversion(ready[unit], config.priors, again, mine), again, settings
         )
     depths = line_depths(ready)
-    results = _invert(
+    results, _ = invert_windows(
         run_folder, jobs, depths, config, triggered_by, settings.workers, on_progress, on_window
     )
     settle_models(run_folder, manifest, config, settings, ready, depths, on_window, on_progress)
@@ -576,7 +576,7 @@ class RetryBatch:
     on_progress: ProgressCallback | None
 
     def invert(self, jobs: Mapping[str, Derived], trigger: str) -> None:
-        _invert(
+        invert_windows(
             self.run_folder,
             jobs,
             self.depths,
@@ -777,7 +777,17 @@ def line_depths(ready: Mapping[str, DispersionCurve]) -> tuple[float, ...]:
     )
 
 
-def _invert(
+class Loop(NamedTuple):
+    """What G5's loop weighs a window's inversion against, from its runs before: the fewest
+    layers it goes down to, the times it was sampled longer (this run included), whether a run
+    narrowed its ranges for chains that disagreed (this run included)."""
+
+    fewest_layers: int
+    longer_runs: int
+    narrowed: bool
+
+
+def invert_windows(
     run_folder: Path,
     jobs: Mapping[str, Derived],
     depths: tuple[float, ...],
@@ -786,15 +796,20 @@ def _invert(
     workers: int,
     on_progress: ProgressCallback | None = None,
     on_window: OnWindow | None = None,
-) -> tuple[GateResult, ...]:
+    seeds: Mapping[str, int] | None = None,
+    loops: Mapping[str, Loop] | None = None,
+) -> tuple[tuple[GateResult, ...], dict[str, WindowInversion]]:
     """Each window of `jobs` inverted with its parameters in a worker, the previous attempt's
     files archived first; G5 on each, logged as its inversion attempt. A window's inversion
     writes into a staging folder, moved into place once it finished: stopped (see
-    paco.stopping), the windows not finished get their previous attempt back.
+    paco.stopping), the windows not finished get their previous attempt back. G5's results by
+    position, and each window's result by its folder.
 
     A retry a gate asked for goes on from the window's attempts; any other inversion (the first,
     or one the agent was asked to do again) starts them afresh: once its result is in, the
-    window's earlier attempts are forgotten, their lines and archived results."""
+    window's earlier attempts are forgotten, their lines and archived results. With `seeds`, each
+    window's chains seeded, the seed in its attempt's notes; `loops`, by window, what G5's loop
+    weighs it against where the log forgot it (the autonomous agent's runs, each afresh)."""
     attempts = read_attempts(run_folder)
     fresh = starts_afresh(triggered_by)
     # What the gates weigh this inversion against: its window's attempts, none when afresh.
@@ -810,6 +825,7 @@ def _invert(
         archived[unit] = len(previous)
         numbers[unit] = 1 if fresh else len(previous) + 1
     results: list[GateResult] = []
+    windows: dict[str, WindowInversion] = {}
     started_at = datetime.now(UTC)
     one_thread_each()  # the workers are the cores the inversions take
     with ProcessPoolExecutor(
@@ -826,6 +842,7 @@ def _invert(
                 config.model,
                 chain_jobs(workers, len(jobs), derived.parameters.n_chains),
                 staging(run_folder / unit),
+                seeds[unit] if seeds else None,
             ): unit
             for unit, derived in jobs.items()
         }
@@ -848,13 +865,18 @@ def _invert(
                     started_at=started_at,
                     finished_at=datetime.now(UTC),
                     status="succeeded",
-                    notes=derived.notes,
+                    notes=(*derived.notes, f"seed {seeds[unit]}") if seeds else derived.notes,
                 )
                 xmid = xmid_of(unit) or 0.0
                 try:
                     measures = future.result()
                     commit(run_folder / unit)
                     ran = derived.parameters.model_dump(mode="json")
+                    loop = (loops or {}).get(unit) or Loop(
+                        fewest_layers(history, unit),
+                        longer_runs(history, unit, ran),
+                        narrowed(history, unit, triggered_by, ran),
+                    )
                     g5 = judge_model(
                         unit,
                         measures,
@@ -862,9 +884,9 @@ def _invert(
                         config.model,
                         derived.reach_m,
                         derived.max_layers,
-                        fewest_layers(history, unit),
-                        longer_runs(history, unit, ran),
-                        narrowed(history, unit, triggered_by, ran),
+                        loop.fewest_layers,
+                        loop.longer_runs,
+                        loop.narrowed,
                     )
                     attempt = attempt.model_copy(update={"results": {g5.gate: g5}})
                     results.append(g5)
@@ -878,6 +900,7 @@ def _invert(
                     attempt = attempt.model_copy(update={"status": "failed", "error": error})
                     window = WindowInversion(xmid=xmid, folder=unit, status="failed", error=error)
                 append_attempt(run_folder, afresh(run_folder, attempt) if fresh else attempt)
+                windows[unit] = window
                 if on_window is not None:
                     on_window(window)
                 if on_progress is not None:
@@ -888,7 +911,8 @@ def _invert(
                 if archived[unit]:
                     restore(run_folder / unit, "inversion", archived[unit])
             raise
-    return tuple(sorted(results, key=lambda result: float(result.unit.removeprefix("xmid_"))))
+    ordered = sorted(results, key=lambda result: float(result.unit.removeprefix("xmid_")))
+    return tuple(ordered), windows
 
 
 def _not_invertible(
@@ -936,12 +960,18 @@ def _invert_and_measure(
     thresholds: ModelThresholds,
     chain_jobs: int = 1,
     output: Path | None = None,
+    seed: int | None = None,
 ) -> InversionMeasures:
     """Runs in a worker: the window's inversion, of every mode picked in it, its chains in
-    `chain_jobs` processes, then what G5 judges (M0's fit), saved next to it, or in `output` (a
-    staging folder, moved into place once this ended)."""
+    `chain_jobs` processes seeded with `seed`, then what G5 judges (M0's fit), saved next to it,
+    or in `output` (a staging folder, moved into place once this ended)."""
     invert_window(
-        folder, parameters, window_modes(folder), chain_jobs=chain_jobs, output_folder=output
+        folder,
+        parameters,
+        window_modes(folder),
+        chain_jobs=chain_jobs,
+        output_folder=output,
+        seed=seed,
     )
     measures = measure_inversion(
         folder,

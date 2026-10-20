@@ -406,7 +406,9 @@ def judge_line(run_folder: Path, manifest: RunManifest, config: QCConfig) -> tup
     """G4 over the line: the saved M0 curve of every window whose latest pick passed G3, each
     against its neighbours, a person's curves among them as trusted references (never judged).
     A window's verdict goes to its latest picking attempt, the line's own (the coverage) to an
-    attempt of the unit "line". No automatic curve on the line (a run picked by hand): no G4."""
+    attempt of the unit "line", each only when it changed: the log is read once, and a pick
+    judged again on every call does not grow it. No automatic curve on the line (a run picked by
+    hand): no G4."""
     attempts = read_attempts(run_folder)
     work = run_work(run_folder, manifest, attempts)
     curves: list[Series] = []
@@ -434,7 +436,15 @@ def judge_line(run_folder: Path, manifest: RunManifest, config: QCConfig) -> tup
     results = judge_profile(curves, config.profile, without, frozenset(trusted))
     for result in results:
         if result.unit != LINE:
-            _judge_latest(run_folder, result.unit, "picking", result)
+            attempt = latest(attempts, result.unit, "picking")
+            if attempt is not None and attempt.results.get(result.gate) != result:
+                judged = attempt.model_copy(
+                    update={"results": {**attempt.results, result.gate: result}}
+                )
+                append_attempt(run_folder, judged, "verdict")
+            continue
+        line = latest(attempts, LINE, "picking")
+        if line is not None and line.results.get(result.gate) == result:
             continue
         append_attempt(
             run_folder,

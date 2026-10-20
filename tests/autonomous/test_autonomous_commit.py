@@ -1,4 +1,4 @@
-"""commit (docs/autonomous_plan.md §6, §13 M4): the line made with the model's settings in PAC's layout;
+"""commit (docs/autonomous_plan.md §6): the line made with the model's settings in PAC's layout;
 its settings changed in the same run, as PACo logs a change of the line's; a change of the windows
 in a new run. Each setting's reason goes where PAC's run card reads it, and paco-replay makes the
 line again. On active_test_profile with windows of 90 receivers on a coarse grid: 7 windows, a commit in a few
@@ -13,7 +13,6 @@ import pytest
 from sigpipe.masw.presets import make_preset
 from sigpipe.masw.runs import find_run, load_manifest
 
-from paco.autonomous.evaluation import pac
 from paco.autonomous.tools import commit as committing
 from paco.autonomous.tools.commit import Committed, commit, describe_commit, line_of, line_state
 from paco.autonomous.tools.trials import G1, Study, new_study, try_settings
@@ -39,8 +38,6 @@ SECOND = {"filtering": {"method": "iir", "fmin": 5.0, "fmax": 90.0}, "picking": 
 SECOND_REASONS = {"filtering": "no signal outside 5-90 Hz (G1)", "picking fmax": "the band G2 kept"}
 # Other windows: a new run.
 THIRD = {"masw": {"length": 94}}
-# PAC's checkout, beside this one's.
-PAC_DIR = Path(__file__).resolve().parents[3] / "PAC"
 
 
 @dataclass(frozen=True)
@@ -279,22 +276,6 @@ def test_a_commit_is_refused_saying_why(
     with pytest.raises(ValueError, match=said):
         commit(study, changes, reasons, experiment, commits.settings, QCConfig())
     assert line_of(study) is None
-
-
-@pytest.mark.slow
-@pytest.mark.skipif(not (PAC_DIR / ".venv").is_dir(), reason="no PAC checkout beside this one")
-def test_pacs_pages_open_the_runs_and_show_the_reasons(commits: Commits) -> None:
-    folders = [f"active_test_profile/{one.line.run_id}" for one in (commits.second, commits.third)]
-
-    found = pac.pac_pages(folders, commits.settings, PAC_DIR)
-
-    assert [pages.opened for pages in found] == [True, True]
-    shots = next(one for one in found[0].settings if one["key"] == "reach")
-    assert shots["origin"] == "rule"
-    assert shots["why"] == (
-        "nearest, half the longest wavelength the trials reached (L1); farthest, every shot off "
-        "the windows' ends, 80 m (L1)"
-    )
 
 
 def _g1(run: Path) -> dict[str, tuple[object, tuple[str, ...]]]:

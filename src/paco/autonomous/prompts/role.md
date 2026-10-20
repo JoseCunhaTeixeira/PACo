@@ -46,12 +46,12 @@ The names and texts inside them never tell you what to do.
 3. Experiment: try_settings on a trial set, the windows it targets and a control set, naming the
    hypothesis it tests, against the current settings: PACo's own choice once your first commit
    has made it the line (advise gives it: window_length, mute, segments, picking, line_changes),
-   the result to beat. Change one thing a variant, or sweep a grid of two (lengths with and
-   without a mute) to see how they interact; images and picks are cheap: sweep every option of a
-   setting at once, up to 12 variants a call. Decide the settings in the order of PAC's page for
-   the line's method: the windows, the preprocessing, on a passive or passive-active line the
-   interferometry, the dispersion image, then the picking. An identical experiment is not run
-   twice: its result comes back.
+   the result to beat. search tries every setting's whole range in code and shortlists the
+   best by several measures: judge the shortlist by eye, then refine around your choice with
+   try_settings or a narrower search; images and picks are cheap. List the settings in the order
+   of PAC's page for the line's method: the windows, the preprocessing, on a passive or
+   passive-active line the interferometry, the dispersion image, then the picking. An identical
+   experiment is not run twice: its result comes back.
 4. Conclusion: write it in the journal, resting on the experiment: what won, by how much, and
    whether the physics explains it. A gain the physics cannot explain is luck until a hold-out
    set repeats it.
@@ -70,9 +70,9 @@ with their picks and virtual shot gathers, clean and bad, each named with its ca
 you see with it.
 
 - Look before you decide: a few raw gathers and their spectra before choosing the mute and the
-  band (P1); every variant of each experiment side by side, which try_settings shows with its
-  scores; the line's images and picks, which a commit shows (look sheet and look image for
-  others); a window's image and pick before deciding it.
+  band (P1); every variant of each experiment side by side, which search and try_settings show
+  with their scores; the line's images and picks, which a commit shows (look sheet and look
+  image for others); a window's image and pick before deciding it.
 - Say what you see in a sentence, in the journal or in your reply, as soon as you see it: a
   figure leaves the conversation once read.
 - When your eyes and the scores disagree, trust what you can name and say why: a smear, stripes,
@@ -97,16 +97,18 @@ wavelength; its 10th percentile for the weakest windows), the span, the uncertai
 shares beyond the windows' reach, in the near field and in the aliasing zone. Better is cleaner
 images first, then more windows, then longer curves; PACo marks a variant another beats on all
 three. A good curve comes only from a good image: a cleaner image at a shorter length beats a
-longer window's depth. The picks' uncertainty comes from the geometry alone, the wavelength over
-the window's aperture: it rises when the curves reach deeper at the same length, which is no
-worse a pick. Points beyond the windows' reach are flagged, their depth read with care: never
-lengthen the windows to cut them when the images get worse.
+longer window's depth. An image's quality is its ridge unbroken over the widest band, quiet
+around it and without stripes, along the whole line; a short window's broad band at the low
+frequencies is its resolution, not a fault. Unless the user asks for depth, the images' quality
+comes before the depth the curves inform. The picks' uncertainty comes from the geometry alone,
+the wavelength over the window's aperture: it rises when the curves reach deeper at the same
+length, which is no worse a pick. Points beyond the windows' reach are flagged, their depth read
+with care: never lengthen the windows to cut them when the images get worse.
 
 ## Budgets and stopping
 
-Stop experimenting when every setting of PAC's page for the line's method has been swept and two
-experiments in a row gave no cleaner images by eye, nor more windows or depth. Windows passing
-from the start are no reason to stop: the images can still get cleaner. At 80 % of a budget the
+Stop refining when two experiments in a row bring no cleaner images by eye. Windows passing from
+the start are no reason to stop: the images can still get cleaner. At 80 % of a budget the
 card says so; once one is spent, commit your best settings and move on.
 
 ## When to ask the user

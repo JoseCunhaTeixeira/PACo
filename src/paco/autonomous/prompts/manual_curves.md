@@ -4,20 +4,24 @@ decision on every window, and the freeze. Notation: dx the receiver spacing, N a
 receivers, its length L = (N-1)·dx and its aperture N·dx, λ = v/f the wavelength of a point at
 phase velocity v and frequency f.
 
-## Where to start
+## Where to start: the search, then your eye
 
 - Your first commit is PACo's own choice for the line, the result to beat: the length its ladder
   chooses (advise window_length) and the mute its trial keeps (advise mute), or on a passive line
   its segments (advise segments), with the preset's other settings and the user's. The line then
   starts where the workflow ends, and every experiment runs against it as the current settings.
-- Then go through the settings in the order of PAC's page for the line's method: the windows
-  (their length, then the shots' distances), the preprocessing (the mute you drew by eye on the
-  survey's gathers, PACo's standard one), on a passive or passive-active line the interferometry,
-  then the dispersion image. At each, sweep its options at once (up to 12 variants a call, on 15
-  windows or more) and keep the cleanest by eye; then combine the best two or three changes, and
-  try the length again with them. Commit a change when its images are cleaner by eye, along the
-  whole line and at its ends, with as many windows passing; else PACo's choice stays, and you say
-  why it could not be beaten.
+- Then call search: it tries each value of every setting of PAC's page for the line's method
+  alone, over its whole range, then the best of those changes together, in pairs and all at once,
+  all on the same windows, and gives a shortlist with the table of all of them, each setting's
+  effect read in it. The shortlist holds the best by each measure (the image score, the fewest
+  stripes, the windows passing, the depth of the weakest windows), by window length. No measure
+  reads an image's quality: judge the shortlist by eye, the ridge unbroken over the widest band, a
+  quiet background, no stripes, the picks on it, along the line.
+- Then refine around what you judge best: a variant of the table tried with try_settings, changes
+  of your own near it, or search again with narrower ranges around it. Check the best two or
+  three on a hold-out set, and commit the best; if nothing beats PACo's choice, it stays, and you
+  say why. The image's band stays the preset's or the records' usable band: a narrower one hides
+  the ridge, it does not mend it.
 
 ## Physics
 
@@ -63,14 +67,12 @@ phase velocity v and frequency f.
   the line: it climbs while 80 % pass and the uncertainty improves by 10 %, and stops at the first
   length passing with 20 % or less. It favours short windows; where the objective asks depth, a
   longer window is the hypothesis to test against it.
-- Choose the length by the images: the shortest window whose images are clean (by eye, one ridge
-  unbroken over its band; lateral coherence near 1) and whose curves serve the objective. A
-  target depth z needs λmax near 2·z, so L of at least 2·z/3 (λmax within 3·L), but only as far
-  as the images stay as clean; a lateral priority starts at 5 to 9 receivers; a balanced one in
-  the middle of the range. Sweep the lengths around PACo's (its ladder's, and two
-  longer) on 15 windows or more spread along the line, its ends included, each with and without
-  the mute: length and mute interact (on active_p2 a mute moved PACo's ladder from 7 to 11
-  receivers).
+- Choose the length by the images: the one whose images are cleanest (by eye, one ridge unbroken
+  over the widest band; lateral coherence near 1), its curves serving the objective. A target
+  depth z needs λmax near 2·z, so L of at least 2·z/3 (λmax within 3·L), but only as far as the
+  images stay as clean. The search tries the lengths over the whole range with the other
+  settings: length and mute interact (on active_p2 a mute moved PACo's ladder from 7 to 11
+  receivers), and so do length and the shots' distances or the stacking.
 - After the picks, the card's checks: most curves stopping well under 2·L, at the same low
   frequency at every length, mean the data limit the depth: shorten. Many curves beyond 3·L where
   the target needs that depth: lengthen, or cut the tail (picking max_wavelength, in window
@@ -83,8 +85,8 @@ phase velocity v and frequency f.
   at least λmax/2 from the window.
 - masw distance_max: the farthest shot from a window's middle, at the survey's reach by default;
   the window's far half extends L/2 beyond it. Far shots lose the high frequencies first, near
-  ones carry them but bring the near field to the low ones: sweep it from the reach down to a few
-  window lengths, the ridge's high end and its low frequencies judged by eye. masw distance_min
+  ones carry them but bring the near field to the low ones: judge the ridge's high end and its
+  low frequencies by eye. masw distance_min
   drops every window's nearest shots, where near_field_m drops them only while a farther one
   remains: it can leave a window at the line's ends with no shot.
 - Shots on both sides average out dipping layers: keep both when the distances allow. More shots
@@ -182,41 +184,41 @@ phase velocity v and frequency f.
 
 ## Passive and passive-active lines
 
-- A passive line's windows correlate the noise of every record: each record cut into segments
-  (slicing segment_duration, segment_step); each segment kept whole or dropped by its FK selection,
-  which measures how much of its energy travels one way along the line, between the apparent
-  velocities vmin and vmax, and keeps it over the threshold (a lower one keeps more); whitened and
-  normalized (onebit: the spectral phase and the sign alone, so that noise bursts do not
-  dominate); correlated against the window's first receiver; the correlations stacked: a virtual
-  shot at the window's end. The shots' settings (distances, near field, trigger, mute) mean
-  nothing there; the windows' length, the image's grid and the picking work as on an active line.
+- A passive line's windows correlate the noise of every record: each record cut into segments end to
+  end (slicing segment_duration, segment_step its equal); each segment kept whole or dropped by its
+  FK selection, which measures how much of its energy travels one way along the line, between the
+  apparent velocities vmin and vmax, and keeps it over the threshold (a lower one keeps more);
+  whitened and normalized (onebit: the spectral phase and the sign alone, so that noise bursts do
+  not dominate); correlated against the window's first receiver; the correlations stacked: a virtual
+  shot at the window's end. The shots' settings (distances, near field, trigger, mute) mean nothing
+  there; the windows' length, the image's grid and the picking work as on an active line.
 - The correlations' stacking, passive and passive-active alike: phase-weighted, the preset's nu
   2. It weights the linear stack by how well the correlations agree in phase, so that coherent
   arrivals stay and incoherent noise falls; a higher nu (4, 6) keeps less of what they disagree
-  on: fewer stripes, while the ridge stays. Sweep nu, with linear and root as controls.
+  on: fewer stripes, while the ridge stays.
 - The whitening and the temporal normalization, onebit by default, weigh every segment alike, its
   noise too; without the normalization (none) the strongest noise weighs most: cleaner where it
-  travels along the line, worse where bursts dominate. Sweep both once the FK selection is set
-  (whitening: onebit, onebit_apod within the image's band, none; normalization: onebit, none).
+  travels along the line, worse where bursts dominate.
 - The segments set the image: its frequency step is 1/segment_duration, its longest period the
   segment's length. Longer segments give lower frequencies and a finer step, but fewer to stack, a
-  noisier image: they are not more data. advise segments gives PACo's trial (a few minutes):
-  lengths of 10 to 80 crossings of the window at 80 m/s, FK thresholds of 0.05 to 0.3 with no band
-  or 80 to 1,500 m/s; a candidate counts with 1 % of its segments kept and the virtual shots of its
-  two halves agreeing (0.7), and wins by the longest λmax/λmin. On passive_p2, 4.5 s segments with
-  FK 0.2 in 80 to 1,500 m/s gave a span of 7.8 against 3.1.
-- On a passive line, in the order of PAC's page: the windows' length, by the wavelengths they
+  noisier image: they are not more data. Short segments work best, the user finds: 1 s or less, by
+  the window's length and the waves' velocities, long enough for the slowest wave to cross the
+  window a few times; search tries 2 to 16 crossings at 80 m/s. advise segments gives PACo's trial
+  (a few minutes): lengths of 10 to 80 crossings of the window at 80 m/s, FK thresholds of 0.05 to
+  0.3 with no band or 80 to 1,500 m/s; a candidate counts with 1 % of its segments kept and the
+  virtual shots of its two halves agreeing (0.7), and wins by the longest λmax/λmin. On passive_p2,
+  4.5 s segments with FK 0.2 in 80 to 1,500 m/s gave a span of 7.8 against 3.1.
+- On a passive line the settings follow PAC's page: the windows' length, by the wavelengths they
   must resolve (as on an active line); the preprocessing, a filter at most (no mute); then the
-  interferometry in its order: the slicing (the segments' length, long enough for the slowest
-  waves to cross a window many times, which also sets the image's frequency step), the segment
-  selection (the FK threshold, 0 to 1, the preset's 0.2: lower keeps more segments and their
+  interferometry in its order: the slicing (the segments' length, long enough for the slowest waves
+  to cross a window a few times and no longer, which also sets the image's frequency step), the
+  segment selection (the FK threshold, 0 to 1, the preset's 0.2: lower keeps more segments and their
   noise, higher fewer and cleaner, while enough remain to stack; its velocity band from 80 to
-  1,500 m/s to start, since noise records show no velocity to set it from, then wider, narrower
-  or open), the spectral whitening, the temporal normalization, the correlations' stacking; then
-  the dispersion image. Once the lengths are set, the FK selection, its threshold and its band,
-  gets the most experiments: keep the variant whose images and virtual shot gathers are cleanest
-  (look selection shows each segment's ratio against the threshold); then sweep the whitening,
-  the normalization and the stacking's nu with it.
+  1,500 m/s to start, since noise records show no velocity to set it from, then wider, narrower or
+  open), the spectral whitening, the temporal normalization, the correlations' stacking; then the
+  dispersion image. The FK selection, its threshold and its band, gets the most values: keep the
+  variants whose images and virtual shot gathers are cleanest (look selection shows each segment's
+  ratio against the threshold).
 - G2 reads a passive window's correlations (their SNR, usable band and lateral coherence:
   noisy_correlations) and the share of segments its FK selection kept (few_segments_kept): both
   ask for more of the data, a lower threshold. Its share of coherent columns says little on a

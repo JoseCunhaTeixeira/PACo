@@ -20,12 +20,15 @@ The study's folder holds it all (<output>/<profile>/studies/<id>/):
   log, result.json;
 - experiments/: each call, E<n>.json, and index.json, the calls by their content."""
 
+import contextvars
 import hashlib
 import json
 import re
 import shutil
+import threading
 import time
 from collections.abc import Collection, Mapping, Sequence
+from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass, field
 from datetime import UTC, datetime
 from pathlib import Path
@@ -97,6 +100,10 @@ SURVEY_FILE = "survey.json"
 # The most variants a call tries, besides the current settings (§6), and its windows by default:
 # images and picks are cheap, a sweep compares many settings on enough windows.
 MOST_VARIANTS = 12
+# Trials made at once, each with its share of the workers; one at a time makes the records and G1
+# the study shares.
+AT_ONCE = 3
+_PREPARING = threading.Lock()
 WINDOWS = "spread:15"
 # What a variant may change besides the preset's stages: the automatic pick's parameters and the
 # near-field distance, m (a window stacks no shot nearer to its nearest receiver, where it has a
@@ -614,6 +621,23 @@ def image(
         )
 
 
+def trial_windows(
+    trial: Trial,
+    profile: Profile,
+    parts: Sequence[Part],
+    line: LineState | None,
+    last: Sequence[float],
+) -> list[MASWWindow]:
+    """The windows of `trial` the trial set `parts` names; refused when no window has a shot."""
+    line_wins = line_windows(profile, trial)
+    if not line_wins:
+        raise ValueError(
+            f"No window of {trial.preset.masw.length} receivers has a shot within "
+            "masw.distance_min and distance_max: widen them."
+        )
+    return resolve(parts, line_wins, line or LineState(), last)
+
+
 def tried(
     study: Study,
     trial: Trial,
@@ -640,9 +664,13 @@ def tried(
     if (folder / RESULT).exists():
         return TrialRun.model_validate_json((folder / RESULT).read_text()), True
     shutil.rmtree(folder, ignore_errors=True)
-    records, made = with_records(study, folder, trial.preset, profile, settings, config)
-    cone = fast_cone(profile, trial.preset, config)
-    exclusions, usable, g1 = settled(folder, profile, trial.preset, records, config, cone, study)
+    # The study's records and G1 are shared by every trial that preprocesses alike: made once.
+    with _PREPARING:
+        records, made = with_records(study, folder, trial.preset, profile, settings, config)
+        cone = fast_cone(profile, trial.preset, config)
+        exclusions, usable, g1 = settled(
+            folder, profile, trial.preset, records, config, cone, study
+        )
     if exclusions.records:
         # The near-field rule on the records G1 keeps: a window whose farther shots it left out
         # keeps its near ones.
@@ -670,6 +698,35 @@ def tried(
     )
     write_atomic(folder / RESULT, run.model_dump_json(indent=2))
     return run, False
+
+
+def tried_all(
+    study: Study,
+    trials: Sequence[tuple[Trial, list[MASWWindow]]],
+    profile: Profile,
+    settings: Settings,
+    config: QCConfig,
+) -> list[tuple[TrialRun, bool]]:
+    """Each trial on its windows (tried): the first alone, on every worker, its images then in the
+    cache for the others that share them; the others AT_ONCE at a time, each with its share of the
+    workers, since a variant's pool starts slowly and its few windows would leave the machine
+    idle."""
+    if not trials:
+        return []
+    first = tried(study, *trials[0], profile, settings, config)
+    rest = trials[1:]
+    at_once = min(AT_ONCE, len(rest), settings.workers)
+    if at_once < 2:
+        return [first, *(tried(study, *one, profile, settings, config) for one in rest)]
+    each = settings.model_copy(update={"workers": max(1, settings.workers // at_once)})
+    with ThreadPoolExecutor(at_once) as pool:
+        made = [
+            pool.submit(
+                contextvars.copy_context().run, tried, study, trial, windows, profile, each, config
+            )
+            for trial, windows in rest
+        ]
+        return [first, *(one.result() for one in made)]
 
 
 def try_settings(
@@ -704,18 +761,10 @@ def try_settings(
     trials = [
         concrete(deep_merge(base, change), profile, config, reach) for change in [{}, *changes]
     ]
-    last = _last_xmids(study)
-    runs: list[tuple[TrialRun, bool]] = []
-    for trial in trials:
-        stopping.check()
-        line_wins = line_windows(profile, trial)
-        if not line_wins:
-            raise ValueError(
-                f"No window of {trial.preset.masw.length} receivers has a shot within "
-                "masw.distance_min and distance_max: widen them."
-            )
-        chosen = resolve(parts, line_wins, line or LineState(), last)
-        runs.append(tried(study, trial, chosen, profile, settings, config))
+    last = last_xmids(study)
+    chosen = [(trial, trial_windows(trial, profile, parts, line, last)) for trial in trials]
+    stopping.check()
+    runs = tried_all(study, chosen, profile, settings, config)
     call = _key({"windows": windows, "trials": [run.key for run, _ in runs]})
     index = _index(study)
     if call in index["calls"]:
@@ -791,6 +840,17 @@ def figures(card: Scorecard) -> str:
     )
 
 
+def card_of(run: TrialRun) -> Scorecard:
+    """`run`'s scorecard, as an experiment scores its variants."""
+    return scorecard(
+        {result.xmid: result.g3 for result in run.windows},
+        run.length_m,
+        cpu_s=round(sum(run.seconds.values()), 3),
+        shots=run.mode != "passive",
+        g2={result.xmid: result.g2 for result in run.windows},
+    )
+
+
 def _experiment(
     name: str,
     study: Study,
@@ -801,16 +861,7 @@ def _experiment(
 ) -> Experiment:
     """The experiment of `runs`, the current settings' first, then the variants' in order."""
     labels = ["current", *(str(number) for number in range(1, len(changes) + 1))]
-    cards = {
-        label: scorecard(
-            {result.xmid: result.g3 for result in run.windows},
-            run.length_m,
-            cpu_s=round(sum(run.seconds.values()), 3),
-            shots=run.mode != "passive",
-            g2={result.xmid: result.g2 for result in run.windows},
-        )
-        for label, (run, _) in zip(labels, runs, strict=True)
-    }
+    cards = {label: card_of(run) for label, (run, _) in zip(labels, runs, strict=True)}
     beaten = dominated(cards)
     return Experiment(
         id=name,
@@ -912,7 +963,7 @@ def _index(study: Study) -> dict[str, dict[str, str]]:
     return json.loads(path.read_text())
 
 
-def _last_xmids(study: Study) -> tuple[float, ...]:
+def last_xmids(study: Study) -> tuple[float, ...]:
     """The windows of the study's last trial set, those its current settings were tried on."""
     calls = _index(study)["calls"]
     if not calls:

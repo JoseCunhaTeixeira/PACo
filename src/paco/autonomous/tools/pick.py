@@ -31,13 +31,11 @@ from sigpipe.masw.runs import RunManifest, load_image, window_folders
 
 from paco.autonomous.sensors.flags import FlagClass, flag_class
 from paco.autonomous.tools.trials import Study, check_open
-from paco.autonomous.upstream.judging import judge_line
-from paco.autonomous.upstream.profile import median_guide
 from paco.qc.attempts import invalidate
 from paco.qc.config import QCConfig
 from paco.qc.curves import imaged_windows
-from paco.qc.g4_profile import LINE, ProfileThresholds
-from paco.qc.judging import pick_windows, saved_m0
+from paco.qc.g4_profile import LINE, ProfileThresholds, median_guide
+from paco.qc.judging import judge_line, pick_windows, saved_m0
 from paco.qc.log import afresh, append_attempt, attempts_of, latest, read_attempts
 from paco.qc.models import Attempt, Flag, GateResult, Override
 from paco.qc.report import line_step, stretches, xmid_of

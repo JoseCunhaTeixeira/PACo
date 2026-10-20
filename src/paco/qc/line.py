@@ -189,7 +189,7 @@ def _process(
         preset, loaded, run_folder, settings.workers, stop=stopping.current()
     )
     for record in records:
-        _log(run_folder, record.name, "preprocessing", 1, {}, "initial", started_at, record)
+        log_attempt(run_folder, record.name, "preprocessing", 1, {}, "initial", started_at, record)
     reach = line_reach(run_folder, loaded, records, config, preset)
     records, exclusions, usable = settle_records(
         run_folder, loaded, preset, records, config, reach, fast
@@ -310,14 +310,14 @@ def _process(
             ),
         )
     notes = far_notes + choice.notes + near_notes + mute_notes + segment_notes + band_notes
-    _line_settings(run_folder, logged, notes, started_at)
+    line_settings(run_folder, logged, notes, started_at)
     judge_images(run_folder, manifest, config, settings, usable)
     settled = settle_line(
         run_id, run_folder, loaded, preset, records, exclusions, usable, config, settings, reach
     )
     if settled.notes:
         # The line's settings with the changes the loop kept, and what it tried.
-        _line_settings(
+        line_settings(
             run_folder, deep_merge(logged, settled.changes), notes + settled.notes, started_at
         )
     keep_line_asks(run_folder)
@@ -373,7 +373,7 @@ def reprocess_records(
             )
     for outcome in redone:
         outcomes[outcome.name] = outcome
-        _log(
+        log_attempt(
             run_folder,
             outcome.name,
             "preprocessing",
@@ -880,7 +880,7 @@ def _line_mute(
     return replace(candidate, overrides={**candidate.overrides, "muting": values})
 
 
-def _line_settings(
+def line_settings(
     run_folder: Path, parameters: dict[str, Any], notes: tuple[str, ...], started_at: datetime
 ) -> None:
     """The line's settings the processing chose, and why (`notes`), as the line's phase-shift
@@ -902,7 +902,7 @@ def _line_settings(
     )
 
 
-def _log(
+def log_attempt(
     run_folder: Path,
     unit: str,
     stage: Stage,

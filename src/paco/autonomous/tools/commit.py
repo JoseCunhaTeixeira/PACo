@@ -1,4 +1,4 @@
-"""commit (docs/autonomous_plan.md §6, §13 M4): the line made with the model's settings in PAC's layout,
+"""commit (docs/autonomous_plan.md §6): the line made with the model's settings in PAC's layout,
 from PACo's public steps of a line's processing (paco.qc.line), without its automatic choices (the
 ladder, the mute trial, the line loop) and without the gates' retries. G1 judges every record (once
 a study for the same preprocessing, band and cone: paco.autonomous.tools.trials.judge_records); every
@@ -68,7 +68,6 @@ from paco.autonomous.tools.trials import (
     line_windows,
     survey_reach,
 )
-from paco.autonomous.upstream.line import line_settings, log_attempt
 from paco.qc import given as paco_given
 from paco.qc.config import QCConfig, snapshot_qc_config
 from paco.qc.curves import imaged_windows
@@ -79,6 +78,8 @@ from paco.qc.line import (
     judge_images,
     keep_line_asks,
     line_reach,
+    line_settings,
+    log_attempt,
     reprocess_records,
 )
 from paco.qc.log import LINE_CHANGE, append_attempt, latest, read_attempts

@@ -99,25 +99,7 @@ def judge_profile(
         ]
         flags: list[Flag] = []
         if near.standing == "outlier":
-            grid, median = median_series([other for side in near.off for other in side.series])
-            known = ~np.isnan(median)
-            wavelengths, velocities = grid[known], median[known]
-            # Thinned: the picker interpolates between the guide's points, and the summary the
-            # agent reads shows them all.
-            chosen = np.unique(
-                np.linspace(0, wavelengths.size - 1, min(wavelengths.size, GUIDE_POINTS))
-                .round()
-                .astype(int)
-            )
-            guide = sorted(
-                {
-                    (
-                        round(float(velocities[i] / wavelengths[i]), 2),
-                        round(float(velocities[i]), 1),
-                    )
-                    for i in chosen
-                }
-            )
+            guide = list(median_guide([other for side in near.off for other in side.series]))
             flags.append(
                 Flag(
                     name="outlier",
@@ -259,3 +241,31 @@ def _falls(curve: Series) -> bool:
     if curve.x.size < 3 or np.ptp(curve.x) == 0 or np.ptp(curve.values) == 0:
         return False
     return float(np.corrcoef(rankdata(curve.x), rankdata(curve.values))[0, 1]) < 0
+
+
+def median_guide(series: Sequence[Series]) -> tuple[tuple[float, float], ...]:
+    """The median of `series` (curves as velocities by wavelength) as the picker's guide: points
+    (frequency in Hz, velocity in m/s), GUIDE_POINTS at most; none where the median has none, or
+    without a curve to take it from."""
+    if not series:
+        return ()
+    grid, median = median_series(series)
+    known = ~np.isnan(median)
+    wavelengths, velocities = grid[known], median[known]
+    if not wavelengths.size:
+        return ()
+    # Thinned: the picker interpolates between the guide's points, and the summary the agent reads
+    # shows them all.
+    chosen = np.unique(
+        np.linspace(0, wavelengths.size - 1, min(wavelengths.size, GUIDE_POINTS))
+        .round()
+        .astype(int)
+    )
+    return tuple(
+        sorted(
+            {
+                (round(float(velocities[i] / wavelengths[i]), 2), round(float(velocities[i]), 1))
+                for i in chosen
+            }
+        )
+    )

@@ -1,4 +1,4 @@
-"""invert and job_status (docs/autonomous_plan.md §4.8, §6, §10, §13 M7): the frozen curves inverted into
+"""invert and job_status (docs/autonomous_plan.md §4.8, §6, §10): the frozen curves inverted into
 layered Vs models, in groups the model names, as a background job.
 
 Each group names windows (frozen ones, as a spec names them) and the parameters they share
@@ -43,7 +43,6 @@ from paco.autonomous.tools.given import Given, check_inversion, given_of, with_i
 from paco.autonomous.tools.pick import flag_said, manifest_of
 from paco.autonomous.tools.trials import Study
 from paco.autonomous.tools.windows import select
-from paco.autonomous.upstream import inverting
 from paco.inversion import (
     InversionRecord,
     JobProgress,
@@ -55,7 +54,14 @@ from paco.inversion import (
 from paco.qc import given as paco_given
 from paco.qc.config import QCConfig
 from paco.qc.g6_models import LINE
-from paco.qc.inverting import QUICK_SAMPLER, given_again, judge_model_line, line_depths
+from paco.qc.inverting import (
+    QUICK_SAMPLER,
+    Loop,
+    given_again,
+    invert_windows,
+    judge_model_line,
+    line_depths,
+)
 from paco.qc.judging import saved_m0
 from paco.qc.log import afresh, append_attempt, latest, read_attempts
 from paco.qc.models import Attempt, GateResult
@@ -395,7 +401,7 @@ def _invert_group(
     seeds: dict[str, int] = {}
     numbers: dict[str, int] = {}
     refused: dict[str, str] = {}
-    loops: dict[str, inverting.Loop] = {}
+    loops: dict[str, Loop] = {}
     user = given_of(study)
     for unit in units:
         own = [one for one in before if one.unit == unit]
@@ -424,10 +430,11 @@ def _invert_group(
     results: dict[str, WindowInversion] = {}
     for trigger, chosen in jobs.items():
         if chosen:
-            results |= inverting.invert(
-                run_folder, chosen, seeds, depths, config, trigger, settings.workers,
-                progressed, on_window, loops,
+            _, inverted = invert_windows(
+                run_folder, chosen, depths, config, trigger, settings.workers, progressed,
+                on_window, seeds, loops,
             )  # fmt: skip
+            results |= inverted
     attempts = read_attempts(run_folder)
     now = datetime.now(UTC)
     with (study.folder / INVERSIONS).open("a") as file:
@@ -495,7 +502,7 @@ def _at_effort(
     return replace(derived, parameters=parameters.model_copy(update=update))
 
 
-def _loop(own: Sequence[Inverted], iterations: int, effort: Effort) -> inverting.Loop:
+def _loop(own: Sequence[Inverted], iterations: int, effort: Effort) -> Loop:
     """What G5's loop weighs a window's inversion at `effort` and `iterations` against, from its
     runs before at that effort in the study (the log forgets them: each of the agent's starts
     afresh): the fewest layers, one more than any count G5 found to underfit; the times it was
@@ -506,7 +513,7 @@ def _loop(own: Sequence[Inverted], iterations: int, effort: Effort) -> inverting
     underfit = [
         int(one.parameters.get("n_layers", 0)) + 1 for one in runs if "underfit" in one.flags
     ]
-    return inverting.Loop(
+    return Loop(
         fewest_layers=max([MIN_LAYERS, *underfit]),
         longer_runs=sum(after > before for before, after in pairwise(counts)),
         narrowed=any(
