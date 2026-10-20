@@ -13,8 +13,8 @@ PACo works in one of two modes, with the same model:
   (Qwen3-14B).
 - **autonomous**: the model surveys the line, tries its own settings and judges them with the
   gates, decides each window, then inverts. It keeps a journal of what it tried and why. It needs
-  a frontier model (Claude, GPT, Gemini) with a long context, and uses many more tokens. See
-  [The autonomous mode](#the-autonomous-mode).
+  a frontier model (Claude, GPT, Gemini) with vision and a long context, and uses many more
+  tokens. See [The autonomous mode](#the-autonomous-mode).
 
 `PACO_AGENT_MODE` chooses the mode (or `--mode` on the commands).
 
@@ -31,7 +31,7 @@ you  <-->  paco-agent  <-- the model's API -->  the model
 - **paco-evaluate**, **paco-ab**: test the agent on scenarios (see [Other commands](#other-commands)).
 
 In PAC, the AI assistant page runs the same agent on PAC's folders, and its settings popup chooses
-the mode, the model and vision. [PAC's
+the mode and the model. [PAC's
 README](https://github.com/JoseCunhaTeixeira/PAC#the-assistant-optional) says how to install it.
 
 ## Install
@@ -88,7 +88,6 @@ PACO_LLM_CONTEXT=16384
 | `PACO_LLM_MODEL` | required | The model's name |
 | `PACO_LLM_API_KEY` | none | Your API key, if the provider asks for one |
 | `PACO_LLM_CONTEXT` | `16384` on your server, `131072` on a provider's API | The model's context, in tokens. With vLLM, the same number as its `--max-model-len` |
-| `PACO_LLM_VISION` | `true` | Lets the model see figures (autonomous mode only) |
 | `PACO_WORKERS` | `1` | Processes used to process and invert |
 
 Rarely needed: `PACO_HOST` and `PACO_PORT` (where `paco-server` listens, `127.0.0.1:8000`),
@@ -186,7 +185,7 @@ lists the profiles.
 | `survey` | The line before any setting: its geometry, its records as G1 measures them, the reach, the usable band, the surface waves' cone, the modes it takes |
 | `try_settings` | Tries variants of the line's settings on chosen windows, judged by the gates, against the current settings |
 | `commit` | Applies settings to the whole line, with their reasons: a run that PAC opens |
-| `observe`, `look` | Reads the checks of the line committed; looks at a window's records, image, curve or model (a figure with vision on, tables and measures otherwise) |
+| `observe`, `look` | Reads the checks of the line committed; looks at a window's records, image, curve or model |
 | `advise` | PACo's own choice for a lever (the window length, the mute, a passive line's segments, the picking), not applied |
 | `pick`, `decide`, `freeze` | Picks windows again, accepts or rejects each one with its reason, freezes the curves for the inversion |
 | `invert`, `job_status` | Inverts the frozen curves, in the background |
@@ -195,8 +194,8 @@ lists the profiles.
 
 Code keeps the work honest. The settings you type are never changed. The phases go in order:
 survey, curves, inversion, report. A window is rejected only after real tries. Budgets stop a run
-that spends too much. Figures reach the model unless `PACO_LLM_VISION=false`. The design is in
-`docs/autonomous_plan.md`.
+that spends too much. The model sees the figures: the autonomous mode judges every image by eye,
+so it needs a model that takes images. The design is in `docs/autonomous_plan.md`.
 
 ## How PACo works
 
@@ -246,7 +245,7 @@ Both modes use the same model, set by `PACO_LLM_*`. There are two ways to reach 
 | Your server, or any server speaking OpenAI's API: vLLM, Ollama, LM Studio, OpenRouter, a gateway | `server` (the default) | `PACO_LLM_BASE_URL`, `PACO_LLM_MODEL`, `PACO_LLM_CONTEXT`, and `PACO_LLM_API_KEY` if it asks for one |
 
 The workflow mode runs well with `Qwen/Qwen3-14B-FP8`, on a GPU with 24 GB of memory. The
-autonomous mode needs a frontier model with 128k tokens of context.
+autonomous mode needs a frontier model with vision and 128k tokens of context.
 
 **Your GPU, with vLLM.** Serve Qwen3 with its tool-call and reasoning parsers:
 
@@ -265,8 +264,7 @@ drops, PACo tries again for up to 30 s.
 
 **What a provider receives.** Your messages, the tools' descriptions and what the tools return:
 the gates' summaries in the workflow mode, the line's measures and tables in the autonomous mode.
-With vision on (the default), also the figures the autonomous mode looks at: set
-`PACO_LLM_VISION=false` to keep them on your machine.
+In the autonomous mode, also the figures it looks at: the mode judges every image by eye.
 
 **Other models.** The workflow mode works with any model that calls tools and fills a JSON schema.
 With vLLM, a model of another family needs its own `--tool-call-parser`, and no

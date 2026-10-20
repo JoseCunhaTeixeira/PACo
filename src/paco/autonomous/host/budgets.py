@@ -158,7 +158,8 @@ def refusal(spent: Spent, tool: str) -> str | None:
 
 
 def _cpu(used: Sequence[Use]) -> float | None:
-    """The time of the tools called in P2, in multiples of the first commit's; None before it."""
+    """The time of the tools called in P2, in multiples of the first commit's; None before it.
+    The search, the grid every study runs once, is not counted."""
     first = next(
         (
             one.seconds
@@ -170,6 +171,8 @@ def _cpu(used: Sequence[Use]) -> float | None:
     if not first:
         return None
     total = sum(
-        one.seconds for one in used if one.kind == "tool" and one.phase == "P2" and not one.refused
+        one.seconds
+        for one in used
+        if one.kind == "tool" and one.phase == "P2" and not one.refused and one.name != "search"
     )
     return total / first

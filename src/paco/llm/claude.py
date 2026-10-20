@@ -77,8 +77,8 @@ _STATUS: dict[int, type[openai.APIStatusError]] = {
 
 
 class AnthropicChat:
-    """Claude through Anthropic's API, as PACo's ChatModel: `vision` as the settings give it
-    (PACO_LLM_VISION), `thinking` unless a call says otherwise, at the model's own effort. A
+    """Claude through Anthropic's API, as PACo's ChatModel: `vision` as its maker gives it (PACo's
+    own connect it on), `thinking` unless a call says otherwise, at the model's own effort. A
     conversation holding an image is refused without vision, before anything is sent. A server
     that refuses or drops the connection is asked again for up to `reconnect_s`, waiting with
     `sleep`, as the other client does."""
@@ -273,8 +273,8 @@ class AnthropicChat:
         """Refuse `messages` when they hold an image and vision is off: nothing is sent."""
         if not self.vision and (count := images(messages)):
             raise ValueError(
-                f"The conversation holds {count} image(s) but vision is off "
-                "(PACO_LLM_VISION): no image may reach the model."
+                f"The conversation holds {count} image(s) but vision is off for this model: no "
+                "image may reach it."
             )
 
     def _converted(

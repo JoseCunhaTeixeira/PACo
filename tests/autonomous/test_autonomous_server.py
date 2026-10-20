@@ -177,7 +177,7 @@ def test_an_unforeseen_failure_reaches_the_model_with_its_reason(
 
 
 @pytest.mark.slow
-@pytest.mark.usefixtures("paco_env")
+@pytest.mark.usefixtures("paco_env", "searched")
 def test_the_tools_study_the_profile() -> None:
     # A study from its survey to a committed line, the tools' errors tagged as PACo tags them.
     first = {"masw": {"length": 90, "distance_max": 150.0}, "dispersion": {"nv": 250}}

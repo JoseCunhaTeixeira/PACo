@@ -1,0 +1,209 @@
+# The search's grid: every combination of a method's values is a variant scored in code; the model
+# chooses among them. One value: the same in every variant.
+
+group_velocities:
+  description: Surface waves' group velocities (segments, FK band, standard mute)
+  slowest: { description: Slowest, unit: m/s, value: 80 }
+  fastest: { description: Fastest, unit: m/s, value: 1500 }
+
+dispersion:
+  description: Phase shift's dispersion image grid, every method's
+  unit: stage
+  parameters:
+    fmin: { description: Lowest frequency, unit: Hz }
+    fmax: { description: Highest frequency, unit: Hz }
+    vmin: { description: Lowest phase velocity, unit: m/s }
+    vmax: { description: Highest phase velocity, unit: m/s }
+    nv: { description: Velocities, unit: count }
+  values:
+    - { fmin: 0.0, fmax: 100.0, vmin: 1.0, vmax: 1000.0, nv: 1000 }
+
+active:
+  length:
+    description: Window length (up to `longest` of the line's receivers)
+    unit: receivers
+    longest: 0.25
+    values: [5, 7, 9, 11, 13, 15, 17, 21, 25, 33, 41, 47, 95]
+  distance_min:
+    description: Nearest shot from the window's middle (null for none)
+    unit: m
+    values: [null]
+  distance_max:
+    description: Farthest shot from the window's middle (at least half the window)
+    unit: share of the survey's reach
+    values: [0.125, 0.25, 0.5, 1.0]
+  near_field_m:
+    description: Shots nearer the window dropped, where farther ones remain
+    unit: share of the window's length
+    values: [0.0, 0.5, 1.0]
+  trigger:
+    description: Delay common to every trace
+    unit: stage
+    parameters:
+      t0: { description: "Shot time (null: the headers')", unit: s }
+    values:
+      - { t0: null }
+  muting:
+    description: >-
+      Mute keeping the surface waves: vmin = first / widen, vmax = second * widen (slow, median,
+      fast: the survey's cone; slowest, fastest: group_velocities)
+    unit: name
+    parameters:
+      width:
+        {
+          description: Tail kept after the slowest arrival,
+          unit: s,
+          value: 0.05,
+        }
+      taper: { description: Edge taper, unit: s, value: 0.01 }
+    candidates:
+      none: null
+      standard: { from: [slowest, fastest] }
+      wider: { from: [slow, fast], widen: 2.25 }
+      cone: { from: [slow, fast], widen: 1.5 }
+      tight: { from: [median, median], widen: 1.5 }
+    values: [none, standard, wider, cone, tight]
+  filtering:
+    description: Band-pass filter of the records
+    unit: stage
+    parameters:
+      method: { description: none or iir, unit: name }
+      fmin: { description: Low edge, unit: Hz }
+      fmax: { description: "High edge (null: below Nyquist)", unit: Hz }
+      order: { description: Filter order, unit: count }
+    values:
+      - { method: none }
+  image_stacking:
+    description: Stacking of the shots' images
+    unit: stage
+    parameters:
+      method: { description: linear or root, unit: name }
+      n: { description: Root order, unit: count }
+    values:
+      - { method: linear }
+      - { method: root, n: 2 }
+
+passive-active:
+  length:
+    description: Window length (up to `longest` of the line's receivers)
+    unit: receivers
+    longest: 0.25
+    values: [5, 7, 9, 11, 13, 15, 17, 21, 25, 33, 41, 47, 95]
+  distance_min:
+    description: Nearest shot from the window's middle (null for none)
+    unit: m
+    values: [null]
+  distance_max:
+    description: Farthest shot from the window's middle (at least half the window)
+    unit: share of the survey's reach
+    values: [0.125, 0.25, 0.5, 1.0]
+  near_field_m:
+    description: Shots nearer the window dropped, where farther ones remain
+    unit: share of the window's length
+    values: [0.0, 0.5, 1.0]
+  trigger:
+    description: Delay common to every trace
+    unit: stage
+    parameters:
+      t0: { description: "Shot time (null: the headers')", unit: s }
+    values:
+      - { t0: null }
+  muting:
+    description: >-
+      Mute keeping the surface waves: vmin = first / widen, vmax = second * widen (slow, median,
+      fast: the survey's cone; slowest, fastest: group_velocities)
+    unit: name
+    parameters:
+      width:
+        {
+          description: Tail kept after the slowest arrival,
+          unit: s,
+          value: 0.05,
+        }
+      taper: { description: Edge taper, unit: s, value: 0.01 }
+    candidates:
+      none: null
+      standard: { from: [slowest, fastest] }
+      wider: { from: [slow, fast], widen: 2.25 }
+      cone: { from: [slow, fast], widen: 1.5 }
+      tight: { from: [median, median], widen: 1.5 }
+    values: [none, standard, wider, cone, tight]
+  filtering:
+    description: Band-pass filter of the records
+    unit: stage
+    parameters:
+      method: { description: none or iir, unit: name }
+      fmin: { description: Low edge, unit: Hz }
+      fmax: { description: "High edge (null: below Nyquist)", unit: Hz }
+      order: { description: Filter order, unit: count }
+    values:
+      - { method: none }
+  stacking:
+    description: Stacking of the correlations
+    unit: stage
+    parameters:
+      method: { description: "linear, phase_weighted or root", unit: name }
+      nu: { description: Phase weight power, unit: count }
+      n: { description: Root order, unit: count }
+    values:
+      - { method: linear }
+      - { method: phase_weighted, nu: 2 }
+      - { method: phase_weighted, nu: 4 }
+
+passive:
+  length:
+    description: Window length (up to `longest` of the line's receivers)
+    unit: receivers
+    longest: 0.25
+    values: [5, 7, 9, 11, 13, 15, 17, 21, 25, 33, 41, 47, 95]
+  filtering:
+    description: Band-pass filter of the records
+    unit: stage
+    parameters:
+      method: { description: none or iir, unit: name }
+      fmin: { description: Low edge, unit: Hz }
+      fmax: { description: "High edge (null: below Nyquist)", unit: Hz }
+      order: { description: Filter order, unit: count }
+    values:
+      - { method: none }
+  segments:
+    description: Noise segments, end to end, in crossings of the window at group_velocities.slowest
+    unit: crossings
+    values: [2, 3, 4, 6, 8, 11, 16]
+  fk_threshold:
+    description: FK selection keeps |f-k ratio| above this (none kept, no image)
+    unit: ratio
+    values: [0.0, 0.1, 0.2, 0.3, 0.4, 0.5, 0.6, 0.7, 0.8, 0.9, 1.0]
+  fk_band:
+    description: "Band the f-k ratio is measured in: open, group_velocities, or [vmin, vmax]"
+    unit: m/s
+    values: [open, group_velocities]
+  whitening:
+    description: Spectral whitening of the segments
+    unit: stage
+    parameters:
+      method: { description: onebit or onebit_apod, unit: name }
+      fmin: { description: Low edge, unit: Hz }
+      fmax: { description: "High edge (null: Nyquist)", unit: Hz }
+      taper_width_Hz: { description: Edge taper, unit: Hz }
+    values:
+      - { method: onebit_apod, fmin: 0.0, fmax: null, taper_width_Hz: 5.0 }
+  normalization:
+    description: Temporal normalization of the segments
+    unit: stage
+    parameters:
+      method: { description: onebit or none, unit: name }
+    values:
+      - { method: onebit }
+      - { method: none }
+  stacking:
+    description: Stacking of the correlations
+    unit: stage
+    parameters:
+      method: { description: "linear, phase_weighted or root", unit: name }
+      nu: { description: Phase weight power, unit: count }
+      n: { description: Root order, unit: count }
+    values:
+      - { method: linear }
+      - { method: phase_weighted, nu: 2 }
+      - { method: phase_weighted, nu: 4 }

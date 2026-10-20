@@ -38,6 +38,7 @@ paco-evaluate = "paco.evaluation.cli:main"
 paco-trace = "paco.agent.trace:main"
 paco-replay = "paco.qc.replay:main"
 paco-call = "paco.call:main"
+paco-grid = "paco.autonomous.tools.search:main"
 
 [dependency-groups]
 dev = ["pytest>=8", "ruff>=0.14", "pyright>=1.1", "pre-commit>=4"]
@@ -63,7 +64,7 @@ build-backend = "setuptools.build_meta"
 [tool.setuptools.packages.find]
 where = ["src"]
 
-# The prompts the model reads, in files next to their code.
+# The prompts the model reads and the search's grid, in files next to their code.
 [tool.setuptools.package-data]
 paco = [
     "prompts/*.md",
@@ -72,6 +73,7 @@ paco = [
     "autonomous/prompts/*.json",
     "autonomous/prompts/atlas/*.md",
     "autonomous/prompts/atlas/*.png",
+    "autonomous/*.yaml",
 ]
 
 

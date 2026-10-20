@@ -6,22 +6,29 @@ phase velocity v and frequency f.
 
 ## Where to start: the search, then your eye
 
-- Your first commit is PACo's own choice for the line, the result to beat: the length its ladder
-  chooses (advise window_length) and the mute its trial keeps (advise mute), or on a passive line
-  its segments (advise segments), with the preset's other settings and the user's. The line then
-  starts where the workflow ends, and every experiment runs against it as the current settings.
-- Then call search: it tries each value of every setting of PAC's page for the line's method
-  alone, over its whole range, then the best of those changes together, in pairs and all at once,
-  all on the same windows, and gives a shortlist with the table of all of them, each setting's
-  effect read in it. The shortlist holds the best by each measure (the image score, the fewest
-  stripes, the windows passing, the depth of the weakest windows), by window length. No measure
-  reads an image's quality: judge the shortlist by eye, the ridge unbroken over the widest band, a
-  quiet background, no stripes, the picks on it, along the line.
-- Then refine around what you judge best: a variant of the table tried with try_settings, changes
-  of your own near it, or search again with narrower ranges around it. Check the best two or
-  three on a hold-out set, and commit the best; if nothing beats PACo's choice, it stays, and you
-  say why. The image's band stays the preset's or the records' usable band: a narrower one hides
-  the ridge, it does not mend it.
+- After the survey, call search, once: the full grid of the line's settings, scored in code
+  (minutes). Every setting of PAC's page for the line's method takes the values the physics sets
+  (the windows' length over the line's range; the farthest shot as shares of the survey's reach;
+  the near field as shares of the window; PACo's mutes from the survey's cone; on a passive line
+  the segments as crossings of the window by the slowest wave, the FK thresholds and bands, the
+  whitening, the normalization; the stacking), and every combination of them is tried on the same
+  windows, judged by G1 to G3 as try_settings judges it; the values are the grid file's (PACo's
+  grid.yaml). Where the user's words call for it (their group velocities, the values they want),
+  give search's grid the changes, for this study alone. It does not start from PACo's workflow,
+  which is another way to process the line.
+- Its shortlist, an experiment shown side by side, holds the best by each measure (the image score,
+  the fewest stripes, the windows passing, the widest band the pick holds along the line, the depth
+  of the weakest windows), no two alike in their windows' settings; its summary gives each setting's
+  values, the best each gave. search again pages the whole table (sort by a measure, where some
+  settings' values); try_settings makes any row's images, given as {"grid": "<label>"}. No measure
+  reads an image's quality: choose by eye, the ridge unbroken over the widest band, a quiet
+  background, no stripes, the picks on the ridge, along the line.
+- Then check that your choice makes sense: the picks on M0 and not on a higher mode or an
+  artefact, few points beyond the windows' reach or in the near field, none aliased, the same
+  ridge from window to window, the physics explaining why it wins. Refine around it with
+  try_settings (a value between two of the grid's, a setting's neighbours), check the best two or
+  three on a hold-out set, and commit the best. The image's band stays the preset's or the
+  records' usable band: a narrower one hides the ridge, it does not mend it.
 
 ## Physics
 
@@ -80,9 +87,10 @@ phase velocity v and frequency f.
 
 ## Shots
 
-- near_field_m: a window stacks no shot nearer than that to its nearest receiver, where it has a
-  farther one; one with near shots only keeps them (G3 notes near_field). Keep the nearest shot
-  at least λmax/2 from the window.
+- near_field_m (active and passive-active: a shot correlated brings its near field too): a window
+  stacks no shot nearer than that to its nearest receiver, where it has a farther one; one with
+  near shots only keeps them (G3 notes near_field). Keep the nearest shot at least λmax/2 from the
+  window.
 - masw distance_max: the farthest shot from a window's middle, at the survey's reach by default;
   the window's far half extends L/2 beyond it. Far shots lose the high frequencies first, near
   ones carry them but bring the near field to the low ones: judge the ridge's high end and its
@@ -103,7 +111,7 @@ phase velocity v and frequency f.
 - muting (vmin, vmax, width, taper) keeps the surface waves' cone, from x/vmax to x/vmin plus the
   pulse's width, and removes what blurs their ridge: the faster arrivals (direct and refracted P,
   head waves) and the slower noise. It is the first lever of a line with shots, and the
-  surface-wave window of a passive-active line: try it in the first experiment, against no mute.
+  surface-wave window of a passive-active line: the grid tries PACo's mutes, and no mute.
   A mute cut hard at the slowest arrival rings in the image: PACo gives one without its width the
   wave train's tail (0.05 s) and without its taper 10 ms, as its own mute trial does.
 - The candidates: PACo's standard 80 to 1,500 m/s, the cone widened by 2.25 or 1.5 each side, and
@@ -203,11 +211,12 @@ phase velocity v and frequency f.
   segment's length. Longer segments give lower frequencies and a finer step, but fewer to stack, a
   noisier image: they are not more data. Short segments work best, the user finds: 1 s or less, by
   the window's length and the waves' velocities, long enough for the slowest wave to cross the
-  window a few times; search tries 2 to 16 crossings at 80 m/s. advise segments gives PACo's trial
-  (a few minutes): lengths of 10 to 80 crossings of the window at 80 m/s, FK thresholds of 0.05 to
-  0.3 with no band or 80 to 1,500 m/s; a candidate counts with 1 % of its segments kept and the
-  virtual shots of its two halves agreeing (0.7), and wins by the longest λmax/λmin. On passive_p2,
-  4.5 s segments with FK 0.2 in 80 to 1,500 m/s gave a span of 7.8 against 3.1.
+  window a few times; the grid tries 2 to 16 crossings at the slowest group velocity. advise
+  segments gives PACo's trial (a few minutes): lengths of 10 to 80 crossings of the window at
+  80 m/s, FK thresholds of 0.05 to 0.3 with no band or 80 to 1,500 m/s; a candidate counts with 1 %
+  of its segments kept and the virtual shots of its two halves agreeing (0.7), and wins by the
+  longest λmax/λmin. On passive_p2, 4.5 s segments with FK 0.2 in 80 to 1,500 m/s gave a span of 7.8
+  against 3.1.
 - On a passive line the settings follow PAC's page: the windows' length, by the wavelengths they
   must resolve (as on an active line); the preprocessing, a filter at most (no mute); then the
   interferometry in its order: the slicing (the segments' length, long enough for the slowest waves
@@ -292,8 +301,8 @@ phase velocity v and frequency f.
   high frequencies (its distance_max is the reach); on a passive line, segment lengths and FK
   bands between its candidates; on a passive or passive-active line, the whitening, the
   normalization and the stacking's nu, which it leaves at the preset's; a score weighing coverage
-  and depth within reach together, as the scorecard does. Each is a hypothesis: test it against
-  PACo's choice on the same windows.
+  and depth within reach together, as the scorecard does. The grid tries them; advise gives
+  PACo's choice, to compare with yours on the same windows.
 
 ## Diagnosis
 

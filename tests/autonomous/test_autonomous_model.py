@@ -253,9 +253,7 @@ def test_the_client_is_pacos_chat_model() -> None:
 
 
 def test_the_client_is_made_from_its_settings() -> None:
-    settings = ModelSettings(
-        llm_base_url="http://gpu.test:8001/v1", llm_model=MODEL, llm_vision=True
-    )
+    settings = ModelSettings(llm_base_url="http://gpu.test:8001/v1", llm_model=MODEL)
 
     model = chat_model(settings)
 

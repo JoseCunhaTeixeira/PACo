@@ -19,7 +19,11 @@ from sigpipe.masw.runs import find_run
 
 from paco.autonomous.host import answer
 from paco.autonomous.host.card import card
-from paco.autonomous.host.scope import BLANK, GeoScope
+from paco.autonomous.host.scope import (  # pyright: ignore[reportPrivateUsage]
+    BLANK,
+    GeoScope,
+    typed,
+)
 from paco.autonomous.tools import given, journal
 from paco.autonomous.tools.commit import Committed, commit
 from paco.autonomous.tools.given import Given, asks, given_of
@@ -64,6 +68,24 @@ def test_the_form_reads_the_settings_typed() -> None:
     # Each range low then high: the form sent back with why.
     with pytest.raises(ValidationError, match=re.escape("vs_min_m_s (300) must be below")):
         GeoScope.model_validate({**BLANK, "vs_min_m_s": 300.0, "vs_max_m_s": 150.0})
+
+
+def test_a_setting_the_message_does_not_write_is_not_the_users() -> None:
+    # "do not invert it" read by the form as 1 iteration, Vs bounds and a band no one typed.
+    guessed = GeoScope.model_validate(
+        {
+            **BLANK,
+            "fmax_hz": 0.0001,
+            "iterations": 1,
+            "vs_min_m_s": 0.0001,
+            "vs_max_m_s": 100000.0,
+            "vmax_m_s": 600.0,
+        }
+    )
+
+    kept = typed(guessed, "process the line with images up to 600 m/s, but do not invert it")
+
+    assert kept.given(1.5) == Given(line={"dispersion": {"vmax": 600.0}})
 
 
 def test_the_latest_message_giving_a_setting_wins(tmp_path: Path) -> None:

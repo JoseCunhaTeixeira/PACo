@@ -225,7 +225,11 @@ def folders(input_dir: Path, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) ->
 
 
 @pytest.fixture(scope="module")
-def played(input_dir: Path, tmp_path_factory: pytest.TempPathFactory) -> Iterator[Played]:
+def played(
+    input_dir: Path,
+    tmp_path_factory: pytest.TempPathFactory,
+    searched: None,  # noqa: ARG001
+) -> Iterator[Played]:
     root = tmp_path_factory.mktemp("host")
     with pytest.MonkeyPatch.context() as patch:
         patch.setitem(Settings.model_config, "env_file", None)
@@ -519,7 +523,10 @@ def test_a_run_stopped_in_p2_resumes_with_the_same_phase_budgets_and_card() -> N
 @pytest.mark.usefixtures("folders")
 def test_the_settings_typed_are_kept_and_a_later_message_changes_them() -> None:
     typed = {**SCOPE, "length_receivers": 24, "vmax_m_s": 350.0}
-    first = play([form(typed), said("Go on?"), answer_form("Asked.", question="Go on?")], [REQUEST])
+    first = play(
+        [form(typed), said("Go on?"), answer_form("Asked.", question="Go on?")],
+        ["Process active_test_profile with windows of 24 receivers, velocities up to 350 m/s."],
+    )
 
     first_call = next(body for body in first.model.bodies if "tools" in body)
     assert (
@@ -539,7 +546,7 @@ def test_the_settings_typed_are_kept_and_a_later_message_changes_them() -> None:
 
 
 @pytest.mark.slow
-@pytest.mark.usefixtures("folders")
+@pytest.mark.usefixtures("folders", "searched")
 def test_a_report_with_models_not_decided_sends_the_model_back_once() -> None:
     # The play to the first inversion; then a report before any model is decided.
     early = [said("The 8 windows are inverted."), answer_form("The 8 windows are inverted.")]

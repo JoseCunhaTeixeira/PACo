@@ -18,9 +18,9 @@ def test_both_modes_read_the_same_model(monkeypatch: pytest.MonkeyPatch) -> None
     agent = AgentSettings()  # pyright: ignore[reportCallIssue]
 
     assert model.model_dump() == agent.model_dump(include=set(ModelSettings.model_fields))
-    # A server by default, your GPU's, and the context compose serves vLLM with; vision on.
+    # A server by default, your GPU's, and the context compose serves vLLM with.
     assert (agent.llm_provider, agent.context()) == ("server", LOCAL_CONTEXT) == ("server", 16_384)
-    assert (agent.llm_vision, agent.llm_api_key.get_secret_value()) == (True, "EMPTY")
+    assert agent.llm_api_key.get_secret_value() == "EMPTY"
 
 
 @pytest.mark.parametrize(
@@ -65,7 +65,7 @@ def test_an_empty_setting_is_one_not_set(monkeypatch: pytest.MonkeyPatch) -> Non
 
     settings = AgentSettings()  # pyright: ignore[reportCallIssue]
 
-    assert (settings.llm_base_url, settings.llm_context, settings.llm_vision) == (None, None, True)
+    assert (settings.llm_base_url, settings.llm_context) == (None, None)
     assert settings.context() == FRONTIER_CONTEXT
     assert settings.llm_api_key.get_secret_value() == "EMPTY"
     assert ModeSettings().agent_mode == "workflow"

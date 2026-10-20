@@ -15,7 +15,7 @@ from pydantic import ValidationError
 
 from paco.agent.model import ChatModel
 from paco.autonomous.host.loop import Host, Limits, short_context
-from paco.llm.chat import chat_model, seeing
+from paco.llm.chat import blind, chat_model
 from paco.llm.settings import NO_MODEL, ModelSettings, missing
 from paco.settings import get_settings
 
@@ -50,8 +50,9 @@ async def chat(
         if (short := short_context(settings.context())) is not None:
             print(short)
             return
-        if (said := await seeing(model)) is not None:
+        if (said := await blind(model)) is not None:
             print(said)
+            return
         limits, vision = Limits.of(settings), model.vision
     async with Client(server) as client:
         host = await Host.start(client, model, get_settings(), limits=limits, vision=vision)

@@ -328,7 +328,7 @@ def checked(scope: Scope, context: Context, message: str | None = None) -> Scope
             update["run_id"] = None
         for name in _WINDOW_FIELDS:
             value = getattr(scope, name)
-            if value is not None and not _holds(message, value):
+            if value is not None and not holds(message, value):
                 update[name] = None
     return scope.model_copy(update=update)
 
@@ -337,7 +337,7 @@ def checked(scope: Scope, context: Context, message: str | None = None) -> Scope
 _WINDOW_FIELDS = ("length_receivers", "length_m", "step_receivers", "step_m")
 
 
-def _holds(message: str, value: float) -> bool:
+def holds(message: str, value: float) -> bool:
     """Whether `message` writes the number `value` (24, 5.75, or 5,75)."""
     written = re.escape(f"{value:g}")
     return re.search(rf"(?<![\d.]){written}(?![\d])", message.replace(",", ".")) is not None

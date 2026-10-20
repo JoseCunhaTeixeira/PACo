@@ -24,7 +24,7 @@ def tool_messages(
     named = "The figure" if len(figures) == 1 else f"The {len(figures)} figures"
     if not vision:
         left_out = "was" if len(figures) == 1 else "were"
-        note = f"{named} {left_out} left out: vision is off (PACO_LLM_VISION)."
+        note = f"{named} {left_out} left out: vision is off."
         return [{"role": "tool", "tool_call_id": call_id, "content": f"{content}\n\n{note}"}]
     follows = "follows" if len(figures) == 1 else "follow"
     parts: list[ChatCompletionContentPartParam] = [

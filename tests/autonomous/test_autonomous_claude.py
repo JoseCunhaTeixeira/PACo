@@ -338,7 +338,7 @@ def folders(input_dir: Path, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) ->
 
 
 @pytest.mark.slow
-@pytest.mark.usefixtures("folders")
+@pytest.mark.usefixtures("folders", "searched")
 @pytest.mark.parametrize(
     "described",
     [capabilities(), capabilities(disabled=False)],

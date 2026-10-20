@@ -13,7 +13,7 @@ from pydantic import Field, ValidationError, model_validator
 
 from paco import prompts as paco_prompts
 from paco.agent.model import ChatModel, Filled
-from paco.agent.scope import Context, Read, Scope, ScopeError, checked
+from paco.agent.scope import Context, Read, Scope, ScopeError, checked, holds
 from paco.autonomous import prompts
 from paco.autonomous.tools.given import BOUNDS, ITERATIONS, Given
 
@@ -167,8 +167,23 @@ async def read_objective(model: ChatModel, message: str, context: Context) -> Re
             messages.append({"role": "assistant", "content": filled.content})
             messages.append({"role": "user", "content": f"Not valid: {said}. Fill the form again."})
             continue
-        return Read(scope=checked(scope, context, message), fills=tuple(fills))
+        return Read(scope=typed(checked(scope, context, message), message), fills=tuple(fills))
     raise ScopeError(said)
+
+
+# The settings a user types: each one a number their message writes.
+TYPED = ("vmin_m_s", "vmax_m_s", "fmin_hz", "fmax_hz", "iterations", "vs_min_m_s", "vs_max_m_s")
+
+
+def typed[S: Scope](scope: S, message: str) -> S:
+    """`scope` without the typed settings its `message` does not write: the form's guess, not
+    the user's ("do not invert it" read as 1 iteration and Vs bounds no one gave)."""
+    update = {
+        name: None
+        for name in TYPED
+        if (value := getattr(scope, name, None)) is not None and not holds(message, value)
+    }
+    return scope.model_copy(update=update)
 
 
 def _examples() -> list[ChatCompletionMessageParam]:

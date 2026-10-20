@@ -55,8 +55,7 @@ def test_without_vision_a_figure_is_left_out_and_said() -> None:
         {
             "role": "tool",
             "tool_call_id": "call_1",
-            "content": f"{as_data('look', TEXT.text)}\n\n"
-            "The figure was left out: vision is off (PACO_LLM_VISION).",
+            "content": f"{as_data('look', TEXT.text)}\n\nThe figure was left out: vision is off.",
         }
     ]
     assert images(messages) == 0

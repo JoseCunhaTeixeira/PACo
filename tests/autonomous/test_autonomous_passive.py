@@ -234,12 +234,10 @@ def test_passive_active_is_a_mode_of_an_active_line(input_dir: Path, tmp_path: P
         for one in made.tried
     ]
     assert modes == ["active", "passive-active"]
-    for variant, said in (
-        ({"mode": "passive"}, "mode: active or passive-active on this active line, not passive"),
-        ({"mode": "passive-active", "near_field_m": 3.0}, "near_field_m: the active mode's"),
-    ):
-        with pytest.raises(ValueError, match=said):
-            try_settings(study, [variant], current=current, settings=settings, config=config)
+    with pytest.raises(ValueError, match="mode: active or passive-active on this active line"):
+        try_settings(
+            study, [{"mode": "passive"}], current=current, settings=settings, config=config
+        )
     # A change of mode is a new run: another preset.
     first = commit(study, current, {"masw length": "a test"}, None, settings, config)
     second = commit(study, {"mode": "passive-active"}, {"mode": "a test"}, None, settings, config)

@@ -54,7 +54,7 @@ class OpenAIChat:
     """A model behind OpenAI's chat API, as PACo's ChatModel: a server's, OpenAI's, Gemini's or
     Mistral's, as `dialect` says.
 
-    `vision`: whether images may reach the model (PACO_LLM_VISION); a conversation holding one
+    `vision`: whether images may reach the model (PACo's own connect it on); a conversation holding one
     is refused without it, before anything is sent. `thinking`: whether the model thinks before
     its replies unless a call says otherwise: on a server through vLLM's chat-template switch,
     which Qwen3's template reads and a template without it ignores; elsewhere, as the model does,
@@ -249,8 +249,8 @@ class OpenAIChat:
         """Refuse `messages` when they hold an image and vision is off: nothing is sent."""
         if not self.vision and (count := images(messages)):
             raise ValueError(
-                f"The conversation holds {count} image(s) but vision is off "
-                "(PACO_LLM_VISION): no image may reach the model."
+                f"The conversation holds {count} image(s) but vision is off for this model: no "
+                "image may reach it."
             )
 
 

@@ -60,15 +60,14 @@ async def tried(chat: Chat) -> str:
     return reply.content
 
 
-async def seeing(chat: Chat) -> str | None:
-    """Vision as the model allows it (PACO_LLM_VISION, on unless set off): switched off for the
-    run, saying why, when the model takes no images; None when it takes them, or vision is off."""
-    if not chat.vision or await chat.takes_images():
+async def blind(chat: Chat) -> str | None:
+    """Why the autonomous mode cannot run on the model: it takes no images, and the mode judges
+    every image by eye; None when it takes them."""
+    if await chat.takes_images():
         return None
-    chat.vision = False
     return (
-        f"{chat.name} takes no images: vision is off for this run, the figures come as ridge "
-        "tables and measures."
+        f"{chat.name} takes no images: the autonomous mode judges every image by eye, so it needs "
+        "a model that sees them. Choose one, or the workflow mode (PACO_AGENT_MODE=workflow)."
     )
 
 
@@ -80,6 +79,6 @@ def chat_model(settings: ModelSettings, *, reconnect_s: float = RECONNECT_S) -> 
         settings.llm_model,
         settings.llm_api_key,
         settings.llm_base_url,
-        vision=settings.llm_vision,
+        vision=True,
         reconnect_s=reconnect_s,
     )

@@ -52,6 +52,7 @@ from paco.autonomous.tools.trials import LineState, Study
 from paco.inversion import find_job
 from paco.jobs import JobManager
 from paco.qc.config import QCConfig, load_qc_config
+from paco.qc.loops import deep_merge
 from paco.settings import get_settings
 
 
@@ -82,7 +83,7 @@ PRESET_SETTINGS = (
     "The settings try_settings and commit can change for this profile, as a JSON Schema: meaning, "
     "unit, allowed values and default of each; a null default is derived from the profile. With "
     "mode, another mode's (passive-active on an active line). They also take mode, picking (the "
-    "automatic pick's parameters) and near_field_m (the active mode's). Call it only before "
+    "automatic pick's parameters) and near_field_m (the modes' with shots). Call it only before "
     "changing settings."
 )
 # What a tool says the model when the user stopped its work (paco.stopping).
@@ -104,7 +105,7 @@ LineSettings = Annotated[
     Field(
         description="The line's settings: mode (the profile's own, or passive-active on an active "
         "line), preset_settings' stages for that mode, picking and near_field_m (m, or null; the "
-        "active mode's). masw.step stays 1."
+        "modes' with shots, active and passive-active). masw.step stays 1."
     ),
 ]
 
@@ -257,7 +258,10 @@ def try_settings(
     profile: ProfileName,
     variants: Annotated[
         list[LineSettings],
-        Field(description=f"Changes of the line's settings, {trials.MOST_VARIANTS} at most."),
+        Field(
+            description=f"Changes of the line's settings, {trials.MOST_VARIANTS} at most; "
+            '{"grid": "<label>"}: a row of the search\'s table.'
+        ),
     ],
     ctx: Context,
     windows: Annotated[str, Field(description=f"The trial set: {trials.SPEC}.")] = trials.WINDOWS,
@@ -268,10 +272,23 @@ def try_settings(
     """Each variant tried with the current settings on the same trial windows, judged by G1 to
     G3, scored, the windows gained and lost against the current settings; changes no run. A
     trial made before is not made again. The experiment goes to the journal. With vision, every
-    variant side by side, sheets of the current settings and three (look experiment)."""
+    variant side by side, sheets of the current settings and three (look experiment). After the
+    search: its grid first, then your refinements."""
     study = _study(profile, ctx)
+    if searching.searched(study) is None:
+        raise RunError(
+            "Run search first: the full grid of the line's settings, scored in code, and its "
+            "shortlist to choose from; try_settings refines around your choice."
+        )
     line = committing.line_of(study)
     state = committing.line_state(_run_folder(study)) if line is not None else LineState()
+    # A row of the search's table, by its label: its changes, with the variant's own over them.
+    variants = [
+        deep_merge(searching.row_changes(study, str(one["grid"])), _without_grid(one))
+        if "grid" in one
+        else one
+        for one in variants
+    ]
     experiment = trials.try_settings(
         study,
         variants,
@@ -289,6 +306,14 @@ def try_settings(
     return _content(f"{said}\n\n{seen.text}", seen.figures)
 
 
+# The measures the search's table is sorted by.
+_MEASURES = ", ".join(name for name, _ in searching.MEASURES)
+
+
+def _without_grid(variant: dict[str, Any]) -> dict[str, Any]:
+    return {key: value for key, value in variant.items() if key != "grid"}
+
+
 @server.tool(annotations=paco_server.ADDS)
 @_errors
 def search(
@@ -297,32 +322,44 @@ def search(
     windows: Annotated[str, Field(description=f"The trial set: {trials.SPEC}.")] = (
         searching.WINDOWS
     ),
-    ranges: Annotated[
-        dict[str, list[Any]] | None,
+    grid: Annotated[
+        dict[str, Any] | None,
         Field(
-            description="Narrower ranges, by setting: [low, high] for a number (the segments in "
-            "crossings of the window), the values kept for a choice (by the names the table "
-            "gives); the others searched whole. None: every setting over its whole range."
+            description="Changes of PACo's grid (grid.yaml) for this study only, as the file "
+            'holds them: {"group_velocities": {"slowest": {"value": <m/s>}}}, or '
+            '{"<method>": {"<setting>": {"values": [<values>]}}}; where the user\'s words '
+            "call for them (their velocities, the values they want). The file stays as it is."
         ),
     ] = None,
+    sort: Annotated[
+        str | None,
+        Field(description="Once the grid has run, its table best first by: " + _MEASURES + "."),
+    ] = None,
+    where: Annotated[
+        dict[str, list[str]] | None,
+        Field(description="Once the grid has run, its rows with these values of settings."),
+    ] = None,
+    page: Annotated[int, Field(description="Once the grid has run, the table's page.", ge=1)] = 1,
 ) -> list[TextContent | ImageContent]:
-    """The line's settings tried on a grid in code, against the current settings: each value of
-    every setting of PAC's page for the line's method alone, over its whole range, then the best of
-    those changes together, in pairs and all at once; all on the same windows, several at once,
-    and scored. The shortlist, the best by each of several measures, becomes an experiment shown
-    side by side; the table gives every variant. No measure reads an image's quality: judge by
-    eye."""
+    """The full grid of the line's settings, scored in code, once a study: every combination of
+    the values the physics sets for each setting of PAC's page for the line's method, each
+    variant on the same windows, judged by G1 to G3 as try_settings judges it (minutes). The
+    shortlist, the best by each of several measures, becomes an experiment shown side by side;
+    the summary by setting shows where the grid is best. No measure reads an image's quality:
+    judge by eye, and check that your choice makes sense. Called again, a page of the grid's
+    table (its scores alone kept: try_settings makes a row's images)."""
     study = _study(profile, ctx)
+    if (made_before := searching.searched(study)) is not None:
+        return _content(searching.table(made_before, sort, where, page))
     line = committing.line_of(study)
     state = committing.line_state(_run_folder(study)) if line is not None else LineState()
     made, experiment = searching.search(
         study,
-        current=line.settings if line is not None else None,
         line=state,
         settings=get_settings(),
         config=_config(),
         windows=windows,
-        ranges=ranges,
+        grid_changes=grid,
     )
     journaling.experiment(study, experiment, None)
     said = searching.describe(made, experiment)

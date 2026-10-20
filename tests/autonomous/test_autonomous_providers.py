@@ -1,5 +1,5 @@
-"""The providers (docs/autonomous_plan.md §3, §16): vision switched off for a model that takes no
-images, as Anthropic's models API or a server refusing an image says it; Gemini's dialect, its
+"""The providers (docs/autonomous_plan.md §3, §16): a model that takes no images refused, as
+Anthropic's models API or a server refusing an image says it; Gemini's dialect, its
 thought signatures given back. The APIs are scripted
 (tests/autonomous/autonomous_scripted.py): nothing is called."""
 
@@ -9,7 +9,7 @@ import anyio
 from autonomous_scripted import ScriptedAnthropic, ScriptedServer, capabilities, usage
 from openai.types.chat import ChatCompletionMessageParam
 
-from paco.llm.chat import seeing
+from paco.llm.chat import blind
 from paco.llm.claude import AnthropicChat
 from paco.llm.model import SKIP_SIGNATURE, OpenAIChat
 
@@ -26,24 +26,23 @@ FORM = ({"role": "assistant", "content": '{"profile": "active_test_profile"}'}, 
 # ---------------------------------------------------------------- vision
 
 
-def test_vision_goes_off_for_a_model_that_takes_no_images() -> None:
-    blind = ScriptedAnthropic(described=capabilities(images=False))
-    seeing_model = ScriptedAnthropic()
+def test_a_model_that_takes_no_images_is_refused() -> None:
+    text_only = ScriptedAnthropic(described=capabilities(images=False))
+    multimodal = ScriptedAnthropic()
     chats = [
         AnthropicChat(server.client, "claude-sonnet-5-5", vision=True)
-        for server in (blind, seeing_model)
+        for server in (text_only, multimodal)
     ]
 
-    said = [anyio.run(seeing, chat) for chat in chats]
+    said = [anyio.run(blind, chat) for chat in chats]
 
     assert said[0] == (
-        "claude-sonnet-5-5 takes no images: vision is off for this run, the figures come as "
-        "ridge tables and measures."
+        "claude-sonnet-5-5 takes no images: the autonomous mode judges every image by eye, so it "
+        "needs a model that sees them. Choose one, or the workflow mode (PACO_AGENT_MODE=workflow)."
     )
     assert said[1] is None
-    assert [chat.vision for chat in chats] == [False, True]
     # The models API said it: no request was made of the model.
-    assert blind.bodies == seeing_model.bodies == []
+    assert text_only.bodies == multimodal.bodies == []
 
 
 def test_a_server_refusing_the_image_takes_none() -> None:

@@ -111,6 +111,8 @@ WINDOWS = "spread:15"
 PICKING = "picking"
 NEAR_FIELD = "near_field_m"
 MODE = "mode"
+# The modes whose windows stack shots, the near field theirs: imaged as recorded, or correlated.
+SHOTS = ("active", "passive-active")
 # The preset's parts a record's preprocessing reads (sigpipe's preprocessing pipeline).
 # The stages a record's preprocessing reads (a shot's trigger and mute, the filter): a change of
 # one preprocesses the records again.
@@ -391,9 +393,10 @@ def concrete(
     near = settings.get(NEAR_FIELD)
     if near is not None and (not isinstance(near, int | float) or near < 0):
         raise ValueError(f"{NEAR_FIELD}: a distance in metres, 0 or more, or null for none.")
-    if near is not None and mode != "active":
+    if near is not None and mode not in SHOTS:
         raise ValueError(
-            f"{NEAR_FIELD}: the active mode's, whose windows stack shots; none in the {mode} mode."
+            f"{NEAR_FIELD}: the modes' whose windows stack shots ({' and '.join(SHOTS)}); none in "
+            f"the {mode} mode."
         )
     picking = settings.get(PICKING) or {}
     if not isinstance(picking, Mapping):
@@ -442,9 +445,9 @@ def line_windows(
     """The line's windows with `trial`'s settings: one receiver apart, each stacking the shots
     masw.distance_min and distance_max give it, but those nearer than the near-field distance to
     its nearest receiver where it has a farther one whose record G1 keeps (`excluded`: those it
-    leaves out; the active mode's); on a passive line, every record."""
+    leaves out; the modes' with shots); on a passive line, every record."""
     windows = build_windows(profile, trial.preset.masw)
-    if trial.near_field_m is not None and trial.preset.mode == "active":
+    if trial.near_field_m is not None and trial.preset.mode in SHOTS:
         windows, _ = near_field_windows(windows, trial.near_field_m, excluded)
     return windows
 
@@ -648,18 +651,7 @@ def tried(
 ) -> tuple[TrialRun, bool]:
     """`trial` on `windows`: its result, made now or taken from the study when made before (the
     same settings on the same windows, by the same code), and whether it was taken."""
-    preset = trial.preset.model_dump(mode="json")
-    key = _key(
-        {
-            "code": caching.code_version(),
-            "profile": study.profile,
-            "preset": preset,
-            "picking": trial.picking.model_dump(mode="json"),
-            "near_field_m": trial.near_field_m,
-            "windows": [_xmid(window) for window in windows],
-            "qc": config.model_dump(mode="json"),
-        }
-    )
+    key = trial_key(study, trial, windows, config)
     folder = study.folder / TRIALS / key
     if (folder / RESULT).exists():
         return TrialRun.model_validate_json((folder / RESULT).read_text()), True
@@ -679,7 +671,7 @@ def tried(
     outcomes = image(windows, trial.preset, records, folder, exclusions, settings)
     started = time.process_time()
     judge = TrialJudge(config.coherence, config.curve, trial.picking, config.image)
-    results = tuple(_judged(folder, outcome, trial, judge, usable, config) for outcome in outcomes)
+    results = tuple(judged(folder, outcome, trial, judge, usable, config) for outcome in outcomes)
     xs = [receiver.x for receiver in windows[0].acquisitions[0].receivers]
     run = TrialRun(
         key=key,
@@ -698,6 +690,22 @@ def tried(
     )
     write_atomic(folder / RESULT, run.model_dump_json(indent=2))
     return run, False
+
+
+def trial_key(study: Study, trial: Trial, windows: Sequence[MASWWindow], config: QCConfig) -> str:
+    """What names `trial` on `windows` in the study: its settings, its windows, the code and the
+    QC configuration."""
+    return _key(
+        {
+            "code": caching.code_version(),
+            "profile": study.profile,
+            "preset": trial.preset.model_dump(mode="json"),
+            "picking": trial.picking.model_dump(mode="json"),
+            "near_field_m": trial.near_field_m,
+            "windows": [_xmid(window) for window in windows],
+            "qc": config.model_dump(mode="json"),
+        }
+    )
 
 
 def tried_all(
@@ -886,7 +894,7 @@ def _experiment(
     )
 
 
-def _judged(
+def judged(
     folder: Path,
     outcome: WindowOutcome,
     trial: Trial,

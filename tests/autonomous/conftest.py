@@ -1,5 +1,6 @@
 import socket
 from collections.abc import Iterator
+from datetime import UTC, datetime
 from pathlib import Path
 
 import pytest
@@ -8,6 +9,9 @@ from local_lines import ACTIVE, PASSIVE, PROFILE_SHOTS, link_active, link_passiv
 
 from paco.agent import AgentSettings
 from paco.agent.settings import OutputSettings
+from paco.autonomous.tools import search as searching
+from paco.autonomous.tools.search import Search
+from paco.autonomous.tools.trials import WINDOWS, Study
 from paco.llm.settings import ModelSettings
 from paco.modes import ModeSettings
 from paco.settings import Settings, get_settings
@@ -63,6 +67,33 @@ def paco_env(
     get_settings.cache_clear()
     yield get_settings()
     get_settings.cache_clear()
+
+
+@pytest.fixture(scope="module")
+def searched() -> Iterator[None]:
+    """Every study taken as searched, for the scripted plays that try settings without the full
+    grid (minutes long); the module's later tests too."""
+    made = Search(
+        id="S1",
+        windows=WINDOWS,
+        axes={},
+        units={},
+        changes={},
+        rows=(),
+        refused=0,
+        refusal=None,
+        shortlist={},
+        experiment="E0",
+        seconds=0.0,
+        made_at=datetime(2026, 1, 1, tzinfo=UTC),
+    )
+
+    def made_before(_study: Study) -> Search:
+        return made
+
+    with pytest.MonkeyPatch.context() as patch:
+        patch.setattr(searching, "searched", made_before)
+        yield
 
 
 @pytest.fixture
