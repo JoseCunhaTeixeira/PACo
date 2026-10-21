@@ -297,7 +297,7 @@ def _span(values: Iterable[float]) -> str:
 
 
 def _number(value: float) -> str:
-    return f"{int(value):,}" if value.is_integer() else f"{value:g}"
+    return f"{int(value)}" if value.is_integer() else f"{value:g}"
 
 
 def _value(values: Mapping[str, Any], key: str) -> str:

@@ -207,10 +207,12 @@ def score(
     config: QCConfig,
     sheets: Path | None = None,
     places: Sequence[float] = (),
+    on_progress: trials.Progress | None = None,
 ) -> tuple[dict[str, trials.TrialRun], dict[str, str]]:
     """Each of `variants` (by label) on the trial set `windows`, judged as `tried` judges it:
     its run, and why each variant that could not be tried could not. With `sheets`, each
-    variant's thumbnails at its windows nearest `places` written there, <label>.npz."""
+    variant's thumbnails at its windows nearest `places` written there, <label>.npz. Each
+    preprocessing made and each window imaged said to `on_progress`."""
     parts = trials.parse_windows(windows)
     last = trials.last_xmids(study)
     bases: dict[str, list[str]] = {}
@@ -227,6 +229,8 @@ def score(
     try:
         for number, labels in enumerate(bases.values()):
             stopping.check()
+            if on_progress is not None:
+                on_progress(number, len(bases), "preprocessings done")
             folder = scratch / f"b{number}"
             first = variants[labels[0]].preset
             records, _ = trials.with_records(study, folder, first, profile, settings, config)
@@ -273,7 +277,7 @@ def score(
                         tuple(entries),
                     )
                 )
-        results, thumbs = _made(tasks, scratch, settings.workers)
+        results, thumbs = _made(tasks, scratch, settings.workers, on_progress)
     finally:
         shutil.rmtree(scratch, ignore_errors=True)
     if sheets is not None:
@@ -345,10 +349,10 @@ def _entry(
 
 
 def _made(
-    tasks: Sequence[Task], scratch: Path, workers: int
+    tasks: Sequence[Task], scratch: Path, workers: int, on_progress: trials.Progress | None = None
 ) -> tuple[dict[str, list[tuple[trials.WindowResult, float]]], dict[str, list[Thumb]]]:
     """Every task on `workers` processes: each variant's window results, with what each cost,
-    and its thumbnails."""
+    and its thumbnails; each task done said to `on_progress`."""
     results: dict[str, list[tuple[trials.WindowResult, float]]] = {}
     thumbs: dict[str, list[Thumb]] = {}
     if not tasks:
@@ -359,7 +363,9 @@ def _made(
         max_workers=workers, initializer=_start, initargs=(scratch,)
     ) as executor:
         futures = [executor.submit(made_window, task) for task in tasks]
-        for future in finished(executor, futures, stopping.current()):
+        for count, future in enumerate(finished(executor, futures, stopping.current()), start=1):
+            if on_progress is not None:
+                on_progress(count, len(tasks), "trial windows imaged")
             for label, result, cost, thumb in future.result():
                 results.setdefault(label, []).append((result, cost))
                 if thumb is not None:

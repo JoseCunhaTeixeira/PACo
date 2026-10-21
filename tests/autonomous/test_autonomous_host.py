@@ -280,6 +280,27 @@ def test_a_scripted_conversation_runs_p0_to_p5(played: Played) -> None:
 
 
 @pytest.mark.slow
+def test_each_step_that_changes_the_study_says_what_it_did(played: Played) -> None:
+    outcomes = [line for line in played.events if line.startswith("<- ")]
+    # Each tool's first outcome, by tool.
+    first = {line.split(":")[0].removeprefix("<- "): line for line in reversed(outcomes)}
+
+    # After each call that changed the study, what it did; none after those that read.
+    assert set(first) == {"survey", "try_settings", "commit", "pick", "decide", "freeze", "invert"}
+    survey = first["survey"]
+    assert survey.startswith("<- survey: ") and " receivers, " in survey and "usable " in survey
+    # In the user's words, without the journal's ids.
+    assert first["try_settings"] == "<- try_settings: 1 variant on 3 test windows"
+    assert first["commit"] == "<- commit: 78 receivers, farthest shot 150 m, dispersion nv 250"
+    assert first["decide"].startswith("<- decide: ") and " windows accepted, " in first["decide"]
+    assert first["freeze"].startswith("<- freeze: 8 curves accepted, ")
+    assert first["invert"] == "<- invert: 8 of 8 windows inverted"
+    assert any(" models accepted, " in line for line in outcomes if line.startswith("<- decide"))
+    # The inversion followed as a step of its own, as PACo's agent follows one.
+    assert any(line.startswith("-> job_status(") for line in played.events)
+
+
+@pytest.mark.slow
 def test_the_report_adds_what_was_tried_and_each_windows_outcome(played: Played) -> None:
     report = played.answer
 
@@ -845,7 +866,8 @@ def test_the_sheets_are_judged_in_calls_of_their_own_until_refused_three_times(
     assert sum(1 for one in used if one.kind == "form" and one.name == "judge") == 5
     assert budgets.spent(played.study, "quick").model_calls == 4
     assert [step.is_error for step in steps] == [True, False, True, True, True]
-    assert "   Round 1, judged by eye: sheet 1: g1, g2." in played.events
+    # The search's progress: each round's sheets judged so far.
+    assert "   search: round 1, 1 of 2 sheets judged" in played.events
 
 
 @pytest.mark.slow
@@ -891,5 +913,6 @@ def test_the_judged_finalists_come_to_the_model_tried_side_by_side(
     assert messages[at + 1]["role"] == "user" and messages[at + 1]["content"][1]["type"] == (
         "image_url"
     )
-    assert "   Round 1, judged by eye: sheet 1: g1, g2; sheet 2: g13." in played.events
-    assert "   Round 2, judged by eye: sheet 1: g2, g13." in played.events
+    # The search's progress: round 1 judged in one call, then the finalists tried, each said.
+    assert "   search: round 2, 0 of 1 sheets judged" in played.events
+    assert "   search: 3 of 3 settings tried" in played.events

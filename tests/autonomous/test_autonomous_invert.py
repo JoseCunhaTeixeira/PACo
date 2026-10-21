@@ -374,7 +374,7 @@ def test_the_full_effort_runs_pacs_sampler_at_least() -> None:
     assert _sampler(at_effort(users, {}, {"n_iterations": 50_000}, "full")) == (50_000, 12_500, 5)
     # Less asked at the full effort is refused, saying where it goes.
     check_full = invert._check_full  # pyright: ignore[reportPrivateUsage]
-    with pytest.raises(ValueError, match=r"not n_iterations 20,000\. A shorter pass is the quick"):
+    with pytest.raises(ValueError, match=r"not n_iterations 20000\. A shorter pass is the quick"):
         check_full({"n_iterations": 20_000, "n_burnin_iterations": 5_000}, given.Given())
     check_full({"n_iterations": 400_000, "n_chains": 8}, given.Given())
     # The user's iterations, said again, stay theirs.

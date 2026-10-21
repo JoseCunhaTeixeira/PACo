@@ -463,7 +463,7 @@ def _invert_group(
 def _check_full(parameters: Mapping[str, Any], user: Given) -> None:
     """Refused, saying why: a sampler under PAC's at the full effort, but the user's."""
     under = [
-        f"{key} {value:,g}"
+        f"{key} {value:g}"
         for key, least in FULL_SAMPLER.items()
         if key not in user.inversion
         and isinstance(value := parameters.get(key), int | float)
@@ -471,7 +471,7 @@ def _check_full(parameters: Mapping[str, Any], user: Given) -> None:
     ]
     if under:
         raise ValueError(
-            f"The full effort runs PAC's sampler at least ({FULL_SAMPLER['n_iterations']:,} "
+            f"The full effort runs PAC's sampler at least ({FULL_SAMPLER['n_iterations']} "
             f"iterations, {FULL_SAMPLER['n_chains']} chains), not {' or '.join(under)}. A "
             "shorter pass is the quick effort's, with the values you give."
         )

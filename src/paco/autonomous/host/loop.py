@@ -30,6 +30,7 @@ from functools import cache
 from typing import Any, cast
 
 from mcp import Client
+from mcp.shared.dispatcher import ProgressFnT
 from mcp.types import CallToolResult, RequestParamsMeta, TextContent, Tool
 from openai.types.chat import ChatCompletionContentPartParam, ChatCompletionMessageParam
 from sigpipe.masw.profiles import ProfileError, load_profile
@@ -47,7 +48,7 @@ from paco.autonomous import prompts
 from paco.autonomous.conversion import tool_messages
 from paco.autonomous.host import answer as answering
 from paco.autonomous.host import budgets, judging
-from paco.autonomous.host.card import card, effort_of, objective_of, state
+from paco.autonomous.host.card import card, effort_of, objective_of, outcome, state
 from paco.autonomous.host.phases import (
     MANUALS,
     Phase,
@@ -139,7 +140,7 @@ def short_context(context: int) -> str | None:
         return None
     return (
         f"The autonomous mode needs a model with a long context: 128k tokens advised, "
-        f"{CONTEXT_FLOOR // 1024}k at least, and this one has {context:,} (PACO_LLM_CONTEXT). "
+        f"{CONTEXT_FLOOR // 1024}k at least, and this one has {context} (PACO_LLM_CONTEXT). "
         "Choose a frontier model, or the workflow mode (PACO_AGENT_MODE=workflow)."
     )
 
@@ -439,6 +440,7 @@ class Host:
                 call.name,
                 cast(dict[str, Any], arguments),
                 read_timeout_seconds=self._limits.tool_seconds,
+                progress_callback=self._progress(call.name),
                 meta=self.meta,
             )
         except Exception as error:
@@ -470,19 +472,21 @@ class Host:
             }
             carried = [followed]
         self._short[call.id] = self._shortened(call.name, text, failed)
-        if not failed:
-            self._said(call.name)
+        if not failed and (did := outcome(study, self._settings, call.name)) is not None:
+            self._on_event(f"<- {call.name}: {did}")
         return carried
 
     async def _follow(self, job_id: str, phase: Phase) -> str:
-        """Job `job_id` followed with job_status until it ends, a line for the user each time it
-        is asked: its status once ended."""
+        """Job `job_id` followed with job_status until it ends, a step for the user, its progress
+        said as it goes (as PACo's agent follows one): its status once ended."""
+        self._on_event(f"-> job_status({json.dumps({'job_id': job_id})})")
         while True:
             started = time.perf_counter()
             result = await self._client.call_tool(
                 "job_status",
                 {"job_id": job_id},
                 read_timeout_seconds=self._limits.tool_seconds,
+                progress_callback=self._progress("job_status"),
                 meta=self.meta,
             )
             seconds = time.perf_counter() - started
@@ -504,8 +508,6 @@ class Host:
                     by_host=True,
                 )
             )
-            head = text.splitlines()[0] if text else job_id
-            self._on_event(f"   {head}")
             if result.is_error or "Call job_status again" not in text:
                 return text
 
@@ -520,7 +522,7 @@ class Host:
         line = judging.facts(study.profile, mode, goal.text if goal is not None else "none")
         head, *rest = searched.content
         said = head.text if isinstance(head, TextContent) else ""
-        sheets = CallToolResult(content=rest)
+        sheets: CallToolResult = CallToolResult(content=rest)
         refused: str | None = None
         tries = calls = 0
         while True:
@@ -532,7 +534,6 @@ class Host:
                 )
             started = time.perf_counter()
             calls += 1
-            before = searching.knockout_of(study)
             try:
                 judged = await judging.judge(
                     self._model, line, sheets, vision=self._vision, refused=refused
@@ -544,8 +545,12 @@ class Host:
                 self._judge_steps(judged.fills, phase, time.perf_counter() - started)
                 result = await self._judge(judging.as_arguments(study.profile, judged), phase)
                 refused = judging.text_of(result) if result.is_error else None
-                if not result.is_error and before is not None:
-                    self._on_event(f"   Round {before.round}, judged by eye: {judged.said()}.")
+                now = searching.knockout_of(study)
+                if not result.is_error and now is not None and not now.finalists:
+                    self._on_event(
+                        f"   search: round {now.round}, {len(now.kept)} of {len(now.sheets)} sheets "
+                        "judged"
+                    )
             if refused is not None:
                 tries += 1
                 if tries == JUDGE_TRIES:
@@ -572,7 +577,12 @@ class Host:
         started = time.perf_counter()
         try:
             result = await self._client.call_tool(
-                "judge", arguments, read_timeout_seconds=self._limits.tool_seconds, meta=self.meta
+                "judge",
+                arguments,
+                read_timeout_seconds=self._limits.tool_seconds,
+                # The last sheet's finalists tried side by side: the search's last step.
+                progress_callback=self._progress("search"),
+                meta=self.meta,
             )
         except Exception as error:
             result = CallToolResult(
@@ -621,20 +631,13 @@ class Host:
                 )
             )
 
-    def _said(self, name: str) -> None:
-        """The progress line after a tool that changed the study: its journal entry."""
-        kinds = {
-            "try_settings": "experiment",
-            "commit": "commit",
-            "freeze": "freeze",
-            "invert": "inversion",
-        }
-        if name not in kinds:
-            return
-        found = journal.entries(self._study)
-        entry = next((one for one in reversed(found) if one.kind == kinds[name]), None)
-        if entry is not None:
-            self._on_event(f"   {journal.line(entry)}")
+    def _progress(self, name: str) -> ProgressFnT:
+        """A tool's progress as the user reads it: "   <tool>: 3 of 8 settings tried"."""
+
+        async def said(progress: float, total: float | None, message: str | None) -> None:
+            self._on_event(f"   {name}: {message or f'{progress:g} of {total or 0:g}'}")
+
+        return said
 
     def _shortened(self, name: str, text: str, failed: bool) -> str:
         """A tool message as the conversation keeps it once read: an experiment's journal line

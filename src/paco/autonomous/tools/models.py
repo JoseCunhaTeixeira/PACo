@@ -203,5 +203,5 @@ def _flags(*results: GateResult | None) -> list[Flag]:
 def _tried(one: Inverted) -> str:
     """An inversion in a few words: its number, its effort and what G5 said."""
     iterations = one.parameters.get("n_iterations")
-    effort = f"{iterations:,} iterations" if isinstance(iterations, int) else "not run"
+    effort = f"{iterations} iterations" if isinstance(iterations, int) else "not run"
     return f"#{one.number} {effort} ({one.verdict or one.error or 'no verdict'})"

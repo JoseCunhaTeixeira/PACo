@@ -13,4 +13,6 @@
 - iterations: the inversion's iterations it gives (with 20,000 iterations: 20000), else null.
 - vs_min_m_s and vs_max_m_s: the shear-wave velocities it allows the models (Vs between 150 and
   300 m/s: 150 and 300), else null.
-- A setting the message does not type stays null: PACo keeps those it types as given.
+- A setting the message does not type stays null: PACo keeps those it types as given. So does a
+  setting it only suggests or asks about (maybe 24 receivers?, what about 60 Hz?, could you try
+  wider windows?): PACo keeps only what the message plainly asks for.

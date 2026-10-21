@@ -32,5 +32,9 @@
       "vs_min_m_s": 120,
       "vs_max_m_s": 450
     }
+  },
+  {
+    "message": "Maybe try windows of 24 receivers? And use velocities up to 350 m/s.",
+    "form": {"vmax_m_s": 350}
   }
 ]

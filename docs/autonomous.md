@@ -13,8 +13,9 @@ context (128k tokens): every choice of settings is made by eye.
 
 A conversation is one study of one profile: its first message makes the study, each later
 message goes on with it, and a new conversation makes a new study. Every message is read into the
-objective's form: the settings it types are kept over those given before, and a message about
-another profile asks for a new conversation. The study's phase is read from its records before
+objective's form: the settings it plainly asks for are kept over those given before (a setting it
+only suggests or asks about reaches the model as words, not kept), and a message about another
+profile asks for a new conversation. The study's phase is read from its records before
 every call, so a stopped answer goes on, at the next message, where the study stands.
 
 | Phase | What the model does | Ends when |
@@ -77,7 +78,7 @@ of their windows passing, are dropped. Every other variant is judged by eye, wit
 | `given.json` | The settings the user typed, locked for every trial, commit and inversion |
 | `survey.json` | The survey |
 | `searches/` | The grid's variants and scores, the knockout, each sheet's judgment |
-| `experiments/` | Each experiment's variants and scorecards |
+| `experiments/` | Each experiment's variants and scorecards; their dispersion images as thumbnails (`images/`) |
 | `line.json` | The committed line: its run and its commits with their reasons |
 | `picks.jsonl`, `decisions.jsonl` | The model's own picks and decisions |
 | `curves.json` | The frozen curves |
@@ -122,5 +123,6 @@ Only the results stay. At the freeze, and when a session ends, the study's worki
 removed: the records each base preprocessed, the trials' windows, G1's settled records, the
 search's thumbnails, and once the curves are frozen the survey's figures. The images' cache is
 emptied when a session ends, once no other conversation answers. The line's run, the frozen
-curves, the journal, the decisions, the experiments' and the search's scores and the transcripts
-stay. A study opened again after its report makes again what it needs.
+curves, the journal, the decisions, the experiments' and the search's scores, each experiment's
+dispersion images (as thumbnails) and the transcripts stay. A study opened again after its report
+makes again what it needs.

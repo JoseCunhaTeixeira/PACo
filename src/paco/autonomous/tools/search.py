@@ -580,12 +580,13 @@ def search(
     config: QCConfig,
     windows: str = WINDOWS,
     grid_changes: Mapping[str, Any] | None = None,
+    on_progress: trials.Progress | None = None,
 ) -> tuple[Search, Knockout | None]:
     """The full grid of the line's settings on the trial set `windows`, from the preset and the
     user's settings, each variant scored by the grid, its thumbnails kept; `grid_changes`: of
     grid.yaml's values, for this study. The really bad dropped, the others sorted into the first
     round's sheets (none when no variant gave an image to judge). Once a study, saved in its
-    searches/."""
+    searches/; the scoring said to `on_progress` as it goes."""
     trials.check_open(study)
     if searched(study) is not None:
         raise ValueError("The grid has run: search shows its sheets left to judge.")
@@ -636,7 +637,7 @@ def search(
     images = folder / IMAGES
     places = places_of(profile)
     runs, failed = grid.score(
-        study, variants, windows, line, profile, settings, config, images, places
+        study, variants, windows, line, profile, settings, config, images, places, on_progress
     )
     refused += failed.values()
     rows = [

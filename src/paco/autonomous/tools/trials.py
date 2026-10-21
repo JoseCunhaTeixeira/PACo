@@ -27,8 +27,8 @@ import re
 import shutil
 import threading
 import time
-from collections.abc import Collection, Mapping, Sequence
-from concurrent.futures import ThreadPoolExecutor
+from collections.abc import Callable, Collection, Mapping, Sequence
+from concurrent.futures import ThreadPoolExecutor, as_completed
 from dataclasses import dataclass, field
 from datetime import UTC, datetime
 from pathlib import Path
@@ -91,6 +91,9 @@ G1 = "g1"
 SETTLED = "settled.json"  # in a folder of g1/
 TRIALS = "trials"
 EXPERIMENTS = "experiments"
+# In experiments/: each variant's dispersion images, kept as thumbnails once its trial's windows
+# go (tidy), <trial>.npz.
+EXPERIMENT_IMAGES = "images"
 RESULT = "result.json"
 INDEX = "index.json"
 # The frozen curves (freeze): once written, the study is past its curves (P4).
@@ -121,6 +124,8 @@ SPEC = "spread:n, failing, flag:<name>, xmids:[x, ...] or holdout:n, joined by +
 # A study's id, as a run's: when it began, and four hex digits.
 # A line's preset, in any mode.
 type Preset = ActivePreset | PassivePreset | PassiveActivePreset
+# What a long step says as it goes: how many of how many, and of what ("variants tried").
+type Progress = Callable[[int, int, str], None]
 STUDY_ID = re.compile(r"\d{8}-\d{6}-[0-9a-f]{4}")
 _PART = re.compile(r"(spread|holdout):(\d+)|(failing)|flag:(\w+)|xmids:(\[.*\])")
 
@@ -713,27 +718,40 @@ def tried_all(
     profile: Profile,
     settings: Settings,
     config: QCConfig,
+    on_progress: Progress | None = None,
 ) -> list[tuple[TrialRun, bool]]:
     """Each trial on its windows (tried): the first alone, on every worker, its images then in the
     cache for the others that share them; the others AT_ONCE at a time, each with its share of the
     workers, since a variant's pool starts slowly and its few windows would leave the machine
-    idle."""
+    idle. Each trial done said to `on_progress`."""
     if not trials:
         return []
+
+    def done(count: int) -> None:
+        if on_progress is not None:
+            on_progress(count, len(trials), "settings tried")
+
     first = tried(study, *trials[0], profile, settings, config)
+    done(1)
     rest = trials[1:]
     at_once = min(AT_ONCE, len(rest), settings.workers)
     if at_once < 2:
-        return [first, *(tried(study, *one, profile, settings, config) for one in rest)]
+        made: list[tuple[TrialRun, bool]] = [first]
+        for one in rest:
+            made.append(tried(study, *one, profile, settings, config))
+            done(len(made))
+        return made
     each = settings.model_copy(update={"workers": max(1, settings.workers // at_once)})
     with ThreadPoolExecutor(at_once) as pool:
-        made = [
+        futures = [
             pool.submit(
                 contextvars.copy_context().run, tried, study, trial, windows, profile, each, config
             )
             for trial, windows in rest
         ]
-        return [first, *(one.result() for one in made)]
+        for count, _ in enumerate(as_completed(futures), start=2):
+            done(count)
+        return [first, *(one.result() for one in futures)]
 
 
 def try_settings(
@@ -745,12 +763,14 @@ def try_settings(
     line: LineState | None = None,
     settings: Settings,
     config: QCConfig,
+    on_progress: Progress | None = None,
 ) -> Experiment:
     """`variants`, each a change of the line's `current` settings (none: the preset's), tried
     with the current settings themselves on the trial set `windows` names, each judged by G1 to
     G3 and scored; the windows each gains and loses against the current settings, and the
     variants another one dominates. The settings the user gave stay in every variant, and a
-    variant changing one is refused. The same call made before returns its experiment again."""
+    variant changing one is refused. The same call made before returns its experiment again.
+    Each setting tried said to `on_progress`."""
     check_open(study)
     if not variants:
         raise ValueError("Give a variant at least: a change of the current settings.")
@@ -771,7 +791,7 @@ def try_settings(
     last = last_xmids(study)
     chosen = [(trial, trial_windows(trial, profile, parts, line, last)) for trial in trials]
     stopping.check()
-    runs = tried_all(study, chosen, profile, settings, config)
+    runs = tried_all(study, chosen, profile, settings, config, on_progress)
     call = _key({"windows": windows, "trials": [run.key for run, _ in runs]})
     index = _index(study)
     if call in index["calls"]:

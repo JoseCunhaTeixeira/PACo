@@ -59,6 +59,7 @@ from paco.autonomous.tools.trials import (
     PREPROCESSING,
     LineState,
     Preset,
+    Progress,
     Study,
     Trial,
     check_open,
@@ -144,10 +145,12 @@ def commit(
     experiment: str | None,
     settings: Settings,
     config: QCConfig,
+    on_progress: Progress | None = None,
 ) -> Committed:
     """The study's line made with `changes` on its committed settings (the first commit: on the
     preset's), each changed setting with its one-line reason in `reasons` ('<stage> <key>', or
-    '<stage>' for all its keys), from `experiment` (E<n>) when one gave them."""
+    '<stage>' for all its keys), from `experiment` (E<n>) when one gave them. A new run's windows
+    imaged said to `on_progress`."""
     check_open(study)
     profile = load_profile(study.profile, settings)
     line = line_of(study)
@@ -200,7 +203,9 @@ def commit(
     decided_before = (study.folder / DECISIONS).exists()
     with caching.using(image_cache(settings)):
         if line is None or "masw" in changed or MODE in changed:
-            run_id = _new_run(study, profile, trial, parameters, notes, settings, config)
+            run_id = _new_run(
+                study, profile, trial, parameters, notes, settings, config, on_progress
+            )
             reapplied: dict[str, Picked] = {}
         else:
             run_id = line.run_id
@@ -273,12 +278,24 @@ def _new_run(
     notes: tuple[str, ...],
     settings: Settings,
     config: QCConfig,
+    on_progress: Progress | None = None,
 ) -> str:
     """A new run of the line with `trial`'s settings, as PACo's run_processing makes one without
     its choosers, then picked: its id. Stopped, nothing of it is kept, as PACo's."""
     run_id, run_folder = new_run_folder(settings.output_dir / study.profile)
     try:
-        _make(study, run_id, run_folder, profile, trial, parameters, notes, settings, config)
+        _make(
+            study,
+            run_id,
+            run_folder,
+            profile,
+            trial,
+            parameters,
+            notes,
+            settings,
+            config,
+            on_progress,
+        )
     except Stopped:
         shutil.rmtree(run_folder, ignore_errors=True)
         raise
@@ -295,6 +312,7 @@ def _make(
     notes: tuple[str, ...],
     settings: Settings,
     config: QCConfig,
+    on_progress: Progress | None = None,
 ) -> None:
     """PACo's `_process` (paco.qc.line), its public steps without the choosers and the line loop:
     the records preprocessed and judged by G1, the windows imaged and judged by G2, the line's
@@ -322,6 +340,7 @@ def _make(
         records,
         run_folder,
         settings.workers,
+        (lambda done, total: on_progress(done, total, "windows imaged")) if on_progress else None,
         exclusions=exclusions,
         stop=stopping.current(),
     )

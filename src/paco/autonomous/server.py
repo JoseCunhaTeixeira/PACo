@@ -308,6 +308,7 @@ def try_settings(
         line=state,
         settings=get_settings(),
         config=_config(),
+        on_progress=_reporting(ctx),
     )
     written = ""
     if new:
@@ -319,6 +320,16 @@ def try_settings(
         return _content(said)
     seen = looking.look_experiment(study, experiment.id, vision=True)
     return _content(f"{said}\n\n{seen.text}", seen.figures)
+
+
+def _reporting(ctx: Context) -> trials.Progress:
+    """What a long tool says as it goes, to the host: how many of how many, and of what."""
+
+    def report(done: int, total: int, what: str) -> None:
+        # The SDK runs the tools in worker threads: progress goes out through the event loop.
+        anyio.from_thread.run(ctx.report_progress, done, total, f"{done} of {total} {what}")
+
+    return report
 
 
 def _without_grid(variant: dict[str, Any]) -> dict[str, Any]:
@@ -364,6 +375,7 @@ def search(
         config=_config(),
         windows=windows,
         grid_changes=grid,
+        on_progress=_reporting(ctx),
     )
     return _sheets(study, made, knockout, ctx, searching.describe(made, knockout))
 
@@ -404,6 +416,7 @@ def judge(
         line=state,
         settings=get_settings(),
         config=_config(),
+        on_progress=_reporting(ctx),
     )
     journaling.experiment(study, experiment, None)
     searching.tried(study, experiment.id)
@@ -463,9 +476,11 @@ def commit(
     reasons: Annotated[
         dict[str, str],
         Field(
-            description="Why each setting changed, one line each, from the experiments: by "
-            "'<stage> <key>' as the changes name it, or '<stage>' for all its keys; a method and "
-            "its parameters take one. A setting given at the value it has needs none."
+            description="Why each setting changed, one line each, in plain words for the user, "
+            "who reads them on the run's card: what the images or the trials showed, without ids "
+            "(E1, L1) or shorthand. By '<stage> <key>' as the changes name it, or '<stage>' for "
+            "all its keys; a method and its parameters take one. A setting given at the value it "
+            "has needs none."
         ),
     ],
     ctx: Context,
@@ -492,7 +507,9 @@ def commit(
     of = (experiment,) if experiment else ()
     if conclusion is not None:
         journaling.check(study, "conclusion", conclusion, of)
-    committed = committing.commit(study, changes, reasons, experiment, get_settings(), _config())
+    committed = committing.commit(
+        study, changes, reasons, experiment, get_settings(), _config(), _reporting(ctx)
+    )
     written = ""
     if conclusion is not None:
         entry = journaling.write(study, "conclusion", conclusion, of)
@@ -662,15 +679,23 @@ def invert(
 @_errors
 def job_status(
     job_id: Annotated[str, Field(description="An inversion job's id, as invert gives it.")],
+    ctx: Context,
 ) -> str:
-    """Where an inversion job stands, after waiting up to 2 minutes for it to end: the windows
-    done; once ended, G5's verdicts grouped by symptom, each with the change its fixable flags
-    suggest, and G6 on the line."""
+    """Where an inversion job stands, after waiting up to 2 minutes for it to end, its progress
+    said as it goes: the windows done; once ended, G5's verdicts grouped by symptom, each with the
+    change its fixable flags suggest, and G6 on the line."""
     settings = get_settings()
     find_job(job_id, settings)  # an unknown job refused at once
     deadline = time.monotonic() + JOB_WAIT_S
+    reported = None
     while JOBS.is_live(job_id) and (left := deadline - time.monotonic()) > 0:
-        JOBS.wait(job_id, left)
+        JOBS.wait(job_id, min(paco_server.JOB_PROGRESS_S, left))
+        progress = find_job(job_id, settings)[1].progress
+        if progress is not None and progress != reported and JOBS.is_live(job_id):
+            anyio.from_thread.run(
+                ctx.report_progress, progress.done, progress.total, progress.message
+            )
+            reported = progress
     folder, record = find_job(job_id, settings)
     return inverter.describe_job(record, JOBS.is_live(job_id), folder)
 

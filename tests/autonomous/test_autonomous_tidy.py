@@ -1,15 +1,27 @@
 """tidy: the study's working files removed at the freeze and when a session ends, its results
 kept; a search whose sheets were not all judged taken back."""
 
+from datetime import UTC, datetime
 from pathlib import Path
 
+import numpy as np
 import pytest
+from sigpipe.masw.runs.finding import IMAGE_FILE
 
 from paco.autonomous.host.loop import Host
-from paco.autonomous.tools import look
+from paco.autonomous.sensors.scorecard import Scorecard
+from paco.autonomous.tools import grid, look
 from paco.autonomous.tools import search as searching
 from paco.autonomous.tools.tidy import tidy
-from paco.autonomous.tools.trials import CURVES, Study, Tried
+from paco.autonomous.tools.trials import (
+    CURVES,
+    EXPERIMENT_IMAGES,
+    EXPERIMENTS,
+    TRIALS,
+    Experiment,
+    Study,
+    Tried,
+)
 
 
 def _study(folder: Path, finalists: tuple[str, ...]) -> Study:
@@ -49,6 +61,44 @@ def test_the_working_files_go_and_the_results_stay(tmp_path: Path) -> None:
         "searches/S1.json", "searches/S1_judged.jsonl", "searches/S1_knockout.json",
     ]  # fmt: skip
     assert tidy(study) == 0
+
+
+def test_each_experiments_dispersion_images_are_kept_as_thumbnails(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    study = _study(tmp_path / "study", finalists=("g1",))
+    (study.folder / TRIALS / "t1" / "xmid_10.00" / IMAGE_FILE).write_text("")
+    card = Scorecard((10.0,), (10.0,), (), *([None] * 11))
+    tried = Tried(
+        label="current",
+        changes={},
+        trial="t1",
+        taken=False,
+        seconds=0.0,
+        scorecard=card,
+        against=None,
+        dominated_by=None,
+    )
+    made = Experiment(
+        id="E1",
+        profile=study.profile,
+        windows="spread:1",
+        xmids=(10.0,),
+        current={},
+        tried=(tried,),
+        made_at=datetime.now(UTC),
+    )
+    (study.folder / EXPERIMENTS / "E1.json").write_text(made.model_dump_json())
+    empty = np.zeros(0, dtype=np.float32)
+    thumb = grid.Thumb(10.0, np.zeros((2, 2), np.uint8), (0, 1, 0, 1), 1.0, (empty, empty), (0, 0))
+    monkeypatch.setattr(grid, "thumbnail", lambda _folder, _xmid: thumb)  # pyright: ignore[reportUnknownLambdaType]
+
+    tidy(study)
+
+    # Its trial's windows gone, its dispersion images kept, as a sheet keeps them.
+    kept = study.folder / EXPERIMENTS / EXPERIMENT_IMAGES / "t1.npz"
+    assert not (study.folder / TRIALS).exists()
+    assert [one.xmid for one in grid.read_thumbs(kept)] == [10.0]
 
 
 def test_a_search_not_judged_to_the_end_is_taken_back(tmp_path: Path) -> None:

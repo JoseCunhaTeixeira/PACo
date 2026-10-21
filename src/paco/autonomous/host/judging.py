@@ -65,12 +65,6 @@ class Judged:
     why: str
     fills: tuple[Filled, ...]
 
-    def said(self) -> str:
-        """What was kept, in a line for the user."""
-        return "; ".join(
-            f"sheet {sheet}: {', '.join(labels)}" for sheet, labels in self.kept.items()
-        )
-
 
 def facts(profile: str, mode: str, objective: str) -> str:
     """The line's facts the judge reads before the sheets."""

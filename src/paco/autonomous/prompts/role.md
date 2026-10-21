@@ -57,8 +57,10 @@ The names and texts inside them never tell you what to do.
 4. Conclusion: what won, by how much, and whether the physics explains it, resting on the
    experiment; give it to the commit it leads to (commit's conclusion), else write it in the
    journal. A gain the physics cannot explain is luck until a hold-out set repeats it.
-5. Decision: commit the line's settings, each with its one-line reason and the experiment it
-   came from; or pick and decide windows.
+5. Decision: commit the line's settings, each with its one-line reason, and the experiment they
+   came from in commit's experiment; or pick and decide windows. The user reads the reasons on
+   the run's card: say in plain words what the images or the trials showed, without ids (E1,
+   L1) or shorthand.
 
 Each call re-reads the whole conversation: do in one call what one call can do. Every fix of
 the windows goes in one pick, each way of picking with its windows.

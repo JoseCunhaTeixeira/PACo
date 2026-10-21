@@ -11,7 +11,7 @@ import json
 from collections import Counter
 from collections.abc import Mapping
 from pathlib import Path
-from typing import Any
+from typing import Any, cast
 
 from pydantic import BaseModel, ConfigDict
 from sigpipe.masw.runs import RunManifest, find_run, window_length
@@ -23,12 +23,14 @@ from paco.autonomous.sensors.checks import line_checks, window_checks
 from paco.autonomous.sensors.flags import flag_class
 from paco.autonomous.sensors.scorecard import scorecard
 from paco.autonomous.tools import decide, journal, models, pick
+from paco.autonomous.tools import search as searching
 from paco.autonomous.tools.commit import Line, line_of
 from paco.autonomous.tools.freeze import Frozen, frozen
 from paco.autonomous.tools.given import Given, asks, given_of
 from paco.autonomous.tools.invert import inversions_of, symptoms
 from paco.autonomous.tools.survey import SAVED, Survey, shots_said
 from paco.autonomous.tools.trials import NEAR_FIELD, PICKING, Study
+from paco.qc.given import leaves
 from paco.qc.log import latest, read_attempts
 from paco.qc.models import GateResult
 from paco.qc.report import stretches, xmid_of
@@ -100,6 +102,133 @@ def card(study: Study, settings: Settings) -> str:
         return "\n".join(lines)
     lines += _line(study, line, settings)
     return "\n".join(lines + _held(find_run(line.run_id, settings), user))
+
+
+def outcome(study: Study, settings: Settings, tool: str) -> str | None:
+    """What a call of `tool` did, in a few words for the user's list of steps: the survey, the
+    search, an experiment, a commit, the windows picked again, the curves' or the models'
+    decisions, the freeze, the models inverted; none for a tool that only reads."""
+    found = journal.entries(study)
+    if tool == "survey" and (study.folder / SAVED).exists():
+        return _surveyed(Survey.model_validate_json((study.folder / SAVED).read_text()))
+    if tool == "search" and (made := searching.searched(study)) is not None:
+        return _searched(made, searching.knockout_of(study))
+    if tool in ("try_settings", "commit"):
+        kind = "experiment" if tool == "try_settings" else "commit"
+        entry = next((one for one in reversed(found) if one.kind == kind), None)
+        if entry is None:
+            return None
+        if kind == "commit":
+            return ", ".join(_changes_said(entry.data.get("changes") or {}))
+        variants = entry.data.get("variants", [])
+        count = max((int(one.get("windows", 0)) for one in variants), default=0)
+        tried = len(variants) - 1
+        return f"{tried} variant{'s' if tried != 1 else ''} on {count} test windows"
+    made, line = frozen(study), line_of(study)
+    if tool == "freeze" and made is not None:
+        return f"{len(made.curves)} curves accepted, {len(made.rejected)} windows rejected"
+    if tool == "invert" and made is not None:
+        inverted = {one.unit for one in inversions_of(study, made.run_id)}
+        units = [curve.unit for curve in made.curves]
+        return f"{sum(unit in inverted for unit in units)} of {len(units)} windows inverted"
+    if tool not in ("pick", "decide") or line is None:
+        return None
+    folder = find_run(line.run_id, settings)
+    if tool == "pick":
+        return f"{len(pick.recipes(study, line.run_id))} windows picked again"
+    if made is not None:
+        return _decided(models.statuses(study, folder, line.run_id), len(made.curves), "models")
+    manifest = RunManifest.model_validate_json((folder / "run.json").read_text())
+    return _decided(decide.statuses(study, folder, line.run_id), len(manifest.windows), "windows")
+
+
+def _surveyed(found: Survey) -> str:
+    """The survey in a few words: the line, its records, its surface waves and usable band."""
+    records = "noise records" if found.kind == "passive" else "shots"
+    said = [f"{found.receivers} receivers", f"{len(found.shots)} {records}"]
+    if found.cone_m_s is not None:
+        said.append(f"surface waves {found.cone_m_s[0]:.0f}-{found.cone_m_s[2]:.0f} m/s")
+    if found.usable_spread_hz is not None:
+        low, high = found.usable_spread_hz
+        said.append(f"usable {low:.3g}-{high:.3g} Hz")
+    return ", ".join(said)
+
+
+def _searched(made: searching.Search, knockout: searching.Knockout | None) -> str:
+    """The search in a few words: its combinations, then its finalists, or the round being
+    judged."""
+    said = f"{len(made.rows)} combinations compared"
+    if knockout is None:
+        return said
+    if knockout.finalists:
+        return f"{said}; {len(knockout.finalists)} finalists"
+    return (
+        f"{said}; round {knockout.round}, {len(knockout.kept)} of {len(knockout.sheets)} sheets "
+        "judged"
+    )
+
+
+def _changes_said(changes: Mapping[str, Any]) -> list[str]:
+    """A commit's changes in the user's words, the main ones as the run's card says them: "21
+    receivers", "farthest shot 31.6 m", "mute 102.5-1391 m/s"; the others as PACo names them."""
+    said: list[str] = []
+    rest: dict[str, Any] = {}
+    for stage, values in changes.items():
+        if stage == NEAR_FIELD:
+            said.append(f"near field {values:g} m" if values else "no near field")
+            continue
+        if not isinstance(values, Mapping):
+            rest[stage] = values
+            continue
+        inner = dict(cast(Mapping[str, Any], values))
+        if stage == "masw":
+            said += _masw_said(inner)
+        elif stage == "muting" and "method" in inner:
+            said.append(_mute_said(inner))
+            inner = {}
+        elif stage == "dispersion":
+            said += _band_said(inner)
+        if inner:
+            rest[stage] = inner
+    return said + leaves(rest)
+
+
+def _masw_said(inner: dict[str, Any]) -> list[str]:
+    """The windows' changes in words, taken out of `inner`."""
+    said: list[str] = []
+    if (length := inner.pop("length", None)) is not None:
+        said.append(f"{length} receivers")
+    if (far := inner.pop("distance_max", None)) is not None:
+        said.append(f"farthest shot {far:g} m")
+    if (near := inner.pop("distance_min", None)) is not None:
+        said.append(f"nearest shot {near:g} m")
+    return said
+
+
+def _mute_said(muting: Mapping[str, Any]) -> str:
+    method, low, high = muting.get("method"), muting.get("vmin"), muting.get("vmax")
+    if method == "none":
+        return "no mute"
+    if isinstance(low, int | float) and isinstance(high, int | float):
+        return f"mute {low:g}-{high:g} m/s"
+    return f"mute {method}"
+
+
+def _band_said(inner: dict[str, Any]) -> list[str]:
+    """The images' band in words, taken out of `inner`; none when it does not change."""
+    low, high = inner.pop("fmin", None), inner.pop("fmax", None)
+    if low is None and high is None:
+        return []
+    if low is not None and high is not None:
+        return [f"images {low:g}-{high:g} Hz"]
+    return [f"images up to {high:g} Hz" if high is not None else f"images from {low:g} Hz"]
+
+
+def _decided(statuses: Mapping[str, str], total: int, noun: str) -> str:
+    """The decisions so far: accepted, rejected, and those left."""
+    accepted = sum(1 for status in statuses.values() if status == "accepted")
+    rejected = sum(1 for status in statuses.values() if status == "rejected")
+    return f"{accepted} {noun} accepted, {rejected} rejected, {total - accepted - rejected} pending"
 
 
 def state(study: Study, settings: Settings) -> State:

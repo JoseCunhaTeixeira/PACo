@@ -4,21 +4,36 @@ is its study). Working files: the records each base preprocessed, the trials' wi
 records, the search's scratch and thumbnails, and once the curves are frozen the survey's figures.
 Results, kept: the line's run (PAC's layout, its own records as PAC's runs keep them), the frozen
 curves, the journal, the decisions and picks, the experiments' and the search's scores, each
-sheet's judgment, the transcripts. A study opened again after its report makes again what it needs
-(a trial on try_settings); a search whose sheets were not all judged is taken back (its scores and
+experiment's dispersion images as thumbnails (each variant's on its windows), each sheet's
+judgment, the transcripts. A study opened again after its report makes again what it needs (a
+trial on try_settings); a search whose sheets were not all judged is taken back (its scores and
 its sheets)."""
 
 import shutil
 from pathlib import Path
 
+from pydantic import ValidationError
+from sigpipe.masw.runs import window_folders, xmid_of
+from sigpipe.masw.runs.finding import IMAGE_FILE
+
 from paco.autonomous.tools import grid, survey
 from paco.autonomous.tools import search as searching
-from paco.autonomous.tools.trials import CURVES, G1, RECORDS, TRIALS, Study
+from paco.autonomous.tools.trials import (
+    CURVES,
+    EXPERIMENT_IMAGES,
+    EXPERIMENTS,
+    G1,
+    RECORDS,
+    TRIALS,
+    Experiment,
+    Study,
+)
 
 
 def tidy(study: Study) -> int:
-    """`study`'s working files removed: the bytes freed."""
+    """`study`'s working files removed, its experiments' images kept first: the bytes freed."""
     folder = study.folder
+    keep_images(study)
     gone = [folder / RECORDS, folder / TRIALS, folder / G1, folder / grid.GRID]
     gone.append(folder / searching.SEARCHES / searching.IMAGES)
     if (folder / CURVES).exists():
@@ -36,6 +51,30 @@ def tidy(study: Study) -> int:
         else:
             path.unlink(missing_ok=True)
     return freed
+
+
+def keep_images(study: Study) -> None:
+    """Each experiment's variants' dispersion images, while their trials' windows are there, kept
+    as a sheet keeps them (grid.write_thumbs): <study>/experiments/images/<trial>.npz, a trial's
+    windows in order along the line; one kept before, or without windows, left as it is."""
+    kept = study.folder / EXPERIMENTS / EXPERIMENT_IMAGES
+    for path in sorted((study.folder / EXPERIMENTS).glob("E*.json")):
+        try:
+            experiment = Experiment.model_validate_json(path.read_text())
+        except ValidationError:
+            continue
+        for tried in experiment.tried:
+            source, target = study.folder / TRIALS / tried.trial, kept / f"{tried.trial}.npz"
+            if target.exists() or not source.is_dir():
+                continue
+            thumbs = [
+                grid.thumbnail(source / name, xmid_of(name))
+                for name in window_folders(source)
+                if (source / name / IMAGE_FILE).exists()
+            ]
+            if thumbs:
+                kept.mkdir(parents=True, exist_ok=True)
+                grid.write_thumbs(target, thumbs)
 
 
 def _size(path: Path) -> int:
