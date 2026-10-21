@@ -232,7 +232,13 @@ def test_a_form_past_claudes_unions_is_sent_within_them() -> None:
         "additionalProperties": False,
     }
     server = ScriptedAnthropic(
-        ({"role": "assistant", "content": '{"profile": "active_test_profile", "f00": 3}'}, None)
+        (
+            {
+                "role": "assistant",
+                "content": '{"profile": "active_test_profile", "f00": 3, "f17": "null"}',
+            },
+            None,
+        )
     )
 
     filled = anyio.run(AnthropicChat(server.client, MODEL).fill, QUESTION, wide)
@@ -243,7 +249,8 @@ def test_a_form_past_claudes_unions_is_sent_within_them() -> None:
     assert unions == [f"f{index:02}" for index in range(16)]
     assert sent["properties"]["f19"] == {"type": "integer"}
     assert "f19" not in sent["required"] and "f15" in sent["required"]
-    # Left out by the model, given back as null: the form PACo reads is the same.
+    # Left out by the model, or written as the text null (as Claude Haiku 5.5 writes them), given
+    # back as null: the form PACo reads is the same.
     answer = json.loads(filled.content)
     assert answer == {
         "profile": "active_test_profile",

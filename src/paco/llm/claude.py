@@ -455,7 +455,8 @@ def _nullable(field: object) -> dict[str, Any] | None:
 
 def _with_nulls(filled: object, relaxed: list[str]) -> str:
     """The form `filled` (the tool's input, or the text of structured outputs) as JSON, the fields
-    `relaxed` the model left out given back as null."""
+    `relaxed` the model left out, or wrote as the text null (Claude Haiku 5.5 does), given back as
+    null."""
     if isinstance(filled, str):
         if not relaxed:
             return filled
@@ -465,7 +466,8 @@ def _with_nulls(filled: object, relaxed: list[str]) -> str:
             return filled
     if isinstance(filled, dict):
         found = cast(dict[str, Any], filled)
-        filled = {**found, **{name: None for name in relaxed if name not in found}}
+        gone = [name for name in relaxed if name not in found or found[name] == "null"]
+        filled = {**found, **dict.fromkeys(gone)}
     return json.dumps(filled)
 
 
