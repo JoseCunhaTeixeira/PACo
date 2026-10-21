@@ -479,25 +479,31 @@ def test_a_model_with_vision_sees_the_atlas_after_the_request() -> None:
 
 
 @pytest.mark.usefixtures("folders")
-def test_the_model_calls_budget_stops_the_run() -> None:
-    first = play([form(SCOPE), said("Hello."), answer_form("Hello.", question="Go on?")], [REQUEST])
-    for _ in range(60):
-        budgets.record(
-            first.study,
-            budgets.Use(kind="model", phase="P1", at=journal.datetime.now(journal.UTC), seconds=0),
-        )
+def test_the_model_calls_budget_stops_the_run_and_a_new_message_starts_afresh(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    # The quick effort's run: two model calls.
+    quick = budgets.EFFORTS["quick"].model_copy(update={"model_calls": 2})
+    monkeypatch.setitem(budgets.EFFORTS, "quick", quick)
+    first = play([form(SCOPE), *SURVEYED, said("Surveyed.")], [REQUEST])
 
-    again = play([form(SCOPE)], ["Go on with active_test_profile."])
+    again = play(
+        [form(SCOPE), said("Going on."), answer_form("Going on.", question="Which mute?")],
+        ["Go on with active_test_profile."],
+    )
 
+    # Stopped after its two calls; the next message a fresh run of the same study.
+    assert sum(1 for body in first.model.bodies if "tools" in body) == 2
+    assert "The run's budget of model calls is spent (2 of 2): it stops here." in first.answer
     assert again.study == first.study
-    assert len(again.model.bodies) == 1  # the objective's form, no call: the budget is spent
-    assert "The run's budget of model calls is spent (61 of 60): it stops here." in again.answer
+    assert sum(1 for body in again.model.bodies if "tools" in body) == 1
+    assert "Which mute?" in again.answer
 
 
 @pytest.mark.usefixtures("folders")
-def test_the_tokens_budget_stops_the_run() -> None:
+def test_the_tokens_budget_counts_the_conversation_alone(monkeypatch: pytest.MonkeyPatch) -> None:
     first = play([form(SCOPE), said("Hello."), answer_form("Hello.", question="Go on?")], [REQUEST])
-    # The judging of a search: its forms' tokens, past the quick effort's.
+    # Another conversation's judging, past the quick effort's tokens: not this run's.
     budgets.record(
         first.study,
         budgets.Use(
@@ -508,17 +514,21 @@ def test_the_tokens_budget_stops_the_run() -> None:
             name="judge",
             prompt_tokens=1_900_000,
             completion_tokens=150_000,
+            conversation="another",
         ),
     )
+    quick = budgets.EFFORTS["quick"].model_copy(update={"tokens": 1_500})
+    monkeypatch.setitem(budgets.EFFORTS, "quick", quick)
 
-    again = play([form(SCOPE)], ["Go on with active_test_profile."])
+    again = play([form(SCOPE), *SURVEYED], ["Go on with active_test_profile."])
 
-    assert len(again.model.bodies) == 1  # the objective's form, no call: the budget is spent
-    assert "The run's budget of tokens is spent (2.1M of 2.0M): it stops here." in again.answer
+    # Its objective's form and one call (1,880 tokens): past its 1,500, it stops.
+    assert sum(1 for body in again.model.bodies if "tools" in body) == 1
+    assert "The run's budget of tokens is spent" in again.answer
 
 
 @pytest.mark.slow
-@pytest.mark.usefixtures("folders")
+@pytest.mark.usefixtures("folders", "searched")
 def test_a_run_stopped_in_p2_resumes_with_the_same_phase_budgets_and_card() -> None:
     stopped = play(
         [
@@ -536,7 +546,9 @@ def test_a_run_stopped_in_p2_resumes_with_the_same_phase_budgets_and_card() -> N
         raises=openai.InternalServerError,
     )
     study, settings = stopped.study, stopped.settings
-    before = (phase_of(study), budgets.spent(study, "quick"), card(study, settings))
+    # A new conversation goes on with the study's budgets, its model calls and tokens its own:
+    # none yet.
+    before = (phase_of(study), budgets.spent(study, "quick"), card(study, settings, "new"))
 
     resumed = play(
         [form(SCOPE), said("Which windows first?"), answer_form("Resumed.", question="Which?")],
@@ -613,6 +625,23 @@ def test_a_study_whose_run_is_gone_is_not_resumed(paco_env: Settings) -> None:
     )
     again, said_again = study_for("active_test_profile", paco_env)
     assert (again.folder, said_again) == (study.folder, None)
+
+
+def test_a_new_study_when_the_user_asks_to_start_over(paco_env: Settings) -> None:
+    folder = paco_env.output_dir / "active_test_profile" / STUDIES / "20200101-000000-0000"
+    folder.mkdir(parents=True)
+    study = Study("active_test_profile", folder)
+    journal.objective(study, {}, "balanced, no target depth, normal effort")
+
+    resumed, _ = study_for("active_test_profile", paco_env)
+    fresh, said = study_for("active_test_profile", paco_env, fresh=True)
+
+    # Asked to start over: a new study, the one there kept as it is; the newest the next one
+    # a conversation resumes.
+    assert resumed.folder == folder
+    assert fresh.folder != folder and folder.is_dir()
+    assert said == "A new study, as asked; study 20200101-000000-0000 kept as it is."
+    assert study_for("active_test_profile", paco_env)[0].folder == fresh.folder
 
 
 def test_a_follow_up_after_the_report_opens_the_study_again(paco_env: Settings) -> None:

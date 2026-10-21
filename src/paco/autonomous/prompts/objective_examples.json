@@ -1,7 +1,12 @@
 [
   {
     "message": "Process active_test_profile and give me Vs down to 15 m, as deep as you can.",
-    "form": {"invert": true, "profile": "active_test_profile", "target_depth_m": 15, "priority": "depth"}
+    "form": {
+      "invert": true,
+      "profile": "active_test_profile",
+      "target_depth_m": 15,
+      "priority": "depth"
+    }
   },
   {
     "message": "Quick look at line_b: soft clay over chalk, the water table is near 2 m.",
@@ -31,6 +36,14 @@
       "iterations": 10000,
       "vs_min_m_s": 120,
       "vs_max_m_s": 450
+    }
+  },
+  {
+    "message": "Start a new study of active_test_profile, from scratch.",
+    "form": {
+      "process": true,
+      "profile": "active_test_profile",
+      "new_study": true
     }
   }
 ]

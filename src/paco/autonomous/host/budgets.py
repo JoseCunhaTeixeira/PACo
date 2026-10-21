@@ -64,6 +64,7 @@ class Use(BaseModel):
     failed: bool = False
     prompt_tokens: int | None = None
     completion_tokens: int | None = None
+    conversation: str | None = None  # the conversation that made it
 
 
 def record(study: Study, use: Use) -> None:
@@ -139,21 +140,24 @@ class Spent:
         return counts
 
 
-def spent(study: Study, effort: Effort) -> Spent:
-    """What the study spent of `effort`'s budgets, from its journal and its usage log."""
+def spent(study: Study, effort: Effort, conversation: str | None = None) -> Spent:
+    """What the study spent of `effort`'s budgets, from its journal and its usage log: the
+    experiments, commits and CPU over the study; the model calls and tokens, which stop a run,
+    over `conversation` alone when given (a new message, a fresh run)."""
     found = journal.entries(study)
     used = uses(study)
+    mine = [one for one in used if conversation is None or one.conversation == conversation]
     return Spent(
         budgets=EFFORTS[effort],
         experiments=sum(1 for entry in found if entry.kind == "experiment"),
         commits=sum(1 for entry in found if entry.kind == "commit"),
         cpu=_cpu(used),
         # The run's calls alone: the forms, the search's judging among them, are not counted.
-        model_calls=sum(1 for one in used if one.kind == "model"),
+        model_calls=sum(1 for one in mine if one.kind == "model"),
         # Every token the model read and wrote, its forms' too.
         tokens=sum(
             (one.prompt_tokens or 0) + (one.completion_tokens or 0)
-            for one in used
+            for one in mine
             if one.kind in ("model", "form")
         ),
     )

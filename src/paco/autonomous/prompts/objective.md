@@ -4,6 +4,8 @@
   detail as possible), or balanced; null when it says neither.
 - effort: how much work the message asks: quick (a first look, quickly), thorough (as well as
   possible, take your time), or normal; null when it says none.
+- new_study: true when the message asks to start over (a new study, from scratch, start again),
+  else false.
 - site_notes: what the message says about the ground (soft clay over chalk, water table near
   2 m), in its words, 200 characters at most, else null.
 - vmin_m_s and vmax_m_s: the images' phase velocities the message gives (velocities up to

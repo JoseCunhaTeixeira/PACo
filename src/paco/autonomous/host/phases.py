@@ -116,12 +116,17 @@ def reopen(study: Study, back: Literal["P2", "P4"], request: str) -> journal.Ent
     return journal.reopen(study, NAMES[back], request)
 
 
-def study_for(profile: str, settings: Settings) -> tuple[Study, str | None]:
+def study_for(profile: str, settings: Settings, fresh: bool = False) -> tuple[Study, str | None]:
     """The study a conversation about `profile` works on: its newest study not reported yet,
     which it resumes, else a new one. A new one too when that study's run is gone (deleted
-    outside PACo: nothing to go on from), and why, said while that study is the newest."""
+    outside PACo: nothing to go on from), and why, said while that study is the newest; and when
+    the user asks to start over (`fresh`), the one there kept."""
     folder = settings.output_dir / profile / STUDIES
     found = sorted(path for path in folder.glob("*") if STUDY_ID.fullmatch(path.name))
+    if fresh:
+        kept = [path.name for path in found if phase_of(Study(profile, path)) != "P5"]
+        said = f"A new study, as asked; study {kept[-1]} kept as it is." if kept else None
+        return new_study(profile, settings), said
     for path in reversed(found):
         study = Study(profile, path)
         if phase_of(study) == "P5":

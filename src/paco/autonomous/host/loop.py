@@ -260,7 +260,7 @@ class Host:
             spacing = receiver_spacing(load_profile(scope.profile, self._settings))
         except ProfileError:
             return f"There is no profile '{scope.profile}'. {self._profiles()}"
-        study, lost = study_for(scope.profile, self._settings)
+        study, lost = study_for(scope.profile, self._settings, fresh=scope.new_study)
         if lost is not None:
             self._on_event(lost)
         self.study, self.scope, self.request = study, scope, message
@@ -287,9 +287,7 @@ class Host:
                 {"role": "user", "content": f"{message}\n\n{self._resumed(goal)}"},
             ]
         for record in read.fills:
-            budgets.record(
-                study, _use("form", "P0", 0.0, record.prompt_tokens, record.completion_tokens)
-            )
+            self._record(_use("form", "P0", 0.0, record.prompt_tokens, record.completion_tokens))
         return None
 
     async def _follow_up(self, message: str) -> str | None:
@@ -309,10 +307,8 @@ class Host:
         scope = cast(GeoScope, read.scope)
         self.steps.append(_scope_step(scope, time.perf_counter() - started))
         for record in read.fills:
-            budgets.record(
-                study, _use("form", "P5", 0.0, record.prompt_tokens, record.completion_tokens)
-            )
-        if scope.profile is not None and scope.profile != study.profile:
+            self._record(_use("form", "P5", 0.0, record.prompt_tokens, record.completion_tokens))
+        if scope.new_study or (scope.profile is not None and scope.profile != study.profile):
             self.study = None
             return await self._objective(message)
         typed = scope.given(receiver_spacing(load_profile(study.profile, self._settings)))
@@ -340,7 +336,7 @@ class Host:
             phase = phase_of(study)
             if phase == "P5":
                 return self._report_given()
-            spent = budgets.spent(study, effort_of(study))
+            spent = budgets.spent(study, effort_of(study), self._conversation)
             if (said := _stop(spent)) is not None:
                 self._on_event(f"   ({said})")
                 return self._stands(said)
@@ -351,8 +347,7 @@ class Host:
             reply = await self._model(messages, tools)
             seconds = time.perf_counter() - started
             self.steps.append(_model_step(reply, seconds))
-            budgets.record(
-                study,
+            self._record(
                 _use("model", phase, seconds, reply.prompt_tokens, reply.completion_tokens),
             )
             self._compact()
@@ -385,7 +380,7 @@ class Host:
         manual = MANUALS.get(phase)
         system = prompts.prompt("role") + (f"\n\n{prompts.prompt(manual)}" if manual else "")
         state(self._study, self._settings)
-        self._card = now = card(self._study, self._settings)
+        self._card = now = card(self._study, self._settings, self._conversation)
         self._dropped(system, now, tools)
         conversation = self.history
         if self._vision and phase in ATLAS_PHASES and conversation:
@@ -413,7 +408,7 @@ class Host:
             )
         if said is not None:
             self._on_event(f"-> {call.name}({call.arguments}) refused: {said}")
-            budgets.record(study, _use("tool", phase, 0.0, name=call.name, refused=True))
+            self._record(_use("tool", phase, 0.0, name=call.name, refused=True))
             self.steps.append(_tool_step(call, said, called=False, error=True, seconds=0.0))
             return [{"role": "tool", "tool_call_id": call.id, "content": said}]
         self._on_event(f"-> {call.name}({call.arguments})")
@@ -432,7 +427,7 @@ class Host:
             )
         seconds = time.perf_counter() - started
         failed = bool(result.is_error)
-        budgets.record(study, _use("tool", phase, seconds, name=call.name, failed=failed))
+        self._record(_use("tool", phase, seconds, name=call.name, failed=failed))
         knockout = searching.knockout_of(study) if call.name == "search" else None
         if not failed and knockout is not None and not knockout.finalists:
             # The model reads the finalists, not the sheets: the host has them judged.
@@ -473,8 +468,7 @@ class Host:
             text = "\n".join(
                 block.text for block in result.content if isinstance(block, TextContent)
             )
-            budgets.record(
-                self._study,
+            self._record(
                 _use("tool", phase, seconds, name="job_status", failed=bool(result.is_error)),
             )
             self.steps.append(
@@ -508,7 +502,7 @@ class Host:
         refused: str | None = None
         tries = calls = 0
         while True:
-            if (stop := _stop(budgets.spent(study, effort_of(study)))) is not None:
+            if stop := _stop(budgets.spent(study, effort_of(study), self._conversation)):
                 # The judging stops with the run: the model's next call is not made.
                 stopped = f"{said}\n\nThe sheets could not all be judged: {stop}"
                 return CallToolResult(
@@ -565,7 +559,7 @@ class Host:
             )
         seconds = time.perf_counter() - started
         failed = bool(result.is_error)
-        budgets.record(self._study, _use("tool", phase, seconds, name="judge", failed=failed))
+        self._record(_use("tool", phase, seconds, name="judge", failed=failed))
         self.steps.append(
             ToolStep(
                 name="judge",
@@ -584,8 +578,7 @@ class Host:
         transcript as the model's calls, their tokens counted."""
         each = seconds / len(fills)
         for filled in fills:
-            budgets.record(
-                self._study,
+            self._record(
                 _use(
                     "form",
                     phase,
@@ -604,6 +597,14 @@ class Host:
                     cached_tokens=filled.cached_tokens,
                 )
             )
+
+    @property
+    def _conversation(self) -> str:
+        return str(self.meta["conversation"])
+
+    def _record(self, use: budgets.Use) -> None:
+        """`use` in the study's usage log, as this conversation's."""
+        budgets.record(self._study, use.model_copy(update={"conversation": self._conversation}))
 
     def _said(self, name: str) -> None:
         """The progress line after a tool that changed the study: its journal entry."""
@@ -722,9 +723,7 @@ class Host:
             _answer_step(form.model_dump(), time.perf_counter() - started, len(written.fills))
         )
         for one in written.fills:
-            budgets.record(
-                self._study, _use("form", phase, 0.0, one.prompt_tokens, one.completion_tokens)
-            )
+            self._record(_use("form", phase, 0.0, one.prompt_tokens, one.completion_tokens))
         return form
 
     def _answered(self, form: answering.GeoAnswerForm, phase: Phase) -> str:
@@ -760,7 +759,7 @@ class Host:
 
     def _where(self) -> str:
         """Where the work stands, from the state card's first line and its decisions."""
-        lines = card(self._study, self._settings).splitlines()
+        lines = card(self._study, self._settings, self._conversation).splitlines()
         windows = next((line for line in lines if line.startswith("Windows:")), "")
         return " ".join(part for part in (lines[0], windows) if part)
 

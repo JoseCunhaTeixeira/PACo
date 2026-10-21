@@ -110,7 +110,10 @@ the run stops and says where the work stands.
 | thorough | 60 | 8 | 120 × | 6 | 400 | 10 M |
 
 The tokens count everything the model reads and writes, its forms (the judging's) too. The
-search's judging is not counted as model calls, and the search's time is not counted as CPU.
+search's judging is not counted as model calls, and the search's time is not counted as CPU. The
+model calls and the tokens are the run's: they count the current conversation, so a new message
+goes on with a fresh budget; the experiments, commits and CPU count over the study. A message
+asking to start over ("start a new study of active_p2") begins a new study, the old one kept.
 
 ## After a session
 

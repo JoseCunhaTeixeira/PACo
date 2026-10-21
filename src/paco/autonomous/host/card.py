@@ -65,11 +65,12 @@ def effort_of(study: Study) -> Effort:
     return effort if effort in ("quick", "thorough") else "normal"
 
 
-def card(study: Study, settings: Settings) -> str:
-    """The state card of `study`, PACo's folders in `settings`."""
+def card(study: Study, settings: Settings, conversation: str | None = None) -> str:
+    """The state card of `study`, PACo's folders in `settings`; the run's budgets those of
+    `conversation`."""
     phase = phase_of(study)
     goal = objective_of(study)
-    used = spent(study, effort_of(study))
+    used = spent(study, effort_of(study), conversation)
     user = given_of(study)
     lines = [
         f"Phase: {phase}, the {NAMES[phase]} · objective: "
