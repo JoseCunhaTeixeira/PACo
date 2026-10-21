@@ -1,33 +1,32 @@
-# PACo's whole stack on a GPU host: vLLM serving Qwen, PACo's MCP server, and the agent.
+# PACo's whole stack on a GPU host: vLLM serving your model, PACo's MCP server, and the agent.
 #
 #   docker compose up -d vllm paco-server   # the first start downloads the model
 #   docker compose run --rm agent           # chat in this terminal; approvals are asked here
 #   docker compose run --rm evaluate        # the evaluation suite
 #
-# Needs NVIDIA's container toolkit on the host and a 24 GB GPU. Settings come from .env:
-# PACO_LLM_MODEL=Qwen/Qwen3-14B-FP8, PACO_LLM_CONTEXT, PACO_WORKERS, and HF_TOKEN for gated
-# models. Profiles are read from <PACO_DATA_DIR>/input, results written to <PACO_DATA_DIR>/output:
+# Needs NVIDIA's container toolkit on the host and a GPU the model fits on. Settings come from
+# .env: PACO_LLM_MODEL, the model vLLM serves; VLLM_PARSERS, its family's parsers
+# ("--tool-call-parser=<parser>", and "--reasoning-parser=<parser>" for a model that thinks: vLLM's
+# docs list them); PACO_LLM_CONTEXT, PACO_WORKERS, and HF_TOKEN for gated models. Profiles are read from <PACO_DATA_DIR>/input, results written to <PACO_DATA_DIR>/output:
 # PAC's data folder by default (../PAC/data), PACo's repository holding no data.
 
 x-model: &model
   PACO_LLM_BASE_URL: http://vllm:8000/v1
-  PACO_LLM_MODEL: ${PACO_LLM_MODEL:?set PACO_LLM_MODEL=Qwen/Qwen3-14B-FP8 in .env}
+  PACO_LLM_MODEL: ${PACO_LLM_MODEL:?set PACO_LLM_MODEL in .env}
   PACO_LLM_CONTEXT: ${PACO_LLM_CONTEXT:-16384}
 
 services:
   vllm:
     image: vllm/vllm-openai:v0.30.0
-    command:
-      - --model=${PACO_LLM_MODEL:?set PACO_LLM_MODEL=Qwen/Qwen3-14B-FP8 in .env}
-      # The context the agent reads too: one setting for both.
-      - --max-model-len=${PACO_LLM_CONTEXT:-16384}
-      # PACo serves one user: preparing for few conversations at once leaves the GPU's memory to
-      # the context (vLLM's default prepares for 512).
-      - --max-num-seqs=${VLLM_MAX_NUM_SEQS:-8}
-      # Qwen3's tool calls, and its thinking kept out of the answers (Qwen's and vLLM's docs).
-      - --enable-auto-tool-choice
-      - --tool-call-parser=hermes
-      - --reasoning-parser=qwen3
+    # The model; the context the agent reads too, one setting for both; few conversations at once,
+    # which leaves the GPU's memory to the context (PACo serves one user, vLLM's default prepares
+    # for 512); the model's tool calls, read by its family's parsers.
+    command: >-
+      --model=${PACO_LLM_MODEL:?set PACO_LLM_MODEL in .env}
+      --max-model-len=${PACO_LLM_CONTEXT:-16384}
+      --max-num-seqs=${VLLM_MAX_NUM_SEQS:-8}
+      --enable-auto-tool-choice
+      ${VLLM_PARSERS:?set VLLM_PARSERS in .env: the tool-call parser of your model's family}
     environment:
       HF_TOKEN: ${HF_TOKEN:-}
     volumes:

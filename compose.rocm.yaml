@@ -3,8 +3,7 @@
 #
 #   docker compose -f compose.yaml -f compose.rocm.yaml up -d vllm paco-server
 #
-# vLLM's 4-bit formats (AWQ, GPTQ) do not run on AMD GPUs: Qwen/Qwen3-14B-FP8 runs in FP8, on a
-# 24 GB card.
+# vLLM's 4-bit formats (AWQ, GPTQ) do not run on AMD GPUs: choose a model in FP8.
 
 services:
   vllm:

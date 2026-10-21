@@ -317,7 +317,9 @@ docker compose run --rm agent           # chat in this terminal
 docker compose run --rm evaluate        # the evaluation suite
 ```
 
-Set `PACO_LLM_MODEL` to your model in `.env`. `PACO_LLM_CONTEXT` (16384 by default) sets the
+Set `PACO_LLM_MODEL` to your model in `.env`, and `VLLM_PARSERS` to its family's parsers:
+`--tool-call-parser=<parser>`, with `--reasoning-parser=<parser>` for a model that thinks (vLLM's
+docs list them). `PACO_LLM_CONTEXT` (16384 by default) sets the
 context of both vLLM and PACo. `PACO_WORKERS` and `HF_TOKEN` can go there too. The ports (8000 for
 the server, 8001 for vLLM) are open to this machine only.
 
