@@ -191,7 +191,8 @@ How a line goes:
    prints the grid's size.
 3. **The model's eye.** Only the really bad variants are dropped: no image, or no curve along the
    line. The model judges all the others by eye, in sheets of 12, a variant a row at up to 12
-   places along the line, with no score: no score tells a clean image as the eye does. Each
+   places along the line, with no score and no pick drawn: no score tells a clean image as the eye
+   does, and a pick would sway it. Each
    sheet is judged in a short call of its own, which sees the sheets alone, not the
    conversation, so judging costs little. The 3 cleanest of each sheet are kept: one ridge,
    sharp and unbroken at every place, the picks on it, over a wide band. The kept are mixed into

@@ -522,7 +522,7 @@ def draw_sheet(
     """A knockout's sheet (search): its variants a row each, top to bottom, each thumbnail of
     `folder`'s (<label>.npz) under the one of `places` along the line its window is nearest, as
     PAC draws images (each frequency's row from its least value, yellow, to its largest, black),
-    the automatic pick in white dots, λ = 2·dx dashed and 3·L dotted in red; each variant's label
+    no pick drawn, λ = 2·dx dashed and 3·L dotted in red; each variant's label
     and receivers at its row's start; a place no window of it is nearest left empty; no score."""
     columns = max(1, len(places))
     figure = Figure(figsize=(PANEL_IN[0] * columns, PANEL_IN[1] * len(labels) + 0.1), dpi=DPI)
@@ -554,15 +554,13 @@ def _nearest_place(xmid: float, places: Sequence[float]) -> int:
 
 
 def _thumb_panel(axes: Axes, thumb: gridding.Thumb) -> None:
-    """A thumbnail as PAC draws its image, with its pick and the lines λ = 2·dx and 3·L."""
+    """A thumbnail as PAC draws its image, with the lines λ = 2·dx and 3·L; no pick: the eye
+    judges the image alone, a pick drawn on it would sway it."""
     fmin, fmax, vmin, vmax = thumb.extent
     axes.imshow(
         thumb.image, origin="lower", aspect="auto", cmap="gist_stern_r", vmin=0, vmax=255,
         extent=(fmin, fmax, vmin, vmax), interpolation="nearest",
     )  # fmt: skip
-    fs, vs = thumb.pick
-    if len(fs):
-        axes.plot(fs, vs, ".", color="white", markersize=2)
     span = np.linspace(fmin, fmax, 50)
     for wavelength, style in zip(thumb.lines_m, ("--", ":"), strict=True):
         if wavelength:

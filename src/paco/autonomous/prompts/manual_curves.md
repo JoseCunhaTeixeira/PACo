@@ -19,17 +19,20 @@ phase velocity v and frequency f.
 - Only the really bad are dropped: no image, or fewer than a quarter of the windows passing (no
   curve along the line). Every other variant is judged by eye in sheets of 12, a variant a row at
   its windows nearest twelve places along the line (as many as it has), drawn as PAC draws images,
-  with no score (none reads an image's quality), in short calls of their own: each sheet's 3
-  cleanest kept and mixed into new sheets, round after round, until 3 are left. Their sheet, the
-  final, comes to you: choose the cleanest by eye (choose), as Judging the images below says, the
-  objective in mind, with its reason. Should the judging stop, search again judges the
-  sheets left; commit waits until you chose.
+  with no score (none reads an image's quality) and no pick (a pick drawn would sway the eye), in
+  short calls of their own: each sheet's 3 cleanest kept and mixed into new sheets, round after
+  round, until 3 are left. Their sheet, the final, comes to you: choose the cleanest image by eye
+  (choose), as Judging the images below says, the objective in mind, with its reason. The picks come
+  after: PACo picks the line once you commit, and you look at them then and pick again those that
+  need it. Should the judging stop, search again judges the sheets left; commit waits until you
+  chose.
 - Then commit your choice, its changes as choose gives them, each setting with its reason in plain
-  words. Nothing is tried after it: every combination was seen, by eye, along the whole line. Check after the commit that it makes sense: the picks on M0 and not on a higher mode or an
-  artefact, few points beyond the windows' reach, none aliased, the same ridge from window to
-  window, the physics explaining why it wins. try_settings serves only when the search chose none
-  (no variant gave an image to judge). The image's band stays the preset's or the records' usable
-  band: a narrower one hides the ridge, it does not mend it.
+  words. Nothing is tried after it: every combination was seen, by eye, along the whole line. Check
+  after the commit that it makes sense: the picks on M0 and not on a higher mode or an artefact, few
+  points beyond the windows' reach, none aliased, the same ridge from window to window, the physics
+  explaining why it wins. try_settings serves only when the search chose none (no variant gave an
+  image to judge). The image's band stays the preset's or the records' usable band: a narrower one
+  hides the ridge, it does not mend it.
 
 ## Physics
 
@@ -162,19 +165,18 @@ phase velocity v and frequency f.
 
 - A good image holds one sharp ridge, continuous over a wide band and rising toward the low
   frequencies, smooth, the rest of it pale, the pick on its crest: the atlas's first image.
-- The search's final (its 3 finalists, a row each), and each experiment's variants (side by side,
-  in sheets of its current settings and three, each with its pick; look experiment
-  E<n>:current,3,5 shows others), are drawn as PAC draws images: each frequency's row from its least value (yellow) to its
-  largest (black). Judge each panel against the atlas and name its fault and cause before the
-  lever: vertical stripes (a hard mute's edges, noisy or dead
-  traces, a lateral change under the window); horizontal fringes under the ridge (a short
-  window's side lobes, a hard mute); a ridge broken into pieces, or jumping at a vertical edge (a
-  lateral change under a long window, noise); a broad dark area at the low frequencies (a short
-  window's resolution, Δv/v ≈ λ/L, not noise: a longer window sharpens it, and is better only
-  where its ridge stays as unbroken at the higher frequencies); a weak ridge (scaled row by row,
-  any peak looks dark: the yellow around it tells); blocks (a coarse frequency step: segments too
-  short for the window); dark ridges under the dashed line (aliases) or left of the dotted one
-  (beyond the window's reach).
+- The search's final (its 3 finalists, a row each, the images alone), and each experiment's variants
+  (side by side, in sheets of its current settings and three, each with its pick; look experiment
+  E<n>:current,3,5 shows others), are drawn as PAC draws images: each frequency's row from its least
+  value (yellow) to its largest (black). Judge each panel against the atlas and name its fault and
+  cause before the lever: vertical stripes (a hard mute's edges, noisy or dead traces, a lateral
+  change under the window); horizontal fringes under the ridge (a short window's side lobes, a hard
+  mute); a ridge broken into pieces, or jumping at a vertical edge (a lateral change under a long
+  window, noise); a broad dark area at the low frequencies (a short window's resolution, Δv/v ≈ λ/L,
+  not noise: a longer window sharpens it, and is better only where its ridge stays as unbroken at
+  the higher frequencies); a weak ridge (scaled row by row, any peak looks dark: the yellow around
+  it tells); blocks (a coarse frequency step: segments too short for the window); dark ridges under
+  the dashed line (aliases) or left of the dotted one (beyond the window's reach).
 - No score reads an image's quality as the eye does: G2's background and
   its image score favour long windows (a short window's floor, 1/√N, and wider ridge raise it), a
   short window's smear can score well where its columns peak, an arrival too fast for surface

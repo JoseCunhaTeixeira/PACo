@@ -3,7 +3,7 @@ sheet shows up to 12 variants of the line's processing settings, one a row, each
 nearest up to twelve places along the line, left to right, the same places in every row (a place
 a variant has no window for is left empty). Each panel: frequency across, phase velocity up, the
 same axes in every panel; each frequency's row scaled from its least value (yellow) to its largest
-(black); the automatic pick in white dots; the red dashed line λ = 2·dx (under it a ridge may be an
+(black); no pick drawn, the image alone; the red dashed line λ = 2·dx (under it a ridge may be an
 alias); the red dotted line λ = 3·L (left of it, beyond the window's reach). Each variant's label
 and window length (receivers) sit at its row's start.
 
@@ -11,10 +11,10 @@ Keep the 3 cleanest of each sheet (all of a sheet of fewer), as its heading says
 
 What makes an image clean, as a geophysicist judges it in PAC:
 
-- One ridge, sharp and unbroken at every place, the picks on it, over the widest band.
-- On a line with shots (active, passive-active), the ridge rises into the low frequencies with
-  the picks on it. A broad dark mass at the low frequencies where the curve bends down (shots too
-  near: the near field) is a fault, even under a clean high band.
+- One ridge, sharp and unbroken at every place, over the widest band.
+- On a line with shots (active, passive-active), the ridge rises into the low frequencies. A
+  broad dark mass at the low frequencies where the ridge bends down (shots too near: the near
+  field) is a fault, even under a clean high band.
 - A break or a jump of the ridge at any place is the worst fault; blocks (a coarse frequency
   step) and vertical stripes across the ridge are faults.
 - Stripes at the lowest frequencies, left of where the ridge starts, and arcs of other waves

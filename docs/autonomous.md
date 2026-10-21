@@ -61,7 +61,8 @@ quarter of their windows passing, are dropped. Every other variant is judged by 
 score:
 
 - The variants come in sheets of 12, by window length in the first round, a variant a row: its
-  windows nearest twelve places along the line, as many as it has.
+  windows nearest twelve places along the line, as many as it has, the images alone (no pick drawn:
+  it would sway the eye; the line is picked once the choice is committed).
 - The host judges the sheets in short calls of their own, three sheets a call: the judging
   prompt, the atlas's dispersion images, the line's facts and the sheets, a form without thinking.
   The conversation itself never carries the sheets.
