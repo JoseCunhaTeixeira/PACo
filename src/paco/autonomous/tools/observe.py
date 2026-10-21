@@ -1,4 +1,4 @@
-"""observe (docs/autonomous_plan.md §6): the gates' results on the committed line, as text. A summary by
+"""observe: the gates' results on the committed line, as text. A summary by
 default, PACo's own (each verdict's count, each flag with its units as stretches of xmids, and the
 change it suggests); with `where`, the rows of the units it names, in pages. On the line, a text
 pseudo-section too: each curve's velocity at a few wavelengths, along the line."""

@@ -1,4 +1,4 @@
-"""The run's state (S3 of PACo's agent guidelines): rebuilt from its QC log and its files, one
+"""The run's state: rebuilt from its QC log and its files, one
 way, whatever was saved before."""
 
 from pathlib import Path

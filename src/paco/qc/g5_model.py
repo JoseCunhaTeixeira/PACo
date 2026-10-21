@@ -43,8 +43,8 @@ NARROW_LEAST = 0.1
 
 class ModelThresholds(ModelLimits):
     """G5's limits (sigpipe's ModelLimits: how a model is measured, PAC's alike), and its own:
-    what it reports of the layered median and how far its retries go. Provisional, measured on
-    the demo profiles (rule 9)."""
+    what it reports of the layered median and how far its retries go, measured on
+    PAC's test lines."""
 
     # An older run's limits are read too: acceptance's, not judged (the chains' moves follow the
     # posterior; they need no step tuned to a share of their proposals).

@@ -1,10 +1,10 @@
-"""The state card (docs/autonomous_plan.md §7.2) and the study's state (§7.1). Code writes the card before
+"""The state card and the study's state. Code writes the card before
 each of the model's calls, replacing the one before: the phase, the objective and the budgets, the
 settings kept as the user gave them, the survey, the line now with its scorecard, the open issues,
 the checks, the last experiments and the windows' decisions; after the freeze, the frozen curves.
 About 1,500 tokens at most. Both are read from the study's records alone (the journal, the usage
 log, the survey, the committed line and its run, the picks and decisions, the frozen curves), so
-that a study resumed shows the same (§14); state.json is rewritten from them each time, never edited
+that a study resumed shows the same; state.json is rewritten from them each time, never edited
 alone."""
 
 import json
@@ -59,7 +59,7 @@ def objective_of(study: Study) -> journal.Entry | None:
 
 
 def effort_of(study: Study) -> Effort:
-    """The effort the user asked (§4.0): normal unless their objective says another."""
+    """The effort the user asked: normal unless their objective says another."""
     found = objective_of(study)
     effort = found.data.get("effort") if found is not None else None
     return effort if effort in ("quick", "thorough") else "normal"

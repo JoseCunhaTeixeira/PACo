@@ -1,4 +1,4 @@
-"""Trials (docs/autonomous_plan.md §4.2 to §4.5, §5.3, §6 try_settings): variants of the line's settings,
+"""Trials (try_settings): variants of the line's settings,
 each tried on a set of the line's windows, judged by G1 to G3 and scored, changing no run.
 
 A variant's windows are the line's own: one receiver apart, each stacking the shots the line's
@@ -97,7 +97,7 @@ INDEX = "index.json"
 CURVES = "curves.json"
 # The survey's file (survey.SAVED): what it measured of the line, its reach among it.
 SURVEY_FILE = "survey.json"
-# The most variants a call tries, besides the current settings (§6), and its windows by default:
+# The most variants a call tries, besides the current settings, and its windows by default:
 # images and picks are cheap, a sweep compares many settings on enough windows.
 MOST_VARIANTS = 12
 # Trials made at once, each with its share of the workers; one at a time makes the records and G1
@@ -107,7 +107,7 @@ _PREPARING = threading.Lock()
 WINDOWS = "spread:15"
 # What a variant may change besides the preset's stages: the automatic pick's parameters and the
 # near-field distance, m (a window stacks no shot nearer to its nearest receiver, where it has a
-# farther one: PACo's rule, §4.3).
+# farther one: PACo's rule).
 PICKING = "picking"
 NEAR_FIELD = "near_field_m"
 MODE = "mode"
@@ -279,8 +279,7 @@ class Experiment(BaseModel):
 
 
 def check_open(study: Study) -> None:
-    """Refused once the study's curves are frozen: no processing or picking after the freeze
-    (docs/autonomous_plan.md §8, rule 5)."""
+    """Refused once the study's curves are frozen: no processing or picking after the freeze."""
     if (study.folder / CURVES).exists():
         raise RunError(
             "The curves are frozen: no processing or picking after the freeze. The inversion's "
@@ -759,7 +758,7 @@ def try_settings(
         raise ValueError(f"At most {MOST_VARIANTS} variants a call.")
     parts = parse_windows(windows)
     profile = load_profile(study.profile, settings)
-    # The user's settings in every variant; a variant changing one refused (§8, rule 1).
+    # The user's settings in every variant; a variant changing one refused.
     user = given_of(study)
     base = with_line(current or {}, user)
     changes = [dict(change) for change in variants]
@@ -808,7 +807,7 @@ def describe(experiment: Experiment) -> str:
             passing += f" (+{len(one.against.gained)}, -{len(one.against.lost)})"
         marks: list[str] = []
         if one.against is not None and one.against.shortened:
-            marks.append("gains by shortening its curves (rule 6)")
+            marks.append("gains by shortening its curves")
         cost = "made before" if one.taken else f"{one.seconds:.1f} s"
         lines.append(
             f"- {head}: {passing}; {figures(card)}; {cost}" + "".join(f"; {mark}" for mark in marks)
@@ -819,7 +818,7 @@ def describe(experiment: Experiment) -> str:
 def figures(card: Scorecard) -> str:
     """A scorecard's figures, as an experiment says them: depth, span, uncertainty, the near
     field (a passive line's windows have no shot: none), beyond reach and aliased. No image
-    score: none reads an image's quality as the eye does (the user, 2026-10-20)."""
+    score: none reads an image's quality as the eye does."""
     if not card.covered:
         return "no curve to score"
     near = f"near field {_share(card.near_field)}, " if card.near_field is not None else ""

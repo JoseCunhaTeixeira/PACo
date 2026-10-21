@@ -1,4 +1,4 @@
-"""The providers (docs/autonomous_plan.md §3, §16): a model that takes no images refused, as
+"""The providers: a model that takes no images refused, as
 Anthropic's models API or a server refusing an image says it; Gemini's dialect, its
 thought signatures given back. The APIs are scripted
 (tests/autonomous/autonomous_scripted.py): nothing is called."""

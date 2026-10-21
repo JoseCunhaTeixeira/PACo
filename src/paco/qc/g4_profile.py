@@ -20,7 +20,7 @@ GUIDE_POINTS = 12  # the neighbours' median curve given to the picker for an out
 
 
 class ProfileThresholds(BaseModel):
-    """G4's limits: provisional, measured on the demo profiles (rule 9)."""
+    """G4's limits, measured on PAC's test lines."""
 
     model_config = ConfigDict(frozen=True, extra="forbid")
 

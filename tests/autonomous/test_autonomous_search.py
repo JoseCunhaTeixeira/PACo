@@ -1,6 +1,6 @@
 """search: the full grid of the line's settings, every combination of the values the physics sets,
-scored in code by the grid as a trial scores it; the shortlist, the best by several measures, an
-experiment; once a study."""
+scored in code by the grid as a trial scores it; the really bad dropped, the others judged by eye
+in sheets until the finalists, tried side by side; once a study."""
 
 import json
 from datetime import UTC, datetime

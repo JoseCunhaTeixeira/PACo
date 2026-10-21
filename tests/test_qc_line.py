@@ -32,7 +32,7 @@ from paco.qc.line import process_line
 from paco.qc.report import QCReport
 from paco.settings import Settings
 
-# Three rungs and three trial windows: the ladder of the demo in a few seconds.
+# Three rungs and three trial windows: the ladder of the test line in a few seconds.
 QUICK = QCConfig(coherence=CoherenceRules(lengths=(5, 24, 32), trials=3, min_pass_share=2 / 3))
 
 
@@ -238,8 +238,8 @@ def test_an_active_profile_is_processed_passive_active(
 def test_the_ladder_stops_where_longer_windows_buy_no_precision(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    # The demo, measured: picks at 36 to 40 % from 7 to 32 receivers, and only half the line did
-    # better. Most precise at any cost would have kept 48, no lateral detail left.
+    # The test line, measured: picks at 36 to 40 % from 7 to 32 receivers, and only half the line
+    # did better. Most precise at any cost would have kept 48, no lateral detail left.
     passes = {5: 1, 7: 3, 9: 3, 16: 3, 48: 3}
     uncertainties = {5: 0.37, 7: 0.39, 9: 0.4, 16: 0.36, 48: 0.27}
 
@@ -274,7 +274,7 @@ def test_the_ladder_stops_where_longer_windows_buy_no_precision(
 
 
 def test_the_hint_keeps_the_ladders_length_whatever_the_request() -> None:
-    # The demo's ladder with no settings: 11 receivers chosen among 5 to 16. The best curves
+    # The test line's ladder with no settings: 11 receivers chosen among 5 to 16. The best curves
     # first: a request for depth or lateral detail keeps it.
     def trial(length: int, passed: int, longest: float | None = None) -> LengthTrial:
         return LengthTrial(

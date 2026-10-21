@@ -1,4 +1,4 @@
-"""look (docs/autonomous_plan.md §6): figures for a model with vision, of the committed line, of an
+"""look: figures for a model with vision, of the committed line, of an
 experiment's variants, and before the line's first commit of the survey's raw records. A record's
 gather or spectra, as its preprocessing and G1 drew them, a mute's window or velocities from the
 shot drawn on a gather on request; a window's dispersion image with its pick and the wavelengths

@@ -1,4 +1,4 @@
-"""What the stage tools' retry loops share (option B of docs/qc_workflow.md): a gate's changes for
+"""What the stage tools' retry loops share (docs/qc_workflow.md): a gate's changes for
 the stage being run, merged into the parameters of the attempt before, and whether a unit may
 have one more try: never one with the parameters of the attempt before, which would give its
 result again."""
@@ -67,7 +67,7 @@ def past_limits(result: GateResult, stage: Stage, given: Mapping[str, Any]) -> d
 
 
 class RetryBudget:
-    """What is left of the budgets (rule 4) for one batch of retries: each retry granted counts
+    """What is left of the budgets for one batch of retries: each retry granted counts
     at once, so that a batch of windows cannot go beyond the run's budget together. A window's
     inversion has its own budget, whichever gate asks."""
 

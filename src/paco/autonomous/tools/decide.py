@@ -1,7 +1,7 @@
-"""decide (docs/autonomous_plan.md §4.6, §6, §8): the model's decision on each window of the committed
-line, accepted, rejected or pending, with its reason. Code refuses (§8, rule 4): accepting a window
+"""decide: the model's decision on each window of the committed
+line, accepted, rejected or pending, with its reason. Code refuses: accepting a window
 whose curve did not pass G3, carries a blocking flag, or is off its neighbours (G4); accepting a
-curve with notes without a reason; and rejecting a window before it was tried hard (§4.6). Tried
+curve with notes without a reason; and rejecting a window before it was tried hard. Tried
 hard means the line's automatic pick, a pick of the model's after it when it carried fixable flags
 (or a reason naming those flags, saying why none applies), a pick guided by its neighbours when one
 side has its two passing G3, and a lasso when the model sees the images. The model's own picks owe
@@ -97,8 +97,8 @@ def decide(
     config: QCConfig,
 ) -> Decided:
     """`units` of the committed line in `run_folder` decided `status`, with `reason`; refused
-    whole where §8 says, each window's problem said. `vision`: whether the model sees the images
-    (a lasso is then owed before a rejection)."""
+    whole when one of them breaks a rule, each window's problem said. `vision`: whether the model
+    sees the images (a lasso is then owed before a rejection)."""
     check_open(study)
     reason = reason.strip() if reason is not None and reason.strip() else None
     if reason is not None and "\n" in reason:
@@ -239,7 +239,7 @@ def _not_tried_hard(
     passing: Sequence[Series],
     config: QCConfig,
 ) -> str | None:
-    """What the window still owes before its rejection (§4.6); none when it was tried hard, or
+    """What the window still owes before its rejection; none when it was tried hard, or
     has nothing to pick (no image, or one G2 rejected)."""
     imaged = latest(attempts, unit, "phase_shift")
     g2 = imaged.results.get("G2") if imaged is not None else None

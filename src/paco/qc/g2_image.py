@@ -24,7 +24,7 @@ GATE = "G2"
 
 class ImageThresholds(ImageLimits):
     """G2's limits (sigpipe's ImageLimits: how an image is measured, PAC's alike), and the mute
-    its retries suggest: provisional, measured on the demo profiles (rule 9)."""
+    its retries suggest, measured on PAC's test lines."""
 
     model_config = ConfigDict(frozen=True, extra="forbid")
 

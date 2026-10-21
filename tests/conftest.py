@@ -75,7 +75,7 @@ def demo_input_dir(tmp_path_factory: pytest.TempPathFactory) -> Path:
 
 @pytest.fixture(scope="session")
 def profiles(demo_input_dir: Path) -> dict[str, Profile]:
-    """The demo profiles, loaded once: profiles are frozen, so tests can share them."""
+    """The test profiles, loaded once: profiles are frozen, so tests can share them."""
     settings = Settings(input_dir=demo_input_dir)
     return {name: load_profile(name, settings) for name in DEMO_PROFILES}
 
@@ -99,7 +99,7 @@ def settings(input_dir: Path, tmp_path: Path) -> Settings:
 
 @pytest.fixture
 def copy_demo(demo_input_dir: Path, input_dir: Path) -> CopyDemo:
-    """Copy a demo profile into `input_dir` under a new name, to be broken by a test.
+    """Copy a test profile into `input_dir` under a new name, to be broken by a test.
 
     YAML files are copied so tests can edit them; records are symlinked to avoid copying
     tens of MB per test.
@@ -122,7 +122,7 @@ def copy_demo(demo_input_dir: Path, input_dir: Path) -> CopyDemo:
 def paco_env(
     demo_input_dir: Path, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> Iterator[Settings]:
-    """The server's settings, as its environment gives them: the demo profiles, outputs in
+    """The server's settings, as its environment gives them: the test profiles, outputs in
     `tmp_path`, and one inversion retry a window (the tests' short
     samplers never hold the effective samples G5 asks, and each retry doubles them)."""
     monkeypatch.setenv("PACO_INPUT_DIR", str(demo_input_dir))

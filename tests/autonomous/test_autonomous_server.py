@@ -23,7 +23,7 @@ from paco.autonomous.host import terminal
 from paco.autonomous.tools.trials import Study
 from paco.call import shown
 
-# The tools in the plan's order (docs/autonomous_plan.md §6), those built so far; PACo's first.
+# The tools in their order, PACo's first.
 PACO_TOOLS = ["inspect", "preset_settings", "inversion_settings"]
 # PACo's petrophysical inversion on the study's frozen curves, after the inversion's tools.
 PETRO_TOOLS = ["petro_models", "invert_petro"]

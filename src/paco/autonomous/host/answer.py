@@ -1,11 +1,11 @@
-"""The answer the user reads (docs/autonomous_plan.md §4.9, §10, §11), written by code around the model's
+"""The answer the user reads, written by code around the model's
 text, as PACo's is: the model's draft goes into PACo's answer form, with the interpretation it
 adds; code writes the rest from the study's records. In the middle of a run (a question for the
 user, a budget spent): the scope, the model's text, its question, and where the work stands. The
 report (P5) adds what was done, the windows left out, what was tried, each window's outcome, the
 model's interpretation, the parameters used, each with its source (the model's reason, given by
-the user, the plan's rule, or the preset's default), and the settings kept as the user gave them.
-Numbers in the model's text that none of the results hold are flagged (PACo's R1)."""
+the user, PACo's rule, or the preset's default), and the settings kept as the user gave them.
+Numbers in the model's text that none of the results hold are flagged."""
 
 import json
 from collections import Counter
@@ -38,7 +38,7 @@ MODES_SAID = {
     "passive-active": "each window correlates its farther shots and stacks them",
     "passive": "each window correlates the ambient noise's segments and stacks them",
 }
-STEP = "the plan's rule: one set of settings for the line, a window every receiver"
+STEP = "PACo's rule: one set of settings for the line, a window every receiver"
 INTERPRETED = "Interpretation, by the model (not a measurement)"
 TRIED = "What I tried"
 
@@ -254,7 +254,7 @@ def outcomes(study: Study, settings: Settings) -> list[str]:
 
 def parameters_used(study: Study, settings: Settings) -> list[str]:
     """The committed line's settings, each with its source: the model's reason (with its commit
-    and experiment), given by the user, the plan's rule, or the preset's default."""
+    and experiment), given by the user, PACo's rule, or the preset's default."""
     line = line_of(study)
     if line is None:
         return []

@@ -1,4 +1,4 @@
-"""The picking stage the QC way (docs/qc_workflow.md, option B): S3 and G3 on every window whose
+"""The picking stage the QC way (docs/qc_workflow.md): S3 and G3 on every window whose
 image passed G2, the picking done again for the windows G3 asks it of, then G4 over the line
 and the outliers picked again along their neighbours' curve, each gate within its budgets.
 What pick runs; its verdict (G4's, on the line) is what invert reads. A person's work, made in

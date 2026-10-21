@@ -21,7 +21,7 @@ GATE = "G3"
 
 class CurveThresholds(CurveLimits):
     """G3's limits (sigpipe's CurveLimits: how a curve is measured, PAC's alike), and what its
-    fixes use: provisional, measured on the demo profiles (rule 9)."""
+    fixes use, measured on PAC's test lines."""
 
     model_config = ConfigDict(frozen=True, extra="forbid")
 

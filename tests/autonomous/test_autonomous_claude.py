@@ -1,4 +1,4 @@
-"""The Anthropic client (docs/autonomous_plan.md §3, §16): PACo's ChatModel over Anthropic's API, against a
+"""The Anthropic client: PACo's ChatModel over Anthropic's API, against a
 scripted one (tests/scripted.py). The host's conversation read into Anthropic's turns, the figures
 inside their results, the cache marked; thinking as the model takes it, given back within a tool
 loop; forms by a forced tool; the usage with the cache; the errors as OpenAI's. Then a whole
@@ -249,7 +249,7 @@ def test_a_form_past_claudes_unions_is_sent_within_them() -> None:
     assert unions == [f"f{index:02}" for index in range(16)]
     assert sent["properties"]["f19"] == {"type": "integer"}
     assert "f19" not in sent["required"] and "f15" in sent["required"]
-    # Left out by the model, or written as the text null (as Claude Haiku 5.5 writes them), given
+    # Left out by the model, or written as the text null (as some models write them), given
     # back as null: the form PACo reads is the same.
     answer = json.loads(filled.content)
     assert answer == {

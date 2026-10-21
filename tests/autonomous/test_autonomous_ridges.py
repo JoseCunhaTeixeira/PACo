@@ -1,4 +1,4 @@
-"""Ridge tables (docs/autonomous_plan.md §6): an image whose ridges are known, and active_test_profile's, whose
+"""Ridge tables: an image whose ridges are known, and active_test_profile's, whose
 strongest ridge is the curve its picker followed."""
 
 import numpy as np

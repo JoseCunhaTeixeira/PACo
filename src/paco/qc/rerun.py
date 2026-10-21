@@ -1,4 +1,4 @@
-"""Doing a stage again for some windows of a run (rule 3): the window's results from that stage
+"""Doing a stage again for some windows of a run: the window's results from that stage
 on move to attempts/, the stage runs with the run's parameters plus the overrides given, and the
 QC log records the attempt. The other windows keep their results."""
 

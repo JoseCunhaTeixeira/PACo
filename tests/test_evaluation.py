@@ -1502,7 +1502,7 @@ def test_each_scenario_meets_its_pass_rate_or_not_and_the_history_keeps_them(
     history = format_history(read_reports(tmp_path))
 
     # The latest prompt version against the one before, scenario by scenario; then the calls
-    # that failed, those refused as outside the scope, the caps, the gates' retries (O3).
+    # that failed, those refused as outside the scope, the caps, the gates' retries.
     assert history.splitlines() == [
         "Qwen/Qwen3-14B-FP8",
         "scenario                   prompts-aaaa1111   prompts-bbbb2222",

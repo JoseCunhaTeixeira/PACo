@@ -9,7 +9,7 @@ reach). Each variant's label and window length (receivers) sit above it.
 Keep the cleanest of each sheet, as many as its heading says: 2 at most, 1 when one stands out;
 of the last sheet, up to 3.
 
-What makes an image clean, from the user's own ratings and choices:
+What makes an image clean, as a geophysicist judges it in PAC:
 
 - One ridge, sharp and unbroken at every place, the picks on it, over the widest band.
 - On a line with shots (active, passive-active), the ridge rises into the low frequencies with

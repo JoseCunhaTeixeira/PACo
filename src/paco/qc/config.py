@@ -1,4 +1,4 @@
-"""The QC configuration: every threshold and budget in one place (rule 9), locked during a run
+"""The QC configuration: every threshold and budget in one place, locked during a run
 and recorded with it. Loaded from the JSON file `PACO_QC_CONFIG` names, else PACo's defaults."""
 
 from pathlib import Path
@@ -50,7 +50,7 @@ RENAMED = {
 
 class QCConfig(BaseModel):
     """The gates' thresholds and the retry budgets: one model per gate, with values measured on
-    the demo profiles."""
+    PAC's test lines."""
 
     model_config = ConfigDict(frozen=True, extra="forbid")
 

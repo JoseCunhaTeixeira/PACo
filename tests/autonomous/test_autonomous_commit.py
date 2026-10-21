@@ -1,4 +1,4 @@
-"""commit (docs/autonomous_plan.md §6): the line made with the model's settings in PAC's layout;
+"""commit: the line made with the model's settings in PAC's layout;
 its settings changed in the same run, as PACo logs a change of the line's; a change of the windows
 in a new run. Each setting's reason goes where PAC's run card reads it, and paco-replay makes the
 line again. On active_test_profile with windows of 90 receivers on a coarse grid: 7 windows, a commit in a few

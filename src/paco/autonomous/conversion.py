@@ -1,5 +1,5 @@
 """Between MCP and the model's chat API, for what PACo's conversion does not carry: a tool's
-figures (docs/autonomous_plan.md §3). An OpenAI-compatible server takes images in user messages only, so a
+figures. An OpenAI-compatible server takes images in user messages only, so a
 result with figures becomes its tool message, which says they follow, then a user message that
 holds them as data URLs."""
 

@@ -1,11 +1,8 @@
-"""The search's sheets judged by eye in short calls (the user, 2026-10-20: judging the sheets in
-the conversation was most of a run's cost). The host sends the model only the judging prompt, the
-atlas's dispersion images, the line's facts and the sheets the server gives, without the
-conversation, its state card, its manuals or its tools, and reads the variants it keeps in a form,
-without thinking: on the 14 sheets the user rated (2026-10-20), Claude Opus 5.5 kept variants
-rated 1.19 on average (good 2, ok 1, bad 0; chance 0.75, the best 1.6) without thinking, 1.07
-thinking, at 20 % more. The server's judge tool records them and gives the next sheets, until the
-finalists."""
+"""The search's sheets judged by eye in short calls of their own, which cost far less than judging
+them in the conversation. The host sends the model only the judging prompt, the atlas's dispersion
+images, the line's facts and the sheets the server gives, without the conversation, its state
+card, its manuals or its tools, and reads the variants it keeps in a form, without thinking. The
+server's judge tool records them and gives the next sheets, until the finalists."""
 
 import base64
 from dataclasses import dataclass

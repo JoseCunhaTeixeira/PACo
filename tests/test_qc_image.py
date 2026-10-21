@@ -119,7 +119,7 @@ def test_energy_with_no_moveout_on_a_short_window_is_not_a_ridge_beyond_the_grid
 def test_a_band_reaching_either_end_of_the_image_is_kept() -> None:
     image = _image(_ridge(M0, 0.8, band=(15.0, 40.0)))
 
-    # Kept, not widened: on the demo line a wider band let other ridges compete.
+    # Kept, not widened: on the test line a wider band let other ridges compete.
     assert _flags(image) == {
         "band_at_fmax": {
             "kind": "keep",

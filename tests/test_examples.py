@@ -1,4 +1,4 @@
-"""Each tool's example call and result (T11): one for every tool, the call valid as the server
+"""Each tool's example call and result: one for every tool, the call valid as the server
 reads its arguments, the result valid as the tool returns it."""
 
 import typing

@@ -89,7 +89,7 @@ def read_reports(root: Path) -> list[EvaluationReport]:
 def format_history(reports: Iterable[EvaluationReport], model: str | None = None) -> str:
     """Each scenario's pass rate by model and prompt version, the plays of every evaluation of
     that pair summed (E4); for each model, its latest prompt version against the one before.
-    Below, over the same plays (O3): the tool calls that failed, the calls refused as outside
+    Below, over the same plays: the tool calls that failed, the calls refused as outside
     the message's scope, the answers a cap ended, and the gates' retries a play."""
     rates: dict[tuple[str, str], dict[str, tuple[int, int]]] = {}
     totals: dict[tuple[str, str], Counter[str]] = {}

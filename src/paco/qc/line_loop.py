@@ -45,7 +45,7 @@ LINE_STAGES: tuple[LineStage, ...] = ("preprocessing", "phase_shift")
 
 
 class LineRules(BaseModel):
-    """How the line loop decides: provisional, as the mute trial's rules."""
+    """How the line loop decides, as the mute trial's rules do."""
 
     model_config = ConfigDict(frozen=True, extra="forbid")
 
@@ -205,7 +205,7 @@ def candidates(
         if deep_merge(current, ask.overrides) == dict(current):
             continue  # the line's settings already
         if unlocked(ask.overrides, given)[1]:
-            continue  # a setting the user gave: theirs (U2)
+            continue  # a setting the user gave: theirs
         found.append(
             Candidate(
                 stage=ask.stage,

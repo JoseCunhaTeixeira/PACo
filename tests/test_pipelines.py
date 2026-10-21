@@ -172,7 +172,7 @@ def _single_pipeline(
     """PAC's single pipeline per window, from the raw records with the window's receivers, minus
     the padding: what the two-stage path must match bit for bit. A shot's time origin moved by
     the trigger with the muting on, each record's own from its file when none is given (the
-    demo's all say 20 ms)."""
+    test profile's all say 20 ms)."""
     load = Load(
         file_paths=window.selected_files,
         acquisitions=window.acquisitions,
@@ -455,7 +455,7 @@ def test_an_unresolved_preset_is_refused(
         build_image_pipeline(preset, window, tmp_path, tmp_path)
 
 
-# ---------------------------------------------------------------- real runs on a demo window
+# ---------------------------------------------------------------- real runs on a test window
 
 
 EXPECTED_FILES = {

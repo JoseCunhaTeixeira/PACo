@@ -46,8 +46,8 @@ type Band = tuple[float | None, float | None]
 
 
 class SegmentRules(BaseModel):
-    """The candidates S2 tries for a passive line's segments, and how one wins: provisional,
-    measured on the demo profiles (rule 9)."""
+    """The candidates S2 tries for a passive line's segments, and how one wins, measured on
+    PAC's test lines."""
 
     model_config = ConfigDict(frozen=True, extra="forbid")
 
@@ -59,7 +59,7 @@ class SegmentRules(BaseModel):
     thresholds: tuple[float, ...] = Field(
         default=(0.05, 0.1, 0.2, 0.3),
         description="How lopsided a segment's f-k energy must be to be kept, the candidates "
-        "(the demo's segments sit mostly under 0.3)",
+        "(the passive test line's segments sit mostly under 0.3)",
     )
     bands: tuple[Band, ...] = Field(
         default=((None, None), (80.0, 1500.0)),

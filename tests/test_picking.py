@@ -1,4 +1,4 @@
-"""The automatic picker on a demo window; its own tests, on synthetic images, are sigpipe's
+"""The automatic picker on a test window; its own tests, on synthetic images, are sigpipe's
 (sigpipe.algorithms.picking.dispersion.tracking)."""
 
 import numpy as np

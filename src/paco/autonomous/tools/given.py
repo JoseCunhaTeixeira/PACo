@@ -1,5 +1,5 @@
-"""The settings the user gave (docs/autonomous_plan.md §8, rule 1), as the objective form read them from
-their messages (§4.0): the line's, its mode and by preset stage as commit takes its changes (the
+"""The settings the user gave, as the objective form read them from
+their messages: the line's, its mode and by preset stage as commit takes its changes (the
 windows' length, the images' velocities and band), and the inversion's (its iterations, the models'
 Vs bounds). The latest message giving a setting wins, as in PACo's paco.qc.given, which this
 follows. The study keeps them in given.json.

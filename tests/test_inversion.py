@@ -585,7 +585,7 @@ def test_a_job_on_a_run_another_writer_keeps_fails_saying_who(
 
 
 def test_a_job_runs_in_the_context_of_the_call_that_submitted_it() -> None:
-    # Its log lines and what it makes name the call's conversation and model (C6, S4).
+    # Its log lines and what it makes name the call's conversation and model.
     jobs = JobManager()
     seen: list[str | None] = []
     done = threading.Event()

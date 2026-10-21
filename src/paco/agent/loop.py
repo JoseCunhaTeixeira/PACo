@@ -45,12 +45,12 @@ from paco.llm.settings import LOCAL_CONTEXT, ModelSettings
 
 # The answer a stopped question leaves in the conversation (see Agent.answer).
 STOPPED = "(Stopped on the user's request before the answer was complete.)"
-# How an answer a cap ended (L1) or a repeat (L3) begins.
+# How an answer a cap ended or a repeat begins.
 CAPPED = "PACo stopped this answer"
 
 # The role the model plays: prompts/role.md.
 ROLE = prompts.prompt("role")
-# What a tool result of an earlier turn keeps (M6), and a text's length.
+# What a tool result of an earlier turn keeps, and a text's length.
 _KEYS = ("run_id", "job_id", "state", "status", "did", "left", "done", "total", "error")
 _KEPT = 400
 # A tool's result in the conversation: its tool, and the result.
@@ -71,8 +71,8 @@ _REPEATS = 2
 
 @dataclass(frozen=True)
 class Limits:
-    """The caps on one answer (L1: tool calls, time, the model's tokens), one tool call's
-    timeout (T9), and the model's context (M6: the loop warns near it)."""
+    """The caps on one answer (tool calls, time, the model's tokens), one tool call's
+    timeout, and the model's context (the loop warns near it)."""
 
     tool_calls: int = 15
     seconds: float = 7200.0
@@ -107,14 +107,15 @@ class Agent:
         system = f"{ROLE}\n\n{instructions}" if instructions else ROLE
         self.messages: list[ChatCompletionMessageParam] = [{"role": "system", "content": system}]
         # Sent with every call: the conversation, its turn (the user's messages so far), the
-        # prompts' version and the scope of the turn's message. The server goes on with what it did in this conversation
-        # without asking, and applies the user's rules with the scope (paco.choices).
+        # prompts' version and the scope of the turn's message. The server goes on with what it did
+        # in this conversation without asking, and applies the user's rules with the scope
+        # (paco.choices).
         self.meta: RequestParamsMeta = {
             "conversation": uuid.uuid4().hex,
             "turn": 0,
             "prompts": prompts.version(),
         }
-        # The model's name, for what its calls make (S4): a model that names itself.
+        # The model's name, for what its calls make: a model that names itself.
         if isinstance(name := getattr(model, "name", None), str):
             self.meta["model"] = name
         # What the host knows for the next message: the options a tool offered, with the scope
@@ -318,7 +319,7 @@ class Agent:
             self.messages.append(_assistant_message(reply))
             if not reply.tool_calls:
                 left = turn.undone(plan.stages)
-                # Answered before the plan is done, nothing in its way: back once (L2).
+                # Answered before the plan is done, nothing in its way: back once.
                 ready = plan.run_id is not None or plan.new
                 blocked_by = turn.offers or turn.stuck or last_failed
                 if left and ready and not nudged and not blocked_by:
@@ -333,7 +334,7 @@ class Agent:
                 key = (call.name, _canonical(call.arguments))
                 again = key in made and call.name not in _REPEATABLE
                 # Made and refused twice, or refused by the host and asked again (refused again
-                # it would be): the model goes round in circles, the answer ends as stuck (L3).
+                # it would be): the model goes round in circles, the answer ends as stuck.
                 if (again and repeats >= _REPEATS) or key in blocked:
                     self._on_event(f"   (stopped: {call.name} called again, the same way)")
                     del self.messages[-1]  # the call left unanswered
@@ -383,7 +384,7 @@ class Agent:
                         self._made.add(new)
                         run = new
                 last_failed = step.is_error
-                # PACo's results are data (T10, X3); the host's own refusals are not; after a
+                # PACo's results are data; the host's own refusals are not; after a
                 # result, the host says what is next.
                 content = as_data(call.name, result) if step.called else result
                 if plan.stages and step.called and not step.is_error and not turn.stuck:
@@ -401,7 +402,7 @@ class Agent:
         return answer
 
     def _cap(self, seconds: float, tokens: int) -> str | None:
-        """The cap an answer reached (L1): its time, or the model's tokens; None within them."""
+        """The cap an answer reached: its time, or the model's tokens; None within them."""
         if seconds > self._limits.seconds:
             return f"time cap ({self._limits.seconds / 60:g} min)"
         if tokens > self._limits.tokens:
@@ -409,7 +410,7 @@ class Agent:
         return None
 
     def _watch_context(self, prompt_tokens: int | None) -> None:
-        """Warn when the model read most of its context (M6): the conversation is long."""
+        """Warn when the model read most of its context: the conversation is long."""
         if prompt_tokens is not None and prompt_tokens > CONTEXT_WARNING * self._limits.context:
             share = prompt_tokens / self._limits.context
             self._on_event(f"   (the conversation fills {share:.0%} of the model's context)")
@@ -428,7 +429,7 @@ class Agent:
         return render(scope, form.said, form.question, turn, (question, *self._held()))
 
     def _held(self) -> list[str]:
-        """What the conversation holds that an answer's numbers may come from (R1): the user's
+        """What the conversation holds that an answer's numbers may come from: the user's
         messages and the tools' results, earlier turns' as kept (not the answers, written by
         the model)."""
         return [
@@ -605,8 +606,8 @@ class Agent:
 
 
 def as_data(tool: str, result: str) -> str:
-    """Tool `tool`'s `result` as the conversation carries it: a delimited block of data (T10,
-    X3), which the role says is never an instruction, whatever names and texts it holds."""
+    """Tool `tool`'s `result` as the conversation carries it: a delimited block of data, which the
+    role says is never an instruction, whatever names and texts it holds."""
     return f'<data from="{tool}">\n{result}\n</data>'
 
 
@@ -617,7 +618,7 @@ def from_data(content: str) -> str:
 
 
 def _compact(messages: list[ChatCompletionMessageParam], first: int) -> None:
-    """The tool results of the turn from message `first` on, kept short in the history (M6):
+    """The tool results of the turn from message `first` on, kept short in the history:
     what each did, the windows it left out, its options; the trace keeps them whole."""
     for index in range(first, len(messages)):
         message = messages[index]

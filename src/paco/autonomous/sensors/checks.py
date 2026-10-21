@@ -1,4 +1,4 @@
-"""What a window's picks say about the line's settings (docs/autonomous_plan.md §4.2, §4.6): from each
+"""What a window's picks say about the line's settings: from each
 curve's G3 result, its longest wavelength against the window's length, its points beyond the
 window's reach and in the aliasing zone, its nearest shot against its near field, the depth it
 informs and its precision; then their medians over the line, and the runs of windows that do not
@@ -64,7 +64,7 @@ class LineChecks:
 @dataclass(frozen=True, slots=True)
 class Run:
     """Consecutive windows of the line, in its order, that do not pass: at its ends, windows with
-    near shots only are the likely cause; inside, noise or geology (docs/autonomous_plan.md §4.6)."""
+    near shots only are the likely cause; inside, noise or geology."""
 
     xmids: tuple[float, ...]
     at_end: bool  # it holds the line's first or last window
@@ -128,7 +128,7 @@ def failing_runs(
 ) -> tuple[Run, ...]:
     """The runs of consecutive windows that do not pass, in the line's order. `passing`: every
     window of the line, by xmid, and whether it passes; `near_only`: the windows that stack near
-    shots only (sigpipe's near-field rule keeps them, §4.3)."""
+    shots only (sigpipe's near-field rule keeps them)."""
     order = sorted(passing)
     runs: list[list[float]] = []
     for index, xmid in enumerate(order):

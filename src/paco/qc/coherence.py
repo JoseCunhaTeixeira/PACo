@@ -34,7 +34,7 @@ COHERENCE_FILE = "coherence.json"
 
 
 class CoherenceRules(BaseModel):
-    """How S2's parameters come from the data: provisional, measured on the demo profiles."""
+    """How S2's parameters come from the data, measured on PAC's test lines."""
 
     model_config = ConfigDict(frozen=True, extra="forbid")
 
@@ -70,7 +70,7 @@ class CoherenceRules(BaseModel):
         ge=0,
         lt=1,
         description="A longer length is worth the lateral detail it costs while its picks are "
-        "this much more precise than the best so far: past it the climb stops. On the demo, "
+        "this much more precise than the best so far: past it the climb stops. On PAC's test lines, "
         "picks stay at 36 to 40 % from 7 to 11 receivers.",
     )
 

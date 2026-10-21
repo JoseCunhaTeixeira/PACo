@@ -1,4 +1,4 @@
-"""The model client (docs/autonomous_plan.md §3): PACo's ChatModel protocol, which the host calls and
+"""The model client: PACo's ChatModel protocol, which the host calls and
 PACo's own agent too, for a model behind OpenAI's chat API, as OpenAI, Google, Mistral or a server
 (vLLM, Ollama, a gateway...) serves it; with what the autonomous mode adds: images in the
 conversation, thinking switched on or off per call, the prompt tokens the server took from its

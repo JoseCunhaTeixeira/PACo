@@ -1,4 +1,4 @@
-"""The settings the user gave for a run, locked for it (U2, L6): the gates and the rules never
+"""The settings the user gave for a run, locked for it: the gates and the rules never
 change them; a gate that needs one changed rejects its window instead, saying the change it
 asks, for the agent to suggest. A limit the user gave (the picking's band) bounds the gates'
 changes instead: they may narrow the range within it, never take it past. Kept in the run's QC

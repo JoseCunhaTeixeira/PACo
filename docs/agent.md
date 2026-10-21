@@ -226,7 +226,7 @@ took and links to it (Pick the curves, Review, See the models).
 
 ## Quality control
 
-Eight gates judge the stages (`docs/qc_workflow.md`, the spec, with its design decisions): G1
+Eight gates judge the stages (`docs/qc_workflow.md`, the spec): G1
 each record, G2 each dispersion image, G3 each curve, G4 the curves over the line, G5 each
 model, G6 the models over the line, G7 each petrophysical model, G8 those over the line. Each
 gives a verdict (pass, retry, reject), each metric with its threshold, and for each flag the
@@ -251,7 +251,7 @@ chains on the models' Vs at the depths the curve resolves, and adapts each windo
 longer, a Vs bound widened, more layers allowed (with the layers given: a layer added or two
 alike merged, the depth shrunk to what the data inform) (`docs/gates/G5.md`). Each window's
 parameters are in its `SeismicInversion_Parameters_0000.json`. `docs/gates/` documents every
-gate with its thresholds, the demo's real outputs, and what is still to judge.
+gate with its thresholds and what it gives on the demo lines.
 
 The petrophysical inversion runs only when you ask for soils or the water table: the host
 refuses it otherwise, as it refuses an inversion you did not ask for. A Silex model predicts

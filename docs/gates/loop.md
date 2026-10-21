@@ -1,10 +1,10 @@
 # The loop: stage tools, retries, going back, asking
 
 > The lines named below are those the measurements were made on: `active_p1` and `passive_p1`,
-> PAC's former demo lines, and `active_p2` and `passive_p2`, the real lines of which PAC's test
+> the demo lines, and `active_p2` and `passive_p2`, the real lines of which PAC's test
 > profiles, `active_test_profile` and `passive_test_profile`, are light copies.
 
-How the gates act (option B of `docs/qc_workflow.md`): the records and the images are made
+How the gates act (`docs/qc_workflow.md`): the records and the images are made
 with one set of settings for the whole line, every record and window alike, as a person sets
 them in PAC's pages; the gates judge each record and window, and the changes they ask of the
 records or the images are the line's, tried by the line loop and kept when more windows get a
@@ -34,7 +34,7 @@ trial's), its parameters the line's change it was made for, the same on every re
 window it remade (PAC's attempts say it as what changed, and credit it to the line); the change
 is logged on the line's attempt too, with the loop's notes, and each change the loop tried in
 `line_loop.json`, with its trial windows' scores (PAC's run card lists them). The budgets
-(rule 4): 2 retries per gate and window, 2 per window over the run, counted as each is granted
+: 2 retries per gate and window, 2 per window over the run, counted as each is granted
 (a batch of windows cannot overshoot); a window's inversion draws on its own 6; the line loop
 keeps 4 changes at most (`QCConfig.line`), outside them. A
 unit asking for a retry it cannot have is rejected with its last flags: its budget spent
@@ -94,73 +94,3 @@ line). Then one short question with 2 to 4 concrete options, its choice first. T
 rejected the line: no curve to invert, you are stuck. Ask the user which to try, with options:
 ..."; `redo` refuses a spent budget the same way. Everywhere else the agent decides from the
 summaries, and says which settings the gates changed.
-
-## Design notes
-
-The loop retries only where a retry can change the result, and leaves no window out unsaid.
-
-- **A retry with the parameters of the attempt before is refused** (`next_try`, `unchanged`):
-  it would give its result again. The unit is rejected, `nothing_to_try`.
-- **No retry that could not change what it judges**: G1 asks for no filter or mute (it
-  measures in the band the images use, the noise before the muting: `G1.md`), G2 for no second
-  mode, G3 for no filter or air-wave mute (`G2.md`, `G3.md`), and G6 does not sample a
-  converged model longer (`G6.md`); a mute is asked only of records not muted yet.
-- **One set of settings for the line, the line loop changing it** (`line_loop.py`): the
-  records and the images made as a person makes them in PAC's pages, the same settings for every
-  record and window, so that the images compare along the line and a window's fix never makes
-  the images of the windows sharing its records over. The gates still judge each unit; the
-  changes they ask of the records or the images go together by what they change (the records'
-  trigger delays as their median), in the order of PAC's page (the records' changes, then the
-  images'), and in each the one the most failing windows ask first: tried on 15 trial
-  windows, those asking it and the others spread along the line, and kept with 2 more passing
-  G3 without losing a fifth of the curves' longest wavelengths (the mute trial's rule); the
-  whole line is then made again with it, judged again, and the asks read again. A mute keeps
-  the line's median pulse as its width, and the mute trial's taper. Measured on the four real
-  lines, fixes made per record and window against the line loop (curves the inversion takes;
-  processing and picking):
-  `active_p1` 69 and 69, 51 s and 46 s; `active_p2` 82 and 90 (the standard mute, which 3
-  noisy windows asked: 15 of 15 trial windows against 11), 544 s and 192 s; `passive_p1` 54
-  and 55 (the fk threshold halved: 8 of 15 against 3), 76 s and 42 s; `passive_p2` 86 and 82,
-  200 s and 80 s (the fk threshold halved helped the 24 windows asking it, and costs the
-  others: 9 of 15 against 12, not kept).
-- **An alias, or competing ridges, limit the window's picking**: G2's alias and G3's
-  `on_data` ask the picking's band of the window (`picking {"fmax": ...}`, `fmin`), the image
-  staying the line's.
-- **A mode jump's first fix cuts the band** where the largest step between points consecutive
-  in frequency sits, the side with fewer points going (`picking {"fmax": ...}` or `fmin`); once
-  the band is cut, the corridor is halved. Halving the corridor twice does not fix the jump of
-  the demo's xmid 14.88 when its picks are cut at 2 window lengths.
-- **A length given, by the user or the agent, is kept**: the ladder does not climb past it
-  (`S2_rules.md`).
-- **The traces a window leaves out are its records'**: each shot's image is made without the
-  traces G1 excluded from that shot, and a trace excluded in at least half of the window's
-  records is left out of all of them. Leaving out every trace any record excluded would empty
-  every window of `active_p2` (66 shots a window). A record left with fewer than 3 of the
-  window's receivers leaves the window. Passive windows keep the union (their records are
-  stacked as one). Passive-active windows keep one set of receivers, since their correlation
-  gathers are stacked sample by sample: the receivers half the shots excluded leave every shot,
-  and a shot that excluded another of the window's receivers leaves the window.
-- **What the host guarantees** (`paco.agent.host`): the parameters used and the settings the
-  gates changed are listed after every answer, as the tools gave them, and an inversion the
-  model starts is followed to its end. It watches no words, neither the user's nor the
-  model's: whether to ask, and what the request covers, the model reads.
-- **A step back says what came of it**: the summary's "Retried backtrack, ... now ..." gives
-  the verdict of the gate that judges the stage redone (G3 for the picking).
-- **A grid too narrow can fool G2.** With vmax at 150 m/s on a line whose ground reaches
-  290 m/s, only 13 % of the columns peak on the grid's edge (the ridge lies wholly outside),
-  and the correlation's artifact at 1 m/s reads as an alias, which would cut the band to 12 Hz.
-  So G2 looks above its 30 m/s floor for the edge, the competing ridges and the aliases, and
-  judges no second ridge while the grid is too narrow. With vmax at 250 m/s, G2 asks 375 m/s
-  of the windows that need it: the line loop widens the line's range when it gains windows; a
-  range the user gave stays, and those windows are rejected, `locked`.
-- **The ladder's trial windows get G2's velocity-range fix before G3 judges them**: a grid too
-  narrow for the ground is no fault of the window's length.
-- **A band wholly below the usable one** (a record usable only from 122 Hz, a preset fmax of
-  100 Hz) would leave the capped band empty: fmax then goes up to the usable band's top, the
-  one case it is widened.
-- **Synthetic defects that do not work:** an air wave the picker follows needs M0 faster than
-  340 m/s; neither scaling the geometry (G1's time windows then miss the waves) nor
-  compressing the records' time axis (G1 then finds them usable only from 122 Hz) gives one on
-  the demo's records. An isolated G4 outlier cannot come from a data defect with overlapping
-  windows: a defect on a few receivers changes every window holding them, a run G4 rightly
-  calls geology. Both stay covered by the gates' tests on analytic curves and synthetic lines.

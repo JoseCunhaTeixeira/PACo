@@ -21,7 +21,7 @@ GATE = "G7"
 
 
 class PetroThresholds(SoilLimits):
-    """G7's limits (sigpipe's SoilLimits, PAC's alike): G5's, provisional (rule 9)."""
+    """G7's limits (sigpipe's SoilLimits, PAC's alike): G5's."""
 
     model_config = ConfigDict(frozen=True, extra="forbid")
 

@@ -815,7 +815,7 @@ def keep_line_asks(run_folder: Path) -> None:
     """Once the line is settled, the records' G1 and the windows' G2 still asking a change of the
     line's settings: their asks kept as notes (kept_on_line), the line's settings staying the
     same for every record and window; an ask of a setting the user gave rejects its unit, the
-    change it asks said (L6: the gate fails and suggests)."""
+    change it asks said (the gate fails and suggests)."""
     attempts = read_attempts(run_folder)
     given = {**locked(run_folder, "preprocessing"), **locked(run_folder, "phase_shift")}
     for stage, gate in (("preprocessing", "G1"), ("phase_shift", "G2")):

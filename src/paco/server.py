@@ -64,7 +64,7 @@ WINDOW_KEYS = frozenset({"length", "length_m", "step", "step_m"})
 WRITER_WAIT_S = 5.0
 # The tag of an error that leaves the request stuck: the host shows the model's question.
 STUCK = "[stuck]"
-# What each tool does to the runs (T5): reads only; adds results without replacing any (a new run,
+# What each tool does to the runs: reads only; adds results without replacing any (a new run,
 # verdicts); or may replace earlier results (curves, models, soil columns, a stage redone).
 READS = ToolAnnotations(read_only_hint=True, open_world_hint=False)
 ADDS = ToolAnnotations(read_only_hint=False, destructive_hint=False, open_world_hint=False)
@@ -73,7 +73,7 @@ REPLACES = ToolAnnotations(read_only_hint=False, destructive_hint=True, open_wor
 READ_ONLY = frozenset(
     {"inspect", "preset_settings", "inversion_settings", "job_status", "petro_models"}
 )
-# The calls a host made on a run, one JSON line each, in the run's folder (O1).
+# The calls a host made on a run, one JSON line each, in the run's folder.
 CALLS_FILE = "agent_calls.jsonl"
 # The newest runs the host lists when the run a message names does not exist.
 NEWEST_RUNS = 5
@@ -120,7 +120,7 @@ def _agent_errors[**P, R](tool: Callable[P, R]) -> Callable[P, R]:
         began = time.monotonic()
         outcome, run_id = "error", kwargs.get("run_id")
         tokens = _logged(kwargs.get("ctx"), run_id)
-        # The images the call makes taken from the cache, and kept in it (S8).
+        # The images the call makes taken from the cache, and kept in it.
         tokens.append((caching.CACHE, caching.CACHE.set(_images_cache())))
         asked = _workers_asked(kwargs.get("ctx"))
         cores = os.cpu_count() or 1
@@ -641,7 +641,7 @@ def redo(
 
 
 def _images_cache() -> caching.Cache | None:
-    """The images' cache the settings give (S8); none while they do not read (an input folder
+    """The images' cache the settings give; none while they do not read (an input folder
     missing): a tool that needs them says so itself, and the others answer without a cache."""
     try:
         return image_cache(get_settings())
@@ -651,7 +651,7 @@ def _images_cache() -> caching.Cache | None:
 
 
 def _writing(run_id: str, tool: str) -> AbstractContextManager[None]:
-    """Run `run_id` held by PACo while `tool` writes it (S5): PAC's pages and PACo's other
+    """Run `run_id` held by PACo while `tool` writes it: PAC's pages and PACo's other
     writers are refused meanwhile; one writing it already, waited for a little, then said."""
     run_folder = runs.find_run(run_id, get_settings())
     return run_lock(run_folder, f"PACo ({tool})", wait_s=WRITER_WAIT_S)
@@ -706,8 +706,8 @@ def with_workers[R](result: R, asked: int | None, cores: int) -> R:
 
 
 def _logged(ctx: object, run_id: object) -> list[tuple[ContextVar[Any], Token[Any]]]:
-    """The call's log lines name its conversation, turn and run (C6), and what it makes, the
-    model and the prompts' version too (S4); the tokens to reset them."""
+    """The call's log lines name its conversation, turn and run, and what it makes, the
+    model and the prompts' version too; the tokens to reset them."""
     meta = ctx.request_context.meta if isinstance(ctx, Context) else None
     meta = meta if isinstance(meta, dict) else {}
     values: list[tuple[ContextVar[Any], object]] = [
@@ -725,7 +725,7 @@ def _traced(
 ) -> None:
     """The call, in the run's agent_calls.jsonl: when, which conversation and turn, the scope
     and the prompts' version as the host sent them, the arguments, how it ended, how long it
-    took (O1; the host's transcript holds the rest of the turn). Only a run's calls made by a
+    took (the host's transcript holds the rest of the turn). Only a run's calls made by a
     host that names its conversation; a trace that cannot be written never fails the call."""
     ctx = arguments.pop("ctx", None)
     meta = ctx.request_context.meta if isinstance(ctx, Context) else None

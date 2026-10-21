@@ -1,6 +1,5 @@
-"""search: the full grid of the line's settings, scored in code, for the model to choose from (the
-user, 2026-10-20: PACo's workflow is one thing; the autonomous agent runs a full grid, then the
-model chooses the best results and checks that they make sense). Every setting of PAC's page for
+"""search: the full grid of the line's settings, scored in code, for the model to choose from and
+check that its choice makes sense. Every setting of PAC's page for
 the line's method takes values the physics sets (axes), and every combination of them is a
 variant: the windows' length over the line's range; the farthest shot as shares of the survey's
 reach (the surface waves fall into the noise past it), never nearer than the window's half
@@ -8,17 +7,16 @@ length; the near field as shares of the window (a shot nearer than half a wavele
 low frequencies); PACo's mutes from the survey's cone; a passive line's segments as crossings of
 the window by the slowest wave, PACo's FK thresholds and bands, the whitening and the
 normalization. Each variant is judged on the same trial windows as try_settings judges it, by the
-grid (paco.autonomous.tools.grid). No score reads an image's quality as the eye does (the user,
-2026-10-20: choose by eye only): the scores only drop the really bad (no image, or too few windows
-passing for a curve along the line); the model judges every other variant by eye, in sheets of
-SHEET by window length, each at the same places along the line, no score on them, keeping the
-cleanest of each sheet (judge, which the host calls from short calls of their own: the user,
-2026-10-20, judging in the conversation cost too much); the kept meet again, sheet after sheet,
-until one sheet is left, whose kept are tried side by side at full size.
+grid (paco.autonomous.tools.grid). No score reads an image's quality as the eye does: the scores
+only drop the really bad (no image, or too few windows passing for a curve along the line); every
+other variant is judged by eye, in sheets of SHEET by window length, each at the same places along
+the line, no score on them, the cleanest of each sheet kept (judge, which the host calls from
+short calls of their own); the kept meet again, sheet after sheet, until one sheet is left, whose
+kept are tried side by side at full size.
 
 A study's search: searches/S1.json, each variant with its settings, trial and scorecard; its
 thumbnails, searches/S1_images/<label>.npz; the knockout, searches/S1_knockout.json; each sheet's
-judgment, searches/S1_judged.jsonl (what the eye kept and left, to check measures against)."""
+judgment, searches/S1_judged.jsonl (what the eye kept and left)."""
 
 import argparse
 import json
@@ -49,7 +47,7 @@ IMAGES = f"{SEARCH}_images"
 KNOCKOUT = f"{SEARCH}_knockout.json"
 JUDGED = f"{SEARCH}_judged.jsonl"
 WINDOWS = "spread:12"
-# The grid's values, a file beside the code (the user, 2026-10-20: every grid value in one file).
+# The grid's values, every one of them in a file beside the code.
 GRID_FILE = "grid.yaml"
 # The pseudo-settings a value may give, resolved by each variant's window (changes_of): a passive
 # line's segments, their seconds per metre of the window; the near field, its share of the window.

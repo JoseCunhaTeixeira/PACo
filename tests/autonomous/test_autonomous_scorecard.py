@@ -1,5 +1,5 @@
-"""Scorecards (docs/autonomous_plan.md §5.3): active_test_profile's line, and cases with a known answer for coverage,
-the longest gap, a variant against the best (PACo's rule 6) and dominance."""
+"""Scorecards: active_test_profile's line, and cases with a known answer for coverage,
+the longest gap, a variant against the best and dominance."""
 
 import pytest
 from autonomous_judged import JudgedLine

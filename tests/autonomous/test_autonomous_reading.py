@@ -1,4 +1,4 @@
-"""observe, look and advise (docs/autonomous_plan.md §6): what they read of a committed line, here
+"""observe, look and advise: what they read of a committed line, here
 active_test_profile's four 24-receiver windows as PACo makes them; and advise's own trials, made once."""
 
 from pathlib import Path

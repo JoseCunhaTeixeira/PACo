@@ -39,11 +39,11 @@ TOOLS = [
 # The served model reads 12,288 tokens at most; the cards take about a quarter of it (the
 # largest prompt measured, 8,107 tokens).
 CARDS_BUDGET = 11_600  # characters, all tools together
-# The tools' schemas as last reviewed (T12).
+# The tools' schemas as last reviewed.
 SCHEMAS_SNAPSHOT = Path(__file__).parent / "snapshots" / "tool_schemas.json"
 # The server's instructions go into the model's system prompt too.
 INSTRUCTIONS_BUDGET = 700  # characters
-# Four 24-receiver windows along the active demo line, as in test_runs.py.
+# Four 24-receiver windows along the active test line, as in test_runs.py.
 SMALL_WINDOWS = {"masw": {"length": 24, "step": 24}}
 # A short sampler: every step of an inversion, in about a second per window.
 SHORT = {"n_iterations": 500, "n_burnin_iterations": 50, "n_chains": 2}  # two at least
@@ -553,7 +553,7 @@ def test_a_run_another_application_writes_is_refused_saying_who(
         release.set()
         thread.join(timeout=10)
 
-    # Nothing picked, the model told why (S5).
+    # Nothing picked, the model told why.
     assert result.is_error
     assert f"[precondition] Run {run_id} is being written by one of PAC's pages" in _text(result)
     assert not list(run_folder.glob("xmid_*/DispersionCurves_0000.csv"))

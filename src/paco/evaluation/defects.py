@@ -1,7 +1,6 @@
 """The profiles an evaluation plays on: PAC's real lines active_test_profile and passive_test_profile, and synthetic
-variants of them with a known defect, written once per evaluation (docs/qc_workflow.md:
-"synthetic variants of the demo profiles with known defects", in the data where the defect is
-physical).
+variants of them with a known defect, written once per evaluation, in the data where the defect
+is physical.
 
 - active_dead: active_test_profile with trace 40 of its first record zeroed, a dead geophone for G1.
 - passive_noise: passive_test_profile's geometry with white noise for records, a line with no wave: no

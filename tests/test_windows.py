@@ -1,4 +1,4 @@
-"""The windows of the demo profiles against the ones PAC's own build_windows gives; their own
+"""The windows of the test profiles against the ones PAC's own build_windows gives; their own
 tests, on synthetic lines, are sigpipe's (sigpipe.masw.windows)."""
 
 import json

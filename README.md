@@ -10,11 +10,11 @@ PACo works in one of two modes, with the same model:
 
 - **workflow** (the default): cheaper, but its results are less good. PACo leads the model step
   by step through its tools and chooses the settings by fixed rules. The model never sees the
-  data, only the gates' short summaries. A small model on your own GPU is enough (Qwen3-14B).
+  data, only the gates' short summaries. A small model on your own GPU is enough.
 - **autonomous**: better results, but costly. PACo tries every combination of the line's
   settings, the model looks at all the images and keeps the cleanest, then decides each window
-  and inverts. It keeps a journal of what it tried and why. It needs a frontier model (Claude,
-  GPT, Gemini) with vision and a long context, and uses many more tokens. See
+  and inverts. It keeps a journal of what it tried and why. It needs a frontier model with
+  vision and a long context, and uses many more tokens. See
   [The autonomous mode](#the-autonomous-mode).
 
 `PACO_AGENT_MODE` chooses the mode (or `--mode` on the commands).
@@ -75,7 +75,7 @@ PACO_OUTPUT_DIR=../PAC/data/output
 PACO_AGENT_MODE=workflow
 PACO_LLM_PROVIDER=server
 PACO_LLM_BASE_URL=http://127.0.0.1:8001/v1
-PACO_LLM_MODEL=Qwen/Qwen3-14B-FP8
+PACO_LLM_MODEL=<the model's name on your server>
 PACO_LLM_CONTEXT=16384
 ```
 
@@ -200,9 +200,9 @@ How a line goes:
 4. **The line.** The model refines its choice, applies it to the whole line, picks and decides
    each window, freezes the curves, inverts them and reports.
 
-It costs more than the workflow mode, for better results: about 12 to 21 minutes and $1.5 to $3
-a line with Claude Opus and 11 workers, before the inversion (estimates from PAC's test lines). The
-grid takes longer with fewer workers.
+It costs more than the workflow mode, for better results: about 15 to 20 minutes a line with 4
+workers, and from under a dollar to a few dollars depending on the model, before the inversion
+(measured on PAC's test lines). The grid takes longer with fewer workers.
 
 The tools work on a profile's **study**: a folder in `<output>/<profile>/studies/`
 that keeps the survey, the experiments, the journal, the decisions and the frozen curves; the line
@@ -230,7 +230,6 @@ Code keeps the work honest. The settings you type are never changed. The phases 
 survey, curves, inversion, report. A window is rejected only after real tries. Budgets stop a run
 that spends too much; judging the sheets does not count against them. The model sees the
 figures: the autonomous mode judges every image by eye, so it needs a model that takes images.
-The design is in `docs/autonomous_plan.md`.
 
 ## How PACo works
 
@@ -279,17 +278,18 @@ Both modes use the same model, set by `PACO_LLM_*`. There are two ways to reach 
 | A provider's API | `anthropic` (Claude), `openai`, `gemini` or `mistral` | `PACO_LLM_MODEL`, `PACO_LLM_API_KEY` |
 | Your server, or any server speaking OpenAI's API: vLLM, Ollama, LM Studio, OpenRouter, a gateway | `server` (the default) | `PACO_LLM_BASE_URL`, `PACO_LLM_MODEL`, `PACO_LLM_CONTEXT`, and `PACO_LLM_API_KEY` if it asks for one |
 
-The workflow mode runs well with `Qwen/Qwen3-14B-FP8`, on a GPU with 24 GB of memory. The
-autonomous mode needs a frontier model with vision and 128k tokens of context.
+The workflow mode runs well with a small model on a GPU with 24 GB of memory. The autonomous
+mode needs a frontier model with vision and 128k tokens of context.
 
-**Your GPU, with vLLM.** Serve Qwen3 with its tool-call and reasoning parsers:
+**Your GPU, with vLLM.** Serve your model with the tool-call parser of its family (and its
+reasoning parser, if it thinks):
 
 ```sh
-vllm serve Qwen/Qwen3-14B-FP8 --port 8001 --max-model-len 16384 \
-    --enable-auto-tool-choice --tool-call-parser hermes --reasoning-parser qwen3
+vllm serve <model> --port 8001 --max-model-len 16384 \
+    --enable-auto-tool-choice --tool-call-parser <parser>
 ```
 
-Then set `PACO_LLM_BASE_URL=http://127.0.0.1:8001/v1`, `PACO_LLM_MODEL=Qwen/Qwen3-14B-FP8` and
+Then set `PACO_LLM_BASE_URL=http://127.0.0.1:8001/v1`, `PACO_LLM_MODEL=<model>` and
 `PACO_LLM_CONTEXT=16384`, the same number as `--max-model-len` (port 8000 is `paco-server`'s).
 32768 tokens leave room for longer conversations.
 
@@ -301,18 +301,9 @@ drops, PACo tries again for up to 30 s.
 the gates' summaries in the workflow mode, the line's measures and tables in the autonomous mode.
 In the autonomous mode, also the figures it looks at: the mode judges every image by eye.
 
-**Other models.** The workflow mode works with any model that calls tools and fills a JSON schema.
-With vLLM, a model of another family needs its own `--tool-call-parser`, and no
-`--reasoning-parser qwen3`. PACo's 15 test scenarios, played 5 times each (`uv run paco-evaluate`,
-on PAC's former demo line when measured):
-
-| Model | GPU memory | PACo's tests (75 plays) |
-|---|---|---|
-| `Qwen/Qwen3-14B-FP8` (the one PACo runs) | 24 GB | 75 passed |
-| `Qwen/Qwen3-8B-FP8` | 16 GB, with a 12,288-token context | 68 passed |
-| `Qwen/Qwen3.8-27B` | 40 to 48 GB (FP8) | 69 passed |
-| `Qwen/Qwen3-30B-A3B-FP8` | 48 GB, or two 24 GB GPUs | not tested |
-| `Qwen/Qwen3-32B-FP8` | 48 GB, or two 24 GB GPUs | not tested |
+**Which model.** The workflow mode works with any model that calls tools and fills a JSON schema.
+PACo's 15 test scenarios, played 5 times each, show how well a model does it:
+`uv run paco-evaluate`.
 
 ## Docker
 
@@ -326,7 +317,7 @@ docker compose run --rm agent           # chat in this terminal
 docker compose run --rm evaluate        # the evaluation suite
 ```
 
-Set `PACO_LLM_MODEL=Qwen/Qwen3-14B-FP8` in `.env`. `PACO_LLM_CONTEXT` (16384 by default) sets the
+Set `PACO_LLM_MODEL` to your model in `.env`. `PACO_LLM_CONTEXT` (16384 by default) sets the
 context of both vLLM and PACo. `PACO_WORKERS` and `HF_TOKEN` can go there too. The ports (8000 for
 the server, 8001 for vLLM) are open to this machine only.
 

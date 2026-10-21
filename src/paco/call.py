@@ -1,4 +1,4 @@
-"""paco-call TOOL [ARGUMENTS]: one of PACo's tools called without a model (A9), in this process,
+"""paco-call TOOL [ARGUMENTS]: one of PACo's tools called without a model, in this process,
 as a host calls it; ARGUMENTS a JSON object, {} when left out. Prints what the tool returns: its
 object as JSON, or its text; an error, on stderr, with exit status 1. The call is traced in the
 run's agent_calls.jsonl as conversation "paco-call". `paco-call --list` names the tools, each

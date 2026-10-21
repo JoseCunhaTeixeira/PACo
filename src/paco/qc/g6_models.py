@@ -20,7 +20,7 @@ LINE = "line"  # the unit of the line-level result, as G4's
 
 
 class ModelProfileThresholds(BaseModel):
-    """G6's limits: provisional, measured on the demo profiles (rule 9)."""
+    """G6's limits, measured on PAC's test lines."""
 
     model_config = ConfigDict(frozen=True, extra="forbid")
 

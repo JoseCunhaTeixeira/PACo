@@ -1,6 +1,6 @@
 """Attempts kept inside one run: the final result stays at the top of a window's folder, in PAC's
 layout, and the results of earlier attempts move to xmid_<x>/attempts/<n>_<stage>/ when a stage
-is done again. Going back to a stage invalidates everything downstream (rule 3), for that
+is done again. Going back to a stage invalidates everything downstream, for that
 window only. A person's results the assistant replaces at their request are set aside in
 xmid_<x>/by_hand/<stage>_<time>/, for them to take back."""
 

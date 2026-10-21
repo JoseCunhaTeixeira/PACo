@@ -1,9 +1,9 @@
-"""The objective (docs/autonomous_plan.md §4.0): PACo's scope form, subclassed with the objective's four
+"""The objective: PACo's scope form, subclassed with the objective's four
 fields and the settings a user types beyond the windows' (the images' velocities and band, the
 inversion's iterations and Vs bounds), read from the user's message by the model (the form's JSON
 schema constrains its output) and checked in code, as PACo reads its scope: its prompt and worked
 examples, with the objective's own after them. The settings the user gives in it stay as they
-gave them (§8, rule 1; paco.autonomous.tools.given)."""
+gave them (paco.autonomous.tools.given)."""
 
 import json
 from typing import Any, Literal, Self

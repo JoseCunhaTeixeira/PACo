@@ -19,7 +19,7 @@ from paco.settings import Settings
 # Signature of the `copy_demo` fixture from conftest.py.
 type CopyDemo = Callable[[str, str], Path]
 
-# ---------------------------------------------------------------- demo profiles
+# ---------------------------------------------------------------- test profiles
 
 
 def test_list_profiles_finds_the_demo_profiles(demo_settings: Settings) -> None:

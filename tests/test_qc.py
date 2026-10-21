@@ -256,7 +256,7 @@ def test_a_stage_started_afresh_forgets_its_attempts_not_their_cost(tmp_path: Pa
         ("xmid_13.00", "phase_shift", 1),
         ("xmid_12.50", "phase_shift", 1),
     ]
-    # The log only grows: the forgotten lines are there, behind the agent's reset (S2, S9).
+    # The log only grows: the forgotten lines are there, behind the agent's reset.
     lines = [json.loads(line) for line in (tmp_path / LOG_FILE).read_text().splitlines()]
     assert [line.get("event") for line in lines] == ["stage"] * 4 + ["reset", "stage"]
     assert (lines[4]["actor"], lines[4]["stages"]) == (

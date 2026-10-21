@@ -1,7 +1,7 @@
 """paco-trace show FILE | paco-trace replay FILE: a saved conversation (the chat's agent_logs, an
 evaluation's transcript.json) printed turn by turn; or played again through the current loop
 with the recorded replies, forms and tool results, no tool running, to see where its answers
-now differ (O2)."""
+now differ."""
 
 import argparse
 import difflib

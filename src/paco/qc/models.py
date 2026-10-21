@@ -28,7 +28,7 @@ def stage_index(stage: Stage) -> int:
 
 
 class Metric(BaseModel):
-    """One measurement against its threshold (rule 1)."""
+    """One measurement against its threshold."""
 
     model_config = ConfigDict(frozen=True)
 
@@ -70,7 +70,7 @@ class ExcludeRecord(BaseModel):
 
 
 class Reject(BaseModel):
-    """A legitimate end state, with its reason (rule 2)."""
+    """A legitimate end state, with its reason."""
 
     model_config = ConfigDict(frozen=True)
 
@@ -87,7 +87,7 @@ class Keep(BaseModel):
     note: str
 
 
-# What a gate can advise (rule 2).
+# What a gate can advise.
 type Action = Annotated[
     Override | ExcludeTraces | ExcludeRecord | Reject | Keep, Field(discriminator="kind")
 ]
@@ -106,7 +106,7 @@ class Flag(BaseModel):
 
 
 class Kept(BaseModel):
-    """What a result keeps of the data (rule 6): a fix must not win by throwing data away."""
+    """What a result keeps of the data: a fix must not win by throwing data away."""
 
     model_config = ConfigDict(frozen=True)
 
@@ -129,7 +129,7 @@ class GateResult(BaseModel):
     metrics: tuple[Metric, ...] = ()
     flags: tuple[Flag, ...] = ()
     kept: Kept = Kept()
-    shrank: bool = False  # kept much less than the attempt before, or than the line (rule 6)
+    shrank: bool = False  # kept much less than the attempt before, or than the line
 
 
 # Who made an attempt, or logged an event: the agent (its call), a gate (its retry, its
@@ -138,7 +138,7 @@ type Actor = Literal["agent", "gate", "user"]
 
 
 class MadeBy(BaseModel):
-    """What made an attempt (S4): who, the code's versions, and for a call of the agent its
+    """What made an attempt: who, the code's versions, and for a call of the agent its
     model, the prompts' version, its conversation and the turn."""
 
     model_config = ConfigDict(frozen=True)
@@ -152,7 +152,7 @@ class MadeBy(BaseModel):
 
 
 class Attempt(BaseModel):
-    """One line of the QC log (rule 8): a stage run once on one unit, and what its gate said.
+    """One line of the QC log: a stage run once on one unit, and what its gate said.
     Each state of the attempt is a line of its own (S2): its stage run (`event` "stage"), a
     gate's verdict on it ("verdict"), notes added after it ran ("notes")."""
 
@@ -179,7 +179,7 @@ class Attempt(BaseModel):
     # and a line-level one judging the same output (G4).
     results: dict[str, GateResult] = {}
     # The retries on the run's budget that the attempts this one replaced had spent: a stage
-    # started afresh forgets its window's earlier attempts, not what they cost (rule 4).
+    # started afresh forgets its window's earlier attempts, not what they cost.
     forgotten: int = 0
     # The parameters of the attempt this one replaced, forgotten: what it changed is read
     # against them.
@@ -188,7 +188,7 @@ class Attempt(BaseModel):
 
 
 class Budgets(BaseModel):
-    """Retries, not attempts (rule 4): the first attempt is free."""
+    """Retries, not attempts: the first attempt is free."""
 
     model_config = ConfigDict(frozen=True, extra="forbid")
 

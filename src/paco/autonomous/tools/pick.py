@@ -1,16 +1,16 @@
-"""pick (docs/autonomous_plan.md §4.6, §6): PAC's Dispersion picking page as a tool, each window's M0
+"""pick: PAC's Dispersion picking page as a tool, each window's M0
 picked as the model says. The tracker with the window's own parameters (auto); its corridor centred
 on a guide, points or the neighbours' median curve (guide); on the maxima inside a polygon drawn on
 the image (lasso); or the curve deleted. Each pick is PACo's (paco.qc.judging.pick_windows): saved
 in PAC's layout, judged by G3 against G2's coherent band, and logged as the window's picking
-attempt, `backtrack` (a window the model redoes, §2.3). Then G4 judges the line.
+attempt, `backtrack` (a window the model redoes). Then G4 judges the line.
 
 A lasso's maxima (sigpipe's pick_lasso) guide the tracker inside the polygon's band, so that G3
 judges the pick as any other and paco-replay makes it again: a curve drawn from the polygon alone
 would be neither.
 
 The study keeps every pick (picks.jsonl): the window's recipe, so that a later commit of the line
-picks it the same way, and what G3 said of it, so that decide reads what was tried (§4.6)."""
+picks it the same way, and what G3 said of it, so that decide reads what was tried."""
 
 import json
 import logging
@@ -41,7 +41,7 @@ from paco.qc.models import Attempt, Flag, GateResult, Override
 from paco.qc.report import line_step, stretches, xmid_of
 
 PICKS = "picks.jsonl"  # in the study's folder
-# The trigger of a window the model redoes, as PAC knows it (§2.3).
+# The trigger of a window the model redoes, as PAC knows it.
 BACKTRACK = "backtrack"
 NEIGHBOURS = "neighbours"
 M0 = Mode("M", 0)

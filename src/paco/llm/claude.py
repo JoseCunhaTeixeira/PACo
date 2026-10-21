@@ -1,4 +1,4 @@
-"""The Anthropic client (docs/autonomous_plan.md §3): PACo's ChatModel protocol over Anthropic's own
+"""The Anthropic client: PACo's ChatModel protocol over Anthropic's own
 API, for Claude, beside the client of OpenAI's chat API (paco.llm.model). The host and PACo's agent
 write the conversation in OpenAI's format; this client reads it into Anthropic's: the system prompt
 apart, each call a tool_use block, each result a tool_result block in the user's next message, the
@@ -9,7 +9,7 @@ What Claude's API adds, used here:
 
 - Prompt caching: the tools, the system prompt and the conversation up to the model's last reply
   are marked for the cache, so that each call reads them back; the host keeps the prompt's
-  beginning the same from call to call (§7.2).
+  beginning the same from call to call.
 - Thinking as the model takes it, which the models API says: adaptive where it can, else a budget
   of tokens; its blocks given back unchanged with the calls they led to, as the API asks within a
   tool loop.
@@ -455,7 +455,7 @@ def _nullable(field: object) -> dict[str, Any] | None:
 
 def _with_nulls(filled: object, relaxed: list[str]) -> str:
     """The form `filled` (the tool's input, or the text of structured outputs) as JSON, the fields
-    `relaxed` the model left out, or wrote as the text null (Claude Haiku 5.5 does), given back as
+    `relaxed` the model left out, or wrote as the text null (as some models do), given back as
     null."""
     if isinstance(filled, str):
         if not relaxed:

@@ -1,8 +1,8 @@
-"""advise (docs/autonomous_plan.md §6): today's automatic choices, as PACo's workflow would make them,
+"""advise: today's automatic choices, as PACo's workflow would make them,
 given as a second opinion with their evidence and never applied: the ladder's window length, the
 mute trial's muting (a line with shots), the segment trial's segments and FK selection (a passive
 line), the line loop's changes of the line's settings, and G3's changes of each window's picking.
-What to do stays the model's (§16, the starting point)."""
+What to do stays the model's."""
 
 import hashlib
 import json

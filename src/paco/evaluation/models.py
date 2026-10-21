@@ -46,8 +46,8 @@ class ScenarioResult(BaseModel):
     max_prompt_tokens: int | None  # the largest context the model read, when the API says
     duration_s: float
     answer: str  # the model's last answer to the user
-    # The calls the host refused as outside the message's scope (L4), the answers a cap or a
-    # repeat ended (L1, L3), and the retries the gates asked in the play's runs, by gate (O3).
+    # The calls the host refused as outside the message's scope, the answers a cap or a
+    # repeat ended, and the retries the gates asked in the play's runs, by gate.
     scope_blocks: int = 0
     caps_reached: int = 0
     retries: dict[str, int] = {}

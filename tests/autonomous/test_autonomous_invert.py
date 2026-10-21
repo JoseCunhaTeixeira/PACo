@@ -1,8 +1,8 @@
-"""invert, job_status, and the models after the freeze (docs/autonomous_plan.md §4.8, §10): on
+"""invert, job_status, and the models after the freeze: on
 active_test_profile's frozen curves (windows of 78 receivers on a coarse grid, 8 accepted and 11 rejected),
 one pass then one group rerun, through the autonomous agent's tools at the quick effort; G5's and G6's
 results in the journal and on the state card; each inversion seeded, the same seed making the same
-models; each window's retries counted; the models decided as §8 says; look and advise on them."""
+models; each window's retries counted; the models decided by the rules; look and advise on them."""
 
 import shutil
 from collections.abc import Iterator

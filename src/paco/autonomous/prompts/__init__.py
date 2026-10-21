@@ -1,4 +1,4 @@
-"""The prompts the autonomous agent reads, in files (docs/autonomous_plan.md §4): its role,
+"""The prompts the autonomous agent reads, in files: its role,
 each phase's manual (which loads only in its phase), what the objective form and the answer form
 add to PACo's own (PACo's scope and answer prompts, imported with their worked examples), the
 judge's, which the search's sheets are judged with in short calls of their own, and the atlas,

@@ -1,8 +1,8 @@
 """The autonomous agent's chat in a terminal (paco-agent --mode autonomous). It reaches its server
-(paco-server --mode autonomous), lists the tools the model will be given, then runs the
-conversation with the model of .env (PACO_LLM_*) until the user types exit. The study keeps the
-work: stopped (Ctrl+C), the next chat on the same profile resumes it (docs/autonomous_plan.md
-§14), making again the working files removed at the chat's end (tidy, the images' cache)."""
+(paco-server --mode autonomous), lists the tools the model will be given, then runs the conversation
+with the model of .env (PACO_LLM_*) until the user types exit. The study keeps the work: stopped
+(Ctrl+C), the next chat on the same profile resumes it, making again the working files removed at
+the chat's end (tidy, the images' cache)."""
 
 import sys
 from collections.abc import Callable
@@ -27,10 +27,10 @@ async def chat(
     model: ChatModel | None = None,
     read: Callable[[str], str] = input,
 ) -> None:
-    """The chat with the autonomous agent's server at `server` (or, in a test, the server itself): its
-    tools, then the conversation with `model` (the one .env names when none is given), each line
-    the user types read with `read`. Stops with exit status 1, saying why, when the server gives
-    no tools."""
+    """The chat with the autonomous agent's server at `server` (or, in a test, the server itself):
+    its tools, then the conversation with `model` (the one .env names when none is given), each line
+    the user types read with `read`. Stops with exit status 1, saying why, when the server gives no
+    tools."""
     try:
         tools = await listed(server)
     except Exception as error:

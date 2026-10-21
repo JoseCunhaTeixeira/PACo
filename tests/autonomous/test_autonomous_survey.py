@@ -1,4 +1,4 @@
-"""survey (docs/autonomous_plan.md §4.1): active_test_profile's geometry, the limits it sets, and its raw records as
+"""survey: active_test_profile's geometry, the limits it sets, and its raw records as
 G1 measures them, made once a study; look at those records before the line's first commit, a mute
 and velocities drawn on a gather."""
 

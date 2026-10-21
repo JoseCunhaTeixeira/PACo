@@ -1,6 +1,6 @@
 """The settings a call gives that its tool does not have, set aside rather than refusing the call,
 as pydantic ignores the fields a model does not expect: each name the tool does not know dropped
-and said (the answer lists them, U6), the call run with the rest. A wrong setting still refuses
+and said (the answer lists them), the call run with the rest. A wrong setting still refuses
 the call, with why, for the model to correct: a value the tool refuses for a setting it has, and
 a name that is a setting's misspelling (`iterations` for `n_iterations`, `stack` for
 `stacking`), the user's setting otherwise lost; what a call acts on (a profile, a run, a stage,

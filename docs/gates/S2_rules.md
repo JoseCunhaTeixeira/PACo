@@ -1,11 +1,11 @@
 # The coherence rules for S2, before the phase shift
 
 > The lines named below are those the measurements were made on: `active_p1` and `passive_p1`,
-> PAC's former demo lines, and `active_p2` and `passive_p2`, the real lines of which PAC's test
+> the demo lines, and `active_p2` and `passive_p2`, the real lines of which PAC's test
 > profiles, `active_test_profile` and `passive_test_profile`, are light copies.
 
 Not a gate: rules checked once per line, after S1 and G1 and before any image is made, so that
-the phase shift's parameters come from the data and the geometry (rule 7). Code:
+the phase shift's parameters come from the data and the geometry. Code:
 `src/paco/qc/coherence.py` (the rules), `src/paco/qc/line.py` (`process_line`: S1, G1, the
 rules, S2, then G2 to G4); rules: `coherence` in `qc_config.json` (`CoherenceRules`); tests:
 `tests/test_qc_line.py`. What they changed is logged as notes of the line's phase shift, and
@@ -90,16 +90,6 @@ trial curves reach 34 m: a near field of 17 m, where 2 of the 4 windows keep nea
 On `active_p2` (142.5 m), 25 of 27 trials pass at 5 receivers (93 %) and the line gives curves
 on 88 % of its windows; on `passive_p2`, 19 of 27 at 11 receivers (70 %), against 65 % of the
 line's windows.
-
-## Design notes
-
-- **27 trials spread over the whole line, its ends included**: the trials' shares then follow
-  the line's (above). Without the end windows, they propose 5 receivers where the line gives
-  curves on 65 % of its windows.
-- **80 % of the trials, not two thirds**: with the picks cut at 2 window lengths, a ladder at
-  two thirds keeps 16 receivers on `active_p1` (with 5 trials or 9), where only 50 of the line's
-  81 windows pass G3 (62 %); at 80 % it keeps 24, where 66 of 73 pass (90 %).
-- **The band capped, never widened** (above), and the near field left to each window (above).
 
 ## A passive line's segments: their length and FK selection
 

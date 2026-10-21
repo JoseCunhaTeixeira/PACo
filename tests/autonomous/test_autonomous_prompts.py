@@ -1,4 +1,4 @@
-"""The prompts the autonomous agent reads, from their files (docs/autonomous_plan.md §0):
+"""The prompts the autonomous agent reads, from their files:
 a change to one is a reviewed change, with a new version the calls log. The role says who decides,
 how an experiment goes, how to look, the objective and when to ask; each phase loads its manual
 alone; the tools' descriptions hold placeholders, never values a model would copy."""
@@ -13,7 +13,7 @@ from paco.autonomous import prompts, server
 from paco.autonomous.host.phases import MANUALS, TOOLS, offered
 
 # The prompts' version: update it with the prompt, once the change is reviewed.
-VERSION = "autonomous-prompts-49279376"
+VERSION = "autonomous-prompts-15901efe"
 # Each phase's fixed part, the role, its manual and its tools' cards, takes this many tokens at
 # most of the 128k context the autonomous mode needs: room for the physics and the procedures.
 PHASE_TOKENS = 16_384

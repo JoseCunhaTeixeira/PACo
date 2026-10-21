@@ -1,11 +1,11 @@
-"""The gates' flags as the model reads them (docs/autonomous_plan.md §5.2): each flag's class, derived from
+"""The gates' flags as the model reads them: each flag's class, derived from
 its action (paco.qc.models), so that no threshold of the package's own is needed.
 
 - blocking: the window cannot be accepted at that stage until a later attempt clears it;
 - fixable: a hint ("G3 suggests picking {...}") the model may follow, or try something else;
 - note: acceptable, with a one-line reason when the model accepts a window that carries it;
 - automatic: G1's exclusions of traces and records, which G1 applies itself and reports, since no
-  setting fixes them (§2.5).
+  setting fixes them.
 
 A flag's action can depend on where its gate runs: G3's prominence is a Reject on a run's picks and
 an Override in trials, where a mute can still be tried. The class is therefore read from each flag;

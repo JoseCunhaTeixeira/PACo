@@ -51,33 +51,3 @@ thickness_max puts the half-space as deep as 20 m, below the 5.50 m the curve re
 
 The 20,000 iterations stay, with 5,000 of burn-in; 12 layers are cut to the 6 the curve
 resolves.
-
-## Design notes
-
-- **The first inversion is wide**, 100 to 1,000 m/s for every layer and 100 to 2,000 m/s for the
-  half-space, every layer 1 to 10 m thick: with Vs bounds of 0.8 x to 1.5 x the curve for every
-  layer, the sampler accepts about half its proposals and the per-layer medians fall at the
-  middle of the prior, flat models. The loop then adapts each window (`G5.md`): steps, depth,
-  bounds and layer count.
-- **The depth ends where the curve reaches**: from the start when the data choose the layers
-  (`free.depth_max`), through G5's `too_deep` when they are given. With PAC's bounds (Vs 100 to
-  1,000 m/s, thicknesses 1 to 10 m) and 2 layers, the demo's dense line puts the interface at
-  6 to 7.5 m on most windows, below the 5.5 m its curves resolve, and leaves the half-space's Vs
-  to the prior (its chains' medians 5 to 97 % apart, its posterior spread 60 to 110 % of the
-  prior's below 7 m); with the half-space's top at most half the longest wavelength, the
-  interface sits at 1.9 to 3.9 m and the chains agree within 2 to 11 %. Both fit the curves: the
-  uncertainties are 8 to 15 % of the velocity.
-- **The margins where the curve needs them**: 0.8 x its slowest velocity (a half-space under a
-  stiff top reads about 1.09 x the slowest phase velocity at long wavelengths, above 0.8 x) and
-  1.5 x its fastest.
-- **The same bounds for every layer above the half-space**: bounds by layer would impose a trend
-  the data should decide.
-- **At least 3 layers, the layers given starting at 4**: 2-layer models are too simple to be
-  told from a trend. 4 rather than 5 or 6 (the layer study, `G5.md`): every count fits within
-  the errors, more layers are slower and converge less often.
-- **Every layer keeps a range**: the count the curve resolves stops where every layer keeps a
-  thickness range once rounded (a curve whose depth is just over a whole number of its thinnest
-  layers would otherwise get a layer too many, 6 on the demo's xmid 16.50, and fail validation),
-  the thickness step is 1 cm at least, and a curve too short for 3 layers (a span of wavelengths
-  under 1.33; none on either line, whose curves span 1.5 at least) is refused with a message
-  saying so.

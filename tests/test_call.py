@@ -1,4 +1,4 @@
-"""paco-call: a tool called without a model, from the command line (A9)."""
+"""paco-call: a tool called without a model, from the command line."""
 
 import json
 

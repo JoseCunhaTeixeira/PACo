@@ -1,4 +1,4 @@
-"""Passive and passive-active lines (docs/autonomous_plan.md §16, step 4): a passive line surveyed for its
+"""Passive and passive-active lines: a passive line surveyed for its
 records of noise, its levers tried (the segments, the FK selection) with G2 on their correlations,
 committed, read on the card and in the report, looked at, and decided without G3's near-field note
 (its windows' virtual source is their first receiver); PACo's segment trial as advice; and the

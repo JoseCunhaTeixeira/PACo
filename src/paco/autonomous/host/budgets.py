@@ -1,10 +1,9 @@
-"""Budgets, and what is spent of them (docs/autonomous_plan.md §9). Each effort's budgets are the plan's
-starting values. What is spent is counted from the study's records: the experiments and the
-commits from the journal; the model's calls and the tools' time from the host's usage log
-(usage.jsonl, a line a call); CPU time in P2 in multiples of the line's first processing, its
-first commit's time. The host refuses a call that would go past a budget, saying what to do
-instead, and stops the run once its model calls are spent; at 80 % of a budget the state card
-says so."""
+"""Budgets, and what is spent of them: each effort's own. What is spent is counted from the study's
+records: the experiments and the commits from the journal; the model's calls and the tools' time
+from the host's usage log (usage.jsonl, a line a call); CPU time in P2 in multiples of the line's
+first processing, its first commit's time. The host refuses a call that would go past a budget,
+saying what to do instead, and stops the run once its model calls are spent; at 80 % of a budget the
+state card says so."""
 
 from collections.abc import Sequence
 from dataclasses import dataclass
@@ -25,7 +24,7 @@ type Effort = Literal["quick", "normal", "thorough"]
 
 class Budgets(BaseModel):
     """An effort's budgets: experiments and line commits in P2, CPU time in P2 in multiples of
-    the line's first processing, each window's inversion retries (M7), the model's calls over
+    the line's first processing, each window's inversion retries, the model's calls over
     the run."""
 
     model_config = ConfigDict(frozen=True)

@@ -1,5 +1,5 @@
-"""grid: a search's variants scored in code, fast, as trials score them (the user, 2026-10-20: a
-full grid of the line's settings, for the model to choose from). Most of an image's cost is where
+"""grid: a search's variants scored in code, fast, as trials score them: a full grid of the line's
+settings, for the model to choose from. Most of an image's cost is where
 it begins, and many variants share that beginning, their base: the windows' length and the
 records' preprocessing, on a passive line the segments' slicing, whitening and normalization too.
 Each base is made once a window: an active line's dispersion image of each shot, a

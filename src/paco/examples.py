@@ -1,4 +1,4 @@
-"""An example call and result for each of PACo's tools (T11 of PACo's agent guidelines): what a
+"""An example call and result for each of PACo's tools: what a
 call looks like and what it returns, for people reading the tools and for the tests, which
 check each call against the tool's arguments and each result against what it returns. They stay
 out of the model's prompts: a model copies the values of examples."""

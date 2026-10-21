@@ -1,4 +1,4 @@
-"""The windows pick, decide and invert act on (docs/autonomous_plan.md §6): those of the committed line a
+"""The windows pick, decide and invert act on: those of the committed line a
 spec names, by position, flag (any gate's, on the window's latest image, pick and model), G3's or
 G5's verdict, or the model's decision. Resolved the same way each time."""
 

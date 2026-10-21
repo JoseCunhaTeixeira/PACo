@@ -31,8 +31,7 @@ phase velocity v and frequency f.
   frequencies with the picks on it comes first: a broad dark mass there where the curve bends
   down (shots too near: the near field) is a fault even under a clean high band, while a
   near-field note alone is not. Compare place by place, the variant clean at the most places
-  first; a place every variant fails is the data's (the user's own ratings and choices,
-  2026-10-20). Check that your choice makes sense: the picks on M0 and not on a higher mode or an
+  first; a place every variant fails is the data's. Check that your choice makes sense: the picks on M0 and not on a higher mode or an
   artefact, few points beyond the windows' reach, none aliased,
   the same ridge from window to window, the physics explaining why it wins. Refine around it
   with try_settings (a value between two of the grid's, a setting's neighbours; a grid row as
@@ -109,7 +108,7 @@ phase velocity v and frequency f.
 - Shots on both sides average out dipping layers: keep both when the distances allow. More shots
   raise the SNR, not a near-field bias.
 - PACo's rule sets the near-field distance at half the median λmax of the trial curves, once the
-  length is chosen; dropping the near shots of every window cost a third of the demo's curves. A
+  length is chosen; dropping the near shots of every window cost a third of the curves on PAC's active test line. A
   better one may come from each window's own λmax, read within its reach: try it on the windows
   G3 flags near_field and a control set. At the line's ends the rule may leave a window only a
   far, weak shot: a shorter distance gives the near shot back, at the price of a near-field bias
@@ -183,7 +182,7 @@ phase velocity v and frequency f.
   any peak looks dark: the yellow around it tells); blocks (a coarse frequency step: segments too
   short for the window); dark ridges under the dashed line (aliases) or left of the dotted one
   (beyond the window's reach).
-- No score reads an image's quality as the eye does (the user's verdict): G2's background and
+- No score reads an image's quality as the eye does: G2's background and
   its image score favour long windows (a short window's floor, 1/√N, and wider ridge raise it), a
   short window's smear can score well where its columns peak, an arrival too fast for surface
   waves holds a high SNR and lateral coherence, a pick on a ridge that is not M0 is on its ridge.

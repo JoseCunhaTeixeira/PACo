@@ -6,8 +6,7 @@ agent is stuck and must ask. Every scenario where the data decide checks that th
 nothing, and that the thresholds stayed the configuration's.
 
 The scenarios play on PAC's test profiles, copies of real lines: active_test_profile (96 receivers
-1.5 m apart, 25 shots) and passive_test_profile (10 records of noise). The evaluations kept from
-before played on PAC's former demo line, then on the whole lines."""
+1.5 m apart, 25 shots) and passive_test_profile (10 records of noise)."""
 
 from collections.abc import Callable
 from dataclasses import dataclass
@@ -478,7 +477,7 @@ SCENARIOS = (
             "I processed active_test_profile and picked its curves by hand in PAC. Invert them.",
         ),
         checks=(
-            # The host gives the model the profile's latest run (M4): no inspect needed.
+            # The host gives the model the profile's latest run: no inspect needed.
             called("invert"),
             nothing_redone("picking"),
             nothing_redone("preprocessing", "phase_shift"),

@@ -1,4 +1,4 @@
-"""The journal (docs/autonomous_plan.md §7.1): the model's entries, their limits and ids, and the
+"""The journal: the model's entries, their limits and ids, and the
 readings."""
 
 from pathlib import Path

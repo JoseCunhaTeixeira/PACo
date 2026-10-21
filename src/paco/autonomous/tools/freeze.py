@@ -1,4 +1,4 @@
-"""freeze (docs/autonomous_plan.md §4.7, §8 rule 5): the one way from the curves to the inversion. It
+"""freeze: the one way from the curves to the inversion. It
 checks that every window of the committed line is decided, that each accepted curve passes G3 with
 no blocking flag and G4, and that each rejected window has its reason. Then it writes the
 inversion's dataset, curves.json in the study's folder: each accepted curve's file and hash, its
@@ -70,7 +70,7 @@ class Frozen(BaseModel):
     length: int  # the windows' receivers
     length_m: float  # their length, from the first receiver to the last
     reach_m: float | None  # the line's reach, the survey's
-    objective: dict[str, Any] | None  # the user's (P0), from the host: none yet (M6)
+    objective: dict[str, Any] | None  # the user's (P0), from the host: none yet
     curves: tuple[FrozenCurve, ...]
     rejected: tuple[RejectedWindow, ...]
     frozen_at: datetime
@@ -83,8 +83,8 @@ def frozen(study: Study) -> Frozen | None:
 
 
 def freeze(study: Study, run_folder: Path, line: Line) -> Frozen:
-    """The committed `line` (its run in `run_folder`) frozen, once every window is decided as §4.7
-    asks; refused, saying what is missing, before."""
+    """The committed `line` (its run in `run_folder`) frozen, once every window is decided;
+    refused, saying what is missing, before."""
     check_open(study)
     manifest = manifest_of(run_folder)
     attempts = read_attempts(run_folder)

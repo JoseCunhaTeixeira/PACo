@@ -15,7 +15,7 @@ def shown_xmid(xmid: float) -> str:
 
 def at_positions(manifest: RunManifest, positions: Sequence[float]) -> tuple[list[str], str]:
     """The windows of the run nearest `positions` (m), each once, in line order, and how each
-    position was read, in metres and by the window's index along the line (R3): "30 m: xmid
+    position was read, in metres and by the window's index along the line: "30 m: xmid
     30.75, window 12 of 73". Refuses a position more than a window step beyond the first or last
     window."""
     windows = sorted(manifest.windows, key=lambda window: window.xmid)

@@ -1,4 +1,4 @@
-"""Ridge tables (docs/autonomous_plan.md §6): a dispersion image as text, for a model without vision. Every
+"""Ridge tables: a dispersion image as text, for a model without vision. Every
 few Hz, the strongest maxima of the image's column, each with its velocity, its strength and its
 width; with the noise floor random phases sum to (1/√N, sigpipe's) and the alias velocity 2·dx·f,
 below which a maximum may be the alias of another (G2's limit)."""

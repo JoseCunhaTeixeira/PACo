@@ -23,7 +23,7 @@ from sigpipe.masw.windows import MASWWindow, build_windows
 from paco.runs import PACKAGES, RunSummary, clear_image_cache, summarize_run
 from paco.settings import Settings
 
-# Four 24-receiver windows along the 96-receiver demo lines.
+# Four 24-receiver windows along the 96-receiver test lines.
 SMALL_WINDOWS = {"masw": {"length": 24, "step": 24}}
 # A dispersion band too narrow to hold a frequency step: PACo leaves that rule to sigpipe, whose
 # phase shift fails in every window.

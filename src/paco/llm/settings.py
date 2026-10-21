@@ -35,7 +35,7 @@ class ModelSettings(BaseSettings):
         frozen=True,
     )
 
-    # A server by default: the user's GPU (Qwen3 served by vLLM, as PACo's workflow was first served).
+    # A server by default: the user's GPU.
     llm_provider: Provider = "server"
     # The model's API: a provider's has its own address; a server needs it.
     llm_base_url: str | None = Field(

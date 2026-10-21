@@ -17,9 +17,8 @@ _THINKING = re.compile(r"<think>.*?</think>\s*", re.DOTALL)
 # itself inside a list, which constrained decoding allows.
 FORM_TOKENS = 400
 # How long a model server that refuses or drops the connection is asked again, in seconds,
-# the waits doubling from 1 s: the tunnel to Cloud Run (gcloud run services proxy) restarts
-# every 55 min for a fresh token, refusing connections for a moment, or for about 6 s when a
-# request outlives its shutdown (gcloud exits, systemd starts it again 5 s later).
+# the waits doubling from 1 s: a tunnel or a proxy in front of it may restart, refusing
+# connections for a few seconds.
 RECONNECT_S = 30.0
 
 

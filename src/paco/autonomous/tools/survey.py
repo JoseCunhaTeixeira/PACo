@@ -1,4 +1,4 @@
-"""survey (docs/autonomous_plan.md §4.1): what the line is before any setting is chosen. Its geometry and
+"""survey: what the line is before any setting is chosen. Its geometry and
 the limits it sets the windows and the images; its raw records as G1 measures them (no mute, no
 filter: the preset's defaults), with the line's reach and the surface waves' cone from the gathers
 of its shots. A passive line's records are noise, without shot: no reach nor cone, its images'
@@ -34,7 +34,7 @@ MODE_SAID = {
     "passive": "each window correlates the noise's segments and stacks them",
 }
 # The window lengths the plan allows, in receivers: at least 5 (a phase-shift image needs them),
-# at most half the line (longer ones lose the lateral detail it was shot for), §4.2.
+# at most half the line (longer ones lose the lateral detail it was shot for).
 SHORTEST_WINDOW = 5
 
 

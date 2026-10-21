@@ -1,4 +1,4 @@
-"""The checks of a window's picks (docs/autonomous_plan.md §4.6), on active_test_profile's curves, and on cases with
+"""The checks of a window's picks, on active_test_profile's curves, and on cases with
 a known answer its curves do not hold."""
 
 import pytest

@@ -1,4 +1,4 @@
-"""Properties over many generated inputs (E6 of PACo's agent guidelines), from a seeded generator:
+"""Properties over many generated inputs, from a seeded generator:
 the conversions of metres to receivers, the mapping of positions to windows, and the QC log read
 as the run stands after any sequence of attempts and resets."""
 
@@ -84,7 +84,7 @@ def test_each_position_maps_to_its_nearest_window_or_is_refused() -> None:
         nearest = min(abs(xmid - position) for xmid in xmids)
         assert abs(float(unit.removeprefix("xmid_")) - position) == pytest.approx(nearest)
         assert said.startswith(f"{position:g} m: xmid ")
-        # The window's index along the line too (R3).
+        # The window's index along the line too.
         index = int(said.split("window ")[1].split(" of ")[0])
         assert xmids[index - 1] == pytest.approx(float(unit.removeprefix("xmid_")))
 

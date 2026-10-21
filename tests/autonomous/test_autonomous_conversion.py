@@ -1,5 +1,5 @@
 """Tool results for the model's chat API: their figures after them, in a user message, as an
-OpenAI-compatible server takes images (docs/autonomous_plan.md §3)."""
+OpenAI-compatible server takes images."""
 
 from autonomous_scripted import PNG
 from mcp.types import CallToolResult, ImageContent, TextContent

@@ -1,7 +1,7 @@
-"""The run's phases (docs/autonomous_plan.md §4): P0 the objective, P1 the survey, P2 the curves, P3 the
+"""The run's phases: P0 the objective, P1 the survey, P2 the curves, P3 the
 freeze, P4 the inversion, P5 the report. A study's phase is read from its records, never kept in
-memory (§14): the journal's objective and report, the survey, the frozen curves. P3 is the freeze
-itself, the one way from P2 to P4. Each phase offers the model its tools (§6) and its manual."""
+memory: the journal's objective and report, the survey, the frozen curves. P3 is the freeze
+itself, the one way from P2 to P4. Each phase offers the model its tools and its manual."""
 
 from collections.abc import Sequence
 from typing import Literal
@@ -27,7 +27,7 @@ NAMES: dict[Phase, str] = {
     "P4": "inversion",
     "P5": "report",
 }
-# PACo's read-only tools and the journal, in every phase (§6).
+# PACo's read-only tools and the journal, in every phase.
 ALWAYS = ("inspect", "preset_settings", "inversion_settings", "journal")
 # The tools each phase the model works in offers; the search's sheets are judged in calls of their
 # own, with the server's judge.
@@ -118,7 +118,7 @@ def reopen(study: Study, back: Literal["P2", "P4"], request: str) -> journal.Ent
 
 def study_for(profile: str, settings: Settings) -> tuple[Study, str | None]:
     """The study a conversation about `profile` works on: its newest study not reported yet,
-    which it resumes (§14), else a new one. A new one too when that study's run is gone (deleted
+    which it resumes, else a new one. A new one too when that study's run is gone (deleted
     outside PACo: nothing to go on from), and why, said while that study is the newest."""
     folder = settings.output_dir / profile / STUDIES
     found = sorted(path for path in folder.glob("*") if STUDY_ID.fullmatch(path.name))

@@ -1,4 +1,4 @@
-"""invert and job_status (docs/autonomous_plan.md §4.8, §6, §10): the frozen curves inverted into
+"""invert and job_status: the frozen curves inverted into
 layered Vs models, in groups the model names, as a background job.
 
 Each group names windows (frozen ones, as a spec names them) and the parameters they share
@@ -411,7 +411,7 @@ def _invert_group(
             if previous is not None and previous.parameters
             else dict(group.parameters)
         )
-        # The user's settings in every window's, kept by the checks where they fail (§8, rule 1).
+        # The user's settings in every window's, kept by the checks where they fail.
         given, locked = with_inversion(given, user, config.priors)
         numbers[unit] = len(own) + 1
         seeds[unit] = seed_of(record.run_id, unit, numbers[unit])

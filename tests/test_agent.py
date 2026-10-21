@@ -41,7 +41,7 @@ from paco.agent.record import ToolStep
 from paco.agent.scope import SCHEMA, Scope
 from paco.settings import Settings
 
-# Four 24-receiver windows along the active demo line, as in test_runs.py.
+# Four 24-receiver windows along the active test line, as in test_runs.py.
 SMALL_WINDOWS = {"masw": {"length": 24, "step": 24}}
 # A short sampler: every step of an inversion, in about a second per window.
 SHORT = {"n_iterations": 500, "n_burnin_iterations": 50, "n_chains": 2}  # two at least
@@ -263,7 +263,7 @@ def test_mistakes_go_back_to_the_model() -> None:
         "Error executing tool inspect: [bad argument] Unknown profile 'active_p3'. Available "
         "profiles: active_test_profile, passive_test_profile."
     )
-    # What the server said comes as data (T10, X3); what the host says, as it is.
+    # What the server said comes as data; what the host says, as it is.
     raw = [str(message["content"]) for message in messages if message["role"] == "tool"]
     assert raw[1] == results[1]
     assert raw[3] == as_data("inspect", results[3])
@@ -546,7 +546,7 @@ def test_every_call_carries_the_conversation_and_its_turn() -> None:
     assert (first["turn"], second["turn"], third["turn"]) == (1, 1, 2)
     # With the scope of the turn's message, for the server's rules.
     assert first["scope"] == {**EVERYTHING.for_server(), "chosen": None}
-    # A model that names itself is named, for what its calls make (S4).
+    # A model that names itself is named, for what its calls make.
     model.name = "Qwen/Qwen3-14B-FP8"
     named = MetaServer()
     agent = Agent(named, model, [], None, on_event=lambda _: None)  # pyright: ignore[reportArgumentType]
@@ -1384,7 +1384,7 @@ def test_a_call_made_already_is_refused_and_a_third_ends_the_answer() -> None:
 
 
 def test_a_call_refused_and_made_again_ends_the_answer() -> None:
-    # Refused outside the message's scope, the same call again: refused again it would be (L3).
+    # Refused outside the message's scope, the same call again: refused again it would be.
     invert = _calls(("invert", {"run_id": "r"}))
     server_ = MetaServer()
 

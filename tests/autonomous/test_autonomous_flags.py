@@ -1,4 +1,4 @@
-"""The flags' classes (docs/autonomous_plan.md §5.2): every flag PACo's gates G1 to G6 can raise has its
+"""The flags' classes: every flag PACo's gates G1 to G6 can raise has its
 classes, and each flag's class is read from its action."""
 
 import ast

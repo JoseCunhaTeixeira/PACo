@@ -1,4 +1,4 @@
-"""commit (docs/autonomous_plan.md §6): the line made with the model's settings in PAC's layout,
+"""commit: the line made with the model's settings in PAC's layout,
 from PACo's public steps of a line's processing (paco.qc.line), without its automatic choices (the
 ladder, the mute trial, the line loop) and without the gates' retries. G1 judges every record (once
 a study for the same preprocessing, band and cone: paco.autonomous.tools.trials.judge_records); every
@@ -154,7 +154,7 @@ def commit(
     changed = dict(changes)
     if not changed:
         raise ValueError("Give the settings to change: none given.")
-    # The user's settings (§8, rule 1): refused changed; added where the line does not hold them
+    # The user's settings: refused changed; added where the line does not hold them
     # yet, with their reason; the model's reasons cover its own changes.
     user = given_of(study)
     check_line(changed, user)
@@ -577,7 +577,7 @@ def _reason_of(key: str, changes: Mapping[str, Any], reasons: Mapping[str, str])
 
 def _check_reasons(changes: Mapping[str, Any], reasons: Mapping[str, str]) -> None:
     """Refused unless every setting changed has a one-line reason, and every reason a setting
-    changed (§10)."""
+    changed."""
     named = _named(changes)
     missing = [key for key in named if _reason_of(key, changes, reasons) is None]
     if missing:

@@ -1,4 +1,4 @@
-"""Scorecards (docs/autonomous_plan.md §5.3): what an experiment's trial windows, or the committed line,
+"""Scorecards: what an experiment's trial windows, or the committed line,
 give, for the model to compare variants; a variant against the current best; and which variants
 another one beats on every count.
 
@@ -60,7 +60,7 @@ class Against:
 
     gained: tuple[float, ...]  # windows the variant covers and the best does not
     lost: tuple[float, ...]  # windows the best covers and the variant does not
-    # It gains windows by shortening its curves (PACo's rule 6): its median longest wavelength
+    # It gains windows by shortening its curves: its median longest wavelength
     # falls by more than the line's rules allow.
     shortened: bool
 

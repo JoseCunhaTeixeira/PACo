@@ -1,9 +1,9 @@
-"""The answer the user reads, written by code around the model's text (R2): the scope line, what
+"""The answer the user reads, written by code around the model's text: the scope line, what
 the model says (an answer form it fills from its draft, constrained to the form's schema), what
 was done and left out (from the tools' results), the stages the message asked that no tool did
-(U6), the question and the options when the user must choose, else what they can do next; then
+, the question and the options when the user must choose, else what they can do next; then
 the parameters used and the settings the gates changed. Numbers in the model's text that no
-result of the turn holds are flagged (R1).
+result of the turn holds are flagged.
 
 Whether a question is shown comes from the turn, never from its words: a tool offered options,
 a tool is stuck, or no work was done yet (a clarification). After work done, the model's
@@ -212,11 +212,11 @@ def render(
     if turn.left:
         blocks.append("Left out:\n" + "\n".join(f"- {line}" for line in turn.left))
     if turn.ignored:
-        # What the calls gave that their tools do not have: the calls ran without it (U6).
+        # What the calls gave that their tools do not have: the calls ran without it.
         blocks.append("Ignored:\n" + "\n".join(f"- {line}" for line in turn.ignored))
     offers = turn.offers or (() if turn.worked else turn.pending)
     asks = bool(offers) or bool(question and (turn.stuck or (not turn.worked and scope.asked)))
-    # The stages asked that no tool did, said (U6); when the user must choose, the question
+    # The stages asked that no tool did, said; when the user must choose, the question
     # says why.
     if not asks and (undone := turn.undone(scope.asked)):
         blocks.append(f"Asked but not done: {', '.join(undone)}.")

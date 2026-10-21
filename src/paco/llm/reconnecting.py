@@ -1,7 +1,6 @@
-"""A model server asked again while it refuses or drops the connection (the tunnel to Cloud Run
-restarts every 55 min and refuses connections for a moment), as PACo's first client asked it: the
-waits doubling from 1 s, for a budget; a timeout not asked again, the server was there. A function
-of the request to make, for both clients (paco.llm.model, paco.llm.claude)."""
+"""A model server asked again while it refuses or drops the connection (a tunnel or a proxy in front
+of it restarting): the waits doubling from 1 s, for a budget; a timeout not asked again, the server
+was there. A function of the request to make, for both clients (paco.llm.model, paco.llm.claude)."""
 
 import logging
 from collections.abc import Awaitable, Callable

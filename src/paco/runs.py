@@ -14,16 +14,16 @@ PACKAGES = ("paco",)
 
 
 def image_cache(settings: Settings) -> Cache | None:
-    """The images' cache the settings give (S8 of PACo's agent guidelines); None for none."""
+    """The images' cache the settings give; None for none."""
     if settings.cache_gb <= 0:
         return None
     return Cache(settings.cache_folder, max_bytes=int(settings.cache_gb * 1e9))
 
 
 def clear_image_cache(settings: Settings) -> int:
-    """The images' cache emptied when a session ends (the user, 2026-10-20: only the results
-    after a session): every image kept removed as its trim removes them, a copy another process
-    is making left alone; the bytes freed."""
+    """The images' cache emptied when a session ends, so that only the results stay: every image
+    kept removed as its trim removes them, a copy another process is making left alone; the bytes
+    freed."""
     folder = settings.cache_folder
     if not folder.is_dir():
         return 0

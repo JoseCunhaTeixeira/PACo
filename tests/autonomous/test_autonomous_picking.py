@@ -1,4 +1,4 @@
-"""pick, decide and freeze (docs/autonomous_plan.md §4.6, §4.7, §8): a scripted agent picks
+"""pick, decide and freeze: a scripted agent picks
 active_test_profile's windows, decides every one and freezes its curves, through the autonomous agent's tools;
 decide refuses a blocking flag, an unjustified note and a rejection before the window was tried
 hard; a commit picks each window again with its recipe; nothing is processed or picked after the

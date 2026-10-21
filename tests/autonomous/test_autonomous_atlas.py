@@ -1,4 +1,4 @@
-"""PACo's atlas (docs/autonomous_plan.md §6): reference figures of good and bad data, each sheet's
+"""PACo's atlas: reference figures of good and bad data, each sheet's
 caption read as a prompt is; drawn again from PAC's test lines, the same figures."""
 
 from pathlib import Path

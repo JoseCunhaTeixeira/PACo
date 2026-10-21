@@ -1,10 +1,10 @@
-"""The journal (docs/autonomous_plan.md §7.1): the study's memory, journal.jsonl in its folder,
+"""The journal: the study's memory, journal.jsonl in its folder,
 append-only, a line an entry. Code writes what happened, with its exact numbers: the objective (O),
 the user's settings a later message changes (U), each experiment (E, try_settings' own ids), each
 commit of the line (L), the freeze (F) and the report (R), and each inversion job (I). The model
 writes short hypotheses (H), conclusions (C) and decisions (D), 600 characters at most, each naming
 the entries it rests on. The host rebuilds a study's phase, its budgets and its state card from the
-journal and the study's other records, never from memory (§14)."""
+journal and the study's other records, never from memory."""
 
 import json
 from collections.abc import Iterable, Sequence
@@ -127,7 +127,7 @@ def next_id(study: Study, kind: Kind) -> str:
 
 
 def objective(study: Study, fields: dict[str, Any], said: str) -> Entry:
-    """The user's objective, as the host read it from their message (§4.0)."""
+    """The user's objective, as the host read it from their message."""
     return append(
         study,
         Entry(id="O1", kind="objective", at=datetime.now(UTC), text=said, data=fields),
@@ -135,7 +135,7 @@ def objective(study: Study, fields: dict[str, Any], said: str) -> Entry:
 
 
 def settings(study: Study, changed: Sequence[str]) -> Entry:
-    """The settings the user gave that a later message changed, as they now stand (§8, rule 1)."""
+    """The settings the user gave that a later message changed, as they now stand."""
     return append(
         study,
         Entry(

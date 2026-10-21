@@ -1,4 +1,4 @@
-"""The settings the user gave (docs/autonomous_plan.md §8, rule 1): read by the objective form, kept in the
+"""The settings the user gave: read by the objective form, kept in the
 study (the latest message's winning), applied by code to every trial, commit and inversion, a call
 changing one refused; what they hold back said on the card and in the report. On active_test_profile's
 24-receiver windows with a velocity grid the ground is faster than, as narrow_velocities types

@@ -1,5 +1,5 @@
 """sigpipe runs as a library at the commit uv.lock records, PACo's quality control keyed by its own
-sources, and no agent framework is among the dependencies (the autonomous agent's plan, §14)."""
+sources, and no agent framework is among the dependencies."""
 
 import tomllib
 from importlib import import_module
@@ -10,7 +10,7 @@ from typing import Any
 from paco.autonomous import pins
 
 ROOT = Path(__file__).resolve().parents[2]
-# Agent frameworks the package does without (§14): its own loop, MCP through mcp, the model
+# Agent frameworks the package does without: its own loop, MCP through mcp, the model
 # through its SDK. Each name stands for its family too (langchain-core, langgraph-checkpoint...).
 FRAMEWORKS = (
     "ag2",

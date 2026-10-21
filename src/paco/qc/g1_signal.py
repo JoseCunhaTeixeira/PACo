@@ -45,7 +45,7 @@ SPECTRA_MODES = frozenset({"active", "passive", "passive-active"})
 
 class SignalThresholds(SignalLimits):
     """G1's window and limits (sigpipe's SignalLimits: how a signal is measured, the same for
-    PAC), and G1's own over the line: provisional, measured on the demo profiles (rule 9)."""
+    PAC), and G1's own over the line, measured on PAC's test lines."""
 
     model_config = ConfigDict(frozen=True, extra="forbid")
 
@@ -78,8 +78,8 @@ class SignalThresholds(SignalLimits):
         le=1,
         description="Share of a record's surface-wave energy that may arrive faster than the "
         "gathers' cone (the mute trial's): more, body waves or refractions the image would take "
-        "for surface waves, and the record is muted around the cone. Measured on PAC's former demo "
-        "line and on the active test profile: at most 0.08",
+        "for surface waves, and the record is muted around the cone. Measured on PAC's active "
+        "test line: at most 0.08",
     )
 
 

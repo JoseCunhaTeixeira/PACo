@@ -1,4 +1,4 @@
-"""The QC report of a run (rule 8), built from the QC log: per unit, the final parameters, the
+"""The QC report of a run, built from the QC log: per unit, the final parameters, the
 attempts, the verdict of each gate, the flags and reasons, and what the curve that went into
 the inversion kept; with what a person made of each window in PAC (paco.qc.origin), which no
 gate judges. Written as qc_report.json; the agent reads a short summary, grouped by stretches

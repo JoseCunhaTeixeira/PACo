@@ -1,4 +1,4 @@
-"""paco-replay RUN_ID: a run made again from its inputs and its QC log (S7), in a folder of its
+"""paco-replay RUN_ID: a run made again from its inputs and its QC log, in a folder of its
 own, and compared with the run within PACO_REPLAY_TOLERANCE: its records preprocessed with each
 record's latest parameters, its windows imaged with theirs, its curves picked with theirs on the
 images made again. The run is only read.

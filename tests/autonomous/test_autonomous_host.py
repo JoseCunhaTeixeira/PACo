@@ -1,4 +1,4 @@
-"""The host (docs/autonomous_plan.md §4): a scripted conversation runs P0 to P5 on active_test_profile through
+"""The host: a scripted conversation runs P0 to P5 on active_test_profile through
 the autonomous agent's tools; the context stays under the set size; the budgets stop the run as
 designed; a run stopped in P2 resumes from the journal with the same phase, budgets and state card.
 The model is scripted (tests/scripted.py); the line, 78-receiver windows on a coarse grid (19
@@ -66,7 +66,7 @@ REJECTED_CURVES = (
 )
 # The curves accepted, then their models inverted and rejected: the 8 from 74.25 m on.
 ACCEPTED = "xmid 74.25-84.75 (8)"
-# A small context, for the oldest calls to drop out (§7.3): P2's tools, role and manual take
+# A small context, for the oldest calls to drop out: P2's tools, role and manual take
 # about 13,400 tokens of it, past its 60 %.
 CONTEXT = 16_000
 
@@ -308,7 +308,7 @@ def test_the_report_adds_what_was_tried_and_each_windows_outcome(played: Played)
         "- MASW windows of 78 receivers (115.5 m), 19 windows, xmid 57.75 to 84.75 m: model: the "
         "deepest windows E1 tried (L1, E1)"
     ) in report
-    assert "- windows every receiver (1.5 m): the plan's rule" in report
+    assert "- windows every receiver (1.5 m): PACo's rule" in report
     # P4: the models of one quick pass, decided and reported.
     assert f"- models rejected: {ACCEPTED}" in report
     assert f"- the models at {ACCEPTED}: {REJECTED_MODELS}" in report

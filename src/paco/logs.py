@@ -1,4 +1,4 @@
-"""Log lines as JSON (C6): when, the level, the logger, the message, and the conversation, the
+"""Log lines as JSON: when, the level, the logger, the message, and the conversation, the
 turn and the run the line belongs to, as the server's tools and the agent's loop set them."""
 
 import json
@@ -12,7 +12,7 @@ from datetime import UTC, datetime
 CONVERSATION: ContextVar[str | None] = ContextVar("conversation", default=None)
 TURN: ContextVar[int | None] = ContextVar("turn", default=None)
 RUN: ContextVar[str | None] = ContextVar("run", default=None)
-# The model and the prompts' version of the call: what an attempt was made with (S4).
+# The model and the prompts' version of the call: what an attempt was made with.
 MODEL: ContextVar[str | None] = ContextVar("model", default=None)
 PROMPTS: ContextVar[str | None] = ContextVar("prompts", default=None)
 

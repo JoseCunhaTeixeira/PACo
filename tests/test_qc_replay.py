@@ -1,4 +1,4 @@
-"""A run made again from its inputs and its QC log (S7): the same records, images and curves
+"""A run made again from its inputs and its QC log: the same records, images and curves
 within the stated tolerance; a person's work and the inversions not replayed, and said."""
 
 import shutil

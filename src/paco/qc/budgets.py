@@ -1,4 +1,4 @@
-"""Bounded retries (rule 4): a budget per gate and unit, and one for the whole run; a window's
+"""Bounded retries: a budget per gate and unit, and one for the whole run; a window's
 inversion has its own, whichever gate asks. A unit whose budget is spent is rejected with
 "budget spent" and the last attempt's flags."""
 

@@ -19,7 +19,7 @@ LINE = "line"  # the unit of the line-level result, as G4's and G6's
 
 
 class PetroLineThresholds(BaseModel):
-    """G8's limits: G6's for Vs; provisional (rule 9)."""
+    """G8's limits: G6's for Vs."""
 
     model_config = ConfigDict(frozen=True, extra="forbid")
 

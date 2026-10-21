@@ -1,5 +1,5 @@
-"""The autonomous agent's server (paco-server --mode autonomous): the MCP server of its tools
-(docs/autonomous_plan.md §6), each an adapter around a plain function (paco.autonomous.tools).
+"""The autonomous agent's server (paco-server --mode autonomous): the MCP server of its tools,
+each an adapter around a plain function (paco.autonomous.tools).
 
 Settings come from the server's environment, never from the model, as PACo's own server takes them
 (paco.settings: the folders, the workers, where it listens). It serves Streamable HTTP, by default
@@ -73,7 +73,7 @@ def _no_retries[**P, R](tool: Callable[P, R]) -> Callable[P, R]:
     return wrapped
 
 
-# PACo's read-only tools, "as today" (§6), in the plan's order.
+# PACo's read-only tools, first.
 PACO_TOOLS = (
     _no_retries(paco_server.inspect),
     paco_server.preset_settings,

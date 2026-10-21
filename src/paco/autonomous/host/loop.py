@@ -1,20 +1,19 @@
-"""The host (docs/autonomous_plan.md §4, §7, §9, §11, §14): our own loop between the user, the model and
-the autonomous agent's server, no agent framework.
+"""The host: the loop between the user, the model and the autonomous agent's server.
 
 A conversation works on one study of a profile. The user's first message is read into the
 objective form (P0): the profile, the objective, the settings the user gives, which stay as they
 gave them. Then the model works through the phases, each offering its tools and its manual: the
 survey (P1), the curves (P2), the freeze (P3), the inversion (P4), until the report (P5). The phase
 is read from the study's records before every call, never kept in memory, so that a run stopped
-anywhere resumes from them (§14).
+anywhere resumes from them.
 
 Before each of the model's calls the host rebuilds what it reads: the role and the phase's manual,
-the conversation, and the state card last, written afresh (§7.2), so that the prompt's beginning
+the conversation, and the state card last, written afresh, so that the prompt's beginning
 stays the same from call to call. A tool result, once read, shrinks to its journal line or its first
-line, and past 60 % of the model's context the oldest calls drop out (§7.3). At the freeze the
+line, and past 60 % of the model's context the oldest calls drop out. At the freeze the
 conversation is rebuilt: the request, the objective, the frozen curves and a short summary of the
-processing (§7.4). The host refuses, saying why: a tool of another phase, a call past a budget (§9),
-a change of a setting the user gave (§8, rule 1). A reply without a call ends the turn: the model's
+processing. The host refuses, saying why: a tool of another phase, a call past a budget,
+a change of a setting the user gave. A reply without a call ends the turn: the model's
 question, or once the curves are frozen, the report; a reply asking nothing before the freeze, or
 one leaving a model undecided after it, sends the model back once. Every call and its cost go to the
 study's usage log; the conversation's transcript is saved in the study as PACo saves its own."""
@@ -73,9 +72,9 @@ from paco.qc.coherence import receiver_spacing
 from paco.qc.report import stretches, xmid_of
 from paco.settings import Settings
 
-# What the user reads while the run goes: one line per experiment, commit and phase (§11).
+# What the user reads while the run goes: one line per experiment, commit and phase.
 type OnEvent = Callable[[str], None]
-# The share of the model's context past which the oldest calls drop out (§7.3).
+# The share of the model's context past which the oldest calls drop out.
 COMPACT_AT = 0.6
 # The smallest context the autonomous agent runs in, in tokens: its prompts and tools take about
 # 12k, a survey's and a trial's results as much again.
@@ -174,7 +173,7 @@ class Host:
         }
         if isinstance(name := getattr(model, "name", None), str):
             self.meta["model"] = name
-        # The size of every call's messages, as the host estimated it (§7.3).
+        # The size of every call's messages, as the host estimated it.
         self.sizes: list[int] = []
         # The state card the model read last: stored state its answer's numbers may come from.
         self._card = ""
@@ -265,10 +264,10 @@ class Host:
             self._on_event(lost)
         self.study, self.scope, self.request = study, scope, message
         self.meta["study"] = study.id
-        # Each window's inversion retries, the effort's (§9): the server refuses past them.
+        # Each window's inversion retries, the effort's: the server refuses past them.
         self.meta["inversion_retries"] = budgets.EFFORTS[effort_of(study)].inversion_retries
         goal = objective_of(study)
-        # The settings the message types, kept over those given before (§8, rule 1).
+        # The settings the message types, kept over those given before.
         changed = given.give(study, scope.given(spacing))
         if goal is None:
             fields = scope.objective_fields(spacing)
@@ -377,7 +376,7 @@ class Host:
 
     def _messages(self, phase: Phase, tools: int) -> list[ChatCompletionMessageParam]:
         """What the model reads: the role and the phase's manual, the conversation, then the
-        state card as it is now (§7.2). A model with vision sees PACo's atlas until the freeze,
+        state card as it is now. A model with vision sees PACo's atlas until the freeze,
         after the request: kept out of the conversation, which drops a figure once seen."""
         manual = MANUALS.get(phase)
         system = prompts.prompt("role") + (f"\n\n{prompts.prompt(manual)}" if manual else "")
@@ -597,7 +596,7 @@ class Host:
             )
 
     def _said(self, name: str) -> None:
-        """The progress line after a tool that changed the study: its journal entry (§11)."""
+        """The progress line after a tool that changed the study: its journal entry."""
         kinds = {
             "try_settings": "experiment",
             "commit": "commit",
@@ -642,7 +641,7 @@ class Host:
 
     def _compact(self) -> None:
         """The tool results the model has read, shrunk to their short form, the figures it has
-        seen left out (§7.3)."""
+        seen left out."""
         for index, message in enumerate(self.history):
             if message["role"] == "tool":
                 short = self._short.get(str(message.get("tool_call_id")))
@@ -653,7 +652,7 @@ class Host:
 
     def _dropped(self, system: str, now: str, tools: int) -> None:
         """Past COMPACT_AT of the model's context, the oldest calls dropped, each with its
-        results, the latest KEPT_CALLS kept, and the user's own messages (§7.3)."""
+        results, the latest KEPT_CALLS kept, and the user's own messages."""
         budget = COMPACT_AT * self._limits.context
         while tools + _tokens([system, now, json.dumps(self.history)]) > budget:
             calls = [i for i, one in enumerate(self.history) if one["role"] == "assistant"]
@@ -668,7 +667,7 @@ class Host:
                 self.history.insert(start, {"role": "user", "content": DROPPED})
 
     def _reset(self) -> None:
-        """The conversation rebuilt at the freeze (§7.4): the user's request and objective, the
+        """The conversation rebuilt at the freeze: the user's request and objective, the
         frozen curves and a short summary of the processing."""
         study = self._study
         made = frozen(study)

@@ -238,7 +238,7 @@ class BudgetSpent(Stuck):
 
 
 def check_budget(run_id: str, run_folder: Path, config: QCConfig, n_windows: int) -> None:
-    """Refuse to go back once the run's retry budget is spent (rule 4): the agent's backtracks
+    """Refuse to go back once the run's retry budget is spent: the agent's backtracks
     count against it, as the gates' retries do."""
     spent = retries_in_run(read_attempts(run_folder))
     total = run_budget(config.budgets, max(1, n_windows))

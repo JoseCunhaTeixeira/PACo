@@ -1,8 +1,8 @@
-"""Processing settings compared on a sample of the line's windows (L10 of PACo's agent
-guidelines): the model chooses the variants and the metric; the code runs each variant on the
-same spread of windows (its records preprocessed with it, imaged, picked, judged by G3, as the
-window-length and mute trials do) and computes the metric. Nothing of a run changes: the trials
-are written apart, under the profile's compare/ folder, and removed once compared.
+"""Processing settings compared on a sample of the line's windows: the model chooses the variants
+and the metric; the code runs each variant on the same spread of windows (its records preprocessed
+with it, imaged, picked, judged by G3, as the window-length and mute trials do) and computes the
+metric. Nothing of a run changes: the trials are written apart, under the profile's compare/ folder,
+and removed once compared.
 
 The metrics, over the curves G3 passed (medians):
 - depth: half the longest wavelength, MASW's depth of investigation (the priors' max_depth);

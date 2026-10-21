@@ -1,4 +1,4 @@
-"""Trials (docs/autonomous_plan.md §6 try_settings): variants of the line's settings tried on its
+"""Trials (try_settings): variants of the line's settings tried on its
 windows and scored, each made once; their images given back by the cache when the line is imaged
 with their settings; the trial sets; and an experiment's variants looked at side by side."""
 

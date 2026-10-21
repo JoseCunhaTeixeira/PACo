@@ -1,4 +1,4 @@
-"""The mute trial (L10 of PACo's agent guidelines; docs/qc_workflow.md): whether a surface-wave
+"""The mute trial (docs/qc_workflow.md): whether a surface-wave
 mute makes better dispersion images, measured once the line's window length is chosen, at that
 length: a mute changes the images, never the windows.
 
@@ -39,8 +39,7 @@ type Candidate = Literal["none", "standard", "wider", "cone", "tight"]
 
 
 class MuteRules(BaseModel):
-    """How the mute trial decides: provisional, measured on PAC's former demo line and on the active
-    test profile."""
+    """How the mute trial decides, measured on PAC's active test line."""
 
     model_config = ConfigDict(frozen=True, extra="forbid")
 

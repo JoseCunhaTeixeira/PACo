@@ -1,4 +1,4 @@
-"""The model's client, made from the settings (docs/autonomous_plan.md §3, §16): Claude through
+"""The model's client, made from the settings: Claude through
 Anthropic's own client (paco.llm.claude); the others through the client of OpenAI's chat API
 (paco.llm.model), in the dialect each takes: OpenAI's, Gemini's, Mistral's, or a server's (vLLM,
 Ollama, LM Studio, OpenRouter, a company's gateway). Both are PACo's ChatModel, for both modes;

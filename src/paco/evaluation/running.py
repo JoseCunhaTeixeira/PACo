@@ -31,7 +31,7 @@ from paco.settings import CACHE_FOLDER, get_settings
 
 _JOBS_TIMEOUT_S = 1_800  # an inversion left running when the conversation ends
 # Worker processes of the server during an evaluation: the zero-settings scenario inverts the
-# whole demo line at PAC's effort, about 6 minutes on 8.
+# whole line at PAC's effort, about 6 minutes on 8.
 EVALUATION_WORKERS = 8
 # A gate's name, as a retry's trigger starts with it.
 _GATE = re.compile(r"G\d+")
@@ -63,7 +63,7 @@ async def run_evaluation(
     eval_id = f"eval-{started_at:%Y%m%d-%H%M%S}-{secrets.token_hex(2)}"
     folder = root / eval_id
     inputs = build_inputs(get_settings().input_dir, folder / "inputs")
-    # One images' cache for every play: the same profiles, imaged once (S8); not a result.
+    # One images' cache for every play: the same profiles, imaged once; not a result.
     cache = folder / CACHE_FOLDER
     results: list[ScenarioResult] = []
     for scenario in scenarios:

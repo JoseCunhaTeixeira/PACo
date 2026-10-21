@@ -1,4 +1,4 @@
-"""S4 on a judged run, the QC way (docs/qc_workflow.md, option B): the windows G4 passed, each
+"""S4 on a judged run, the QC way (docs/qc_workflow.md): the windows G4 passed, each
 inverted with bounds derived from its own curve (the checks before S4) and the values given, in
 worker processes; G5 on each model and its retries (sampling longer, a bound widened, a layer
 more or fewer), then G6 over the line and its own (a non-unique model inverted again), within
@@ -155,7 +155,7 @@ def run_inversion_job(
     """Run queued job `record` to its end: the first inversions (or, with `units`, those
     windows again with `overrides`, `triggered_by` the agent's backtrack or the user's ask), the
     gates' retries, each window recorded as it ends, then the gates' summary. The job fails when
-    every window failed, or on any other failure. It holds the run while it writes it (S5),
+    every window failed, or on any other failure. It holds the run while it writes it,
     waiting a while for another writer (the tool that submitted it, a page of PAC); one that
     keeps it fails the job, saying who."""
     run_folder = find_run(record.run_id, settings)

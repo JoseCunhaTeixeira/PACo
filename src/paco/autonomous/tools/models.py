@@ -1,4 +1,4 @@
-"""decide on models (docs/autonomous_plan.md §4.8, §6, §8): after the freeze, the model's decision on each
+"""decide on models: after the freeze, the model's decision on each
 window's Vs model, accepted, rejected or pending, with its reason, as decide does on the curves
 before it. Code refuses: accepting a model G5 did not pass, or one with a blocking flag (G5's or
 G6's); accepting a model whose notes (G5's and G6's, and G6's suggestions, which a model may keep:
@@ -69,9 +69,9 @@ def decide(
     reason: str | None,
     most_retries: int | None = None,
 ) -> Decided:
-    """`units`' models decided `status`, with `reason`; refused whole where §8 says, each
-    window's problem said. `most_retries`: each window's budget of inversion retries, past which
-    a model may be rejected without more."""
+    """`units`' models decided `status`, with `reason`; refused whole when one of them breaks a
+    rule, each window's problem said. `most_retries`: each window's budget of inversion retries,
+    past which a model may be rejected without more."""
     if not (study.folder / CURVES).exists():
         raise ValueError("No model before the freeze: decide the windows' curves first.")
     reason = reason.strip() if reason is not None and reason.strip() else None

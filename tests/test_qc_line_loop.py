@@ -104,7 +104,7 @@ def test_no_change_the_line_has_the_user_gave_or_was_tried_is_asked() -> None:
     assert asked == []  # images given as records: no window uses them
     (mute,) = candidates({}, images, picks, USES, CURRENT, {}, frozenset())
 
-    # Already the line's; a muting the user gave (theirs, U2); tried before.
+    # Already the line's; a muting the user gave (theirs); tried before.
     assert not candidates({}, images, picks, USES, {**CURRENT, **MUTE}, {}, frozenset())
     given = {"muting": {"method": "none"}}
     assert not candidates({}, images, picks, USES, CURRENT, given, frozenset())
@@ -308,8 +308,8 @@ def test_the_loop_keeps_at_most_its_changes(
 def test_an_ask_of_a_setting_the_user_gave_rejects_its_window(
     demo_input_dir: Path, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    # The ground is faster than the 250 m/s given: G2 asks a wider range, the user's to give (U2);
-    # the line keeps it, and the windows asking are rejected with the change they ask (L6).
+    # The ground is faster than the 250 m/s given: G2 asks a wider range, the user's to give;
+    # the line keeps it, and the windows asking are rejected with the change they ask.
     monkeypatch.chdir(tmp_path)
     settings = _demo(demo_input_dir, tmp_path)
     overrides = {"masw": {"length": 24, "step": 24}, "dispersion": {"vmax": 250}}
