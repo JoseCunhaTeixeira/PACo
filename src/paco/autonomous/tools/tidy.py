@@ -1,13 +1,13 @@
 """tidy: the study's working files removed, its results kept, so that only the results stay: at the
 freeze, once nothing is processed or picked again, and when its conversation ends (a conversation
 is its study). Working files: the records each base preprocessed, the trials' windows, G1's settled
-records, the search's scratch and thumbnails, and once the curves are frozen the survey's figures.
-Results, kept: the line's run (PAC's layout, its own records as PAC's runs keep them), the frozen
-curves, the journal, the decisions and picks, the experiments' and the search's scores, each
-experiment's dispersion images as thumbnails (each variant's on its windows), each sheet's
-judgment, the transcripts. A study opened again after its report makes again what it needs (a
-trial on try_settings); a search whose sheets were not all judged is taken back (its scores and
-its sheets)."""
+records, the search's scratch and thumbnails (its finalists' kept), and once the curves are frozen
+the survey's figures. Results, kept: the line's run (PAC's layout, its own records as PAC's runs
+keep them), the frozen curves, the journal, the decisions and picks, the experiments' and the
+search's scores, the search's finalists' thumbnails and each experiment's dispersion images as
+thumbnails (each variant's on its windows), each sheet's judgment, the transcripts. A study opened
+again after its report makes again what it needs (a trial on try_settings); a search whose sheets
+were not all judged, its final too, is taken back (its scores and its sheets)."""
 
 import shutil
 from pathlib import Path
@@ -35,11 +35,17 @@ def tidy(study: Study) -> int:
     folder = study.folder
     keep_images(study)
     gone = [folder / RECORDS, folder / TRIALS, folder / G1, folder / grid.GRID]
-    gone.append(folder / searching.SEARCHES / searching.IMAGES)
     if (folder / CURVES).exists():
         gone.append(folder / survey.SURVEY)
     knockout = searching.knockout_of(study)
-    if knockout is not None and not knockout.finalists:
+    # The search's thumbnails, but its finalists' once it chose: what PAC shows of its choice.
+    images = folder / searching.SEARCHES / searching.IMAGES
+    finalists = set(knockout.finalists) if knockout is not None and knockout.best else set()
+    if finalists:
+        gone += [path for path in images.glob("*.npz") if path.stem not in finalists]
+    else:
+        gone.append(images)
+    if knockout is not None and not knockout.done:
         # Its sheets cannot be drawn again: nothing goes on with them.
         gone += [folder / searching.SEARCHES / f"{searching.SEARCH}.json"]
         gone += [folder / searching.SEARCHES / searching.KNOCKOUT]

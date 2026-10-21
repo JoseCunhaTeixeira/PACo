@@ -31,10 +31,14 @@ def _study(folder: Path, finalists: tuple[str, ...]) -> Study:
     searches = folder / searching.SEARCHES
     (searches / searching.IMAGES).mkdir(parents=True)
     (searches / searching.IMAGES / "g1.npz").write_bytes(b"x" * 500)
+    (searches / searching.IMAGES / "g2.npz").write_bytes(b"x" * 500)
     (searches / "S1.json").write_text("{}")
     (searches / searching.JUDGED).write_text('{"round": 1}\n')
     knockout = searching.Knockout(
-        round=1, sheets=(searching.Sheet(number=1, labels=("g1", "g2")),), finalists=finalists
+        round=1,
+        sheets=(searching.Sheet(number=1, labels=("g1", "g2")),),
+        finalists=finalists,
+        best=finalists[0] if finalists else None,
     )
     (searches / searching.KNOCKOUT).write_text(knockout.model_dump_json())
     for name in ("journal.jsonl", "decisions.jsonl", "line.json", "experiments/E1.json"):
@@ -53,12 +57,13 @@ def test_the_working_files_go_and_the_results_stay(tmp_path: Path) -> None:
         str(path.relative_to(study.folder)) for path in study.folder.rglob("*") if path.is_file()
     )
     assert freed == 5 * 1000 + 500
-    # The records, the trials, G1, the scratch, the thumbnails and, once frozen, the survey's
-    # figures gone; the journal, the decisions, the line, the experiments, the search's scores,
-    # its sheets and judgments kept.
+    # The records, the trials, G1, the scratch, the thumbnails but the finalists' and, once
+    # frozen, the survey's figures gone; the journal, the decisions, the line, the experiments,
+    # the search's scores, its sheets, judgments and finalists' thumbnails kept.
     assert left == [
         "curves.json", "decisions.jsonl", "experiments/E1.json", "journal.jsonl", "line.json",
-        "searches/S1.json", "searches/S1_judged.jsonl", "searches/S1_knockout.json",
+        "searches/S1.json", "searches/S1_images/g1.npz", "searches/S1_judged.jsonl",
+        "searches/S1_knockout.json",
     ]  # fmt: skip
     assert tidy(study) == 0
 

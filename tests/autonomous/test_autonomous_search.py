@@ -1,6 +1,7 @@
 """search: the full grid of the line's settings, every combination of the values the physics sets,
 scored in code by the grid as a trial scores it; the really bad dropped, the others judged by eye
-in sheets until the finalists, tried side by side; once a study."""
+in sheets, the 3 cleanest of each mixed again until 3 are left, the cleanest of them chosen;
+nothing tried after it; once a study."""
 
 import json
 from datetime import UTC, datetime
@@ -321,36 +322,63 @@ def test_the_knockout_keeps_the_cleanest_round_after_round(tmp_path: Path) -> No
 
     waiting = searching.unjudged(study)
     with pytest.raises(ValueError, match="Sheet 9 is not one left in round 1"):
-        searching.judge(study, {9: ["g0"]}, "why")
-    with pytest.raises(ValueError, match="Sheet 1: keep 1 to 2 of its variants"):
-        searching.judge(study, {1: ["g0", "g1", "g2"]}, "why")
+        searching.judge(study, {9: ["g0", "g1", "g2"]}, "why")
+    with pytest.raises(ValueError, match="Sheet 1: keep 3 of its variants"):
+        searching.judge(study, {1: ["g0", "g1"]}, "why")
     with pytest.raises(ValueError, match="Sheet 1: no variant g30 on it"):
-        searching.judge(study, {1: ["g30"]}, "why")
-    # Round 1: 20 variants of 5 receivers in 2 sheets, 20 of 9 in 2.
-    first = searching.judge(study, {1: ["g3"], 2: ["g12", "g15"]}, "one ridge to 80 Hz")
-    second = searching.judge(study, {3: ["g20", "g31"], 4: ["g39"]}, "fewer stripes")
-    # Round 2: the 5 kept, one sheet, by length: the last, up to 3 kept.
-    with pytest.raises(ValueError, match="keep 1 to 3"):
-        searching.judge(study, {1: ["g3", "g12", "g15", "g20"]}, "why")
-    final = searching.judge(study, {1: ["g15", "g31"]}, "the smoothest")
+        searching.judge(study, {1: ["g30", "g0", "g1"]}, "why")
+    # Round 1: 20 variants of 5 receivers in 2 sheets, 20 of 9 in 2; 3 kept of each.
+    first = searching.judge(study, {1: ["g3", "g4", "g5"], 2: ["g12", "g15", "g19"]}, "one ridge")
+    second = searching.judge(study, {3: ["g20", "g21", "g31"], 4: ["g39", "g32", "g33"]}, "fewer")
+    # Round 2: the 12 kept, one sheet; 3 kept, the finalists.
+    finalists = searching.judge(study, {1: ["g15", "g31", "g3"]}, "the smoothest")
+    waiting_final = searching.unjudged(study)
+    # The final: the one cleanest of the 3.
+    with pytest.raises(ValueError, match="Sheet 1: choose the one cleanest"):
+        searching.judge(study, {1: ["g15", "g31"]}, "why")
+    final = searching.judge(study, {1: ["g31"]}, "unbroken at every place")
     judged = [json.loads(line) for line in (study.folder / "searches" / searching.JUDGED).open()]
 
     assert (
         waiting == "Every sheet is judged first: 4 of round 1's 4 left; search again judges them."
     )
     assert (first.round, [sheet.number for sheet in first.left]) == (1, [3, 4])
-    assert second.round == 2 and second.last
-    assert second.sheets[0].labels == ("g3", "g12", "g15", "g20", "g31", "g39")
-    assert final.finalists == ("g15", "g31")
+    assert second.round == 2 and len(second.sheets) == 1 and not second.final
+    assert second.sheets[0].labels == (
+        "g3", "g4", "g5", "g12", "g15", "g19", "g20", "g21", "g31", "g39", "g32", "g33",
+    )  # fmt: skip
+    assert finalists.final and finalists.finalists == ("g15", "g31", "g3")
+    assert waiting_final is not None and "round 3's 1 left" in waiting_final
+    assert final.best == "g31" and final.done and searching.chosen(study) == "g31"
     assert searching.unjudged(study) is None
     # Each sheet's judgment recorded: what it showed, what was kept, why.
     assert [(one["round"], one["sheet"], one["kept"]) for one in judged] == [
-        (1, 1, ["g3"]), (1, 2, ["g12", "g15"]), (1, 3, ["g20", "g31"]), (1, 4, ["g39"]),
-        (2, 1, ["g15", "g31"]),
+        (1, 1, ["g3", "g4", "g5"]), (1, 2, ["g12", "g15", "g19"]),
+        (1, 3, ["g20", "g21", "g31"]), (1, 4, ["g39", "g32", "g33"]),
+        (2, 1, ["g15", "g31", "g3"]), (3, 1, ["g31"]),
     ]  # fmt: skip
     assert judged[0]["shown"] == [f"g{n}" for n in range(12)] and judged[0]["why"]
-    with pytest.raises(ValueError, match="Every sheet is judged"):
+    with pytest.raises(ValueError, match=r"the search chose g31\. Commit it"):
         searching.judge(study, {1: ["g15"]}, "why")
+
+
+def test_the_kept_are_mixed_into_new_sheets_until_three_are_left() -> None:
+    survivors = [f"g{n}" for n in range(15)]
+
+    mixed = searching.next_round(2, survivors)
+    final = searching.next_round(3, ["g4", "g7", "g9"])
+    alone = searching.next_round(3, ["g4"])
+
+    # More than a sheet: dealt in turn into the fewest sheets, each holding the kept of different
+    # sheets before.
+    assert [sheet.labels for sheet in mixed.sheets] == [
+        tuple(survivors[0::2]),
+        tuple(survivors[1::2]),
+    ]
+    assert not mixed.finalists
+    # Three left: the finalists, their sheet the final; one left: the choice already.
+    assert final.final and final.finalists == ("g4", "g7", "g9") and final.best is None
+    assert alone.done and alone.best == "g4" and not alone.left
 
 
 def test_a_sheet_is_drawn_from_the_variants_thumbnails(tmp_path: Path) -> None:
@@ -363,7 +391,7 @@ def test_a_sheet_is_drawn_from_the_variants_thumbnails(tmp_path: Path) -> None:
     grid.write_thumbs(tmp_path / "g2.npz", [thumb(15.0), thumb(50.0)])
 
     read = grid.read_thumbs(tmp_path / "g2.npz")
-    drawn = look.draw_sheet(tmp_path, ["g1", "g2"], {"g1": 7, "g2": 13})
+    drawn = look.draw_sheet(tmp_path, ["g1", "g2"], {"g1": 7, "g2": 13}, (15.0, 50.0, 90.0, 125.0))
 
     assert [one.xmid for one in read] == [15.0, 50.0]
     assert read[0].extent == (0.0, 100.0, 1.0, 1000.0) and read[0].lines_m == (3.0, 54.0)
@@ -527,7 +555,7 @@ def test_a_search_runs_the_grid_once_and_sorts_it_into_sheets(
     bad = {row.label for row in made.rows if searching.really_bad(row.card)}
     assert made.dropped == len(bad) and not bad & set(shown)
     assert len(shown) + len(bad) == len(made.rows)
-    # Each variant shown kept at its windows nearest the 4 places along the line, as PAC draws it.
+    # Each variant shown kept at its windows nearest the places along the line, as PAC draws it.
     images = study.folder / searching.SEARCHES / searching.IMAGES
     assert len(made.places) == grid.PLACES
     for label in shown:
@@ -544,7 +572,7 @@ def test_a_search_runs_the_grid_once_and_sorts_it_into_sheets(
 
 
 @pytest.mark.slow
-def test_every_sheet_is_judged_then_the_finalists_tried_side_by_side(paco_env: Settings) -> None:
+def test_every_sheet_is_judged_until_the_search_chooses(paco_env: Settings) -> None:
     profile = "active_test_profile"
     study = new_study(profile, paco_env)
     give(
@@ -570,9 +598,12 @@ def test_every_sheet_is_judged_then_the_finalists_tried_side_by_side(paco_env: S
                     meta={"vision": True},
                 ),
             ]
-            # Each sheet shown judged, its first variant kept.
-            while (knockout := searching.knockout_of(study)) is not None and not knockout.finalists:
-                kept = {str(one.number): [one.labels[0]] for one in knockout.left[:3]}
+            # Each sheet shown judged, its first variants kept, as many as it asks.
+            while (knockout := searching.knockout_of(study)) is not None and not knockout.done:
+                kept = {
+                    str(one.number): list(one.labels[: searching.to_keep(knockout, one)])
+                    for one in knockout.left[:3]
+                }
                 made.append(
                     await client.call_tool(
                         "judge",
@@ -580,9 +611,15 @@ def test_every_sheet_is_judged_then_the_finalists_tried_side_by_side(paco_env: S
                         meta={"vision": True},
                     )
                 )
+            made.append(
+                await client.call_tool(
+                    "try_settings",
+                    {"profile": profile, "variants": [{"picking": {"fmax": 90.0}}]},
+                )
+            )
             return made
 
-    searched, refused, *judged = anyio.run(calls)
+    searched, refused, *judged, tried = anyio.run(calls)
 
     done = searching.knockout_of(study)
     records = [
@@ -594,13 +631,14 @@ def test_every_sheet_is_judged_then_the_finalists_tried_side_by_side(paco_env: S
     assert shown(searched).startswith("S1: the full grid")
     assert searched.content[1].text.startswith("Round 1, sheet 1 of ")  # pyright: ignore[reportAttributeAccessIssue]
     assert [type(one) for one in searched.content[2:]] == [ImageContent] * min(3, first_round)
-    # Nothing committed before every sheet is judged.
+    # Nothing committed before the search chose.
     assert refused.is_error and "[precondition] Every sheet is judged first" in shown(refused)
-    # Every sheet judged and recorded; the finalists tried side by side at full size.
-    assert done is not None and done.finalists and done.experiment == "E1"
-    assert all(len(one["kept"]) == 1 and one["why"] for one in records)
-    assert "Every sheet is judged. The finalists, tried side by side at full size" in shown(
-        judged[-1]
-    )
+    # Every sheet judged and recorded, the final too; the choice said with its changes and the
+    # finalists' sheet; nothing tried after it.
+    assert done is not None and done.best is not None and done.experiment is None
+    assert done.best in done.finalists and len(done.finalists) <= searching.KEEP
+    assert all(one["why"] for one in records) and records[-1]["kept"] == [done.best]
+    assert f"Every sheet is judged: the search chose {done.best} by eye" in shown(judged[-1])
     assert any(isinstance(one, ImageContent) for one in judged[-1].content)
     assert searching.unjudged(study) is None
+    assert tried.is_error and "the search saw every combination by eye" in shown(tried).lower()

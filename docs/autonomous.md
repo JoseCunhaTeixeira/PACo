@@ -1,8 +1,9 @@
 # The autonomous mode
 
 In the autonomous mode the model works as a geophysicist does with PAC: it surveys the line, runs
-a full grid of the line's settings, judges the images by eye, refines the best, commits one set of
-settings for the whole line, decides each window, freezes the curves, inverts them and reports.
+a full grid of the line's settings, judges the images by eye until it has chosen the cleanest,
+commits that set of settings for the whole line, decides each window, freezes the curves, inverts
+them and reports.
 PACo gives it the tools and the rules; code checks every rule, never the model alone.
 
 Run it with `paco-server --mode autonomous` and `paco-agent --mode autonomous`, or from PAC's
@@ -22,7 +23,7 @@ every call, so a stopped answer goes on, at the next message, where the study st
 |---|---|---|
 | P0, objective | Code reads the message into a form: the profile, the objective (target depth, priority, effort), the settings the user typed | The study exists |
 | P1, survey | `survey`: the geometry, the records as G1 measures them, the reach, the usable band, the surface waves' cone; `look` at gathers and spectra | The model writes its conclusion in the journal |
-| P2, curves | `search`, then `try_settings` to refine, `commit`, `pick`, `decide` each window | `freeze` |
+| P2, curves | `search` until its choice, `commit` it, `pick`, `decide` each window | `freeze` |
 | P3, freeze | The accepted curves frozen in `curves.json`; nothing is processed or picked after it | At once |
 | P4, inversion | `invert` the frozen curves, `decide` each model; soils only when asked (`petro_models`, `invert_petro`) | Every model decided |
 | P5, report | Code writes the report around the model's text | Done |
@@ -35,8 +36,8 @@ Each phase offers only its tools. PACo's read-only tools (`inspect`, `preset_set
 | Tool | What it does |
 |---|---|
 | `survey` | The line before any setting is chosen: geometry, records, reach, usable band, cone, modes |
-| `search` | The full grid of the line's settings, scored in code; the variants judged by eye in sheets; the finalists tried side by side |
-| `try_settings` | Variants of the line's settings on chosen windows, judged by G1 to G3, against the current settings; changes no run |
+| `search` | The full grid of the line's settings, scored in code; the variants judged by eye in sheets until the cleanest is chosen |
+| `try_settings` | Only when the search chose none: variants of the line's settings on chosen windows, judged by G1 to G3, against the current settings; changes no run |
 | `commit` | The line made with the settings, every window one receiver apart, judged by G1 to G4; the run in PAC's layout |
 | `observe`, `look` | The gates' results as text; figures of records, images, picks, experiments and models |
 | `advise` | PACo's own choice for a lever (window length, mute, segments, picking), not applied |
@@ -54,19 +55,21 @@ rests on: each is written in the journal with them.
 
 `search` runs once a study. Every setting of PAC's page for the line's method takes the values in
 `src/paco/autonomous/grid.yaml` (`paco-grid` prints the grid's size), and every combination is
-tried on the same windows along the line. The variants with no image, or with fewer than a quarter
-of their windows passing, are dropped. Every other variant is judged by eye, with no score:
+tried on the same 12 windows along the line. The variants with no image, or with fewer than a
+quarter of their windows passing, are dropped. Every other variant is judged by eye, with no
+score:
 
-- The variants come in sheets of 12, by window length, each drawn at the same four places along
-  the line as PAC draws images.
+- The variants come in sheets of 12, by window length in the first round, a variant a row: its
+  windows nearest twelve places along the line, as many as it has.
 - The host judges the sheets in short calls of their own, three sheets a call: the judging
   prompt, the atlas's dispersion images, the line's facts and the sheets, a form without thinking.
   The conversation itself never carries the sheets.
-- Each sheet's cleanest are kept, 2 at most; the kept meet again round after round until one sheet
-  is left, whose kept (3 at most) are tried side by side at full size.
+- Each sheet's 3 cleanest are kept and mixed into new sheets, round after round, until 3 are left.
+  A last call shows those 3 and chooses the cleanest: the search's choice.
 - Each sheet's judgment is saved in `searches/S1_judged.jsonl`.
 
-`try_settings` and `commit` wait until every sheet is judged.
+The model commits the search's choice: nothing is tried after it, every combination was seen.
+`commit` waits until the choice is made; `try_settings` serves only when the search chose none.
 
 ## The study's folder
 
@@ -77,7 +80,7 @@ of their windows passing, are dropped. Every other variant is judged by eye, wit
 | `journal.jsonl` | The objective, the experiments, the commits, the model's hypotheses, conclusions and decisions |
 | `given.json` | The settings the user typed, locked for every trial, commit and inversion |
 | `survey.json` | The survey |
-| `searches/` | The grid's variants and scores, the knockout, each sheet's judgment |
+| `searches/` | The grid's variants and scores, the knockout and its choice, each sheet's judgment, the finalists' thumbnails |
 | `experiments/` | Each experiment's variants and scorecards; their dispersion images as thumbnails (`images/`) |
 | `line.json` | The committed line: its run and its commits with their reasons |
 | `picks.jsonl`, `decisions.jsonl` | The model's own picks and decisions |
@@ -121,8 +124,8 @@ search's judging is not counted as model calls, and the search's time is not cou
 
 Only the results stay. At the freeze, and when a session ends, the study's working files are
 removed: the records each base preprocessed, the trials' windows, G1's settled records, the
-search's thumbnails, and once the curves are frozen the survey's figures. The images' cache is
-emptied when a session ends, once no other conversation answers. The line's run, the frozen
-curves, the journal, the decisions, the experiments' and the search's scores, each experiment's
-dispersion images (as thumbnails) and the transcripts stay. A study opened again after its report
-makes again what it needs.
+search's thumbnails but its finalists', and once the curves are frozen the survey's figures. The
+images' cache is emptied when a session ends, once no other conversation answers. The line's run,
+the frozen curves, the journal, the decisions, the experiments' and the search's scores, the
+search's finalists' and each experiment's dispersion images (as thumbnails) and the transcripts
+stay. A study opened again after its report makes again what it needs.

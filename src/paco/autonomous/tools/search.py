@@ -9,10 +9,11 @@ the window by the slowest wave, PACo's FK thresholds and bands, the whitening an
 normalization. Each variant is judged on the same trial windows as try_settings judges it, by the
 grid (paco.autonomous.tools.grid). No score reads an image's quality as the eye does: the scores
 only drop the really bad (no image, or too few windows passing for a curve along the line); every
-other variant is judged by eye, in sheets of SHEET by window length, each at the same places along
-the line, no score on them, the cleanest of each sheet kept (judge, which the host calls from
-short calls of their own); the kept meet again, sheet after sheet, until one sheet is left, whose
-kept are tried side by side at full size.
+other variant is judged by eye, in sheets of SHEET, one a row, each at up to grid.PLACES places
+along the line, no score on them, the KEEP cleanest of each sheet kept (judge, which the host calls
+from short calls of their own); the kept are mixed into new sheets, round after round, until KEEP
+are left, the finalists, of which the eye chooses the cleanest: the search's choice. Nothing is
+tried after it: every combination was seen.
 
 A study's search: searches/S1.json, each variant with its settings, trial and scorecard; its
 thumbnails, searches/S1_images/<label>.npz; the knockout, searches/S1_knockout.json; each sheet's
@@ -55,11 +56,11 @@ SEGMENTS = "segment_s_per_m"
 NEAR = "near_field_window"
 # The really bad, which no sheet shows: no image, or fewer than this share of the windows passing.
 PASSING = 0.25
-# The sheets: variants a sheet, sheets a call, variants kept of a sheet (of the last, more).
+# The sheets: variants a sheet, sheets a call, variants kept of a sheet (of fewer, all): the
+# finalists once no more are left.
 SHEET = 12
 A_CALL = 3
-KEEP = 2
-LAST_KEEP = 3
+KEEP = 3
 # The line's settings each setting of the grid sets, by stage and key ("*": the whole stage).
 SETS: dict[str, tuple[tuple[str, str], ...]] = {
     "length": (("masw", "length"),),
@@ -249,8 +250,9 @@ class Sheet(BaseModel):
 
 class Knockout(BaseModel):
     """The model's look at every variant: the round, its sheets, those judged and what each kept;
-    once one sheet is left and judged, its kept (the finalists) and the experiment trying them
-    side by side."""
+    once KEEP at most are left, the finalists, then their sheet, the final, and the one the eye
+    chose of them: the search's choice. (A search of an older PACo tried its finalists side by
+    side instead, as `experiment`.)"""
 
     model_config = ConfigDict(frozen=True)
 
@@ -258,6 +260,7 @@ class Knockout(BaseModel):
     sheets: tuple[Sheet, ...]
     kept: dict[int, tuple[str, ...]] = Field(default_factory=dict[int, tuple[str, ...]])
     finalists: tuple[str, ...] = ()
+    best: str | None = None
     experiment: str | None = None
 
     @property
@@ -266,9 +269,15 @@ class Knockout(BaseModel):
         return [sheet for sheet in self.sheets if sheet.number not in self.kept]
 
     @property
-    def last(self) -> bool:
-        """Whether this round's one sheet is the last."""
-        return len(self.sheets) == 1
+    def final(self) -> bool:
+        """Whether this round is the final: the finalists' sheet, the one cleanest to choose."""
+        return bool(self.finalists) and self.best is None
+
+    @property
+    def done(self) -> bool:
+        """Whether the knockout has ended: its choice made (or its finalists tried, an older
+        PACo's)."""
+        return self.best is not None or self.experiment is not None
 
 
 def searched(study: trials.Study) -> Search | None:
@@ -285,15 +294,15 @@ def knockout_of(study: trials.Study) -> Knockout | None:
 
 def unjudged(study: trials.Study) -> str | None:
     """Why the line's settings cannot be tried or committed yet: no search, or sheets of it the
-    model has not judged; None once every sheet is judged (a search made before the sheets has
-    none)."""
+    model has not judged; None once the search's choice is made (a search made before the sheets
+    has none)."""
     if searched(study) is None:
         return (
-            "Run search first: the full grid of the line's settings, then every variant judged "
-            "by eye, sheet by sheet; try_settings refines around your choice."
+            "Run search first: the full grid of the line's settings, every variant judged by eye, "
+            "sheet by sheet, until the cleanest is chosen."
         )
     knockout = knockout_of(study)
-    if knockout is None or knockout.finalists:
+    if knockout is None or knockout.done:
         return None
     return (
         f"Every sheet is judged first: {len(knockout.left)} of round {knockout.round}'s "
@@ -301,22 +310,37 @@ def unjudged(study: trials.Study) -> str | None:
     )
 
 
+def chosen(study: trials.Study) -> str | None:
+    """The variant the search chose by eye, once it has; None before, or for a search that
+    chose none (no variant to judge, or an older PACo's)."""
+    knockout = knockout_of(study)
+    return knockout.best if knockout is not None else None
+
+
+def to_keep(knockout: Knockout, sheet: Sheet) -> int:
+    """How many variants of `sheet` the eye keeps: KEEP, all of a sheet of fewer; of the final,
+    the one cleanest."""
+    return 1 if knockout.final else min(KEEP, len(sheet.labels))
+
+
 def judge(study: trials.Study, kept: Mapping[int, Sequence[str]], why: str) -> Knockout:
-    """The sheets `kept` names judged: each sheet's kept variants (KEEP at most; LAST_KEEP of the
-    last sheet), recorded with `why` (JUDGED); a round judged, its kept sorted into the next
-    round's sheets, or, of the last sheet, the finalists."""
+    """The sheets `kept` names judged: each sheet's kept variants (to_keep), recorded with `why`
+    (JUDGED); a round judged, its kept mixed into the next round's sheets, or, KEEP at most left,
+    the finalists and their sheet, the final; the final judged, its one kept the search's
+    choice."""
     made, knockout = searched(study), knockout_of(study)
     if made is None or knockout is None:
         raise ValueError("No sheets to judge: run search first.")
-    if knockout.finalists:
+    if knockout.done:
         raise ValueError(
-            f"Every sheet is judged: the finalists {', '.join(knockout.finalists)}, "
-            f"{knockout.experiment}. Refine with try_settings, then commit."
+            f"Every sheet is judged: the search chose {knockout.best}. Commit it."
+            if knockout.best is not None
+            else f"Every sheet is judged: the finalists {', '.join(knockout.finalists)}, "
+            f"{knockout.experiment}."
         )
     if not kept:
         raise ValueError("kept: the variants you keep of each sheet, by its number.")
     left = {sheet.number: sheet for sheet in knockout.left}
-    most = LAST_KEEP if knockout.last else KEEP
     for number, labels in kept.items():
         sheet = left.get(number)
         if sheet is None:
@@ -324,8 +348,13 @@ def judge(study: trials.Study, kept: Mapping[int, Sequence[str]], why: str) -> K
                 f"Sheet {number} is not one left in round {knockout.round}: "
                 f"{', '.join(str(one) for one in left)}."
             )
-        if not 1 <= len(labels) <= most or len(set(labels)) != len(labels):
-            raise ValueError(f"Sheet {number}: keep 1 to {most} of its variants, each once.")
+        most = to_keep(knockout, sheet)
+        if len(labels) != most or len(set(labels)) != len(labels):
+            raise ValueError(
+                f"Sheet {number}: choose the one cleanest of its variants."
+                if knockout.final
+                else f"Sheet {number}: keep {most} of its variants, each once."
+            )
         if lost := [label for label in labels if label not in sheet.labels]:
             raise ValueError(
                 f"Sheet {number}: no variant {', '.join(lost)} on it; its: "
@@ -350,22 +379,30 @@ def judge(study: trials.Study, kept: Mapping[int, Sequence[str]], why: str) -> K
     if judged.left:
         return _keep(study, judged)
     survivors = [label for sheet in judged.sheets for label in judged.kept[sheet.number]]
-    if judged.last:
-        return _keep(study, judged.model_copy(update={"finalists": tuple(survivors)}))
-    lengths = {row.label: row.length for row in made.rows}
-    ordered = sorted(survivors, key=lambda label: lengths[label])
-    sheets = tuple(
-        Sheet(number=n + 1, labels=tuple(ordered[i : i + SHEET]))
-        for n, i in enumerate(range(0, len(ordered), SHEET))
+    if judged.final:
+        return _keep(study, judged.model_copy(update={"best": survivors[0]}))
+    return _keep(study, next_round(judged.round + 1, survivors))
+
+
+def next_round(number: int, survivors: Sequence[str]) -> Knockout:
+    """Round `number` of `survivors`: KEEP at most, they are the finalists, their sheet the final
+    (one alone, the choice already); more, mixed into sheets of SHEET at most, dealt in turn, so
+    that each sheet holds the kept of different sheets before."""
+    if len(survivors) <= KEEP:
+        finalists = tuple(survivors)
+        sheets = (Sheet(number=1, labels=finalists),)
+        if len(finalists) == 1:
+            return Knockout(round=number, sheets=sheets, kept={1: finalists}, finalists=finalists,
+                            best=finalists[0])  # fmt: skip
+        return Knockout(round=number, sheets=sheets, finalists=finalists)
+    count = -(-len(survivors) // SHEET)
+    dealt: list[list[str]] = [[] for _ in range(count)]
+    for index, label in enumerate(survivors):
+        dealt[index % count].append(label)
+    return Knockout(
+        round=number,
+        sheets=tuple(Sheet(number=n + 1, labels=tuple(one)) for n, one in enumerate(dealt)),
     )
-    return _keep(study, Knockout(round=judged.round + 1, sheets=sheets))
-
-
-def tried(study: trials.Study, experiment: str) -> Knockout:
-    """The knockout, its finalists tried side by side as `experiment`."""
-    knockout = knockout_of(study)
-    assert knockout is not None and knockout.finalists
-    return _keep(study, knockout.model_copy(update={"experiment": experiment}))
 
 
 def _keep(study: trials.Study, knockout: Knockout) -> Knockout:
@@ -374,7 +411,8 @@ def _keep(study: trials.Study, knockout: Knockout) -> Knockout:
 
 
 def places_of(profile: Profile) -> tuple[float, ...]:
-    """The places along the line a sheet shows each variant at: grid.PLACES, evenly spread."""
+    """The places along the line a sheet shows each variant at: grid.PLACES, evenly spread (each
+    variant at its windows nearest them, as many as it has)."""
     xs = sorted(receiver.x for receiver in profile.receivers)
     span = xs[-1] - xs[0]
     return tuple(
@@ -671,8 +709,15 @@ def search(
     )
     folder.mkdir(exist_ok=True)
     write_atomic(folder / f"{made.id}.json", made.model_dump_json(indent=2))
-    sheets = first_sheets(shown, [axis.name for axis in moved])
-    return made, _keep(study, Knockout(round=1, sheets=sheets)) if sheets else None
+    if not shown:
+        return made, None
+    labels = [row.label for row in shown]
+    knockout = (
+        Knockout(round=1, sheets=first_sheets(shown, [axis.name for axis in moved]))
+        if len(labels) > KEEP
+        else next_round(1, labels)
+    )
+    return made, _keep(study, knockout)
 
 
 def mode_of(study: trials.Study, profile: Profile) -> str:
@@ -681,7 +726,7 @@ def mode_of(study: trials.Study, profile: Profile) -> str:
 
 
 def row_changes(study: trials.Study, label: str) -> dict[str, Any]:
-    """The changes of the search's variant `label`, as try_settings takes them."""
+    """The changes of the search's variant `label`, as try_settings and commit take them."""
     made = searched(study)
     if made is None:
         raise ValueError("No search yet: run search first.")
@@ -717,26 +762,32 @@ def describe(made: Search, knockout: Knockout | None) -> str:
     lines.append(
         f"{made.dropped} dropped as really bad: no image, or fewer than {PASSING:.0%} of their "
         f"windows passing (no curve along the line). The other {len(made.rows) - made.dropped} "
-        f"are in {len(knockout.sheets)} sheets of up to {SHEET}, by window length, each variant at "
-        f"the same {len(made.places)} places along the line ({at} m), judged by eye with no "
-        f"score: each sheet's {KEEP} cleanest at most kept, round after round, until one sheet is "
-        f"left, whose {LAST_KEEP} cleanest at most are tried side by side at full size."
+        f"are in sheets of up to {SHEET}, by window length first, one variant a row at its windows "
+        f"nearest {len(made.places)} places along the line ({at} m), judged by eye with no score: "
+        f"each sheet's {KEEP} cleanest kept and mixed into new sheets, round after round, until "
+        f"{KEEP} are left; the cleanest of those is the search's choice. Nothing is tried after "
+        "it: every combination was seen."
     )
     return "\n".join(lines)
 
 
 def sheet_text(made: Search, knockout: Knockout, sheet: Sheet) -> str:
     """A sheet in words: where it is in the knockout, then each of its variants' settings in
-    reading order (two a row, left then right)."""
+    reading order (one a row, top to bottom)."""
     moved = {name for name, values in made.axes.items() if len(values) > 1}
     by_label = {row.label: row for row in made.rows}
-    keep = f"the last: keep 1 to {LAST_KEEP}" if knockout.last else f"keep 1 or {KEEP}"
-    head = (
-        f"Round {knockout.round}, sheet {sheet.number} of {len(knockout.sheets)} ({keep}): "
-        f"{len(sheet.labels)} variants, two a row, left then right, each at "
-        + ", ".join(f"{place:g}" for place in made.places)
-        + " m:"
-    )
+    places = ", ".join(f"{place:g}" for place in made.places)
+    if knockout.final:
+        head = (
+            f"The final: the {len(sheet.labels)} cleanest of the search, one a row, each at its "
+            f"windows nearest {places} m; choose the one cleanest:"
+        )
+    else:
+        head = (
+            f"Round {knockout.round}, sheet {sheet.number} of {len(knockout.sheets)} (keep "
+            f"{to_keep(knockout, sheet)}): {len(sheet.labels)} variants, one a row, each at its "
+            f"windows nearest {places} m:"
+        )
     return "\n".join(
         [head]
         + [
@@ -744,6 +795,13 @@ def sheet_text(made: Search, knockout: Knockout, sheet: Sheet) -> str:
             for label in sheet.labels
         ]
     )
+
+
+def describe_row(made: Search, row: Row) -> str:
+    """A variant's settings in words: its values of the settings the grid moved, the numbers its
+    window gives them."""
+    moved = {name for name, values in made.axes.items() if len(values) > 1}
+    return _named(row, moved) or "the one variant"
 
 
 def _named(row: Row, moved: set[str]) -> str:

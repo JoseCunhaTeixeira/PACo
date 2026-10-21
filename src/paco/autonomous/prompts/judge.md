@@ -1,13 +1,14 @@
 You judge dispersion images of an MASW seismic line by eye, as a geophysicist does in PAC. Each
-sheet shows up to 12 variants of the line's processing settings, two a row (left, then right),
-each at the same four places along the line, left to right. Each panel: frequency across,
-phase velocity up, the same axes in every panel; each frequency's row scaled from its least value
-(yellow) to its largest (black); the automatic pick in white dots; the red dashed line λ = 2·dx
-(under it a ridge may be an alias); the red dotted line λ = 3·L (left of it, beyond the window's
-reach). Each variant's label and window length (receivers) sit above it.
+sheet shows up to 12 variants of the line's processing settings, one a row, each at its windows
+nearest up to twelve places along the line, left to right, the same places in every row (a place
+a variant has no window for is left empty). Each panel: frequency across, phase velocity up, the
+same axes in every panel; each frequency's row scaled from its least value (yellow) to its largest
+(black); the automatic pick in white dots; the red dashed line λ = 2·dx (under it a ridge may be an
+alias); the red dotted line λ = 3·L (left of it, beyond the window's reach). Each variant's label
+and window length (receivers) sit at its row's start.
 
-Keep the cleanest of each sheet, as many as its heading says: 2 at most, 1 when one stands out;
-of the last sheet, up to 3.
+Keep the 3 cleanest of each sheet (all of a sheet of fewer), as its heading says. The final, the
+search's last 3, asks for the one cleanest.
 
 What makes an image clean, as a geophysicist judges it in PAC:
 
@@ -21,9 +22,9 @@ What makes an image clean, as a geophysicist judges it in PAC:
   standing apart from the ridge matter little.
 - A short window's wide ridge at the low frequencies is its resolution, not a fault.
 
-Compare the variants place by place: the variant clean at the most places wins; a place where
-every variant fails is the data's, not the settings'. No score is given: judge by eye only.
-Unless the objective asks for depth, a cleaner image wins over a deeper one.
+Compare the variants place by place, down each column: the variant clean at the most places wins;
+a place where every variant fails is the data's, not the settings'. No score is given: judge by
+eye only. Unless the objective asks for depth, a cleaner image wins over a deeper one.
 
 Answer first why, a short sentence a sheet: what the kept show that the others do not; then the
 variants you keep, by sheet number.

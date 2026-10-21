@@ -757,7 +757,7 @@ ROWS = [
 
 def canned(windows: str, *, thumbs: bool = False) -> Callable[..., Any]:
     """A search that runs no grid: ROWS its variants on `windows`, sorted into sheets, with
-    `thumbs` each variant's thumbnails at the 4 places."""
+    `thumbs` each variant's thumbnails at its places."""
 
     def search(study: Study, **_: Any) -> tuple[searching.Search, searching.Knockout]:  # noqa: ANN401
         made = searching.Search(
@@ -821,8 +821,8 @@ def test_the_sheets_are_judged_in_calls_of_their_own_until_refused_three_times(
             call("search", {}, 3),
             # The judge's calls: a variant not on the sheet, then sheet 1 judged; then sheet 2
             # judged wrong three times.
-            kept((1, ["g99"])),
-            kept((1, ["g1", "g2"])),
+            kept((1, ["g99", "g1", "g2"])),
+            kept((1, ["g1", "g2", "g3"])),
             wrong,
             wrong,
             wrong,
@@ -849,11 +849,11 @@ def test_the_sheets_are_judged_in_calls_of_their_own_until_refused_three_times(
     assert first.startswith(
         "Line active_test_profile, active: each window stacks its shots' images. The objective: "
     )
-    assert "Round 1, sheet 1 of 2 (keep 1 or 2):" in first and "sheet 2 of 2 (keep" in first
+    assert "Round 1, sheet 1 of 2 (keep 3):" in first and "sheet 2 of 2 (keep" in first
     assert "S1: the full grid" not in first
     # A refused answer said again with the same sheets; the next call, the sheet left.
     assert "Your last answer was not recorded: " in again and "no variant g99 on it" in again
-    assert "Round 1, sheet 2 of 2 (keep 1 or 2):" in second and "sheet 1 of 2" not in second
+    assert "Round 1, sheet 2 of 2 (keep 2):" in second and "sheet 1 of 2" not in second
     # The model reads the search's words and why the judging stopped, never the sheets, and is
     # not offered the judge.
     assert read.startswith('<data from="search">\nS1: the full grid, 14 variants')
@@ -862,7 +862,7 @@ def test_the_sheets_are_judged_in_calls_of_their_own_until_refused_three_times(
     assert "judge" not in {tool["function"]["name"] for tool in played.model.bodies[3]["tools"]}
     # Sheet 1's judgment recorded, once; the judge's forms out of the model calls' budget, their
     # tokens in the transcript.
-    assert [json.loads(line)["kept"] for line in records.splitlines()] == [["g1", "g2"]]
+    assert [json.loads(line)["kept"] for line in records.splitlines()] == [["g1", "g2", "g3"]]
     assert sum(1 for one in used if one.kind == "form" and one.name == "judge") == 5
     assert budgets.spent(played.study, "quick").model_calls == 4
     assert [step.is_error for step in steps] == [True, False, True, True, True]
@@ -872,7 +872,7 @@ def test_the_sheets_are_judged_in_calls_of_their_own_until_refused_three_times(
 
 @pytest.mark.slow
 @pytest.mark.usefixtures("folders")
-def test_the_judged_finalists_come_to_the_model_tried_side_by_side(
+def test_the_search_chooses_by_eye_and_the_model_reads_its_choice(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     monkeypatch.setattr(searching, "search", canned("spread:3", thumbs=True))
@@ -881,38 +881,43 @@ def test_the_judged_finalists_come_to_the_model_tried_side_by_side(
             form(SCOPE),
             *SURVEYED,
             call("search", {}, 3),
-            kept((1, ["g1", "g2"]), (2, ["g13"])),
-            kept((1, ["g2", "g13"])),
-            said("Which of the two?"),
-            answer_form("The finalists are tried.", question="Which of the two?"),
+            kept((1, ["g1", "g2", "g3"]), (2, ["g13", "g14"])),
+            kept((1, ["g2", "g13", "g3"])),
+            kept((1, ["g13"])),
+            said("The search chose g13: commit it?"),
+            answer_form("The search chose.", question="Commit it?"),
         ],
         [REQUEST],
         vision=True,
     )
 
-    first, last = (one["messages"] for one in judged(played))
+    first, second, last = (one["messages"] for one in judged(played))
     messages = played.model.bodies[-2]["messages"]
     at = next(i for i, one in enumerate(messages) if one.get("tool_call_id") == "call_3")
     knockout = searching.knockout_of(played.study)
     # Each call sees the atlas's dispersion images, in a turn of their own, then its sheets: round
-    # 1's two, then round 2's last.
+    # 1's two, round 2's one, then the final.
     assert first[1]["content"][0]["text"].startswith(
         '<data from="atlas">\nPACo\'s atlas, dispersion images'
     )
     assert [part["type"] for part in first[1]["content"]] == ["text", "image_url"]
     assert first[2]["role"] == "assistant" and first[1:3] == last[1:3]
     assert [part["type"] for part in first[3]["content"]] == ["text", "image_url", "image_url"]
-    assert [part["type"] for part in last[3]["content"]] == ["text", "image_url"]
-    assert "Round 2, sheet 1 of 1 (the last: keep 1 to 3)" in last[3]["content"][0]["text"]
-    assert knockout is not None and knockout.finalists == ("g2", "g13")
-    assert knockout.experiment == "E1"
-    # The model reads the search's words, then the finalists tried side by side, with figures.
+    assert "Round 2, sheet 1 of 1 (keep 3)" in second[3]["content"][0]["text"]
+    assert "The final: the 3 cleanest of the search" in last[3]["content"][0]["text"]
+    assert knockout is not None and knockout.finalists == ("g2", "g13", "g3")
+    assert knockout.best == "g13" and knockout.experiment is None
+    # The model reads the search's words, then its choice with its changes and the finalists'
+    # sheet; nothing tried after it.
     read = messages[at]["content"]
     assert "S1: the full grid, 14 variants" in read
-    assert "The sheets judged by eye in 2 short calls. Every sheet is judged. The finalists" in read
+    assert (
+        "The sheets judged by eye in 3 short calls. Every sheet is judged: the search chose g13"
+        in (read)
+    )
     assert messages[at + 1]["role"] == "user" and messages[at + 1]["content"][1]["type"] == (
         "image_url"
     )
-    # The search's progress: round 1 judged in one call, then the finalists tried, each said.
+    # The search's progress: each round, then the final, each said.
     assert "   search: round 2, 0 of 1 sheets judged" in played.events
-    assert "   search: 3 of 3 settings tried" in played.events
+    assert "   search: the final, the cleanest of 3 to choose" in played.events

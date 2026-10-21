@@ -452,8 +452,8 @@ class Host:
         failed = bool(result.is_error)
         budgets.record(study, _use("tool", phase, seconds, name=call.name, failed=failed))
         knockout = searching.knockout_of(study) if call.name == "search" else None
-        if not failed and knockout is not None and not knockout.finalists:
-            # The model reads the finalists, not the sheets: the host has them judged.
+        if not failed and knockout is not None and not knockout.done:
+            # The model reads the search's choice, not the sheets: the host has them judged.
             result = await self._judged(result, phase)
             failed = bool(result.is_error)
         carried: list[ChatCompletionMessageParam] = tool_messages(
@@ -513,9 +513,9 @@ class Host:
 
     async def _judged(self, searched: CallToolResult, phase: Phase) -> CallToolResult:
         """The search's sheets judged by eye in short calls of their own (judging), round after
-        round, the server's judge recording each answer and giving the next sheets, a line for
-        the user each time: the search's words, then the finalists tried side by side, as the
-        model reads them; or, refused JUDGE_TRIES times in a row, why the judging stopped."""
+        round, the final too, the server's judge recording each answer and giving the next sheets,
+        a line for the user each time: the search's words, then its choice, as the model reads
+        them; or, refused JUDGE_TRIES times in a row, why the judging stopped."""
         study = self._study
         goal = objective_of(study)
         mode = searching.mode_of(study, load_profile(study.profile, self._settings))
@@ -546,10 +546,12 @@ class Host:
                 result = await self._judge(judging.as_arguments(study.profile, judged), phase)
                 refused = judging.text_of(result) if result.is_error else None
                 now = searching.knockout_of(study)
-                if not result.is_error and now is not None and not now.finalists:
+                if not result.is_error and now is not None and not now.done:
                     self._on_event(
-                        f"   search: round {now.round}, {len(now.kept)} of {len(now.sheets)} sheets "
-                        "judged"
+                        f"   search: the final, the cleanest of {len(now.finalists)} to choose"
+                        if now.final
+                        else f"   search: round {now.round}, {len(now.kept)} of {len(now.sheets)} "
+                        "sheets judged"
                     )
             if refused is not None:
                 tries += 1
@@ -565,7 +567,7 @@ class Host:
             assert result is not None
             tries = 0
             knockout = searching.knockout_of(study)
-            if knockout is not None and knockout.finalists:
+            if knockout is not None and knockout.done:
                 text = f"{said}\n\nThe sheets judged by eye in {calls} short calls. "
                 text += judging.text_of(result)
                 figures = [block for block in result.content if not isinstance(block, TextContent)]
@@ -580,7 +582,6 @@ class Host:
                 "judge",
                 arguments,
                 read_timeout_seconds=self._limits.tool_seconds,
-                # The last sheet's finalists tried side by side: the search's last step.
                 progress_callback=self._progress("search"),
                 meta=self.meta,
             )

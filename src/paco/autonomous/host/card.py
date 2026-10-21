@@ -155,13 +155,15 @@ def _surveyed(found: Survey) -> str:
 
 
 def _searched(made: searching.Search, knockout: searching.Knockout | None) -> str:
-    """The search in a few words: its combinations, then its finalists, or the round being
-    judged."""
+    """The search in a few words: its combinations, then its choice, its final, or the round
+    being judged."""
     said = f"{len(made.rows)} combinations compared"
     if knockout is None:
         return said
+    if knockout.best is not None:
+        return f"{said}; chose {knockout.best}, commit it"
     if knockout.finalists:
-        return f"{said}; {len(knockout.finalists)} finalists"
+        return f"{said}; the final, {len(knockout.finalists)} finalists"
     return (
         f"{said}; round {knockout.round}, {len(knockout.kept)} of {len(knockout.sheets)} sheets "
         "judged"

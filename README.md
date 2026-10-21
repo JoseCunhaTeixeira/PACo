@@ -190,15 +190,15 @@ How a line goes:
    and checked by the gates. The values are in `src/paco/autonomous/grid.yaml`, and `paco-grid`
    prints the grid's size.
 3. **The model's eye.** Only the really bad variants are dropped: no image, or no curve along the
-   line. The model judges all the others by eye, in sheets of 12, each variant at the same 4
+   line. The model judges all the others by eye, in sheets of 12, a variant a row at up to 12
    places along the line, with no score: no score tells a clean image as the eye does. Each
    sheet is judged in a short call of its own, which sees the sheets alone, not the
-   conversation, so judging costs little. The cleanest of each sheet are kept: one ridge, sharp
-   and unbroken at every place, the picks on it, over a wide band. The kept meet again until a
-   last sheet, whose kept come to the model compared at full size. Each sheet's judgment is
-   saved in the study.
-4. **The line.** The model refines its choice, applies it to the whole line, picks and decides
-   each window, freezes the curves, inverts them and reports.
+   conversation, so judging costs little. The 3 cleanest of each sheet are kept: one ridge,
+   sharp and unbroken at every place, the picks on it, over a wide band. The kept are mixed into
+   new sheets until 3 are left; a last call chooses the cleanest of them. Nothing is tried after
+   it: every combination was seen. Each sheet's judgment is saved in the study.
+4. **The line.** The model applies the search's choice to the whole line, picks and decides each
+   window, freezes the curves, inverts them and reports.
 
 It costs more than the workflow mode, for better results: about 15 to 20 minutes a line with 4
 workers, and from under a dollar to a few dollars depending on the model, before the inversion
@@ -215,9 +215,9 @@ on with the study, and a new conversation starts a new one.
 | Tool | What it does |
 |---|---|
 | `survey` | The line before any setting: its geometry, its records as G1 measures them, the reach, the usable band, the surface waves' cone, the modes it takes |
-| `search` | Runs the full grid of the line's settings in code, drops the really bad variants, and has the others judged by eye in sheets; the finalists come back tried side by side at full size |
-| `judge` | Records the cleanest variants of each sheet, round after round; the last sheet's are tried side by side at full size. PACo's short judging calls use it, not the model |
-| `try_settings` | Refines around the choice: variants of the line's settings on chosen windows, judged by the gates. Waits, like `commit`, until every sheet is judged |
+| `search` | Runs the full grid of the line's settings in code, drops the really bad variants, and has the others judged by eye in sheets until the cleanest is chosen |
+| `judge` | Records the 3 cleanest variants of each sheet, round after round, then the cleanest of the last 3: the search's choice. PACo's short judging calls use it, not the model |
+| `try_settings` | Only when the search chose none: variants of the line's settings on chosen windows, judged by the gates |
 | `commit` | Applies settings to the whole line, with their reasons: a run that PAC opens |
 | `observe`, `look` | Reads the checks of the line committed; looks at a window's records, image, curve or model |
 | `advise` | PACo's own choice for a lever (the window length, the mute, a passive line's segments, the picking), not applied |

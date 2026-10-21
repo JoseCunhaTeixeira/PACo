@@ -14,6 +14,7 @@ PACo's read-only tools are served as PACo serves them, its own functions and car
 import argparse
 import base64
 import functools
+import json
 import logging
 import re
 import time
@@ -283,11 +284,17 @@ def try_settings(
     """Each variant tried with the current settings on the same trial windows, judged by G1 to
     G3, the windows gained and lost against the current settings; changes no run. A trial made
     before is not made again. The experiment goes to the journal. With vision, every variant side
-    by side, sheets of the current settings and three (look experiment). Once every sheet of the
-    search is judged: to refine around your choice."""
+    by side, sheets of the current settings and three (look experiment). Only when the search
+    chose none (no variant gave an image to judge): once it chose, every combination was seen,
+    and its choice is committed."""
     study = _study(profile, ctx)
     if (left := searching.unjudged(study)) is not None:
         raise RunError(left)
+    if (best := searching.chosen(study)) is not None:
+        raise RunError(
+            f"The search saw every combination by eye and chose {best}: commit it (search shows "
+            "its changes). Nothing is tried after the search."
+        )
     new = hypothesis is not None and _HYPOTHESIS.fullmatch(hypothesis) is None
     if new:
         journaling.check(study, "hypothesis", str(hypothesis), expect=expect)
@@ -356,12 +363,12 @@ def search(
 ) -> list[TextContent | ImageContent]:
     """The full grid of the line's settings, once a study (minutes): every combination of the
     values the physics sets for each setting of PAC's page for the line's method, each variant
-    on the same windows, judged by G1 to G3 as try_settings judges it. The really bad dropped (no
-    image, or too few windows passing for a curve along the line); every other variant judged by
-    eye, no score, in sheets by window length, each at the same places along the line, in short
-    calls of their own, round after round, until the finalists: tried side by side at full size
-    (an experiment). Choose among them, refine with try_settings, then commit. Called again,
-    the sheets left are judged."""
+    on the same windows, judged by G1 to G3. The really bad dropped (no image, or too few windows
+    passing for a curve along the line); every other variant judged by eye, no score, in sheets of
+    12, a variant a row at its windows along the line, in short calls of their own: each sheet's 3
+    cleanest kept and mixed into new sheets, round after round, until 3 are left; the cleanest of
+    them is the search's choice, which you commit. Nothing is tried after it: every combination
+    was seen. Called again, the sheets left are judged."""
     study = _study(profile, ctx)
     if (made := searching.searched(study)) is not None:
         knockout = searching.knockout_of(study)
@@ -387,8 +394,8 @@ def judge(
     kept: Annotated[
         dict[int, list[str]],
         Field(
-            description=f"By sheet number, the variants you keep of it by eye: its cleanest, "
-            f"{searching.KEEP} at most ({searching.LAST_KEEP} of the last sheet)."
+            description=f"By sheet number, the variants you keep of it by eye: its "
+            f"{searching.KEEP} cleanest (all of a sheet of fewer); of the final, the one cleanest."
         ),
     ],
     why: Annotated[
@@ -397,41 +404,14 @@ def judge(
     ctx: Context,
 ) -> list[TextContent | ImageContent]:
     """The search's sheets judged by eye, the host's (its short calls judge them): each one's
-    cleanest kept, the judgment recorded; then the next sheets. The kept meet again, round after
-    round, until one sheet is left; once it is judged, its kept are tried side by side at full
-    size (an experiment)."""
+    cleanest kept, the judgment recorded; then the next sheets. The kept are mixed into new
+    sheets, round after round, until 3 are left; the final, their sheet, chooses the cleanest:
+    the search's choice, said with its changes for commit."""
     study = _study(profile, ctx)
     made = searching.searched(study)
     knockout = searching.judge(study, kept, why)
     assert made is not None
-    if not knockout.finalists:
-        return _sheets(study, made, knockout, ctx)
-    line = committing.line_of(study)
-    state = committing.line_state(_run_folder(study)) if line is not None else LineState()
-    experiment = trials.try_settings(
-        study,
-        [searching.row_changes(study, label) for label in knockout.finalists],
-        made.windows,
-        current=line.settings if line is not None else None,
-        line=state,
-        settings=get_settings(),
-        config=_config(),
-        on_progress=_reporting(ctx),
-    )
-    journaling.experiment(study, experiment, None)
-    searching.tried(study, experiment.id)
-    named = ", ".join(
-        f"{one.label} = {label}"
-        for one, label in zip(experiment.tried[1:], knockout.finalists, strict=True)
-    )
-    said = (
-        f"Every sheet is judged. The finalists, tried side by side at full size ({named}):\n"
-        + trials.describe(experiment)
-    )
-    if not _vision(ctx):
-        return _content(said)
-    seen = looking.look_experiment(study, experiment.id, vision=True)
-    return _content(f"{said}\n\n{seen.text}", seen.figures)
+    return _sheets(study, made, knockout, ctx)
 
 
 def _sheets(
@@ -442,23 +422,38 @@ def _sheets(
     said: str = "",
 ) -> list[TextContent | ImageContent]:
     """The knockout's next sheets, searching.A_CALL at most, in words and figures, after `said`
-    in a text of its own (the host judges the sheets alone); or where it stands."""
+    in a text of its own (the host judges the sheets alone); or, the choice made, what it chose,
+    its changes for commit and the finalists' sheet."""
     if knockout is None:
         return _content(said or searching.describe(made, None))
-    if knockout.finalists:
+    folder = study.folder / searching.SEARCHES / searching.IMAGES
+    lengths = {row.label: row.length for row in made.rows}
+    if knockout.best is not None:
+        by_label = {row.label: row for row in made.rows}
+        others = [label for label in knockout.finalists if label != knockout.best]
+        text = (
+            f"Every sheet is judged: the search chose {knockout.best} by eye"
+            + (f", the cleanest of the last {len(knockout.finalists)} (with {', '.join(others)})"
+               if others else "")
+            + f": {searching.describe_row(made, by_label[knockout.best])}. Nothing is tried after "
+            f"it: commit it, its changes as they are: "
+            f"{json.dumps(by_label[knockout.best].changes, separators=(',', ':'))}"
+        )  # fmt: skip
+        if not _vision(ctx):
+            return _content(text)
+        final = looking.draw_sheet(folder, knockout.finalists, lengths, made.places)
+        return _content(text, [final])
+    if knockout.done:
         return _content(
             f"Every sheet is judged: the finalists {', '.join(knockout.finalists)}, tried side by "
-            f"side as {knockout.experiment} (look experiment shows them again). Refine with "
-            "try_settings, then commit."
+            f"side as {knockout.experiment}."
         )
     head = [TextContent(type="text", text=said)] if said else []
     shown = knockout.left[: searching.A_CALL]
     text = "\n\n".join(searching.sheet_text(made, knockout, sheet) for sheet in shown)
     if not _vision(ctx):
         return [*head, *_content(text)]
-    folder = study.folder / searching.SEARCHES / searching.IMAGES
-    lengths = {row.label: row.length for row in made.rows}
-    figures = [looking.draw_sheet(folder, sheet.labels, lengths) for sheet in shown]
+    figures = [looking.draw_sheet(folder, sheet.labels, lengths, made.places) for sheet in shown]
     return [*head, *_content(text, figures)]
 
 
@@ -469,8 +464,8 @@ def commit(
     changes: Annotated[
         dict[str, Any],
         Field(
-            description="Changes of the committed line's settings, as a try_settings variant "
-            "gives them (the first commit: of the preset's)."
+            description="Changes of the committed line's settings, as the search's choice gives "
+            "them (the first commit: of the preset's)."
         ),
     ],
     reasons: Annotated[

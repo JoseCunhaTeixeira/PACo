@@ -67,9 +67,9 @@ from paco.qc.judging import saved_m0
 from paco.settings import Settings
 
 GRID = "grid"  # the scratch, in the study's folder
-# A variant's thumbnails: its windows nearest PLACES places along the line, each image THUMB
-# frequencies by THUMB velocities.
-PLACES = 4
+# A variant's thumbnails: its windows nearest PLACES places along the line (as many as it has, up
+# to PLACES), each image THUMB frequencies by THUMB velocities.
+PLACES = 12
 THUMB = 150
 # A passive window's selection, as sigpipe's PlotSelection saves it for G2.
 SELECTION = "Selection_0000.json"

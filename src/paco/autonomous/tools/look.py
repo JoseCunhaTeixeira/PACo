@@ -511,44 +511,46 @@ def _image_panel(
     draw_image(axes, load_image(folder), folder, f"{label}, {xmid:g} m", legend=False)
 
 
-# A knockout sheet's layout: two variants a row, each at grid.PLACES places, a narrow gap between
-# them; each panel's size, inches.
-PAIR = 2
-PANEL_IN = (1.9, 1.9)
+# A knockout sheet's layout: a variant a row, a panel for each of the places along the line; each
+# panel's size, inches.
+PANEL_IN = (1.4, 1.15)
 
 
-def draw_sheet(folder: Path, labels: Sequence[str], lengths: Mapping[str, int]) -> bytes:
-    """A knockout's sheet (search): its variants two a row, left then right, each at its
-    windows nearest the grid's places along the line, left to right, from its thumbnails in
-    `folder` (<label>.npz): as PAC draws images (each frequency's row from its least value, yellow,
-    to its largest, black), the automatic pick in white dots, λ = 2·dx dashed and 3·L dotted in
-    red; each variant's label and receivers above it; no score."""
-    places = gridding.PLACES
-    rows = -(-len(labels) // PAIR)
-    ratios = [*[1.0] * places, 0.18, *[1.0] * places]
-    figure = Figure(
-        figsize=(PANEL_IN[0] * (PAIR * places + 0.18), PANEL_IN[1] * rows + 0.1), dpi=DPI
-    )
+def draw_sheet(
+    folder: Path, labels: Sequence[str], lengths: Mapping[str, int], places: Sequence[float]
+) -> bytes:
+    """A knockout's sheet (search): its variants a row each, top to bottom, each thumbnail of
+    `folder`'s (<label>.npz) under the one of `places` along the line its window is nearest, as
+    PAC draws images (each frequency's row from its least value, yellow, to its largest, black),
+    the automatic pick in white dots, λ = 2·dx dashed and 3·L dotted in red; each variant's label
+    and receivers at its row's start; a place no window of it is nearest left empty; no score."""
+    columns = max(1, len(places))
+    figure = Figure(figsize=(PANEL_IN[0] * columns, PANEL_IN[1] * len(labels) + 0.1), dpi=DPI)
     spec = figure.add_gridspec(
-        rows, len(ratios), width_ratios=ratios, wspace=0.05, hspace=0.22,
-        left=0.005, right=0.995, top=1 - 0.25 / (PANEL_IN[1] * rows), bottom=0.005,
+        len(labels), columns, wspace=0.05, hspace=0.3,
+        left=0.005, right=0.995, top=1 - 0.25 / (PANEL_IN[1] * len(labels)), bottom=0.005,
     )  # fmt: skip
-    for index, label in enumerate(labels):
-        row, side = divmod(index, PAIR)
+    for row, label in enumerate(labels):
         thumbs = gridding.read_thumbs(folder / f"{label}.npz")
-        for place in range(places):
-            axes = figure.add_subplot(spec[row, side * (places + 1) + place])
+        at = {_nearest_place(one.xmid, places): one for one in thumbs} if places else {}
+        for place in range(columns):
+            axes = figure.add_subplot(spec[row, place])
             axes.set_xticks([])
             axes.set_yticks([])
             if place == 0:
                 axes.set_title(
                     f"{label} · {lengths[label]} rx", fontsize=9, loc="left", fontweight="bold"
                 )
-            if place >= len(thumbs):
-                axes.text(0.5, 0.5, "no image", ha="center", va="center", fontsize=8)
-                continue
-            _thumb_panel(axes, thumbs[place])
+            if place in at:
+                _thumb_panel(axes, at[place])
+            else:
+                axes.set_frame_on(False)
     return _png(figure)
+
+
+def _nearest_place(xmid: float, places: Sequence[float]) -> int:
+    """The index of the place along the line `xmid` is nearest."""
+    return min(range(len(places)), key=lambda index: abs(places[index] - xmid))
 
 
 def _thumb_panel(axes: Axes, thumb: gridding.Thumb) -> None:

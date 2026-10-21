@@ -2,7 +2,8 @@
 them in the conversation. The host sends the model only the judging prompt, the atlas's dispersion
 images, the line's facts and the sheets the server gives, without the conversation, its state
 card, its manuals or its tools, and reads the variants it keeps in a form, without thinking. The
-server's judge tool records them and gives the next sheets, until the finalists."""
+server's judge tool records them and gives the next sheets, the final too, until the search's
+choice."""
 
 import base64
 from dataclasses import dataclass
