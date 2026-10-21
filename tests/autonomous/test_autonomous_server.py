@@ -29,7 +29,8 @@ PACO_TOOLS = ["inspect", "preset_settings", "inversion_settings"]
 PETRO_TOOLS = ["petro_models", "invert_petro"]
 TOOLS = [
     *PACO_TOOLS,
-    *("survey", "observe", "look", "advise", "try_settings", "search", "judge", "commit"),
+    *("survey", "observe", "look", "advise", "try_settings", "search", "judge", "choose"),
+    "commit",
     *("pick", "decide", "freeze", "invert", "job_status", *PETRO_TOOLS, "journal"),
 ]
 # How long the server's command may take to listen: it loads PACo and sigpipe first.

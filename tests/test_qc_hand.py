@@ -302,7 +302,7 @@ def test_inspect_reads_each_run_and_who_made_it_changing_nothing(
         inspection.RETRIES_SAID.reset(token)
 
     assert f"Run {pac}: active_test_profile (active), processed by PAC's pages" in runs
-    assert f"Run {judged}: active_test_profile (active), processed by the assistant" in runs
+    assert f"Run {judged}: active_test_profile (active), processed by the agent" in runs
     assert "1 M0 curves (1 by hand)" in runs
     # Alike windows next to each other in one line, their count said: xmid 89.25 and 125.25,
     # whose curves G3 and G4 both passed.

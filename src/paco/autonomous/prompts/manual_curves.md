@@ -20,12 +20,12 @@ phase velocity v and frequency f.
   curve along the line). Every other variant is judged by eye in sheets of 12, a variant a row at
   its windows nearest twelve places along the line (as many as it has), drawn as PAC draws images,
   with no score (none reads an image's quality), in short calls of their own: each sheet's 3
-  cleanest kept and mixed into new sheets, round after round, until 3 are left; the cleanest of
-  those, chosen by eye in a last call, is the search's choice. Should the judging stop, search
-  again judges the sheets left; commit waits until the choice is made.
-- Then commit the search's choice, its changes as search gives them, each setting with its reason
-  in plain words. Nothing is tried after it: every combination was seen, by eye, along the whole
-  line. Check after the commit that it makes sense: the picks on M0 and not on a higher mode or an
+  cleanest kept and mixed into new sheets, round after round, until 3 are left. Their sheet, the
+  final, comes to you: choose the cleanest by eye (choose), as Judging the images below says, the
+  objective in mind, with its reason. Should the judging stop, search again judges the
+  sheets left; commit waits until you chose.
+- Then commit your choice, its changes as choose gives them, each setting with its reason in plain
+  words. Nothing is tried after it: every combination was seen, by eye, along the whole line. Check after the commit that it makes sense: the picks on M0 and not on a higher mode or an
   artefact, few points beyond the windows' reach, none aliased, the same ridge from window to
   window, the physics explaining why it wins. try_settings serves only when the search chose none
   (no variant gave an image to judge). The image's band stays the preset's or the records' usable

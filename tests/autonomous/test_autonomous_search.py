@@ -333,10 +333,10 @@ def test_the_knockout_keeps_the_cleanest_round_after_round(tmp_path: Path) -> No
     # Round 2: the 12 kept, one sheet; 3 kept, the finalists.
     finalists = searching.judge(study, {1: ["g15", "g31", "g3"]}, "the smoothest")
     waiting_final = searching.unjudged(study)
-    # The final: the one cleanest of the 3.
-    with pytest.raises(ValueError, match="Sheet 1: choose the one cleanest"):
-        searching.judge(study, {1: ["g15", "g31"]}, "why")
-    final = searching.judge(study, {1: ["g31"]}, "unbroken at every place")
+    # The final, the agent's own: one of the finalists.
+    with pytest.raises(ValueError, match="g30 is not a finalist: g15, g31, g3"):
+        searching.choose(study, "g30", "why")
+    final = searching.choose(study, "g31", "unbroken at every place")
     judged = [json.loads(line) for line in (study.folder / "searches" / searching.JUDGED).open()]
 
     assert (
@@ -348,7 +348,9 @@ def test_the_knockout_keeps_the_cleanest_round_after_round(tmp_path: Path) -> No
         "g3", "g4", "g5", "g12", "g15", "g19", "g20", "g21", "g31", "g39", "g32", "g33",
     )  # fmt: skip
     assert finalists.final and finalists.finalists == ("g15", "g31", "g3")
-    assert waiting_final is not None and "round 3's 1 left" in waiting_final
+    assert waiting_final is not None and waiting_final.startswith(
+        "Choose first the cleanest of the search's 3 finalists (choose)"
+    )
     assert final.best == "g31" and final.done and searching.chosen(study) == "g31"
     assert searching.unjudged(study) is None
     # Each sheet's judgment recorded: what it showed, what was kept, why.
@@ -360,6 +362,8 @@ def test_the_knockout_keeps_the_cleanest_round_after_round(tmp_path: Path) -> No
     assert judged[0]["shown"] == [f"g{n}" for n in range(12)] and judged[0]["why"]
     with pytest.raises(ValueError, match=r"the search chose g31\. Commit it"):
         searching.judge(study, {1: ["g15"]}, "why")
+    with pytest.raises(ValueError, match="The search chose g31 already"):
+        searching.choose(study, "g15", "why")
 
 
 def test_the_kept_are_mixed_into_new_sheets_until_three_are_left() -> None:
@@ -598,8 +602,10 @@ def test_every_sheet_is_judged_until_the_search_chooses(paco_env: Settings) -> N
                     meta={"vision": True},
                 ),
             ]
-            # Each sheet shown judged, its first variants kept, as many as it asks.
-            while (knockout := searching.knockout_of(study)) is not None and not knockout.done:
+            # Each sheet shown judged, its first variants kept, as many as it asks, until the final.
+            while (knockout := searching.knockout_of(study)) is not None and not (
+                knockout.done or knockout.final
+            ):
                 kept = {
                     str(one.number): list(one.labels[: searching.to_keep(knockout, one)])
                     for one in knockout.left[:3]
@@ -611,6 +617,15 @@ def test_every_sheet_is_judged_until_the_search_chooses(paco_env: Settings) -> N
                         meta={"vision": True},
                     )
                 )
+            # The final, the agent's: its first finalist chosen.
+            final = searching.knockout_of(study)
+            assert final is not None and final.final
+            made.append(
+                await client.call_tool(
+                    "choose",
+                    {"profile": profile, "label": final.finalists[0], "why": "the first"},
+                )
+            )
             made.append(
                 await client.call_tool(
                     "try_settings",
@@ -619,7 +634,7 @@ def test_every_sheet_is_judged_until_the_search_chooses(paco_env: Settings) -> N
             )
             return made
 
-    searched, refused, *judged, tried = anyio.run(calls)
+    searched, refused, *judged, chose, tried = anyio.run(calls)
 
     done = searching.knockout_of(study)
     records = [
@@ -633,12 +648,14 @@ def test_every_sheet_is_judged_until_the_search_chooses(paco_env: Settings) -> N
     assert [type(one) for one in searched.content[2:]] == [ImageContent] * min(3, first_round)
     # Nothing committed before the search chose.
     assert refused.is_error and "[precondition] Every sheet is judged first" in shown(refused)
-    # Every sheet judged and recorded, the final too; the choice said with its changes and the
-    # finalists' sheet; nothing tried after it.
+    # Every sheet judged and recorded; the final's sheet shown for the agent, then its choice,
+    # recorded too, said with its changes; nothing tried after it.
     assert done is not None and done.best is not None and done.experiment is None
-    assert done.best in done.finalists and len(done.finalists) <= searching.KEEP
+    assert done.best == done.finalists[0] and len(done.finalists) <= searching.KEEP
     assert all(one["why"] for one in records) and records[-1]["kept"] == [done.best]
-    assert f"Every sheet is judged: the search chose {done.best} by eye" in shown(judged[-1])
-    assert any(isinstance(one, ImageContent) for one in judged[-1].content)
+    if judged:
+        assert "The final: the " in shown(judged[-1])
+        assert any(isinstance(one, ImageContent) for one in judged[-1].content)
+    assert shown(chose).startswith(f"The search's choice: {done.best}")
     assert searching.unjudged(study) is None
     assert tried.is_error and "the search saw every combination by eye" in shown(tried).lower()

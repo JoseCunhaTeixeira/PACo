@@ -126,7 +126,7 @@ def test_a_profile_with_a_run_is_processed_again_only_as_the_user_chooses(
     )
 
     assert asked["run_id"] == run_id
-    assert asked["summary"].startswith(f"Run {run_id} (the assistant's, ")
+    assert asked["summary"].startswith(f"Run {run_id} (the agent's, ")
     assert "4 images, " in asked["summary"]
     assert asked["next"].startswith(
         "Nothing was done. Asked to process, the user chooses how, unless their request says "

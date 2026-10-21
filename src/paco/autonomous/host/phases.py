@@ -37,6 +37,7 @@ TOOLS: dict[Phase, frozenset[str]] = {
             "look",
             "advise",
             "search",
+            "choose",
             "try_settings",
             "commit",
             "pick",

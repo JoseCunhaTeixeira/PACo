@@ -12,8 +12,8 @@ only drop the really bad (no image, or too few windows passing for a curve along
 other variant is judged by eye, in sheets of SHEET, one a row, each at up to grid.PLACES places
 along the line, no score on them, the KEEP cleanest of each sheet kept (judge, which the host calls
 from short calls of their own); the kept are mixed into new sheets, round after round, until KEEP
-are left, the finalists, of which the eye chooses the cleanest: the search's choice. Nothing is
-tried after it: every combination was seen.
+are left, the finalists, whose sheet, the final, goes to the agent itself: it chooses the cleanest
+(choose), the search's choice. Nothing is tried after it: every combination was seen.
 
 A study's search: searches/S1.json, each variant with its settings, trial and scorecard; its
 thumbnails, searches/S1_images/<label>.npz; the knockout, searches/S1_knockout.json; each sheet's
@@ -304,10 +304,30 @@ def unjudged(study: trials.Study) -> str | None:
     knockout = knockout_of(study)
     if knockout is None or knockout.done:
         return None
+    if knockout.final:
+        return (
+            f"Choose first the cleanest of the search's {len(knockout.finalists)} finalists "
+            "(choose), by eye on their dispersion images: search shows them again."
+        )
     return (
         f"Every sheet is judged first: {len(knockout.left)} of round {knockout.round}'s "
         f"{len(knockout.sheets)} left; search again judges them."
     )
+
+
+def choose(study: trials.Study, label: str, why: str) -> Knockout:
+    """The search's final, the agent's own: `label`, the cleanest of the finalists by its eye,
+    the search's choice, recorded with `why` as the sheets' judgments are."""
+    knockout = knockout_of(study)
+    if knockout is None or not knockout.final:
+        raise ValueError(
+            f"The search chose {knockout.best} already: commit it."
+            if knockout is not None and knockout.best is not None
+            else "No final to choose from yet: search judges the sheets until 3 are left."
+        )
+    if label not in knockout.finalists:
+        raise ValueError(f"{label} is not a finalist: {', '.join(knockout.finalists)}.")
+    return judge(study, {1: [label]}, why)
 
 
 def chosen(study: trials.Study) -> str | None:
@@ -765,8 +785,8 @@ def describe(made: Search, knockout: Knockout | None) -> str:
         f"are in sheets of up to {SHEET}, by window length first, one variant a row at its windows "
         f"nearest {len(made.places)} places along the line ({at} m), judged by eye with no score: "
         f"each sheet's {KEEP} cleanest kept and mixed into new sheets, round after round, until "
-        f"{KEEP} are left; the cleanest of those is the search's choice. Nothing is tried after "
-        "it: every combination was seen."
+        f"{KEEP} are left, whose sheet comes to you: choose the cleanest (choose), the search's "
+        "choice, and commit it. Nothing is tried after it: every combination was seen."
     )
     return "\n".join(lines)
 
@@ -780,7 +800,8 @@ def sheet_text(made: Search, knockout: Knockout, sheet: Sheet) -> str:
     if knockout.final:
         head = (
             f"The final: the {len(sheet.labels)} cleanest of the search, one a row, each at its "
-            f"windows nearest {places} m; choose the one cleanest:"
+            f"windows nearest {places} m. Choose the cleanest by eye (choose), with its reason, "
+            "then commit it:"
         )
     else:
         head = (

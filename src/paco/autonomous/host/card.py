@@ -163,7 +163,7 @@ def _searched(made: searching.Search, knockout: searching.Knockout | None) -> st
     if knockout.best is not None:
         return f"{said}; chose {knockout.best}, commit it"
     if knockout.finalists:
-        return f"{said}; the final, {len(knockout.finalists)} finalists"
+        return f"{said}; choose the cleanest of its {len(knockout.finalists)} finalists"
     return (
         f"{said}; round {knockout.round}, {len(knockout.kept)} of {len(knockout.sheets)} sheets "
         "judged"

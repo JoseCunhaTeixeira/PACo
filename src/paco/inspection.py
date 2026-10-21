@@ -159,7 +159,7 @@ def _judged(
 
 def _header(manifest: RunManifest, run_folder: Path, work: dict[str, WindowWork]) -> str:
     """Who made the run, when, and its windows."""
-    maker = "the assistant" if assistant_run(read_attempts(run_folder)) else "PAC's pages"
+    maker = "the agent" if assistant_run(read_attempts(run_folder)) else "PAC's pages"
     masw = manifest.preset.masw
     spacing = manifest.profile.receiver_spacing_m
     span = window_length(run_folder)

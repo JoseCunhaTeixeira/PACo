@@ -201,7 +201,7 @@ def go_on(run_id: str, what: str, why: str, then: str) -> Choice:
 
 def held(run_folder: Path, manifest: RunManifest, work: dict[str, WindowWork]) -> str:
     """What a run holds, in one sentence: who made it, its images, curves, models, soils."""
-    maker = "the assistant's" if assistant_run(read_attempts(run_folder)) else "made in PAC"
+    maker = "the agent's" if assistant_run(read_attempts(run_folder)) else "made in PAC"
     count = _Counts(work)
     parts = [_of(count.images, "images")]
     parts.append(_of(count.curves, "M0 curves", count.hand_curves))

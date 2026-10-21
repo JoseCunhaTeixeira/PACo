@@ -872,7 +872,7 @@ def test_the_sheets_are_judged_in_calls_of_their_own_until_refused_three_times(
 
 @pytest.mark.slow
 @pytest.mark.usefixtures("folders")
-def test_the_search_chooses_by_eye_and_the_model_reads_its_choice(
+def test_the_search_s_final_comes_to_the_model_which_chooses(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     monkeypatch.setattr(searching, "search", canned("spread:3", thumbs=True))
@@ -883,41 +883,41 @@ def test_the_search_chooses_by_eye_and_the_model_reads_its_choice(
             call("search", {}, 3),
             kept((1, ["g1", "g2", "g3"]), (2, ["g13", "g14"])),
             kept((1, ["g2", "g13", "g3"])),
-            kept((1, ["g13"])),
-            said("The search chose g13: commit it?"),
+            call("choose", {"label": "g13", "why": "One ridge at every place."}, 4),
+            said("I chose g13: commit it?"),
             answer_form("The search chose.", question="Commit it?"),
         ],
         [REQUEST],
         vision=True,
     )
 
-    first, second, last = (one["messages"] for one in judged(played))
-    messages = played.model.bodies[-2]["messages"]
+    first, last = (one["messages"] for one in judged(played))
+    # The model's turn right after the search, its result read whole (later, it is shortened).
+    messages = next(
+        body["messages"]
+        for body in played.model.bodies
+        if any(one.get("tool_call_id") == "call_3" for one in body["messages"])
+    )
     at = next(i for i, one in enumerate(messages) if one.get("tool_call_id") == "call_3")
     knockout = searching.knockout_of(played.study)
     # Each call sees the atlas's dispersion images, in a turn of their own, then its sheets: round
-    # 1's two, round 2's one, then the final.
+    # 1's two, then round 2's one; the final is not the judge's.
     assert first[1]["content"][0]["text"].startswith(
         '<data from="atlas">\nPACo\'s atlas, dispersion images'
     )
     assert [part["type"] for part in first[1]["content"]] == ["text", "image_url"]
     assert first[2]["role"] == "assistant" and first[1:3] == last[1:3]
     assert [part["type"] for part in first[3]["content"]] == ["text", "image_url", "image_url"]
-    assert "Round 2, sheet 1 of 1 (keep 3)" in second[3]["content"][0]["text"]
-    assert "The final: the 3 cleanest of the search" in last[3]["content"][0]["text"]
-    assert knockout is not None and knockout.finalists == ("g2", "g13", "g3")
-    assert knockout.best == "g13" and knockout.experiment is None
-    # The model reads the search's words, then its choice with its changes and the finalists'
-    # sheet; nothing tried after it.
+    assert "Round 2, sheet 1 of 1 (keep 3)" in last[3]["content"][0]["text"]
+    # The model reads the search's words, then the final's sheet, a figure; it chooses itself.
     read = messages[at]["content"]
     assert "S1: the full grid, 14 variants" in read
-    assert (
-        "The sheets judged by eye in 3 short calls. Every sheet is judged: the search chose g13"
-        in (read)
-    )
+    assert "The sheets judged by eye in 2 short calls. The final: the 3 cleanest" in read
     assert messages[at + 1]["role"] == "user" and messages[at + 1]["content"][1]["type"] == (
         "image_url"
     )
-    # The search's progress: each round, then the final, each said.
+    assert knockout is not None and knockout.finalists == ("g2", "g13", "g3")
+    assert knockout.best == "g13" and knockout.experiment is None
+    # The search's progress: each round, then the final for the agent.
     assert "   search: round 2, 0 of 1 sheets judged" in played.events
-    assert "   search: the final, the cleanest of 3 to choose" in played.events
+    assert "   search: 3 finalists, for the agent to choose from" in played.events

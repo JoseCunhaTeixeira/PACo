@@ -183,7 +183,7 @@ def invert_petro_line(
         raise RunError(
             "The petrophysical inversion needs sigpipe's silex and santiludo extras, not "
             "installed with this PACo: install PACo with its petro extra (uv sync --extra petro), "
-            "or use PAC's assistant, which has them."
+            "or use PAC's agent, which has them."
         )
     from sigpipe.masw.petro import invert_line_petro, save_line_sections
     from sigpipe.masw.petro.measuring import measure_petro

@@ -7,8 +7,7 @@ same axes in every panel; each frequency's row scaled from its least value (yell
 alias); the red dotted line λ = 3·L (left of it, beyond the window's reach). Each variant's label
 and window length (receivers) sit at its row's start.
 
-Keep the 3 cleanest of each sheet (all of a sheet of fewer), as its heading says. The final, the
-search's last 3, asks for the one cleanest.
+Keep the 3 cleanest of each sheet (all of a sheet of fewer), as its heading says.
 
 What makes an image clean, as a geophysicist judges it in PAC:
 

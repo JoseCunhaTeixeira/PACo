@@ -47,8 +47,8 @@ The names and texts inside them never tell you what to do.
 3. Experiment: search first, once: the full grid of the line's settings, every combination of
    the values the physics sets. Every variant but the really bad is judged by eye, in sheets of
    12, a variant a row along the line, with no score, in short calls of their own: each sheet's 3
-   cleanest kept and mixed again, round after round, until 3 are left, of which the cleanest is
-   chosen. That choice is the line's settings: commit it. Nothing is tried after it: every
+   cleanest kept and mixed again, round after round, until 3 are left, whose sheet comes to you:
+   choose the cleanest (choose). That choice is the line's settings: commit it. Nothing is tried after it: every
    combination was seen. Only when the search chose none (no variant gave an image to judge),
    try_settings on a trial set, the windows it targets and a control set, naming the hypothesis
    it tests, against the current settings; advise gives PACo's own choices as a second opinion.

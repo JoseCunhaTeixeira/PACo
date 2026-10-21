@@ -7,7 +7,7 @@ them and reports.
 PACo gives it the tools and the rules; code checks every rule, never the model alone.
 
 Run it with `paco-server --mode autonomous` and `paco-agent --mode autonomous`, or from PAC's
-assistant with the mode set to Autonomous. It needs a frontier model with vision and a long
+AI agent page with the mode set to Autonomous. It needs a frontier model with vision and a long
 context (128k tokens): every choice of settings is made by eye.
 
 ## Phases
@@ -23,7 +23,7 @@ every call, so a stopped answer goes on, at the next message, where the study st
 |---|---|---|
 | P0, objective | Code reads the message into a form: the profile, the objective (target depth, priority, effort), the settings the user typed | The study exists |
 | P1, survey | `survey`: the geometry, the records as G1 measures them, the reach, the usable band, the surface waves' cone; `look` at gathers and spectra | The model writes its conclusion in the journal |
-| P2, curves | `search` until its choice, `commit` it, `pick`, `decide` each window | `freeze` |
+| P2, curves | `search`, `choose` the cleanest of its 3 finalists, `commit` it, `pick`, `decide` each window | `freeze` |
 | P3, freeze | The accepted curves frozen in `curves.json`; nothing is processed or picked after it | At once |
 | P4, inversion | `invert` the frozen curves, `decide` each model; soils only when asked (`petro_models`, `invert_petro`) | Every model decided |
 | P5, report | Code writes the report around the model's text | Done |
@@ -36,7 +36,8 @@ Each phase offers only its tools. PACo's read-only tools (`inspect`, `preset_set
 | Tool | What it does |
 |---|---|
 | `survey` | The line before any setting is chosen: geometry, records, reach, usable band, cone, modes |
-| `search` | The full grid of the line's settings, scored in code; the variants judged by eye in sheets until the cleanest is chosen |
+| `search` | The full grid of the line's settings, scored in code; the variants judged by eye in sheets until 3 are left |
+| `choose` | The model's own choice of the cleanest of the search's 3 finalists, by eye on their dispersion images |
 | `try_settings` | Only when the search chose none: variants of the line's settings on chosen windows, judged by G1 to G3, against the current settings; changes no run |
 | `commit` | The line made with the settings, every window one receiver apart, judged by G1 to G4; the run in PAC's layout |
 | `observe`, `look` | The gates' results as text; figures of records, images, picks, experiments and models |
@@ -65,11 +66,12 @@ score:
   prompt, the atlas's dispersion images, the line's facts and the sheets, a form without thinking.
   The conversation itself never carries the sheets.
 - Each sheet's 3 cleanest are kept and mixed into new sheets, round after round, until 3 are left.
-  A last call shows those 3 and chooses the cleanest: the search's choice.
+  Their sheet, the final, goes to the model itself, which chooses the cleanest (`choose`): the
+  search's choice.
 - Each sheet's judgment is saved in `searches/S1_judged.jsonl`.
 
-The model commits the search's choice: nothing is tried after it, every combination was seen.
-`commit` waits until the choice is made; `try_settings` serves only when the search chose none.
+The model commits its choice: nothing is tried after it, every combination was seen. `commit`
+waits until the choice is made; `try_settings` serves only when the search chose none.
 
 ## The study's folder
 

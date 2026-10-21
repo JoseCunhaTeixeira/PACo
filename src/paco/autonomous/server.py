@@ -366,9 +366,9 @@ def search(
     on the same windows, judged by G1 to G3. The really bad dropped (no image, or too few windows
     passing for a curve along the line); every other variant judged by eye, no score, in sheets of
     12, a variant a row at its windows along the line, in short calls of their own: each sheet's 3
-    cleanest kept and mixed into new sheets, round after round, until 3 are left; the cleanest of
-    them is the search's choice, which you commit. Nothing is tried after it: every combination
-    was seen. Called again, the sheets left are judged."""
+    cleanest kept and mixed into new sheets, round after round, until 3 are left, whose sheet
+    comes to you: choose the cleanest (choose), then commit it. Nothing is tried after it: every
+    combination was seen. Called again, the sheets left are judged, or the final shown again."""
     study = _study(profile, ctx)
     if (made := searching.searched(study)) is not None:
         knockout = searching.knockout_of(study)
@@ -395,7 +395,7 @@ def judge(
         dict[int, list[str]],
         Field(
             description=f"By sheet number, the variants you keep of it by eye: its "
-            f"{searching.KEEP} cleanest (all of a sheet of fewer); of the final, the one cleanest."
+            f"{searching.KEEP} cleanest (all of a sheet of fewer)."
         ),
     ],
     why: Annotated[
@@ -405,11 +405,34 @@ def judge(
 ) -> list[TextContent | ImageContent]:
     """The search's sheets judged by eye, the host's (its short calls judge them): each one's
     cleanest kept, the judgment recorded; then the next sheets. The kept are mixed into new
-    sheets, round after round, until 3 are left; the final, their sheet, chooses the cleanest:
-    the search's choice, said with its changes for commit."""
+    sheets, round after round, until 3 are left: their sheet, the final, goes to the model, which
+    chooses the cleanest (choose)."""
     study = _study(profile, ctx)
     made = searching.searched(study)
     knockout = searching.judge(study, kept, why)
+    assert made is not None
+    return _sheets(study, made, knockout, ctx)
+
+
+@server.tool(annotations=paco_server.ADDS)
+@_errors
+def choose(
+    profile: ProfileName,
+    label: Annotated[
+        str, Field(description="The finalist you choose, g<n>: the cleanest of the final's sheet.")
+    ],
+    why: Annotated[
+        str,
+        Field(description="In a sentence, what it shows that the other finalists do not."),
+    ],
+    ctx: Context,
+) -> list[TextContent | ImageContent]:
+    """The search's final, yours: the cleanest of its 3 finalists, by your eye on their dispersion
+    images along the line (the final's sheet; search shows it again), the search's choice. Then
+    commit it, its changes as said: nothing is tried after it, every combination was seen."""
+    study = _study(profile, ctx)
+    made = searching.searched(study)
+    knockout = searching.choose(study, label, why)
     assert made is not None
     return _sheets(study, made, knockout, ctx)
 
@@ -422,8 +445,8 @@ def _sheets(
     said: str = "",
 ) -> list[TextContent | ImageContent]:
     """The knockout's next sheets, searching.A_CALL at most, in words and figures, after `said`
-    in a text of its own (the host judges the sheets alone); or, the choice made, what it chose,
-    its changes for commit and the finalists' sheet."""
+    in a text of its own (the host judges the sheets alone, the model the final's); or, the choice
+    made, what it is and its changes for commit."""
     if knockout is None:
         return _content(said or searching.describe(made, None))
     folder = study.folder / searching.SEARCHES / searching.IMAGES
@@ -431,18 +454,14 @@ def _sheets(
     if knockout.best is not None:
         by_label = {row.label: row for row in made.rows}
         others = [label for label in knockout.finalists if label != knockout.best]
-        text = (
-            f"Every sheet is judged: the search chose {knockout.best} by eye"
-            + (f", the cleanest of the last {len(knockout.finalists)} (with {', '.join(others)})"
+        return _content(
+            f"The search's choice: {knockout.best}"
+            + (f", the cleanest of its last {len(knockout.finalists)} (with {', '.join(others)})"
                if others else "")
             + f": {searching.describe_row(made, by_label[knockout.best])}. Nothing is tried after "
             f"it: commit it, its changes as they are: "
             f"{json.dumps(by_label[knockout.best].changes, separators=(',', ':'))}"
         )  # fmt: skip
-        if not _vision(ctx):
-            return _content(text)
-        final = looking.draw_sheet(folder, knockout.finalists, lengths, made.places)
-        return _content(text, [final])
     if knockout.done:
         return _content(
             f"Every sheet is judged: the finalists {', '.join(knockout.finalists)}, tried side by "

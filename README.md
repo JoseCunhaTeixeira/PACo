@@ -31,9 +31,9 @@ you  <-->  paco-agent  <-- the model's API -->  the model
 - **paco-agent**: the chat, in your terminal.
 - **paco-evaluate**, **paco-ab**: test the agent on scenarios (see [Other commands](#other-commands)).
 
-In PAC, the AI assistant page runs the same agent on PAC's folders, and its settings popup chooses
+In PAC, the AI agent page runs the same agent on PAC's folders, and its settings popup chooses
 the mode and the model. [PAC's
-README](https://github.com/JoseCunhaTeixeira/PAC#the-assistant-optional) says how to install it.
+README](https://github.com/JoseCunhaTeixeira/PAC#the-agent) says how to install it.
 
 ## Install
 
@@ -195,8 +195,9 @@ How a line goes:
    sheet is judged in a short call of its own, which sees the sheets alone, not the
    conversation, so judging costs little. The 3 cleanest of each sheet are kept: one ridge,
    sharp and unbroken at every place, the picks on it, over a wide band. The kept are mixed into
-   new sheets until 3 are left; a last call chooses the cleanest of them. Nothing is tried after
-   it: every combination was seen. Each sheet's judgment is saved in the study.
+   new sheets until 3 are left; the model itself looks at those 3 and chooses the cleanest.
+   Nothing is tried after it: every combination was seen. Each sheet's judgment is saved in the
+   study.
 4. **The line.** The model applies the search's choice to the whole line, picks and decides each
    window, freezes the curves, inverts them and reports.
 
@@ -215,8 +216,9 @@ on with the study, and a new conversation starts a new one.
 | Tool | What it does |
 |---|---|
 | `survey` | The line before any setting: its geometry, its records as G1 measures them, the reach, the usable band, the surface waves' cone, the modes it takes |
-| `search` | Runs the full grid of the line's settings in code, drops the really bad variants, and has the others judged by eye in sheets until the cleanest is chosen |
-| `judge` | Records the 3 cleanest variants of each sheet, round after round, then the cleanest of the last 3: the search's choice. PACo's short judging calls use it, not the model |
+| `search` | Runs the full grid of the line's settings in code, drops the really bad variants, and has the others judged by eye in sheets until 3 are left |
+| `judge` | Records the 3 cleanest variants of each sheet, round after round. PACo's short judging calls use it, not the model |
+| `choose` | The model's own choice of the cleanest of the search's last 3, by eye on their dispersion images |
 | `try_settings` | Only when the search chose none: variants of the line's settings on chosen windows, judged by the gates |
 | `commit` | Applies settings to the whole line, with their reasons: a run that PAC opens |
 | `observe`, `look` | Reads the checks of the line committed; looks at a window's records, image, curve or model |
