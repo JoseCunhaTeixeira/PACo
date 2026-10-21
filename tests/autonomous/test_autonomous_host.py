@@ -26,11 +26,10 @@ from paco.autonomous.host import budgets
 from paco.autonomous.host.answer import GeoAnswerForm, report
 from paco.autonomous.host.card import card
 from paco.autonomous.host.loop import CARD, DROPPED, PENDING, Host, Limits
-from paco.autonomous.host.phases import phase_of, reopen, study_for, wanted
+from paco.autonomous.host.phases import phase_of, reopen, wanted
 from paco.autonomous.host.scope import BLANK, GeoScope
 from paco.autonomous.tools import grid, journal
 from paco.autonomous.tools import search as searching
-from paco.autonomous.tools.commit import LINE_FILE, Line
 from paco.autonomous.tools.given import Given, given_of
 from paco.autonomous.tools.survey import SAVED
 from paco.autonomous.tools.trials import CURVES, STUDIES, Study
@@ -185,9 +184,12 @@ def play(
     context: int = 131_072,
     raises: type[BaseException] | None = None,
     vision: bool = False,
+    between: Callable[[Host], None] | None = None,
 ) -> Played:
-    """The scripted model `answers` the user's `messages`, the host between it and the server;
-    the model sees with `vision`."""
+    """The scripted model `answers` the user's `messages` in one conversation, the host between it
+    and the server; the model sees with `vision`. An answer that fails with `raises` ends its turn,
+    and the conversation goes on with the next message, as PAC's does; `between` runs before each
+    message after the first."""
     model = ScriptedServer(*answers)
     events: list[str] = []
 
@@ -202,28 +204,20 @@ def play(
                 on_event=events.append,
             )
             reply = ""
-            for message in messages:
-                reply = await host.answer(message)
+            for number, message in enumerate(messages):
+                if number and between is not None:
+                    between(host)
+                try:
+                    reply = await host.answer(message)
+                except Exception as error:
+                    if raises is None or not isinstance(error, raises):
+                        raise
+                    reply = ""
             return host, reply
 
-    if raises is not None:
-        with pytest.raises(BaseException) as stopped:
-            anyio.run(run)
-        error = stopped.value
-        # Under the MCP client's task group, the error comes in a group of its own.
-        while isinstance(error, BaseExceptionGroup) and len(error.exceptions) == 1:
-            error = error.exceptions[0]
-        assert isinstance(error, raises)
-        study = _only_study()
-        return Played(None, model, "", events, study, get_settings())  # pyright: ignore[reportArgumentType]
     host, reply = anyio.run(run)
     assert host.study is not None
     return Played(host, model, reply, events, host.study, get_settings())
-
-
-def _only_study() -> Study:
-    (folder,) = (get_settings().output_dir / PROFILE / "studies").iterdir()
-    return Study(PROFILE, folder)
 
 
 @pytest.fixture
@@ -478,59 +472,71 @@ def test_a_model_with_vision_sees_the_atlas_after_the_request() -> None:
     assert seen.host.history[0] == {"role": "user", "content": REQUEST}
 
 
-@pytest.mark.usefixtures("folders")
-def test_the_model_calls_budget_stops_the_run_and_a_new_message_starts_afresh(
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    # The quick effort's run: two model calls.
-    quick = budgets.EFFORTS["quick"].model_copy(update={"model_calls": 2})
-    monkeypatch.setitem(budgets.EFFORTS, "quick", quick)
-    first = play([form(SCOPE), *SURVEYED, said("Surveyed.")], [REQUEST])
+def _now() -> datetime:
+    return datetime.now(UTC)
 
-    again = play(
-        [form(SCOPE), said("Going on."), answer_form("Going on.", question="Which mute?")],
-        ["Go on with active_test_profile."],
+
+@pytest.mark.usefixtures("folders")
+def test_the_model_calls_budget_stops_the_study_and_a_new_conversation_starts_afresh() -> None:
+    def spend(host: Host) -> None:
+        assert host.study is not None
+        for _ in range(60):
+            budgets.record(host.study, budgets.Use(kind="model", phase="P1", at=_now(), seconds=0))
+
+    first = play(
+        [form(SCOPE), said("Hello."), answer_form("Hello.", question="Go on?"), form(SCOPE)],
+        [REQUEST, "Go on."],
+        between=spend,
     )
+    fresh = play([form(SCOPE), said("Hello."), answer_form("Hello.", question="Go on?")], [REQUEST])
 
-    # Stopped after its two calls; the next message a fresh run of the same study.
-    assert sum(1 for body in first.model.bodies if "tools" in body) == 2
-    assert "The run's budget of model calls is spent (2 of 2): it stops here." in first.answer
-    assert again.study == first.study
-    assert sum(1 for body in again.model.bodies if "tools" in body) == 1
-    assert "Which mute?" in again.answer
+    # The second message read, no call made: the study's budget is spent, and with it the
+    # conversation's.
+    assert len(first.model.bodies) == 4
+    assert "The study's budget of model calls is spent (61 of 60): it stops here." in first.answer
+    assert "A new conversation starts a new study." in first.answer
+    # A new conversation: a new study, its budgets fresh.
+    assert fresh.study.folder != first.study.folder
+    assert "Go on?" in fresh.answer
 
 
 @pytest.mark.usefixtures("folders")
-def test_the_tokens_budget_counts_the_conversation_alone(monkeypatch: pytest.MonkeyPatch) -> None:
-    first = play([form(SCOPE), said("Hello."), answer_form("Hello.", question="Go on?")], [REQUEST])
-    # Another conversation's judging, past the quick effort's tokens: not this run's.
-    budgets.record(
-        first.study,
-        budgets.Use(
+def test_the_tokens_budget_stops_the_study() -> None:
+    def judged(host: Host) -> None:
+        assert host.study is not None
+        # The judging of a search: its forms' tokens, past the quick effort's.
+        use = budgets.Use(
             kind="form",
             phase="P2",
-            at=journal.datetime.now(journal.UTC),
+            at=_now(),
             seconds=0,
             name="judge",
             prompt_tokens=1_900_000,
             completion_tokens=150_000,
-            conversation="another",
-        ),
+        )
+        budgets.record(host.study, use)
+
+    played = play(
+        [form(SCOPE), said("Hello."), answer_form("Hello.", question="Go on?"), form(SCOPE)],
+        [REQUEST, "Go on."],
+        between=judged,
     )
-    quick = budgets.EFFORTS["quick"].model_copy(update={"tokens": 1_500})
-    monkeypatch.setitem(budgets.EFFORTS, "quick", quick)
 
-    again = play([form(SCOPE), *SURVEYED], ["Go on with active_test_profile."])
-
-    # Its objective's form and one call (1,880 tokens): past its 1,500, it stops.
-    assert sum(1 for body in again.model.bodies if "tools" in body) == 1
-    assert "The run's budget of tokens is spent" in again.answer
+    assert len(played.model.bodies) == 4  # the second message's form, no call: the budget is spent
+    assert "The study's budget of tokens is spent (2.1M of 2.0M): it stops here." in played.answer
 
 
 @pytest.mark.slow
 @pytest.mark.usefixtures("folders", "searched")
-def test_a_run_stopped_in_p2_resumes_with_the_same_phase_budgets_and_card() -> None:
-    stopped = play(
+def test_a_run_stopped_in_p2_goes_on_at_the_next_message_with_its_phase_budgets_and_card() -> None:
+    before: list[tuple[str, budgets.Spent, str]] = []
+
+    def stopped(host: Host) -> None:
+        study = host.study
+        assert study is not None
+        before.append((phase_of(study), budgets.spent(study, "quick"), card(study, get_settings())))
+
+    played = play(
         [
             form(SCOPE),
             call("survey", {}, 1),
@@ -541,53 +547,81 @@ def test_a_run_stopped_in_p2_resumes_with_the_same_phase_budgets_and_card() -> N
             ),
             call("commit", {"changes": LINE, "reasons": REASONS}, 2),
             500,
+            form(SCOPE),
+            said("Which windows first?"),
+            answer_form("Going on.", question="Which?"),
         ],
-        [REQUEST],
+        [REQUEST, "Go on."],
         raises=openai.InternalServerError,
-    )
-    study, settings = stopped.study, stopped.settings
-    # A new conversation goes on with the study's budgets, its model calls and tokens its own:
-    # none yet.
-    before = (phase_of(study), budgets.spent(study, "quick"), card(study, settings, "new"))
-
-    resumed = play(
-        [form(SCOPE), said("Which windows first?"), answer_form("Resumed.", question="Which?")],
-        ["Go on with active_test_profile."],
+        between=stopped,
     )
 
-    assert resumed.study == study
-    assert before[0] == "P2"
-    assert resumed.events[0] == f"Resuming study {study.id} at P2, the curves."
-    first_call = next(body for body in resumed.model.bodies if "tools" in body)
-    assert first_call["messages"][-1]["content"] == f"{CARD}\n{before[2]}"
-    assert budgets.spent(study, "quick").commits == before[1].commits == 1
-    assert "This conversation resumes study" in first_call["messages"][1]["content"]
-    assert DROPPED not in json.dumps(first_call["messages"])
+    ((phase, spent, state),) = before
+    assert phase == "P2"
+    # The stopped turn's calls taken out: the request, the turn without an answer, the message;
+    # then the study's card as it stood.
+    first_call = next(body for body in played.model.bodies[5:] if "tools" in body)
+    messages = first_call["messages"]
+    assert [one["role"] for one in messages[1:4]] == ["user", "assistant", "user"]
+    assert (messages[1]["content"], messages[3]["content"]) == (REQUEST, "Go on.")
+    assert messages[-1]["content"] == f"{CARD}\n{state}"
+    assert budgets.spent(played.study, "quick").commits == spent.commits == 1
+    assert DROPPED not in json.dumps(messages)
 
 
 @pytest.mark.usefixtures("folders")
 def test_the_settings_typed_are_kept_and_a_later_message_changes_them() -> None:
     typed = {**SCOPE, "length_receivers": 24, "vmax_m_s": 350.0}
-    first = play(
-        [form(typed), said("Go on?"), answer_form("Asked.", question="Go on?")],
-        ["Process active_test_profile with windows of 24 receivers, velocities up to 350 m/s."],
+    played = play(
+        [
+            form(typed),
+            said("Go on?"),
+            answer_form("Asked.", question="Go on?"),
+            form({**typed, "vmax_m_s": 600.0}),
+            said("Go on?"),
+            answer_form("Ok.", question="Go?"),
+        ],
+        [
+            "Process active_test_profile with windows of 24 receivers, velocities up to 350 m/s.",
+            "Use velocities up to 600 m/s.",
+        ],
     )
 
-    first_call = next(body for body in first.model.bodies if "tools" in body)
+    first_call = next(body for body in played.model.bodies if "tools" in body)
     assert (
         "Kept as you gave: masw length 24; dispersion vmax 350"
         in (first_call["messages"][-1]["content"])
     )
     # The user widens the grid: the latest message wins, the journal says so.
-    again = play(
-        [form({**typed, "vmax_m_s": 600.0}), said("Go on?"), answer_form("Ok.", question="Go?")],
-        ["Use velocities up to 600 m/s on active_test_profile."],
-    )
-    assert again.study == first.study
-    assert given_of(again.study).line == {"masw": {"length": 24}, "dispersion": {"vmax": 600.0}}
-    (entry,) = (one for one in journal.entries(again.study) if one.kind == "settings")
+    assert given_of(played.study).line == {"masw": {"length": 24}, "dispersion": {"vmax": 600.0}}
+    (entry,) = (one for one in journal.entries(played.study) if one.kind == "settings")
     assert (entry.id, entry.text) == ("U1", "The user now gives dispersion vmax 600 (was 350).")
-    assert "U1: The user now gives dispersion vmax 600 (was 350)." in again.events
+    assert "U1: The user now gives dispersion vmax 600 (was 350)." in played.events
+
+
+@pytest.mark.usefixtures("folders")
+def test_a_conversation_is_one_study() -> None:
+    first = play(
+        [
+            form(SCOPE),
+            said("Go on?"),
+            answer_form("Asked.", question="Go on?"),
+            form({**SCOPE, "profile": "line_b"}),
+        ],
+        [REQUEST, "Now process line_b."],
+    )
+    second = play(
+        [form(SCOPE), said("Go on?"), answer_form("Asked.", question="Go on?")], [REQUEST]
+    )
+
+    # A message about another profile: a new conversation's, no call made.
+    assert first.answer == (
+        f"This conversation is study {first.study.id} of {PROFILE}. Start a new conversation "
+        "for line_b."
+    )
+    assert len(first.model.bodies) == 4
+    # A new conversation on the same profile: a new study.
+    assert second.study.folder != first.study.folder
 
 
 @pytest.mark.slow
@@ -607,41 +641,6 @@ def test_a_report_with_models_not_decided_sends_the_model_back_once() -> None:
     # Then the models decided, and the report.
     assert phase_of(played.study) == "P5"
     assert f"- models rejected: {ACCEPTED}" in played.answer
-
-
-def test_a_study_whose_run_is_gone_is_not_resumed(paco_env: Settings) -> None:
-    # Its run deleted outside PACo: nothing to go on from. A new study, and why, said once.
-    folder = paco_env.output_dir / "active_test_profile" / STUDIES / "20200101-000000-0000"
-    folder.mkdir(parents=True)
-    line = Line(run_id="20200101-000001-0000", settings={}, commits=())
-    (folder / LINE_FILE).write_text(line.model_dump_json())
-
-    study, said = study_for("active_test_profile", paco_env)
-
-    assert study.folder != folder
-    assert said == (
-        "Study 20200101-000000-0000 cannot go on: its run 20200101-000001-0000 is gone. A new "
-        "study."
-    )
-    again, said_again = study_for("active_test_profile", paco_env)
-    assert (again.folder, said_again) == (study.folder, None)
-
-
-def test_a_new_study_when_the_user_asks_to_start_over(paco_env: Settings) -> None:
-    folder = paco_env.output_dir / "active_test_profile" / STUDIES / "20200101-000000-0000"
-    folder.mkdir(parents=True)
-    study = Study("active_test_profile", folder)
-    journal.objective(study, {}, "balanced, no target depth, normal effort")
-
-    resumed, _ = study_for("active_test_profile", paco_env)
-    fresh, said = study_for("active_test_profile", paco_env, fresh=True)
-
-    # Asked to start over: a new study, the one there kept as it is; the newest the next one
-    # a conversation resumes.
-    assert resumed.folder == folder
-    assert fresh.folder != folder and folder.is_dir()
-    assert said == "A new study, as asked; study 20200101-000000-0000 kept as it is."
-    assert study_for("active_test_profile", paco_env)[0].folder == fresh.folder
 
 
 def test_a_follow_up_after_the_report_opens_the_study_again(paco_env: Settings) -> None:

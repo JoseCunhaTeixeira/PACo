@@ -11,8 +11,11 @@ context (128k tokens): every choice of settings is made by eye.
 
 ## Phases
 
-A conversation works on one study of a profile. The study's phase is read from its records before
-every call, so a stopped conversation resumes where its study stands.
+A conversation is one study of one profile: its first message makes the study, each later
+message goes on with it, and a new conversation makes a new study. Every message is read into the
+objective's form: the settings it types are kept over those given before, and a message about
+another profile asks for a new conversation. The study's phase is read from its records before
+every call, so a stopped answer goes on, at the next message, where the study stands.
 
 | Phase | What the model does | Ends when |
 |---|---|---|
@@ -101,7 +104,8 @@ the conversation starts again from the request, the objective and the frozen cur
 
 The objective's effort sets the budgets. At 80 % of a budget the state card says so; a tool call
 past a budget is refused, saying what to do instead; once the model calls or the tokens are spent,
-the run stops and says where the work stands.
+the run stops and says where the work stands. The budgets are the study's, so the conversation's:
+a new conversation starts a new study, its budgets fresh.
 
 | Effort | Experiments | Commits | CPU in P2 | Inversion retries a window | Model calls | Tokens |
 |---|---|---|---|---|---|---|
@@ -110,10 +114,7 @@ the run stops and says where the work stands.
 | thorough | 60 | 8 | 120 × | 6 | 400 | 10 M |
 
 The tokens count everything the model reads and writes, its forms (the judging's) too. The
-search's judging is not counted as model calls, and the search's time is not counted as CPU. The
-model calls and the tokens are the run's: they count the current conversation, so a new message
-goes on with a fresh budget; the experiments, commits and CPU count over the study. A message
-asking to start over ("start a new study of active_p2") begins a new study, the old one kept.
+search's judging is not counted as model calls, and the search's time is not counted as CPU.
 
 ## After a session
 
@@ -122,5 +123,4 @@ removed: the records each base preprocessed, the trials' windows, G1's settled r
 search's thumbnails, and once the curves are frozen the survey's figures. The images' cache is
 emptied when a session ends, once no other conversation answers. The line's run, the frozen
 curves, the journal, the decisions, the experiments' and the search's scores and the transcripts
-stay. A later session makes again what it needs; a search whose sheets were not all judged runs
-again.
+stay. A study opened again after its report makes again what it needs.

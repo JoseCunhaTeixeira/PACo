@@ -32,9 +32,6 @@ class GeoScope(Scope):
     effort: Literal["quick", "normal", "thorough"] | None = Field(
         description="How much work it asks."
     )
-    new_study: bool = Field(
-        description="Whether it asks to start over: a new study of the profile, the one there kept."
-    )
     site_notes: str | None = Field(
         max_length=200, description="What it says about the ground, in its words."
     )
@@ -140,9 +137,7 @@ SCHEMA: dict[str, Any] = GeoScope.model_json_schema()
 BLANK: dict[str, Any] = {
     name: [] if name in ("positions_m", "compare_lengths_receivers", "compare_lengths_m") else None
     for name in GeoScope.model_fields
-} | dict.fromkeys(
-    ("process", "pick", "invert", "soils", "redo", "replace_hand_work", "new_study"), False
-)
+} | dict.fromkeys(("process", "pick", "invert", "soils", "redo", "replace_hand_work"), False)
 
 
 async def read_objective(model: ChatModel, message: str, context: Context) -> Read:

@@ -208,9 +208,9 @@ The tools work on a profile's **study**: a folder in `<output>/<profile>/studies
 that keeps the survey, the experiments, the journal, the decisions and the frozen curves; the line
 is committed as a run PAC opens, which holds the images, curves and models. At the freeze, and
 when a session ends, PACo removes the study's working files (its trials and their preprocessed
-records, often a gigabyte or more): only the results stay. If a conversation stops, the next one
-on the profile resumes the study, making again what it needs. A message names its profile;
-without one, PACo lists the profiles.
+records, often a gigabyte or more): only the results stay. A conversation is one study: its
+first message names the profile (without one, PACo lists the profiles), each later message goes
+on with the study, and a new conversation starts a new one.
 
 | Tool | What it does |
 |---|---|

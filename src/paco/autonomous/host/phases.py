@@ -7,16 +7,12 @@ from collections.abc import Sequence
 from typing import Literal
 
 from mcp.types import Tool
-from sigpipe.masw.runs import RunError, find_run
 
 from paco.autonomous.host.scope import GeoScope
 from paco.autonomous.tools import journal
-from paco.autonomous.tools.commit import line_of
-from paco.autonomous.tools.freeze import frozen
 from paco.autonomous.tools.given import Given
 from paco.autonomous.tools.survey import SAVED
-from paco.autonomous.tools.trials import CURVES, STUDIES, STUDY_ID, Study, new_study
-from paco.settings import Settings
+from paco.autonomous.tools.trials import CURVES, Study
 
 type Phase = Literal["P0", "P1", "P2", "P3", "P4", "P5"]
 NAMES: dict[Phase, str] = {
@@ -114,39 +110,6 @@ def reopen(study: Study, back: Literal["P2", "P4"], request: str) -> journal.Ent
     if back == "P2" and made.exists():
         made.replace(study.folder / f"curves-{journal.next_id(study, 'reopen')}.json")
     return journal.reopen(study, NAMES[back], request)
-
-
-def study_for(profile: str, settings: Settings, fresh: bool = False) -> tuple[Study, str | None]:
-    """The study a conversation about `profile` works on: its newest study not reported yet,
-    which it resumes, else a new one. A new one too when that study's run is gone (deleted
-    outside PACo: nothing to go on from), and why, said while that study is the newest; and when
-    the user asks to start over (`fresh`), the one there kept."""
-    folder = settings.output_dir / profile / STUDIES
-    found = sorted(path for path in folder.glob("*") if STUDY_ID.fullmatch(path.name))
-    if fresh:
-        kept = [path.name for path in found if phase_of(Study(profile, path)) != "P5"]
-        said = f"A new study, as asked; study {kept[-1]} kept as it is." if kept else None
-        return new_study(profile, settings), said
-    for path in reversed(found):
-        study = Study(profile, path)
-        if phase_of(study) == "P5":
-            continue
-        if (gone := lost_run(study, settings)) is None:
-            return study, None
-        said = f"Study {study.id} cannot go on: its run {gone} is gone. A new study."
-        return new_study(profile, settings), said if path == found[-1] else None
-    return new_study(profile, settings), None
-
-
-def lost_run(study: Study, settings: Settings) -> str | None:
-    """The run `study`'s line or frozen curves are on, when it is no longer there."""
-    line, made = line_of(study), frozen(study)
-    for run_id in dict.fromkeys(one.run_id for one in (line, made) if one is not None):
-        try:
-            find_run(run_id, settings)
-        except RunError:
-            return run_id
-    return None
 
 
 def offered(phase: Phase, tools: Sequence[Tool]) -> list[Tool]:

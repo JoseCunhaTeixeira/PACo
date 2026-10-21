@@ -50,13 +50,11 @@ from paco.autonomous.host import budgets, judging
 from paco.autonomous.host.card import card, effort_of, objective_of, state
 from paco.autonomous.host.phases import (
     MANUALS,
-    NAMES,
     Phase,
     offered,
     phase_of,
     refusal,
     reopen,
-    study_for,
     wanted,
 )
 from paco.autonomous.host.scope import GeoScope, read_objective
@@ -66,7 +64,7 @@ from paco.autonomous.tools.commit import line_of
 from paco.autonomous.tools.freeze import describe_frozen, frozen
 from paco.autonomous.tools.invert import inversions_of
 from paco.autonomous.tools.tidy import tidy
-from paco.autonomous.tools.trials import Study
+from paco.autonomous.tools.trials import Study, new_study
 from paco.llm.settings import FRONTIER_CONTEXT, ModelSettings
 from paco.qc.coherence import receiver_spacing
 from paco.qc.report import stretches, xmid_of
@@ -101,8 +99,18 @@ PENDING = (
     "[PACo] The run is not done: {count} model(s) not decided, at {where}. Decide each (accept "
     "it, or reject it with its reason), then answer; or ask the user what you need from them."
 )
-SPENT = "The run's budget of model calls is spent ({used} of {budget}): it stops here."
-SPENT_TOKENS = "The run's budget of tokens is spent ({used} of {budget}): it stops here."
+SPENT = (
+    "The study's budget of model calls is spent ({used} of {budget}): it stops here. A new "
+    "conversation starts a new study."
+)
+SPENT_TOKENS = (
+    "The study's budget of tokens is spent ({used} of {budget}): it stops here. A new "
+    "conversation starts a new study."
+)
+# A conversation is one study: a message about another profile is a new conversation's.
+OTHER_PROFILE = (
+    "This conversation is study {study} of {profile}. Start a new conversation for {other}."
+)
 # The judge's answers the server may refuse in a row before the judging stops.
 JUDGE_TRIES = 3
 # The experiment a try_settings result names first.
@@ -203,8 +211,9 @@ class Host:
         )
 
     async def answer(self, message: str) -> str:
-        """The answer to the user's `message`: the run goes on from where its study stands, until
-        the model asks the user something, the report is given, or a budget stops it."""
+        """The answer to the user's `message`: the conversation's study, made by its first
+        message, goes on from where it stands, until the model asks the user something, the
+        report is given, or a budget stops it."""
         self.meta["turn"] += 1
         start = len(self.history)
         try:
@@ -219,6 +228,8 @@ class Host:
                     return asked
                 start = 1
             else:
+                if (asked := await self._going_on(message)) is not None:
+                    return asked
                 self.history.append({"role": "user", "content": message})
                 start += 1
             text = await self._run()
@@ -243,9 +254,8 @@ class Host:
         return NO_PROFILE.format(profiles=inspection.profiles_text(self._settings))
 
     async def _objective(self, message: str) -> str | None:
-        """P0: the objective read from the user's message, and the study it works on, resumed
-        when the profile has one not reported yet. A question when the message names no
-        profile."""
+        """P0: the objective read from the user's first message, and the conversation's study, a
+        new one. A question when the message names no profile."""
         started = time.perf_counter()
         try:
             read = await read_objective(self._model, message, Context())
@@ -260,41 +270,27 @@ class Host:
             spacing = receiver_spacing(load_profile(scope.profile, self._settings))
         except ProfileError:
             return f"There is no profile '{scope.profile}'. {self._profiles()}"
-        study, lost = study_for(scope.profile, self._settings, fresh=scope.new_study)
-        if lost is not None:
-            self._on_event(lost)
+        study = new_study(scope.profile, self._settings)
         self.study, self.scope, self.request = study, scope, message
+        given.give(study, scope.given(spacing))
+        goal = journal.objective(study, scope.objective_fields(spacing), scope.objective())
         self.meta["study"] = study.id
         # Each window's inversion retries, the effort's: the server refuses past them.
         self.meta["inversion_retries"] = budgets.EFFORTS[effort_of(study)].inversion_retries
-        goal = objective_of(study)
-        # The settings the message types, kept over those given before.
-        changed = given.give(study, scope.given(spacing))
-        if goal is None:
-            fields = scope.objective_fields(spacing)
-            goal = journal.objective(study, fields, scope.objective())
-            self._on_event(
-                f"Objective: {goal.text}. Study {study.id} of {study.profile}; first, the survey."
-            )
-            self.history = [{"role": "user", "content": message}]
-        else:
-            phase = phase_of(study)
-            self._on_event(f"Resuming study {study.id} at {phase}, the {NAMES[phase]}.")
-            if changed:
-                said = journal.settings(study, changed)
-                self._on_event(f"{said.id}: {said.text}")
-            self.history = [
-                {"role": "user", "content": f"{message}\n\n{self._resumed(goal)}"},
-            ]
+        self._on_event(
+            f"Objective: {goal.text}. Study {study.id} of {study.profile}; first, the survey."
+        )
+        self.history = [{"role": "user", "content": message}]
         for record in read.fills:
-            self._record(_use("form", "P0", 0.0, record.prompt_tokens, record.completion_tokens))
+            budgets.record(
+                study, _use("form", "P0", 0.0, record.prompt_tokens, record.completion_tokens)
+            )
         return None
 
-    async def _follow_up(self, message: str) -> str | None:
-        """A message after the report, read as the first one is, the study's profile and run its
-        context. Asking for the curves again (processing, picking, their settings) or for the
-        inversion (models, soils, its settings), the study opens again there, its journal and
-        budgets kept; about another profile, that profile's study; any other, the report."""
+    async def _later(self, message: str, phase: Phase) -> GeoScope | str:
+        """A later message read as the first one is, the study's profile and run its context: its
+        form, or the answer in its place (a message not read; about another profile, a new
+        conversation)."""
         study = self._study
         line = line_of(study)
         context = Context(profile=study.profile, run_id=line.run_id if line is not None else None)
@@ -307,10 +303,34 @@ class Host:
         scope = cast(GeoScope, read.scope)
         self.steps.append(_scope_step(scope, time.perf_counter() - started))
         for record in read.fills:
-            self._record(_use("form", "P5", 0.0, record.prompt_tokens, record.completion_tokens))
-        if scope.new_study or (scope.profile is not None and scope.profile != study.profile):
-            self.study = None
-            return await self._objective(message)
+            budgets.record(
+                study, _use("form", phase, 0.0, record.prompt_tokens, record.completion_tokens)
+            )
+        if scope.profile is not None and scope.profile != study.profile:
+            return OTHER_PROFILE.format(study=study.id, profile=study.profile, other=scope.profile)
+        return scope
+
+    async def _going_on(self, message: str) -> str | None:
+        """A message while the study runs: the settings it types kept over those given before,
+        the journal saying so."""
+        study = self._study
+        scope = await self._later(message, phase_of(study))
+        if isinstance(scope, str):
+            return scope
+        typed = scope.given(receiver_spacing(load_profile(study.profile, self._settings)))
+        if changed := given.give(study, typed):
+            said = journal.settings(study, changed)
+            self._on_event(f"{said.id}: {said.text}")
+        return None
+
+    async def _follow_up(self, message: str) -> str | None:
+        """A message after the report. Asking for the curves again (processing, picking, their
+        settings) or for the inversion (models, soils, its settings), the study opens again there,
+        its journal and budgets kept; any other, the report."""
+        study = self._study
+        scope = await self._later(message, "P5")
+        if isinstance(scope, str):
+            return scope
         typed = scope.given(receiver_spacing(load_profile(study.profile, self._settings)))
         back = wanted(scope, typed)
         if back is None:
@@ -336,7 +356,7 @@ class Host:
             phase = phase_of(study)
             if phase == "P5":
                 return self._report_given()
-            spent = budgets.spent(study, effort_of(study), self._conversation)
+            spent = budgets.spent(study, effort_of(study))
             if (said := _stop(spent)) is not None:
                 self._on_event(f"   ({said})")
                 return self._stands(said)
@@ -347,7 +367,8 @@ class Host:
             reply = await self._model(messages, tools)
             seconds = time.perf_counter() - started
             self.steps.append(_model_step(reply, seconds))
-            self._record(
+            budgets.record(
+                study,
                 _use("model", phase, seconds, reply.prompt_tokens, reply.completion_tokens),
             )
             self._compact()
@@ -380,7 +401,7 @@ class Host:
         manual = MANUALS.get(phase)
         system = prompts.prompt("role") + (f"\n\n{prompts.prompt(manual)}" if manual else "")
         state(self._study, self._settings)
-        self._card = now = card(self._study, self._settings, self._conversation)
+        self._card = now = card(self._study, self._settings)
         self._dropped(system, now, tools)
         conversation = self.history
         if self._vision and phase in ATLAS_PHASES and conversation:
@@ -408,7 +429,7 @@ class Host:
             )
         if said is not None:
             self._on_event(f"-> {call.name}({call.arguments}) refused: {said}")
-            self._record(_use("tool", phase, 0.0, name=call.name, refused=True))
+            budgets.record(study, _use("tool", phase, 0.0, name=call.name, refused=True))
             self.steps.append(_tool_step(call, said, called=False, error=True, seconds=0.0))
             return [{"role": "tool", "tool_call_id": call.id, "content": said}]
         self._on_event(f"-> {call.name}({call.arguments})")
@@ -427,7 +448,7 @@ class Host:
             )
         seconds = time.perf_counter() - started
         failed = bool(result.is_error)
-        self._record(_use("tool", phase, seconds, name=call.name, failed=failed))
+        budgets.record(study, _use("tool", phase, seconds, name=call.name, failed=failed))
         knockout = searching.knockout_of(study) if call.name == "search" else None
         if not failed and knockout is not None and not knockout.finalists:
             # The model reads the finalists, not the sheets: the host has them judged.
@@ -468,7 +489,8 @@ class Host:
             text = "\n".join(
                 block.text for block in result.content if isinstance(block, TextContent)
             )
-            self._record(
+            budgets.record(
+                self._study,
                 _use("tool", phase, seconds, name="job_status", failed=bool(result.is_error)),
             )
             self.steps.append(
@@ -502,7 +524,7 @@ class Host:
         refused: str | None = None
         tries = calls = 0
         while True:
-            if stop := _stop(budgets.spent(study, effort_of(study), self._conversation)):
+            if (stop := _stop(budgets.spent(study, effort_of(study)))) is not None:
                 # The judging stops with the run: the model's next call is not made.
                 stopped = f"{said}\n\nThe sheets could not all be judged: {stop}"
                 return CallToolResult(
@@ -559,7 +581,7 @@ class Host:
             )
         seconds = time.perf_counter() - started
         failed = bool(result.is_error)
-        self._record(_use("tool", phase, seconds, name="judge", failed=failed))
+        budgets.record(self._study, _use("tool", phase, seconds, name="judge", failed=failed))
         self.steps.append(
             ToolStep(
                 name="judge",
@@ -578,7 +600,8 @@ class Host:
         transcript as the model's calls, their tokens counted."""
         each = seconds / len(fills)
         for filled in fills:
-            self._record(
+            budgets.record(
+                self._study,
                 _use(
                     "form",
                     phase,
@@ -597,14 +620,6 @@ class Host:
                     cached_tokens=filled.cached_tokens,
                 )
             )
-
-    @property
-    def _conversation(self) -> str:
-        return str(self.meta["conversation"])
-
-    def _record(self, use: budgets.Use) -> None:
-        """`use` in the study's usage log, as this conversation's."""
-        budgets.record(self._study, use.model_copy(update={"conversation": self._conversation}))
 
     def _said(self, name: str) -> None:
         """The progress line after a tool that changed the study: its journal entry."""
@@ -723,7 +738,9 @@ class Host:
             _answer_step(form.model_dump(), time.perf_counter() - started, len(written.fills))
         )
         for one in written.fills:
-            self._record(_use("form", phase, 0.0, one.prompt_tokens, one.completion_tokens))
+            budgets.record(
+                self._study, _use("form", phase, 0.0, one.prompt_tokens, one.completion_tokens)
+            )
         return form
 
     def _answered(self, form: answering.GeoAnswerForm, phase: Phase) -> str:
@@ -759,7 +776,7 @@ class Host:
 
     def _where(self) -> str:
         """Where the work stands, from the state card's first line and its decisions."""
-        lines = card(self._study, self._settings, self._conversation).splitlines()
+        lines = card(self._study, self._settings).splitlines()
         windows = next((line for line in lines if line.startswith("Windows:")), "")
         return " ".join(part for part in (lines[0], windows) if part)
 
@@ -775,15 +792,6 @@ class Host:
             f"[PACo] Study {self._study.id} opens again after its report ({entry.id}: "
             f"{entry.text}), its budgets as they were. The objective: "
             f"{goal.text if goal is not None else 'not read'}. The journal's last entries:\n{last}"
-        )
-
-    def _resumed(self, goal: journal.Entry) -> str:
-        """What the model reads on resuming a study: its objective and its journal's last
-        entries; the state card says the rest."""
-        last = journal.read(self._study, last=8)
-        return (
-            f"[PACo] This conversation resumes study {self._study.id}: the objective, "
-            f"{goal.text}. The journal's last entries:\n{last}"
         )
 
     def _sources(self) -> list[str]:
