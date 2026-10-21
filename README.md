@@ -228,8 +228,9 @@ without one, PACo lists the profiles.
 
 Code keeps the work honest. The settings you type are never changed. The phases go in order:
 survey, curves, inversion, report. A window is rejected only after real tries. Budgets stop a run
-that spends too much; judging the sheets does not count against them. The model sees the
+that spends too much: its model calls, and its tokens, the judging's included. The model sees the
 figures: the autonomous mode judges every image by eye, so it needs a model that takes images.
+`docs/autonomous.md` gives the details.
 
 ## How PACo works
 
@@ -255,8 +256,8 @@ figures: the autonomous mode judges every image by eye, so it needs a model that
   windows left out and why, the stages your message asked that were not done, the parameters
   used and the settings the gates changed.
 
-The details are in `docs/agent.md`, the gates' specification in `docs/qc_workflow.md`, and each
-gate in `docs/gates/`.
+The details are in `docs/agent.md`, the autonomous mode in `docs/autonomous.md`, the gates'
+specification in `docs/qc_workflow.md`, and each gate in `docs/gates/`.
 
 ## Safety
 

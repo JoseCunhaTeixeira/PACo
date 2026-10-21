@@ -494,6 +494,29 @@ def test_the_model_calls_budget_stops_the_run() -> None:
     assert "The run's budget of model calls is spent (61 of 60): it stops here." in again.answer
 
 
+@pytest.mark.usefixtures("folders")
+def test_the_tokens_budget_stops_the_run() -> None:
+    first = play([form(SCOPE), said("Hello."), answer_form("Hello.", question="Go on?")], [REQUEST])
+    # The judging of a search: its forms' tokens, past the quick effort's.
+    budgets.record(
+        first.study,
+        budgets.Use(
+            kind="form",
+            phase="P2",
+            at=journal.datetime.now(journal.UTC),
+            seconds=0,
+            name="judge",
+            prompt_tokens=1_900_000,
+            completion_tokens=150_000,
+        ),
+    )
+
+    again = play([form(SCOPE)], ["Go on with active_test_profile."])
+
+    assert len(again.model.bodies) == 1  # the objective's form, no call: the budget is spent
+    assert "The run's budget of tokens is spent (2.1M of 2.0M): it stops here." in again.answer
+
+
 @pytest.mark.slow
 @pytest.mark.usefixtures("folders")
 def test_a_run_stopped_in_p2_resumes_with_the_same_phase_budgets_and_card() -> None:

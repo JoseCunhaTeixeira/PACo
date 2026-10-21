@@ -380,17 +380,26 @@ def test_judging_the_sheets_spends_no_model_calls_and_no_cpu(tmp_path: Path) -> 
         budgets.Use(kind="tool", phase="P2", at=at, seconds=10.0, name="commit"),
         budgets.Use(kind="model", phase="P2", at=at, seconds=2.0),
         budgets.Use(kind="tool", phase="P2", at=at, seconds=300.0, name="search"),
-        budgets.Use(kind="form", phase="P2", at=at, seconds=2.0, name="judge"),
+        budgets.Use(
+            kind="form", phase="P2", at=at, seconds=2.0, name="judge",
+            prompt_tokens=9_000, completion_tokens=300,
+        ),
         budgets.Use(kind="tool", phase="P2", at=at, seconds=5.0, name="judge"),
-        budgets.Use(kind="form", phase="P2", at=at, seconds=2.0, name="judge"),
+        budgets.Use(
+            kind="form", phase="P2", at=at, seconds=2.0, name="judge",
+            prompt_tokens=8_000, completion_tokens=200,
+        ),
         budgets.Use(kind="tool", phase="P2", at=at, seconds=20.0, name="judge"),
-    ):
+    ):  # fmt: skip
         budgets.record(study, use)
 
     spent = budgets.spent(study, "quick")
 
     assert spent.model_calls == 2
     assert spent.cpu == 1.0
+    # The judge's forms count in the tokens, which bound the run.
+    assert spent.tokens == 17_500 and not spent.tokens_spent
+    assert "0.0M of 2.0M tokens" in spent.said()
 
 
 @pytest.mark.usefixtures("paco_env")

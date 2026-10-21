@@ -50,11 +50,13 @@ from paco.autonomous.tools import tidy as tidying
 from paco.autonomous.tools import trials
 from paco.autonomous.tools import windows as selecting
 from paco.autonomous.tools.commit import Line
+from paco.autonomous.tools.given import given_of
 from paco.autonomous.tools.trials import LineState, Study
 from paco.inversion import find_job
 from paco.jobs import JobManager
 from paco.qc.config import QCConfig, load_qc_config
 from paco.qc.loops import deep_merge
+from paco.qc.report import stretches, xmid_of
 from paco.settings import get_settings
 
 
@@ -528,17 +530,32 @@ def pick(
     line = _line(study)
     folder = find_run(line.run_id, get_settings())
     statuses = deciding.statuses(study, folder, line.run_id)
+    given = given_of(study).line.get("picking", {})
     recipes: dict[str, picker.Recipe] = {}
+    named: list[str] = []
+    left: list[str] = []
     for way in ways:
-        for unit in selecting.select(folder, way.windows, statuses):
-            if unit in recipes:
-                raise ValueError(
-                    f"xmid {unit.removeprefix('xmid_')} is in two ways: a window in one of them."
-                )
-            recipes[unit] = way.recipe
+        units = selecting.select(folder, way.windows, statuses)
+        if twice := [unit for unit in units if unit in named]:
+            raise ValueError(
+                f"xmid {twice[0].removeprefix('xmid_')} is in two ways: a window in one of them."
+            )
+        named += units
+        if way.how == "fixes":
+            fixes, unfixed = picker.fixes_of(study, folder, units, way.picking, given)
+            recipes |= fixes
+            left += unfixed
+        else:
+            recipes |= dict.fromkeys(units, way.recipe)
+    where = stretches([xmid_of(unit) or 0.0 for unit in left])
+    if not recipes:
+        raise ValueError(f"Nothing to pick: G3 asks no change of {where}, or its fix was tried.")
     base = committing.picking_of(study, line, get_settings(), _config())
     picks = picker.pick(study, folder, recipes, base, _config(), get_settings().workers)
-    return picker.describe_picks(picks)
+    said = picker.describe_picks(picks)
+    if left:
+        said += f"\nLeft as they were (no change G3 asks, or its fix tried): {where}."
+    return said
 
 
 @server.tool(annotations=paco_server.ADDS)

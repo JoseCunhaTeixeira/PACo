@@ -102,6 +102,7 @@ PENDING = (
     "it, or reject it with its reason), then answer; or ask the user what you need from them."
 )
 SPENT = "The run's budget of model calls is spent ({used} of {budget}): it stops here."
+SPENT_TOKENS = "The run's budget of tokens is spent ({used} of {budget}): it stops here."
 # The judge's answers the server may refuse in a row before the judging stops.
 JUDGE_TRIES = 3
 # The experiment a try_settings result names first.
@@ -286,7 +287,9 @@ class Host:
                 {"role": "user", "content": f"{message}\n\n{self._resumed(goal)}"},
             ]
         for record in read.fills:
-            budgets.record(study, _use("form", "P0", 0.0, record.prompt_tokens))
+            budgets.record(
+                study, _use("form", "P0", 0.0, record.prompt_tokens, record.completion_tokens)
+            )
         return None
 
     async def _follow_up(self, message: str) -> str | None:
@@ -306,7 +309,9 @@ class Host:
         scope = cast(GeoScope, read.scope)
         self.steps.append(_scope_step(scope, time.perf_counter() - started))
         for record in read.fills:
-            budgets.record(study, _use("form", "P5", 0.0, record.prompt_tokens))
+            budgets.record(
+                study, _use("form", "P5", 0.0, record.prompt_tokens, record.completion_tokens)
+            )
         if scope.profile is not None and scope.profile != study.profile:
             self.study = None
             return await self._objective(message)
@@ -336,8 +341,7 @@ class Host:
             if phase == "P5":
                 return self._report_given()
             spent = budgets.spent(study, effort_of(study))
-            if spent.calls_spent:
-                said = SPENT.format(used=spent.model_calls, budget=spent.budgets.model_calls)
+            if (said := _stop(spent)) is not None:
                 self._on_event(f"   ({said})")
                 return self._stands(said)
             tools = tools_for_model(offered(phase, self._tools))
@@ -504,6 +508,12 @@ class Host:
         refused: str | None = None
         tries = calls = 0
         while True:
+            if (stop := _stop(budgets.spent(study, effort_of(study)))) is not None:
+                # The judging stops with the run: the model's next call is not made.
+                stopped = f"{said}\n\nThe sheets could not all be judged: {stop}"
+                return CallToolResult(
+                    content=[TextContent(type="text", text=stopped)], is_error=True
+                )
             started = time.perf_counter()
             calls += 1
             before = searching.knockout_of(study)
@@ -712,7 +722,9 @@ class Host:
             _answer_step(form.model_dump(), time.perf_counter() - started, len(written.fills))
         )
         for one in written.fills:
-            budgets.record(self._study, _use("form", phase, 0.0, one.prompt_tokens))
+            budgets.record(
+                self._study, _use("form", phase, 0.0, one.prompt_tokens, one.completion_tokens)
+            )
         return form
 
     def _answered(self, form: answering.GeoAnswerForm, phase: Phase) -> str:
@@ -818,6 +830,16 @@ class Host:
         if self.study is None:
             raise RuntimeError("No study yet: the objective is read first.")
         return self.study
+
+
+def _stop(spent: budgets.Spent) -> str | None:
+    """Why the run stops now: its model calls' budget or its tokens' spent; None within them."""
+    if spent.calls_spent:
+        return SPENT.format(used=spent.model_calls, budget=spent.budgets.model_calls)
+    if spent.tokens_spent:
+        used, budget = (f"{one / 1e6:.1f}M" for one in (spent.tokens, spent.budgets.tokens))
+        return SPENT_TOKENS.format(used=used, budget=budget)
+    return None
 
 
 def _size(messages: Sequence[ChatCompletionMessageParam], tools: Sequence[object]) -> int:

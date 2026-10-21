@@ -37,6 +37,7 @@ from paco.qc.curves import imaged_windows
 from paco.qc.g4_profile import LINE, ProfileThresholds, median_guide
 from paco.qc.judging import judge_line, pick_windows, saved_m0
 from paco.qc.log import afresh, append_attempt, attempts_of, latest, read_attempts
+from paco.qc.loops import deep_merge, stage_changes
 from paco.qc.models import Attempt, Flag, GateResult, Override
 from paco.qc.report import line_step, stretches, xmid_of
 
@@ -71,9 +72,10 @@ class Way(BaseModel):
     model_config = ConfigDict(frozen=True, extra="forbid")
 
     windows: str
-    how: Literal["auto", "guide", "lasso", "delete"] = Field(
+    how: Literal["auto", "guide", "lasso", "delete", "fixes"] = Field(
         description="The tracker (auto), its corridor on a guide (guide), on the maxima inside a "
-        "polygon (lasso), or the curve deleted (delete)."
+        "polygon (lasso), the curve deleted (delete), or each window's own fix as G3 suggested it "
+        "(fixes: its way of picking, with the changes its G3 asks)."
     )
     picking: dict[str, Any] = Field(
         default_factory=dict[str, Any],
@@ -91,6 +93,9 @@ class Way(BaseModel):
 
     @property
     def recipe(self) -> Recipe:
+        """The recipe of every window of a way that is not `fixes`."""
+        if self.how == "fixes":
+            raise ValueError("A way of fixes has a recipe for each window: fixes_of.")
         return Recipe(how=self.how, picking=self.picking, guide=self.guide, polygon=self.polygon)
 
 
@@ -139,6 +144,39 @@ def recipes(study: Study, run_id: str) -> dict[str, Recipe]:
         elif one.error is None:
             found[one.unit] = one.recipe
     return found
+
+
+def fixes_of(
+    study: Study,
+    run_folder: Path,
+    units: Sequence[str],
+    picking: Mapping[str, Any],
+    given: Mapping[str, Any],
+) -> tuple[dict[str, Recipe], list[str]]:
+    """Each window's fix as its latest G3 suggested it: its own way of picking (the tracker
+    when the line picked it last), with `picking` and the changes G3 asks of its picking over
+    it, those touching a setting the user gave (`given`) held back. The windows left as they
+    are, by name: none asked, deleted, or that fix already tried."""
+    attempts = read_attempts(run_folder)
+    current = recipes(study, manifest_of(run_folder).run_id)
+    fixes: dict[str, Recipe] = {}
+    left: list[str] = []
+    for unit in units:
+        attempt = latest(attempts, unit, "picking")
+        g3 = attempt.results.get("G3") if attempt is not None else None
+        asked = stage_changes(g3, "picking", given) if g3 is not None else None
+        before = current.get(unit, Recipe(how="auto"))
+        if asked is None or before.how == "delete":
+            left.append(unit)
+            continue
+        recipe = before.model_copy(
+            update={"picking": deep_merge(before.picking, deep_merge(picking, asked[0]))}
+        )
+        if recipe == current.get(unit):
+            left.append(unit)
+            continue
+        fixes[unit] = recipe
+    return fixes, left
 
 
 def check_recipe(recipe: Recipe, base: PickingParameters) -> None:

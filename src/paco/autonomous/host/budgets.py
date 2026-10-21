@@ -25,7 +25,7 @@ type Effort = Literal["quick", "normal", "thorough"]
 class Budgets(BaseModel):
     """An effort's budgets: experiments and line commits in P2, CPU time in P2 in multiples of
     the line's first processing, each window's inversion retries, the model's calls over
-    the run."""
+    the run, and its tokens over the run (read and written, its forms' too: the judging's)."""
 
     model_config = ConfigDict(frozen=True)
 
@@ -34,12 +34,19 @@ class Budgets(BaseModel):
     cpu: float
     inversion_retries: int
     model_calls: int
+    tokens: int
 
 
 EFFORTS: dict[Effort, Budgets] = {
-    "quick": Budgets(experiments=8, commits=2, cpu=6, inversion_retries=2, model_calls=60),
-    "normal": Budgets(experiments=30, commits=6, cpu=60, inversion_retries=6, model_calls=200),
-    "thorough": Budgets(experiments=60, commits=8, cpu=120, inversion_retries=6, model_calls=400),
+    "quick": Budgets(
+        experiments=8, commits=2, cpu=6, inversion_retries=2, model_calls=60, tokens=2_000_000
+    ),
+    "normal": Budgets(
+        experiments=30, commits=6, cpu=60, inversion_retries=6, model_calls=200, tokens=5_000_000
+    ),
+    "thorough": Budgets(
+        experiments=60, commits=8, cpu=120, inversion_retries=6, model_calls=400, tokens=10_000_000
+    ),
 }
 
 
@@ -76,13 +83,14 @@ def uses(study: Study) -> list[Use]:
 @dataclass(frozen=True)
 class Spent:
     """What is spent of `budgets`: experiments, commits, CPU time in P2 (None before the first
-    commit, its unit), and model calls."""
+    commit, its unit), model calls and tokens."""
 
     budgets: Budgets
     experiments: int
     commits: int
     cpu: float | None
     model_calls: int
+    tokens: int = 0
 
     def said(self) -> str:
         """Each budget and what is spent of it, in a line."""
@@ -91,22 +99,32 @@ class Spent:
         return (
             f"{self.experiments} of {budgets.experiments} experiments, {self.commits} of "
             f"{budgets.commits} commits, CPU {cpu} of {budgets.cpu:g} times the first "
-            f"processing, {self.model_calls} of {budgets.model_calls} model calls"
+            f"processing, {self.model_calls} of {budgets.model_calls} model calls, "
+            f"{_millions(self.tokens)} of {_millions(budgets.tokens)} tokens"
         )
 
     def near(self) -> list[str]:
         """The budgets at WARN or past, in words."""
         said: list[str] = []
         for name, used, budget in self._counts():
+            amounts = (
+                f"{_millions(used)} of {_millions(budget)}"
+                if name == "tokens"
+                else f"{used:g} of {budget:g}"
+            )
             if used >= budget:
-                said.append(f"{name} spent ({used:g} of {budget:g})")
+                said.append(f"{name} spent ({amounts})")
             elif used >= WARN * budget:
-                said.append(f"{name} at {used / budget:.0%} ({used:g} of {budget:g})")
+                said.append(f"{name} at {used / budget:.0%} ({amounts})")
         return said
 
     @property
     def calls_spent(self) -> bool:
         return self.model_calls >= self.budgets.model_calls
+
+    @property
+    def tokens_spent(self) -> bool:
+        return self.tokens >= self.budgets.tokens
 
     def _counts(self) -> list[tuple[str, float, float]]:
         budgets = self.budgets
@@ -114,6 +132,7 @@ class Spent:
             ("experiments", float(self.experiments), float(budgets.experiments)),
             ("commits", float(self.commits), float(budgets.commits)),
             ("model calls", float(self.model_calls), float(budgets.model_calls)),
+            ("tokens", float(self.tokens), float(budgets.tokens)),
         ]
         if self.cpu is not None:
             counts.insert(2, ("CPU", round(self.cpu, 1), budgets.cpu))
@@ -131,7 +150,17 @@ def spent(study: Study, effort: Effort) -> Spent:
         cpu=_cpu(used),
         # The run's calls alone: the forms, the search's judging among them, are not counted.
         model_calls=sum(1 for one in used if one.kind == "model"),
+        # Every token the model read and wrote, its forms' too.
+        tokens=sum(
+            (one.prompt_tokens or 0) + (one.completion_tokens or 0)
+            for one in used
+            if one.kind in ("model", "form")
+        ),
     )
+
+
+def _millions(tokens: float) -> str:
+    return f"{tokens / 1e6:.1f}M"
 
 
 def refusal(spent: Spent, tool: str) -> str | None:

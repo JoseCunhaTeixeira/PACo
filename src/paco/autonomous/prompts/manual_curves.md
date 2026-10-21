@@ -281,7 +281,8 @@ phase velocity v and frequency f.
 - Order of work: commit a line, read G3 and G4 grouped by flag and by stretches of windows; fix
   single windows for their fixable flags (G3's suggested change, a band cut at a jump, a narrower
   corridor, a lower coherence rule, a guide from the neighbours, a lasso when you see the images),
-  every fix in one pick, each way with its windows; when many windows fail for one reason,
+  every fix in one pick, each way with its windows (how fixes gives every window its own change
+  G3 suggested, at once); when many windows fail for one reason,
   suspect the line's settings and go back with a hypothesis. A window's own pick is its recipe: a
   later commit picks it the same way.
 
