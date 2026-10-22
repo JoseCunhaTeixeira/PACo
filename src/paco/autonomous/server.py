@@ -494,7 +494,7 @@ def commit(
             "who reads them on the run's card: what the images or the trials showed, without ids "
             "(E1, L1) or shorthand. By '<stage> <key>' as the changes name it, or '<stage>' for "
             "all its keys; a method and its parameters take one. A setting given at the value it "
-            "has needs none."
+            "has needs none, nor one every combination of the search had: code says so."
         ),
     ],
     ctx: Context,

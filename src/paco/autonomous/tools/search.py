@@ -27,7 +27,7 @@ from datetime import UTC, datetime
 from functools import cache
 from importlib.resources import files
 from itertools import pairwise, product
-from typing import Any
+from typing import Any, cast
 
 import yaml
 from pydantic import BaseModel, ConfigDict, Field, model_validator
@@ -44,6 +44,8 @@ from paco.settings import Settings, get_settings
 
 SEARCHES = "searches"  # in the study's folder
 SEARCH = "S1"  # a study's one search
+# Why a setting is what every variant of the search had: none chose it.
+SHARED = "the same in every combination the search compared"
 IMAGES = f"{SEARCH}_images"
 KNOCKOUT = f"{SEARCH}_knockout.json"
 JUDGED = f"{SEARCH}_judged.jsonl"
@@ -747,6 +749,34 @@ def search(
 def mode_of(study: trials.Study, profile: Profile) -> str:
     """The line's method: the mode the user gave, else its profile's kind."""
     return str(with_line({}, given_of(study)).get(trials.MODE) or profile.kind)
+
+
+def shared(study: trials.Study) -> dict[str, Any]:
+    """The settings every variant of the study's search gave the same value ('<stage> <key>',
+    or a top-level key), with it: none chose them, the grid holding one value; none before it
+    ran."""
+    made = searched(study)
+    if made is None or not made.rows:
+        return {}
+    each = [named_values(row.changes) for row in made.rows]
+    first = each[0]
+    return {
+        name: value
+        for name, value in first.items()
+        if all(name in one and one[name] == value for one in each[1:])
+    }
+
+
+def named_values(changes: Mapping[str, Any]) -> dict[str, Any]:
+    """The settings `changes` sets, by the name reasons give them ('<stage> <key>', or a
+    top-level key alone, as near_field_m), with their values."""
+    named: dict[str, Any] = {}
+    for stage, value in changes.items():
+        if isinstance(value, Mapping) and value:
+            named |= {f"{stage} {key}": one for key, one in cast(Mapping[str, Any], value).items()}
+        else:
+            named[stage] = value
+    return named
 
 
 def row_changes(study: trials.Study, label: str) -> dict[str, Any]:

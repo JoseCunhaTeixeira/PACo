@@ -576,6 +576,43 @@ def test_a_search_runs_the_grid_once_and_sorts_it_into_sheets(
 
 
 @pytest.mark.slow
+def test_what_every_variant_had_is_the_searchs_not_a_choice(tmp_path: Path) -> None:
+    study = trials.Study("active_test_profile", tmp_path)
+    rows = [
+        Row(
+            label=f"g{n}",
+            values={},
+            changes={
+                "masw": {"length": length},
+                "dispersion": {"fmax": 100.0},
+                "near_field_m": None,
+            },
+            trial="t",
+            length=length,
+            card={},
+        )
+        for n, length in enumerate((12, 24), start=1)
+    ]
+    made = searching.Search(
+        id=searching.SEARCH,
+        windows="spread:6",
+        axes={},
+        units={},
+        changes={},
+        rows=tuple(rows),
+        refused=0,
+        refusal=None,
+        seconds=1.0,
+        made_at=datetime.now(UTC),
+    )
+    (tmp_path / searching.SEARCHES).mkdir()
+    (tmp_path / searching.SEARCHES / f"{searching.SEARCH}.json").write_text(made.model_dump_json())
+
+    # The band and the near field the same in every variant, the grid's one value; the length
+    # chosen among them.
+    assert searching.shared(study) == {"dispersion fmax": 100.0, "near_field_m": None}
+
+
 def test_every_sheet_is_judged_until_the_search_chooses(paco_env: Settings) -> None:
     profile = "active_test_profile"
     study = new_study(profile, paco_env)

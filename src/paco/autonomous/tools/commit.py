@@ -174,6 +174,15 @@ def commit(
         gone = {stage for stage in own if stage not in kept}
         reasons = {key: reason for key, reason in reasons.items() if key not in same | gone}
         own = kept
+    # What every combination of the search had, the grid's one value: code says so, not the
+    # model, which chose none of it.
+    fixed = searching.shared(study)
+    alike = [
+        name
+        for name, value in searching.named_values(own).items()
+        if name in fixed and fixed[name] == value
+    ]
+    reasons = {**reasons, **dict.fromkeys(alike, searching.SHARED)}
     _check_reasons(own, reasons)
     added = missing(line.settings if line is not None else {}, user)
     changed = deep_merge(own, added)

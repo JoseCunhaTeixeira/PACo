@@ -6,6 +6,7 @@ seconds."""
 
 from collections.abc import Iterator
 from dataclasses import dataclass
+from datetime import UTC, datetime
 from importlib.metadata import version
 from pathlib import Path
 
@@ -14,7 +15,9 @@ from sigpipe.masw.presets import make_preset
 from sigpipe.masw.runs import find_run, load_manifest
 
 from paco.autonomous.tools import commit as committing
+from paco.autonomous.tools import search as searching
 from paco.autonomous.tools.commit import Committed, commit, describe_commit, line_of, line_state
+from paco.autonomous.tools.search import Row
 from paco.autonomous.tools.trials import G1, Study, new_study, try_settings
 from paco.qc.config import QCConfig
 from paco.qc.log import latest, read_attempts
@@ -202,6 +205,51 @@ def test_the_line_as_a_trial_set_reads_it(commits: Commits) -> None:
     assert len(state.verdicts) == 7
     assert set(state.verdicts.values()) <= {"pass", "retry", "reject", "no curve"}
     assert set(state.flags) == set(state.verdicts)
+
+
+@pytest.mark.slow
+def test_what_every_combination_of_the_search_had_needs_no_reason(
+    input_dir: Path, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setitem(Settings.model_config, "env_file", None)
+    settings = Settings(input_dir=input_dir, output_dir=tmp_path / "output", workers=2)
+    study = new_study("active_test_profile", settings)
+    # A search whose variants all had the coarse grid: none chose it.
+    rows = [
+        Row(
+            label=f"g{n}",
+            values={},
+            changes={**FIRST, "masw": {"length": length}},
+            trial="t",
+            length=length,
+            card={},
+        )
+        for n, length in enumerate((90, 94), start=1)
+    ]
+    made = searching.Search(
+        id=searching.SEARCH,
+        windows="spread:2",
+        axes={},
+        units={},
+        changes={},
+        rows=tuple(rows),
+        refused=0,
+        refusal=None,
+        seconds=1.0,
+        made_at=datetime.now(UTC),
+    )
+    (study.folder / searching.SEARCHES).mkdir()
+    (study.folder / searching.SEARCHES / f"{searching.SEARCH}.json").write_text(
+        made.model_dump_json()
+    )
+    reasons = {key: reason for key, reason in FIRST_REASONS.items() if key != "dispersion nv"}
+
+    committed = commit(study, FIRST, reasons, searching.SEARCH, settings, QCConfig())
+
+    # Code says it, not the model; what the model chose keeps the model's words.
+    said = committed.line.commits[0].reasons
+    assert said["dispersion nv"] == searching.SHARED
+    assert said["masw length"] == FIRST_REASONS["masw length"]
 
 
 def test_a_setting_given_at_its_value_is_no_change_and_needs_no_reason() -> None:
