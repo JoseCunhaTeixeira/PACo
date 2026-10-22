@@ -2,8 +2,8 @@
 (the ensemble's) at fixed depths down to its depth informed (G5's), each model against its
 neighbours on either side within a few of the line's steps (the sides of G4). A jump the curves
 do not show (G4 found the window's curve fits its neighbours) is non-uniqueness, kept with its
-flag: G5 passed the model converged, and sampling longer draws the same posterior again. A jump
-the curves show too is kept. And how evenly the depth informed runs along the line. No lateral
+flag: a model G5 passed converged, and sampling longer draws the same posterior again; of a model
+G5 flagged, the sampling may be the cause, said so. A jump the curves show too is kept. And how evenly the depth informed runs along the line. No lateral
 smoothing: neither models edited, nor neighbours used as priors."""
 
 from collections.abc import Mapping, Sequence
@@ -59,13 +59,14 @@ def judge_model_profile(
     thresholds: ModelProfileThresholds,
     without: Sequence[float] = (),
     shallow: Sequence[float] = (),
+    flagged: frozenset[str] = frozenset(),
 ) -> tuple[GateResult, ...]:
     """G6's verdicts: one per model (the ensemble's Vs by depth, down to its depth informed:
     below it the priors speak, not the data), then one for the line, unit "line". `curves`
     holds G4's result on each window's curve, `depths_informed` each window's (None: the whole
     model), `without` the xmids without a model, `shallow` those whose model is informed above
-    the depths the line's models are compared at. Neighbours are the models within
-    `max_gap_steps` of the line's steps."""
+    the depths the line's models are compared at, `flagged` the windows whose model G5
+    flagged. Neighbours are the models within `max_gap_steps` of the line's steps."""
     ordered = sorted(models, key=lambda model: model.xmid)
     step = line_step([*(one.xmid for one in ordered), *without, *shallow])
     found = neighbourhoods(
@@ -123,6 +124,16 @@ def judge_model_profile(
                         "curve had no agreeing neighbours to say whether the change is real.",
                         stage="inversion",
                         action=Keep(note="the curves cannot tell"),
+                    )
+                )
+            elif model.unit in flagged:
+                flags.append(
+                    Flag(
+                        name="model_change",
+                        message=f"The model is {100 * worst:.0f} % off its neighbours {near.where}, while "
+                        "its curve fits theirs; G5 flagged the model: its sampling may be the cause.",
+                        stage="inversion",
+                        action=Keep(note="G5 flagged the model"),
                     )
                 )
             else:
@@ -197,7 +208,7 @@ def _line_result(
             bound="min",
             passed=bool(models),
             of="line",
-            over=f"the line's {windows} windows: a model G5 passed, compared",
+            over=f"the line's {windows} windows: a model G5 did not reject, compared",
         ),
         Metric(
             name="without_model",

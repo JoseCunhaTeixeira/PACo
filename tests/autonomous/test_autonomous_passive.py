@@ -16,7 +16,7 @@ from sigpipe.masw.runs import find_run, load_manifest
 
 from paco.autonomous.host import answer
 from paco.autonomous.host.card import card
-from paco.autonomous.tools import decide, given
+from paco.autonomous.tools import given
 from paco.autonomous.tools.advise import NO_MUTE, NO_SEGMENTS, advise
 from paco.autonomous.tools.commit import Committed, commit
 from paco.autonomous.tools.look import look, look_experiment, look_survey
@@ -171,21 +171,17 @@ def test_a_passive_experiment_shows_its_correlations_and_no_shot(passive: Passiv
 
 
 @pytest.mark.slow
-def test_g3s_near_field_note_on_a_passive_window_needs_no_reason(passive: Passive) -> None:
+def test_g3_raises_no_near_field_note_on_a_passive_window(passive: Passive) -> None:
     attempts = read_attempts(passive.run)
-    noted = [
-        path.name
+    judged = [
+        picked.results["G3"]
         for path in sorted(passive.run.glob("xmid_*"))
-        if (picked := latest(attempts, path.name, "picking")) is not None
-        and "G3" in picked.results
-        and picked.results["G3"].verdict == "pass"
-        and any(flag.name == "near_field" for flag in picked.results["G3"].flags)
+        if (picked := latest(attempts, path.name, "picking")) is not None and "G3" in picked.results
     ]
 
-    assert noted, "G3 raises its near-field note on every passive curve"
-    for unit in noted:
-        problem, notes = decide.acceptable(passive.run, attempts, unit)
-        assert problem is None and "near_field" not in notes
+    # The nearest shot is reported, never flagged: a passive line has no shot.
+    assert judged
+    assert not any(flag.name == "near_field" for result in judged for flag in result.flags)
 
 
 @pytest.mark.slow

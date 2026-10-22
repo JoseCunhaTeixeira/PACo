@@ -23,8 +23,8 @@ from paco.qc.models import (
     Budgets,
     Flag,
     GateResult,
+    Keep,
     Kept,
-    Reject,
     Stage,
     Verdict,
 )
@@ -174,7 +174,7 @@ def _named(flag: Flag) -> str:
     """A flag as a window's line names it: a refusal over a setting the user gave, with the
     change it asks ("locked, asks dispersion vmax 900 (given: 250)")."""
     action = flag.action
-    return action.reason if flag.name == "locked" and isinstance(action, Reject) else flag.name
+    return action.note if flag.name == "locked" and isinstance(action, Keep) else flag.name
 
 
 class QCReport(BaseModel):

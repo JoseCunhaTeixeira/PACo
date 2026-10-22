@@ -1,9 +1,9 @@
 """freeze: the one way from the curves to the inversion. It
-checks that every window of the committed line is decided, that each accepted curve passes G3 with
-no blocking flag and G4, and that each rejected window has its reason. Then it writes the
+checks that every window of the committed line is decided, that no check rejected an accepted
+curve nor marked it with a blocking flag, and that each rejected window has its reason. Then it writes the
 inversion's dataset, curves.json in the study's folder: each accepted curve's file and hash, its
 band and wavelengths, its points, their median uncertainty, the share beyond the window's reach and
-the notes it carries; each rejected window and why; and the line's facts the inversion needs. Once
+the flags and notes it carries; each rejected window and why; and the line's facts the inversion needs. Once
 it is written the study is past its curves: no processing or picking tool works on it
 (trials.check_open)."""
 
@@ -141,7 +141,7 @@ def freeze(study: Study, run_folder: Path, line: Line) -> Frozen:
                     for result in (g3, g4)
                     if result is not None
                     for flag in result.flags
-                    if flag_class(flag) == "note"
+                    if flag_class(flag) in ("note", "fixable")
                 ),
                 reason=decision.reason,
             )

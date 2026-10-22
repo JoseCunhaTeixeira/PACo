@@ -604,13 +604,13 @@ def decide(
     ctx: Context,
     reason: Annotated[
         str | None,
-        Field(description="One line: why. Needed to reject, and to accept with notes."),
+        Field(description="One line: why. Needed to reject, and to accept with flags or notes."),
     ] = None,
 ) -> str:
-    """The windows decided. Before the freeze, their curves: accepted (passed G3 with no blocking
-    flag, and G4), rejected (once tried hard: the line's pick, a pick after it when it carried
+    """The windows decided. Before the freeze, their curves: accepted (G3 and G4 did not reject
+    it, no blocking flag), rejected (once tried hard: the line's pick, a pick after it when it carried
     fixable flags, a guide from its neighbours, a lasso if you see the images), or pending. After it, their
-    models: accepted (passed G5, no blocking flag), rejected (once each fixable flag was tried,
+    models: accepted (G5 did not reject it, no blocking flag), rejected (once each fixable flag was tried,
     or its retries spent), or pending. Decided whole, or refused whole with each window's
     problem."""
     study = _study(profile, ctx)

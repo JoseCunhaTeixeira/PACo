@@ -341,10 +341,11 @@ def test_the_workflow_process_pick_redo_invert() -> None:
     # shots G1 left out, keeps its near one (G3 flags its near field).
     # xmid 125.25's pick is a single point in the aliasing zone, off its columns' brightest
     # values (competing ridges): G3 picks it again in the coherent band, more of the ridge kept,
-    # and rejects it when its retries are spent. Three curves pass.
+    # and leaves it flagged when its retries are spent: it goes on, G4 judging it with the
+    # others. Three curves pass, one flagged.
     assert picked.structured_content["summary"].splitlines()[:2] == [
-        "G4: 4 pass",
-        "G3: 3 pass, 1 reject",
+        "G4: 5 pass",
+        "G3: 3 pass, 1 retry",
     ]
     (change,) = picked.structured_content["changed"]
     assert change.startswith(
@@ -353,8 +354,9 @@ def test_the_workflow_process_pick_redo_invert() -> None:
     )
     assert change.endswith(", by G3:on_data")
     assert picked.structured_content["next"] == (
-        f"3 curves of run {run_id} passed G3 and G4: invert gives their models. Higher modes (M1, "
-        "M2) are picked by hand in PAC's Dispersion picking page, then invert takes them with M0."
+        f"4 curves of run {run_id} not rejected by G3 or G4: invert gives their models. Higher "
+        "modes (M1, M2) are picked by hand in PAC's Dispersion picking page, then invert takes "
+        "them with M0."
     )
 
     # Going back to the picking for a window, with a change: the verdict of the gate that

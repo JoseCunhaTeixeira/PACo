@@ -403,8 +403,8 @@ def _log_pick(
 
 
 def judge_line(run_folder: Path, manifest: RunManifest, config: QCConfig) -> tuple[GateResult, ...]:
-    """G4 over the line: the saved M0 curve of every window whose latest pick passed G3, each
-    against its neighbours, a person's curves among them as trusted references (never judged).
+    """G4 over the line: the saved M0 curve of every window whose latest pick G3 did not reject
+    (passed or flagged: only a rejected unit stops), each against its neighbours, a person's curves among them as trusted references (never judged).
     A window's verdict goes to its latest picking attempt, the line's own (the coverage) to an
     attempt of the unit "line", each only when it changed: the log is read once, and a pick
     judged again on every call does not grow it. No automatic curve on the line (a run picked by
@@ -421,7 +421,7 @@ def judge_line(run_folder: Path, manifest: RunManifest, config: QCConfig) -> tup
         g3 = picked.results.get("G3") if picked else None
         curve = (
             saved_m0(path)
-            if state == "user" or (state == "judged" and g3 is not None and g3.verdict == "pass")
+            if state == "user" or (state == "judged" and g3 is not None and g3.verdict != "reject")
             else None
         )
         if curve is None:

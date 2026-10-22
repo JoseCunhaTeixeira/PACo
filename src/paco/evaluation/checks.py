@@ -25,7 +25,7 @@ from paco.qc import (
 )
 from paco.qc.attempts import HAND_FOLDER
 from paco.qc.log import JUDGED
-from paco.qc.models import Reject
+from paco.qc.models import Keep
 from paco.settings import get_settings
 
 
@@ -308,9 +308,9 @@ def _top_vs(parameters: dict[str, Any]) -> float | None:
 
 
 def refused_as_locked(gate: str) -> Check:
-    """`gate` asked a change of a setting the user gave, and its window was left out for it
+    """`gate` asked a change of a setting the user gave, and its unit stayed flagged for it
     ("locked"), in some run of the scenario."""
-    name = f"{gate} left a window out over a setting given"
+    name = f"{gate} flagged a window over a setting given"
 
     def check(trial: Trial) -> CheckResult:
         passed = _locked_flag(trial, gate) is not None
@@ -726,18 +726,18 @@ def inverted_every_curve() -> Check:
 
 
 def curves(trial: Trial) -> str:
-    """How many curves of the latest run passed G3 and G4."""
+    """How many curves of the latest run G3 and G4 did not reject: those the inversion takes."""
     report = _latest_report(trial)
     if report is None:
         return "(no judged run)"
-    passed = [
+    taken = [
         unit
         for unit in report.units
         if unit.xmid is not None
-        and unit.verdicts.get("G3") == "pass"
-        and unit.verdicts.get("G4") == "pass"
+        and unit.verdicts.get("G3") not in (None, "reject")
+        and unit.verdicts.get("G4") != "reject"
     ]
-    return str(len(passed))
+    return str(len(taken))
 
 
 def models(trial: Trial) -> str:
@@ -830,8 +830,8 @@ def _locked_flag(trial: Trial, gate: str) -> str | None:
         for attempt in read_attempts(log.parent):
             result = attempt.results.get(gate)
             for flag in result.flags if result is not None else ():
-                if flag.name == "locked" and isinstance(flag.action, Reject):
-                    return flag.action.reason
+                if flag.name == "locked" and isinstance(flag.action, Keep):
+                    return flag.action.note
     return None
 
 

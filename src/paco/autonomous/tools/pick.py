@@ -328,7 +328,8 @@ def finish(run_folder: Path, manifest: RunManifest, config: QCConfig) -> tuple[G
 def passing_curves(
     run_folder: Path, manifest: RunManifest, attempts: tuple[Attempt, ...]
 ) -> list[Series]:
-    """The windows' curves whose latest pick passed G3, along the line, as G4 reads them."""
+    """The windows' curves whose latest pick passed G3, along the line: the guides' and the
+    neighbours' a window is tried against (G4 reads the flagged too)."""
     found: list[Series] = []
     for window in manifest.windows:
         picked = latest(attempts, window.folder, "picking")

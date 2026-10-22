@@ -36,11 +36,11 @@ is logged on the line's attempt too, with the loop's notes, and each change the 
 `line_loop.json`, with its trial windows' scores (PAC's run card lists them). The budgets
 : 2 retries per gate and window, 2 per window over the run, counted as each is granted
 (a batch of windows cannot overshoot); a window's inversion draws on its own 6; the line loop
-keeps 4 changes at most (`QCConfig.line`), outside them. A
-unit asking for a retry it cannot have is rejected with its last flags: its budget spent
-(`budget_spent`), the retry would run with the parameters of the attempt before
-(`nothing_to_try`), or it asks only to change settings the user gave (`locked`, its reason
-naming the change asked: `locked, asks dispersion vmax 375 (given: 250)`). A flag whose change
+keeps 4 changes at most (`QCConfig.line`), outside them. A unit asking for a retry it cannot
+have stays flagged and goes on, as every flagged unit (only a rejected unit stops), a note first
+saying why: its budget spent (`budget_spent`), the retry would run with the parameters of the
+attempt before (`nothing_to_try`), or it asks only to change settings the user gave (`locked`, its
+note naming the change asked: `locked, asks dispersion vmax 375 (given: 250)`). A flag whose change
 touches a setting the user gave is held back whole, its parts going together (G5's longer
 sampling doubles the iterations and the burn-in); the unit's other flags retry. A limit the
 user gave (the picking's band, `fmin` and `fmax`) takes the change within it instead (G3's
@@ -88,8 +88,8 @@ against it (`G1.md`).
 
 When the request leaves the user's choice open: work already there that the request asks to
 make again without saying how, or work made by hand that a step would change (the tools'
-options, `paco.choices`). And when stuck: no image or no curve left for the line, windows
-rejected once the budget is spent, or a request the data do not allow (windows longer than the
+options, `paco.choices`). And when stuck: no image or no curve left for the line, or a request
+the data do not allow (windows longer than the
 line). Then one short question with 2 to 4 concrete options, its choice first. The tools say when: `pick` answers "G4
 rejected the line: no curve to invert, you are stuck. Ask the user which to try, with options:
 ..."; `redo` refuses a spent budget the same way. Everywhere else the agent decides from the

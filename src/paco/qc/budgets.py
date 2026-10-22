@@ -1,12 +1,13 @@
 """Bounded retries: a budget per gate and unit, and one for the whole run; a window's
-inversion has its own, whichever gate asks. A unit whose budget is spent is rejected with
-"budget spent" and the last attempt's flags."""
+inversion has its own, whichever gate asks. A unit refused the retry it asks (its budget spent,
+nothing left to try, or a setting the user gave) stays flagged, a note first saying why, and goes
+on as every flagged unit does: only a rejected one stops."""
 
 from collections.abc import Iterable
 from typing import Literal
 
 from paco.qc.log import INVERSION_GATES, retries_at_gate, retries_in_run, retries_of_inversion
-from paco.qc.models import Attempt, Budgets, Flag, GateResult, Reject
+from paco.qc.models import Attempt, Budgets, Flag, GateResult, Keep
 
 
 def run_budget(budgets: Budgets, n_xmids: int) -> int:
@@ -31,33 +32,39 @@ def can_retry(
 # as given).
 type Refusal = Literal["budget", "unchanged", "locked"]
 _REFUSED: dict[Refusal, tuple[str, str]] = {
-    "budget": ("budget_spent", "the retry budget is spent; the last attempt raised {raised}."),
+    "budget": ("budget_spent", "The retry budget is spent; the last attempt raised {raised}."),
     "unchanged": (
         "nothing_to_try",
-        "its retry would run as the attempt before, which raised {raised}: nothing left to try.",
+        "Nothing left to try; its retry would run as the attempt before, which raised {raised}.",
     ),
     "locked": (
         "locked",
-        "it asks {held}, which the user gave and which stays as given; it raised {raised}. "
-        "Suggest the change to the user.",
+        "Its retry changes a setting the user gave, which stays as given; it asks {held} (it "
+        "raised {raised}). Suggest the change to the user.",
     ),
 }
 
 
-def budget_spent(result: GateResult, why: Refusal = "budget", held: str = "") -> GateResult:
+# The notes saying why a unit was refused its retry.
+REFUSALS = frozenset(name for name, _ in _REFUSED.values())
+
+
+def refused(result: GateResult, why: Refusal = "budget", held: str = "") -> GateResult:
     """The result of a unit that asked for a retry it cannot have (`why`; `held`, the changes
-    of the user's settings it asks, in words): rejected, with its flags."""
+    of the user's settings it asks, in words): still flagged, a note first saying why."""
     raised = ", ".join(flag.name for flag in result.flags) or "no flag"
     name, said = _REFUSED[why]
-    flags = (
-        Flag(
-            name=name,
-            message=f"{result.gate}: {said.format(raised=raised, held=held)}",
-            stage=result.flags[0].stage if result.flags else "picking",
-            # A locked setting's: the change it asks, for the window's line in the answer.
-            action=Reject(reason=f"{name}, asks {held}" if held else name.replace("_", " ")),
-            fixable=False,
-        ),
-        *result.flags,
+    note = Flag(
+        name=name,
+        message=said.format(raised=raised, held=held),
+        stage=result.flags[0].stage if result.flags else "picking",
+        # A locked setting's: the change it asks, for the window's line in the answer.
+        action=Keep(note=f"{name}, asks {held}" if held else name.replace("_", " ")),
+        fixable=False,
     )
-    return result.model_copy(update={"verdict": "reject", "flags": flags})
+    return result.model_copy(update={"flags": (note, *result.flags)})
+
+
+def was_refused(result: GateResult) -> bool:
+    """Whether `result` says already why its retry was refused: refused once, never again."""
+    return any(flag.name in REFUSALS for flag in result.flags)

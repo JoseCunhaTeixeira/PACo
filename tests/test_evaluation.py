@@ -94,7 +94,7 @@ from paco.qc import (
     load_qc_config,
     snapshot_qc_config,
 )
-from paco.qc.budgets import budget_spent
+from paco.qc.budgets import refused
 from paco.qc.coherence import COHERENCE_FILE
 from paco.qc.log import JUDGED
 from paco.qc.models import Flag, GateResult, Override
@@ -420,9 +420,10 @@ def test_facts_read_from_disk(tmp_path: Path) -> None:
             "line": {"G4": "pass"},
         },
     )
-    trial = _trial([], "2 curves passed.", tmp_path)
+    # The curves the inversion takes: those G3 and G4 did not reject, the flagged one too.
+    trial = _trial([], "3 curves not rejected.", tmp_path)
 
-    assert curves(trial) == "2"
+    assert curves(trial) == "3"
     assert answer_mentions(curves)(trial).passed
     assert models(trial) == "(no inversion)"
     assert no_inversion_started()(trial).passed
@@ -501,14 +502,14 @@ def test_the_settings_given_are_read_as_kept_and_their_refusals_found(tmp_path: 
             ),
         ),
     )
-    refused = budget_spent(result, "locked", "dispersion vmax 900 (given: 250)")
+    flagged = refused(result, "locked", "dispersion vmax 900 (given: 250)")
     inverted = _attempt(
         "xmid_2.88", "inversion", "initial", {"vs_layers": [{"vs_max": 300.0}, {"vs_max": 180.0}]}
     ).model_copy(update={"notes": ("vs_max 180 m/s ...: kept as given (the check sets 450 m/s).",)})
     append_attempt(
         run,
         _attempt("xmid_2.88", "phase_shift", "initial", {}).model_copy(
-            update={"results": {"G2": refused}}
+            update={"results": {"G2": flagged}}
         ),
     )
     append_attempt(run, inverted)
@@ -1115,8 +1116,9 @@ def test_the_loops_checks_read_a_real_run(paco_env: Settings, tmp_path: Path) ->
             True,
         ),
         ("in order: run_processing, pick", True),
-        # 3 curves of the 4 windows passed G3 and G4, with the tests' 7 shots.
-        ("answer mentions 3", True),
+        # The 4 windows' curves G3 and G4 did not reject (a retry refused stays flagged), with the
+        # tests' 7 shots.
+        ("answer mentions 4", True),
         ("invert never called", True),
         ("invert_petro never called", True),
         ("the agent asked nothing", True),

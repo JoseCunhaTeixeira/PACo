@@ -276,10 +276,12 @@ def test_the_models_are_decided_as_section_8_says(inverted: Inverted) -> None:
     verdict = attempt.results["G5"].verdict
 
     if verdict == "retry":
-        assert "G5 did not pass its model" in accept
+        # Flagged, it goes on: accepting it needs a reason naming its flags.
+        assert "accepting models with flags or notes needs a reason" in accept
+        assert "not_converged" in accept
         assert "owes an inversion after its fixable" in untried
         assert reject.startswith("Rejected 1 window at xmid 77.25 (1): not_converged")
-        assert reject.splitlines()[1].startswith("- 77.25 had: #1 3,000 iterations (retry)")
+        assert reject.splitlines()[1].startswith("- 77.25 had: #1 3000 iterations (retry)")
     elif verdict == "reject":  # a blocking flag: rejected without more
         assert "blocking flag" in accept
         assert untried.startswith("Rejected 1 window at xmid 77.25 (1): no use")

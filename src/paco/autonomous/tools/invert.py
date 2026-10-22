@@ -549,15 +549,15 @@ def _not_invertible(
 
 
 def _sections(run_folder: Path, manifest: RunManifest, config: QCConfig) -> None:
-    """PAC's section of the line over the models G5 passed, as PACo's job saves it: best effort,
-    never the job's failure."""
+    """PAC's section of the line over the models G5 did not reject (passed or flagged), as
+    PACo's job saves it: best effort, never the job's failure."""
     attempts = read_attempts(run_folder)
     passed = [
         window.folder
         for window in manifest.windows
         if (attempt := latest(attempts, window.folder, "inversion")) is not None
         and (g5 := attempt.results.get("G5")) is not None
-        and g5.verdict == "pass"
+        and g5.verdict != "reject"
     ]
     try:
         save_section(run_folder, passed, window_m=window_length(run_folder))

@@ -77,7 +77,7 @@ Invert every window with one set; group the windows by G5's symptoms (job_status
 with the change each fixable flag suggests); merge each window's changes into one set and invert
 that group again, within each window's retries, in this order: the chains first, then the Vs
 bounds, then the depth, then the layer count. Then accept or reject each model (decide), a reason
-for any note. G6 compares the models along the line at the end: a jump their curves do not show
+for any flag or note: a model G5 flagged goes on, only a rejected one stops. G6 compares the models along the line at the end: a jump their curves do not show
 is non-uniqueness, kept with its flag. Your memory here is each window's inversions: the
 parameters changed, G5's measures, the verdict; the processing is behind you.
 

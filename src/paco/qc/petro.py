@@ -1,7 +1,8 @@
 """The petrophysical inversion of a judged run, the QC way, which the agent runs when the user
-asks for it. The curves G4 passed that the chosen Silex model's trained range covers (the others
-left out, with how they fall outside), each inverted in worker processes; G7 on each, G8 along
-the line over those G7 passed, and PAC's sections over the windows both passed. Every window's
+asks for it. The curves not rejected (G3 and G4 passed or flagged them, or a person picked them)
+that the chosen Silex model's trained range covers (the others left out, with how they fall
+outside), each inverted in worker processes; G7 on each, G8 along the line over those G7 passed,
+and PAC's sections over the windows both passed. Every window's
 attempt goes to the QC log.
 
 The model runs only with sigpipe's silex and santiludo extras (PACo's petro extra, or PAC's own
@@ -78,7 +79,7 @@ class PetroModelCard(BaseModel):
 
     name: str
     trained_on: str  # the band, velocities, soils, layers and water tables of its training
-    covers: str  # "1 of the 6 curves G4 passed; 5 end below 43 Hz"
+    covers: str  # "1 of the 6 curves not rejected; 5 end below 43 Hz"
     n_covered: int
 
 
@@ -94,7 +95,7 @@ class PetroChoice(BaseModel):
 def petro_models(
     run_id: str, settings: Settings, units: Collection[str] | None = None
 ) -> PetroChoice:
-    """Every bundled Silex model, against run `run_id`'s curves that G4 passed (those of `units`
+    """Every bundled Silex model, against run `run_id`'s curves not rejected (those of `units`
     alone when given: an autonomous study's frozen curves)."""
     run_folder = find_run(run_id, settings)
     ready = {
@@ -115,7 +116,7 @@ def petro_models(
                 f"{card.min_vel:.0f}-{card.max_vel:.0f} m/s; soils {', '.join(card.soils)}; up "
                 f"to {card.max_layers} layers down to {card.max_depth:g} m; water tables "
                 f"{card.water_table[0]:g}-{card.water_table[1]:g} m",
-                covers=f"{n_covered} of the {len(ready)} curves G4 passed"
+                covers=f"{n_covered} of the {len(ready)} curves not rejected"
                 + (f"; {left}" if left else ""),
                 n_covered=n_covered,
             )
@@ -387,7 +388,7 @@ def _described(
     """What the agent reports: coverage, then the soils and water table of the models G7 and G8
     passed, and the sections written."""
     covered = sum(not found for found in gaps.values())
-    lines = [f"Silex model {card.name} covers {covered} of the {len(gaps)} curves G4 passed."]
+    lines = [f"Silex model {card.name} covers {covered} of the {len(gaps)} curves not rejected."]
     if left := _left_out(card, gaps):
         lines.append(f"Left out, outside its range: {left}.")
     if passed:

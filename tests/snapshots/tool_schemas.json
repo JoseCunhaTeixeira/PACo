@@ -339,7 +339,7 @@
     "open_world_hint": false,
     "read_only_hint": false
    },
-   "description": "Invert curves into layered Vs models as a background job, every mode of each window:\nthose G3 and G4 passed, and those picked by hand (taken as they are); unjudged automatic\ncurves are judged first. By default the windows without a model. Bounds from each curve\n(values given are checked), G5 and G6 retrying what they can. Follow it with job_status.\nModels already there, or made by hand, give options first.",
+   "description": "Invert curves into layered Vs models as a background job, every mode of each window:\nthose G3 and G4 did not reject, and those picked by hand (taken as they are); unjudged automatic\ncurves are judged first. By default the windows without a model. Bounds from each curve\n(values given are checked), G5 and G6 retrying what they can. Follow it with job_status.\nModels already there, or made by hand, give options first.",
    "input_schema": {
     "properties": {
      "hand": {
@@ -797,7 +797,7 @@
     "open_world_hint": false,
     "read_only_hint": false
    },
-   "description": "Only if the user asks: invert the run's curves G4 passed that `model` covers into soils,\nN values and the water table, checked by G7 per window and G8 along the line; writes PAC's\npetrophysical sections. Returns the gates' summary and what the models say. Soil columns\nalready there, or made by hand, give options first.",
+   "description": "Only if the user asks: invert the curves invert takes that `model` covers into soils,\nN values and the water table, checked by G7 per window and G8 along the line; writes PAC's\npetrophysical sections. Returns the gates' summary and what the models say. Soil columns\nalready there, or made by hand, give options first.",
    "input_schema": {
     "properties": {
      "hand": {
@@ -1415,7 +1415,7 @@
     "open_world_hint": false,
     "read_only_hint": true
    },
-   "description": "Only if the user asks for soils or the water table: the Silex models of the\npetrophysical inversion, what each was trained on, and how many of the run's curves G4\npassed it covers (why not the others). Choose the one covering the most.",
+   "description": "Only if the user asks for soils or the water table: the Silex models of the\npetrophysical inversion, what each was trained on, and how many of the curves not rejected\nit covers (why not the others). Choose the one covering the most.",
    "input_schema": {
     "properties": {
      "run_id": {
@@ -2209,5 +2209,5 @@
    }
   }
  },
- "version": "tools-4649391b"
+ "version": "tools-79682eb8"
 }

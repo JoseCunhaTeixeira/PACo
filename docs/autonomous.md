@@ -25,7 +25,8 @@ agent page with the mode set to Autonomous. It needs a model with vision and a l
 
 ## The checks
 
-PACo checks every step. A check passes, flags or rejects; the agent then accepts or rejects.
+PACo checks every step. A check passes, flags or rejects; the agent then accepts or rejects. A
+flagged unit goes on to the next step; only a rejected one stops.
 
 | Check | What it judges |
 |---|---|
@@ -101,7 +102,8 @@ pick.
 
 Then the agent decides each window (`decide`): accepted, or rejected with its reason. PACo refuses:
 
-- accepting a curve the curve check did not pass, or one off its neighbours;
+- accepting a curve the curve check or the check against the neighbouring curves rejected: a
+  flagged curve can be accepted, its flags given a reason;
 - rejecting a window before it was tried hard: the line's pick, a pick after a flag that can be
   fixed, a pick guided by its neighbours, and a lasso.
 
@@ -115,7 +117,8 @@ Then the agent decides each window (`decide`): accepted, or rejected with its re
 parameters. Each window's bounds come from its own curve; the settings the user typed stay. The
 model check judges each model, then the check against the neighbouring models judges the line.
 Nothing is retried automatically: the agent reads the checks' results and inverts a group again,
-within each window's budget of retries. It then decides each model.
+within each window's budget of retries. It then decides each model: PACo refuses accepting a
+model the model check rejected; a flagged model can be accepted, its flags given a reason.
 
 ### 8. The soil columns
 
@@ -149,6 +152,7 @@ Each step offers only its tools. `inspect`, `preset_settings`, `inversion_settin
 
 ## Rules PACo enforces
 
+- Only a rejected unit stops: a flagged record, image, curve or model goes on.
 - The settings the user typed stay as given.
 - A tool of another step is refused.
 - A window is rejected only once tried hard.

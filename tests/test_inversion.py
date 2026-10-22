@@ -42,16 +42,16 @@ from paco.qc.curves import pick_line
 from paco.qc.line import process_line
 from paco.settings import Settings
 
-# Four 24-receiver windows along active_test_profile, as in test_runs.py; G3 and G4 pass three of the
-# four curves (each pick stops where its ridge breaks).
+# Four 24-receiver windows along active_test_profile, as in test_runs.py; G3 and G4 reject none of
+# the four curves (each pick stops where its ridge breaks).
 SMALL_WINDOWS = {"masw": {"length": 24, "step": 24}}
 # A short sampler: every step of an inversion, in about a second per window; far too short for
 # G5, whose retries (twice the iterations, twice) are then spent.
 SHORT = {"n_iterations": 500, "n_burnin_iterations": 50, "n_chains": 2}  # two at least
-# xmid 125.25 has no curve: G3 rejects its pick, a single point in the aliasing zone, its
-# retries spent.
-# The windows G4 passes on active_test_profile.
-PICKED = ("xmid_17.25", "xmid_53.25", "xmid_89.25")
+# xmid 125.25's pick, a narrow span in the aliasing zone, stays flagged once its retries are spent:
+# it goes on, as every flagged curve.
+# The windows the inversion takes on active_test_profile.
+PICKED = ("xmid_17.25", "xmid_53.25", "xmid_89.25", "xmid_125.25")
 # The files PAC's invert_position writes in a window folder.
 PAC_FILES = {
     "SeismicInversion_DensityCurves_0000.png",
@@ -224,7 +224,7 @@ def test_the_burnin_follows_the_iterations() -> None:
 
 
 @pytest.mark.slow
-def test_submit_records_a_queued_job_of_the_windows_g4_passed(
+def test_submit_records_a_queued_job_of_the_windows_not_rejected(
     picked: Picked, tmp_path: Path
 ) -> None:
     settings, folder = _copy(picked, tmp_path)
@@ -235,7 +235,7 @@ def test_submit_records_a_queued_job_of_the_windows_g4_passed(
     assert (record.run_id, record.state, record.total, record.windows, record.given) == (
         picked.run_id,
         "queued",
-        3,
+        4,
         (),
         SHORT,
     )
@@ -300,16 +300,16 @@ def test_one_inversion_per_run_at_a_time(picked: Picked, tmp_path: Path, state: 
 
 
 @pytest.mark.slow
-def test_every_window_g4_passed_is_inverted(inverted: Inverted) -> None:
+def test_every_window_not_rejected_is_inverted(inverted: Inverted) -> None:
     record = inverted.record
 
-    assert (record.state, record.total, record.error) == ("succeeded", 3, None)
+    assert (record.state, record.total, record.error) == ("succeeded", 4, None)
     assert record.started_at is not None and record.finished_at is not None
     assert [window.folder for window in record.windows] == list(PICKED)
     # The ensemble is reported at round depths down to half the longest wavelength.
     assert record.depths_m and record.depths_m[0] > 0
     # sigpipe's own chains: none fails.
-    assert [window.status for window in record.windows] == ["succeeded"] * 3
+    assert [window.status for window in record.windows] == ["succeeded"] * 4
     for window in record.windows:
         # The layers chosen by the data, up to 8.
         assert window.vs_m_s is not None and 1 <= len(window.vs_m_s) <= 8
@@ -320,8 +320,8 @@ def test_every_window_g4_passed_is_inverted(inverted: Inverted) -> None:
         assert window.depth_informed_m is not None and window.depth_informed_m > 0
         assert window.misfit is not None and window.misfit >= 0
     # The first pass reports its progress, then each batch of the gates' retries its own.
-    assert inverted.progress[:4] == [(done, 3, "inverted") for done in range(4)]
-    assert all(doing.endswith(" retries") for _, _, doing in inverted.progress[5:])
+    assert inverted.progress[:5] == [(done, 4, "inverted") for done in range(5)]
+    assert all(doing.endswith(" retries") for _, _, doing in inverted.progress[6:])
     # What job_status reads is what the job returned.
     assert read_record(inverted.folder) == record
 
@@ -349,10 +349,10 @@ def test_g5s_retries_are_in_the_jobs_summary(inverted: Inverted) -> None:
 
 
 @pytest.mark.slow
-def test_the_section_of_the_models_g5_passed_is_saved_like_pacs(inverted: Inverted) -> None:
+def test_the_section_of_the_models_g5_did_not_reject_is_saved_like_pacs(inverted: Inverted) -> None:
     # PAC's end-of-run outputs: the ensemble's section as a figure, every variant's in an
-    # HDF5 file, over the models G5 passed (two at least; the sampler here is short).
-    passed = [window for window in inverted.record.windows if window.verdict == "pass"]
+    # HDF5 file, over the models G5 did not reject (two at least; the sampler here is short).
+    passed = [window for window in inverted.record.windows if window.verdict in ("pass", "retry")]
     figure, grids = inverted.folder / SECTION_FIGURE, inverted.folder / SECTION_FILE
     if len(passed) < 2:
         assert not figure.exists()
@@ -361,7 +361,7 @@ def test_the_section_of_the_models_g5_passed_is_saved_like_pacs(inverted: Invert
     # And the picked curves against the ones the ensembles predict, along the line.
     assert (inverted.folder / COMPARISON_FIGURE).exists()
     assert inverted.record.summary is not None
-    assert f"Section of the {len(passed)} models G5 passed: {SECTION_FIGURE}." in (
+    assert f"Section of the {len(passed)} models G5 did not reject: {SECTION_FIGURE}." in (
         inverted.record.summary
     )
     with h5py.File(grids) as file:
@@ -389,7 +389,11 @@ def test_a_window_whose_curve_is_gone_is_left_out(picked: Picked, tmp_path: Path
     record = run_inversion_job(submit_inversion(picked.run_id, SHORT, settings), settings)
 
     assert record.state == "succeeded"
-    assert [window.folder for window in record.windows] == ["xmid_53.25", "xmid_89.25"]
+    assert [window.folder for window in record.windows] == [
+        "xmid_53.25",
+        "xmid_89.25",
+        "xmid_125.25",
+    ]
 
 
 @pytest.mark.slow
@@ -425,7 +429,7 @@ def test_a_window_whose_curve_gives_no_model_is_left_out_with_why(
     assert [window.error for window in failed] == [
         "InversionError: The curve's wavelengths resolve fewer than 3 layers."
     ]
-    assert len(record.windows) == 3
+    assert len(record.windows) == 4
 
 
 @pytest.mark.slow

@@ -200,10 +200,10 @@ def test_decide_refuses_a_blocking_flag(played: Played) -> None:
 def test_decide_refuses_an_unjustified_note(played: Played) -> None:
     said = answer(played, 9)
 
-    assert "accepting curves with notes needs a reason, one line that covers them" in said
-    assert "near_field at xmid " in said
+    assert "accepting curves with flags or notes needs a reason, one line that covers them" in said
+    assert "inverse_dispersion at xmid " in said
     assert (
-        answer(played, 10).splitlines()[1].startswith("The reason covers their notes: near_field")
+        answer(played, 10).splitlines()[1].startswith("The reason covers their flags and notes: ")
     )
 
 
@@ -351,7 +351,7 @@ def test_the_windows_a_spec_names(judged_line: JudgedLine) -> None:
     assert named("all") == ["17.25", "53.25", "89.25", "125.25"]
     assert named("xmids:40-100") == ["53.25", "89.25"]
     assert named("xmids:[50, 120]") == ["53.25", "125.25"]
-    assert named("flag:near_field+xmids:80-130") == ["89.25", "125.25"]
+    assert named("flag:aliasing+xmids:80-130") == ["89.25", "125.25"]
     assert named("status:accepted", {"xmid_53.25": "accepted"}) == ["53.25"]
     assert named("status:pending", {"xmid_53.25": "accepted"}) == ["17.25", "89.25", "125.25"]
     with pytest.raises(ValueError, match="No window at 300 m"):

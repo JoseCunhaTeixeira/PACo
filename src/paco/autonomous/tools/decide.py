@@ -1,7 +1,8 @@
 """decide: the model's decision on each window of the committed
 line, accepted, rejected or pending, with its reason. Code refuses: accepting a window
-whose curve did not pass G3, carries a blocking flag, or is off its neighbours (G4); accepting a
-curve with notes without a reason; and rejecting a window before it was tried hard. Tried
+whose curve G3 or G4 rejected, or that carries a blocking flag (a flagged curve goes on, as every
+flagged unit: only a rejected one stops); accepting a curve with flags or notes without a reason;
+and rejecting a window before it was tried hard. Tried
 hard means the line's automatic pick, a pick of the model's after it when it carried fixable flags
 (or a reason naming those flags, saying why none applies), a pick guided by its neighbours when one
 side has its two passing G3, and a lasso when the model sees the images. The model's own picks owe
@@ -26,6 +27,7 @@ from sigpipe.masw.runs import RunManifest
 from paco.autonomous.sensors.flags import flag_class
 from paco.autonomous.tools.pick import Picked, manifest_of, neighbours, passing_curves, picks_of
 from paco.autonomous.tools.trials import Study, check_open
+from paco.qc.budgets import REFUSALS
 from paco.qc.config import QCConfig
 from paco.qc.judging import saved_m0
 from paco.qc.log import latest, read_attempts
@@ -117,7 +119,7 @@ def decide(
         if notes and reason is None and not problems:
             said = "; ".join(f"{name} at {_where(found)}" for name, found in notes.items())
             raise ValueError(
-                f"Nothing decided: accepting curves with notes needs a reason, one line that "
+                f"Nothing decided: accepting curves with flags or notes needs a reason, one line that "
                 f"covers them: {said}."
             )
     elif status == "rejected":
@@ -167,8 +169,9 @@ def decide(
 def acceptable(
     run_folder: Path, attempts: tuple[Attempt, ...], unit: str
 ) -> tuple[str | None, list[str]]:
-    """Why the window's curve cannot be accepted (none: it can), and the notes it carries, G3's
-    and G4's, which accepting it needs a reason for."""
+    """Why the window's curve cannot be accepted (none: it can), and the flags and notes it
+    carries, G3's and G4's, which accepting it needs a reason for (not why a retry was refused:
+    PACo's budgets')."""
     imaged = latest(attempts, unit, "phase_shift")
     picked = latest(attempts, unit, "picking")
     g2 = imaged.results.get("G2") if imaged is not None else None
@@ -183,20 +186,23 @@ def acceptable(
             "clears it",
             [],
         )
-    if g3.verdict != "pass":
-        fixable = [flag.name for flag in g3.flags if flag_class(flag) == "fixable"]
+    if g3.verdict == "reject":
         return (
-            f"G3 did not pass its curve ({g3.verdict}: {', '.join(fixable)}): pick it again, or "
+            f"G3 rejected its curve ({', '.join(f.name for f in g3.flags)}): pick it again, or "
             "reject it",
             [],
         )
-    if g4 is not None and g4.verdict != "pass":
+    if g4 is not None and g4.verdict == "reject":
         return (
-            f"G4 finds its curve off its neighbours ({', '.join(f.name for f in g4.flags)}): "
-            "pick it along them (how=guide, guide=neighbours)",
+            f"G4 rejected its curve, off its neighbours ({', '.join(f.name for f in g4.flags)}): "
+            "pick it along them (how=guide, guide=neighbours), or reject it",
             [],
         )
-    return None, [flag.name for flag in _flags(g3, g4) if flag_class(flag) == "note"]
+    return None, [
+        flag.name
+        for flag in _flags(g3, g4)
+        if flag_class(flag) in ("note", "fixable") and flag.name not in REFUSALS
+    ]
 
 
 def describe_decided(decided: Decided) -> str:
@@ -210,7 +216,7 @@ def describe_decided(decided: Decided) -> str:
     lines = [head + (f": {decided.reason}" if decided.reason else ".")]
     if decided.notes:
         said = ", ".join(f"{name} ({len(found)})" for name, found in decided.notes.items())
-        lines.append(f"The reason covers their notes: {said}.")
+        lines.append(f"The reason covers their flags and notes: {said}.")
     for unit, tried in decided.tried.items():
         lines.append(f"- {unit.removeprefix('xmid_')} had: {', '.join(tried) or 'no pick'}.")
     counted = {

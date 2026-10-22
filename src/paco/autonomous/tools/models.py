@@ -1,8 +1,9 @@
 """decide on models: after the freeze, the model's decision on each
 window's Vs model, accepted, rejected or pending, with its reason, as decide does on the curves
-before it. Code refuses: accepting a model G5 did not pass, or one with a blocking flag (G5's or
-G6's); accepting a model whose notes (G5's and G6's, and G6's suggestions, which a model may keep:
-a jump the curves do not show is non-uniqueness) have no reason; rejecting a window before its
+before it. Code refuses: accepting a model G5 rejected, or one with a blocking flag (G5's or G6's):
+a flagged model goes on, as every flagged unit; accepting a model whose flags and notes (G5's and
+G6's, and G6's suggestions, which a model may keep: a jump the curves do not show is
+non-uniqueness) have no reason; rejecting a window before its
 model's fixable flags were tried (a later inversion of it, or the reason naming the flag), unless
 its retries are spent or G5 rejected its model. A decision holds for the model it was made on: a
 later inversion makes the window pending again. The study keeps every decision
@@ -19,6 +20,7 @@ from paco.autonomous.tools.decide import Decided, Status
 from paco.autonomous.tools.invert import Inverted, inversions_of
 from paco.autonomous.tools.pick import manifest_of
 from paco.autonomous.tools.trials import CURVES, Study
+from paco.qc.budgets import REFUSALS
 from paco.qc.log import latest, read_attempts
 from paco.qc.models import Attempt, Flag, GateResult
 
@@ -93,7 +95,7 @@ def decide(
         if notes and reason is None and not problems:
             said = "; ".join(f"{name} ({len(found)})" for name, found in notes.items())
             raise ValueError(
-                f"Nothing decided: accepting models with notes needs a reason, one line that "
+                f"Nothing decided: accepting models with flags or notes needs a reason, one line that "
                 f"covers them: {said}."
             )
     elif status == "rejected":
@@ -136,7 +138,8 @@ def decide(
 
 def acceptable(attempts: tuple[Attempt, ...], unit: str) -> tuple[str | None, list[str]]:
     """Why the window's model cannot be accepted (none: it can), and what accepting it needs a
-    reason for: G5's and G6's notes, and G6's suggestions."""
+    reason for: G5's and G6's flags and notes, and G6's suggestions (not why a retry was refused:
+    PACo's budgets')."""
     inverted = latest(attempts, unit, "inversion")
     g5 = inverted.results.get("G5") if inverted is not None else None
     g6 = inverted.results.get("G6") if inverted is not None else None
@@ -145,17 +148,17 @@ def acceptable(attempts: tuple[Attempt, ...], unit: str) -> tuple[str | None, li
     blocking = [flag.name for flag in _flags(g5, g6) if flag_class(flag) == "blocking"]
     if blocking:
         return f"blocking flag {', '.join(blocking)}: it cannot be accepted", []
-    if g5.verdict != "pass":
-        fixable = [flag.name for flag in g5.flags if flag_class(flag) == "fixable"]
+    if g5.verdict == "reject":
         return (
-            f"G5 did not pass its model ({g5.verdict}: {', '.join(fixable)}): invert it again "
+            f"G5 rejected its model ({', '.join(f.name for f in g5.flags)}): invert it again "
             "within its budget, or reject it",
             [],
         )
     kept = [
         flag.name
         for flag in _flags(g5, g6)
-        if flag_class(flag) == "note" or (g6 is not None and flag in g6.flags)
+        if (flag_class(flag) in ("note", "fixable") or (g6 is not None and flag in g6.flags))
+        and flag.name not in REFUSALS
     ]
     return None, kept
 

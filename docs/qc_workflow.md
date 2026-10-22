@@ -26,7 +26,7 @@ Artifacts in [ ], gates in < >.
     [dispersion curve per xmid]
       <G3 curve QC, per xmid>
       <G4 curve profile QC, whole line>
-      gate decision: S4 starts for the xmids G4 passed; the rejected ones are reported, never inverted
+      gate decision: S4 starts for the xmids whose curve G3 and G4 did not reject (passed or flagged); the rejected ones are reported, never inverted
       S4 MCMC inversion, per xmid (every mode picked, as PAC inverts them by default: M0, and the
          higher modes a person picked in PAC; G5 judges M0's fit)
     [Vs model per xmid: the ensemble, PAC's default view, is the one monitored and reported]
@@ -34,7 +34,7 @@ Artifacts in [ ], gates in < >.
       <G6 model profile QC, whole line>
     [final Vs model per xmid + QC report]
 
-    Only when the user asks for soils or the water table, from the curves G4 passed:
+    Only when the user asks for soils or the water table, from the curves not rejected:
       range check: the curves the chosen Silex model's trained band and velocities cover; the others are reported, never inverted
       S5 petrophysical inversion, per xmid (Silex: soils, N values, water table; santiludo's rock physics)
     [petrophysical model per xmid]
@@ -44,10 +44,10 @@ Artifacts in [ ], gates in < >.
 
 ## Rules for every gate
 
-1. Output per unit (record or xmid): verdict `pass`, `retry` or `reject`; each metric with its threshold; the flags raised; and for each flag, the stage most likely at fault (this one or an earlier one) and a concrete suggested change as overrides that can be applied as they are, not only a sentence.
+1. Output per unit (record or xmid): verdict `pass`, `retry` (flagged) or `reject`; a flagged unit goes on to the next stage, only a rejected one stops; each metric with its threshold; the flags raised; and for each flag, the stage most likely at fault (this one or an earlier one) and a concrete suggested change as overrides that can be applied as they are, not only a sentence.
 2. Fixable vs not fixable: a dead geophone, a trigger inconsistent from trace to trace, or a window without enough offset coverage does not improve with parameters. Actions a gate can advise: change parameters of stage k, exclude traces, exclude a record, reject the xmid. `reject` is a legitimate end state, with its reason.
 3. Cheapest fix first: re-pick before re-running the phase shift, before re-preprocessing. Going back to stage k invalidates everything downstream, for the affected xmids only; the others keep their results.
-4. Bounded: a retry budget per gate and per unit, and a total budget per run, all configurable. When a budget is spent, the unit is rejected with "budget spent" and the last attempt's flags. No loop can run forever. Stop at the first attempt that passes.
+4. Bounded: a retry budget per gate and per unit, and a total budget per run, all configurable. When a budget is spent, the unit stays flagged, a note first saying why ("budget spent"), and goes on. No loop can run forever. Stop at the first attempt that passes.
 5. The judge is fixed during the loop: the loop changes processing, picking and inversion parameters, never QC thresholds; only the user changes thresholds, between runs (`PACO_QC_CONFIG`).
 6. A fix must not win by throwing data away. Each gate also reports what was kept: usable band, wavelength range, number of points, traces and records. A retry that passes by shrinking this well below the previous attempt, or below the line's median, is flagged. Example: a mute that sharpens the image but loses the low frequencies.
 7. Parameters come from the data and the geometry, not from defaults (see "Coherence rules for S2"). They are checked before any work, like `resolving.py`, with errors written for the agent. PAC's form defaults (3-receiver windows) are not acceptable derived values.
@@ -85,7 +85,7 @@ No one looks at the curves before the inversion: G3 is the safety net for the pi
 - Actions: the window's picking parameters (corridor, coherence rule, max wavelength, mode rule, resampling, the band of the coherent ridge); a mute is the line's, which the line loop tries on G3's trial picks (`docs/gates/loop.md`). Details: `docs/gates/G3.md`.
 
 ### G4 curve profile QC (whole line)
-- Build the pseudo-section Vr(λ, xmid) from the passing curves.
+- Build the pseudo-section Vr(λ, xmid) from the curves G3 did not reject.
 - Compare each curve with the median of its neighbours (two a side, within 3 of the line's steps: across a gap, none) at the same wavelengths; a relative misfit above 15 % puts it off that side.
 - An isolated outlier, one xmid off neighbours that agree with each other and fitting no side, is suspect. A change shared with one side is geology and is kept.
 - Coverage: runs of rejected xmids, and wavelength ranges that vary a lot along the line (depths of investigation not comparable).
@@ -108,7 +108,7 @@ No one looks at the curves before the inversion: G3 is the safety net for the pi
 
 ### G6 model profile QC (whole line)
 - Vs at fixed depths along the line, each model down to G5's depth informed; not the interface depths.
-- An isolated jump that the curves don't show (G4 found the neighbouring curves agree) is non-uniqueness: kept with its flag, since G5 passed the model converged, and sampling longer gives the same posterior. A jump the curves also show is kept.
+- An isolated jump that the curves don't show (G4 found the neighbouring curves agree) is non-uniqueness: kept with its flag, since a model G5 passed converged, and sampling longer gives the same posterior; of a model G5 flagged, the note says its sampling may be the cause. A jump the curves also show is kept.
 - The depth informed consistent along the line.
 - No lateral smoothing, neither by editing models nor by using neighbours as priors: it would create the smoothness it then reports. Details: `docs/gates/G6.md`.
 
@@ -135,7 +135,7 @@ In the order of PAC's page for each method: the windows, the preprocessing, the 
 
 ## Agent side
 Constraints: a small model on a local GPU, a 16,384-token context, one tool call per reply, 15 tool calls per answer; the model sees summaries only, and the tool cards have a measured budget.
-- The agent asks when the request leaves the user's choice open (work already there, work made by hand: below) or when it is stuck: the data cannot decide (no image or no curve left for the line, windows rejected once the retry budget is spent, a request the data do not allow, such as windows longer than the line). It asks one short question with 2 to 4 concrete options, its choice first, and waits. Settings the user did not give are its own to choose, never a reason to ask; otherwise it applies the gates' fixes and goes back a stage by itself, saying what it changed.
+- The agent asks when the request leaves the user's choice open (work already there, work made by hand: below) or when it is stuck: the data cannot decide (no image or no curve left for the line, a request the data do not allow, such as windows longer than the line). It asks one short question with 2 to 4 concrete options, its choice first, and waits. Settings the user did not give are its own to choose, never a reason to ask; otherwise it applies the gates' fixes and goes back a stage by itself, saying what it changed.
 - Settings the user types in the chat are the only exception to "derived": the loop starts from them. If a gate then concludes one must change, the agent changes it and says so in its answer, without asking.
 - The go/no-go before the inversion of the agent's curves is G4's verdict: `invert` reads G4's record from the QC log; a person's curves are taken as they are, and automatic curves no gate judged are judged first. There is no approval step.
 - Work already there is gone on from, and redone only as the user chooses: a tool meeting a profile's run (processing), a run's curves (picking), models or soil columns (inverting) does nothing, says what is there and gives the options with the calls they make (paco.choices). The agent calls the option the request names, goes on from the run when the request asks only for the stages after its work, and otherwise asks. What the agent did in the same conversation it goes on with, without asking (the host sends the conversation's id and turn with each call).
@@ -148,7 +148,7 @@ Constraints: a small model on a local GPU, a 16,384-token context, one tool call
 - Placeholders, not values, in tool descriptions (small models copy example values).
 - Evaluation scenarios (`paco.evaluation`), on the demo profiles, synthetic variants of the demo profiles with known defects, and settings the user types:
   - Looking around: the profiles, one profile's geometry, a profile that does not exist.
-  - Zero settings: "process active_test_profile and give me the Vs models" with nothing else; the agent must not ask a single question, and the run must end with models for the xmids G4 passed and reasons for the rest.
+  - Zero settings: "process active_test_profile and give me the Vs models" with nothing else; the agent must not ask a single question, and the run must end with models for the xmids whose curve G3 and G4 did not reject and reasons for the rest.
   - PAC's three modes, and soils and the water table.
   - G1: a dead trace (a copy of active_test_profile with a zeroed trace), and the line's own trigger delay.
   - G2: a velocity range too narrow.
@@ -157,7 +157,7 @@ Constraints: a small model on a local GPU, a 16,384-token context, one tool call
   - Stuck: a passive line with no wave (passive_test_profile's geometry with white noise for records), and windows longer than the line: the agent asks.
   - A setting the user typed that a gate asks to change: it stays as given, the windows that need the change are left out, and the answer says the change asked (`narrow_velocities`, `few_iterations`, `tight_bounds`).
   - A picking band the user typed: "between 12 and 40 Hz" (`pick_band`) and "down to 12 Hz" (`pick_down_to`), every point of every curve within it (the windows' picks span 9.5 to 42.5 Hz without it).
-  - Every scenario where the data decide checks that thresholds were never changed and that no question was asked; `inversion_succeeded` is checked only when G4 passed a curve.
+  - Every scenario where the data decide checks that thresholds were never changed and that no question was asked; `inversion_succeeded` is checked only when a curve was not rejected.
   - PAC's pages: a higher mode asked (the agent picks M0 and names Dispersion picking), a run processed and picked by hand (inverted as it is, after `inspect` finds it), one window inverted by its position; an impossible request (a 3D model).
   - Work there: images and "pick and invert" (done, no question), images and "process" (asked), curves and "invert" (done), curves and "pick and invert" (asked), a curve picked by hand and "pick every window again" (keep or replace asked, the curve kept); curves and "pick and invert", a typo, then "pick every window again" (`typo_then_choice`: the options still offered, the choice picks again and inverts, no call outside the scope); images and "process and invert": the run asked by code, then the run there (`work_on_a_run`: picked and inverted, nothing processed) or a new run (`new_run`: processed again, picked and inverted; `new_run_settings`: the active-passive method and a phase-weighted stack at power 1 asked, the new run made with them); a run that does not exist (`wrong_run`: said by code, with the runs there, nothing inverted).
   - Resources: "using 2 workers" (`workers`: the processing on 2 workers, said with the parameters used).

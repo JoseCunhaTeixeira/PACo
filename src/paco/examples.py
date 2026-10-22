@@ -91,7 +91,7 @@ EXAMPLES: dict[str, Example] = {
             "did": f"Picked run {RUN}, 4 windows: G3 3 pass, 1 reject; G4 3 pass.",
             "left": ["xmid 2.88 (1): G3 narrow_span"],
             "summary": "G3: 3 pass, 1 reject.",
-            "next": f"3 curves of run {RUN} passed G3 and G4: invert gives their models.",
+            "next": f"3 curves of run {RUN} not rejected by G3 or G4: invert gives their models.",
         },
     ),
     "judge": Example(
@@ -101,7 +101,7 @@ EXAMPLES: dict[str, Example] = {
             "status": "ok",
             "did": f"Judged run {RUN}, 1 window: G3 1 pass; G4 4 pass.",
             "summary": "G3: 1 pass.",
-            "next": "invert takes the curves G3 and G4 passed.",
+            "next": "invert takes the curves G3 and G4 did not reject.",
         },
     ),
     "inversion_settings": Example(

@@ -39,7 +39,6 @@ from paco.qc import (
     append_attempt,
     archived_attempts,
     attempts_of,
-    budget_spent,
     build_report,
     can_retry,
     changed_settings,
@@ -55,6 +54,7 @@ from paco.qc import (
     read_report,
     record_result,
     redo,
+    refused,
     rerun_phase_shift,
     rerun_picking,
     retries_at_gate,
@@ -68,6 +68,7 @@ from paco.qc import (
     write_report,
     xmid_of,
 )
+from paco.qc.budgets import was_refused
 from paco.qc.g3_curve import CurveThresholds
 from paco.qc.log import ASKED, LINE_CHANGE
 from paco.qc.loops import RetryBudget, deep_merge, next_try, unchanged
@@ -298,16 +299,18 @@ def test_a_unit_may_retry_until_either_budget_is_spent() -> None:
     assert not can_retry(run_spent, budgets, 2, "xmid_12.50", "G2")
 
 
-def test_a_spent_budget_rejects_with_the_last_flags() -> None:
+def test_a_spent_budget_leaves_the_unit_flagged_saying_why() -> None:
     asked = GateResult(gate="G2", unit="xmid_12.50", verdict="retry", flags=(RIDGE_AT_VMAX,))
 
-    rejected = budget_spent(asked)
+    flagged = refused(asked)
 
-    assert rejected.verdict == "reject"
-    assert [flag.name for flag in rejected.flags] == ["budget_spent", "ridge_at_vmax"]
-    assert rejected.flags[0].action == Reject(reason="budget spent")
-    assert not rejected.flags[0].fixable
-    assert "ridge_at_vmax" in rejected.flags[0].message
+    # Still flagged: it goes on as every flagged unit, a note first saying why, refused once.
+    assert flagged.verdict == "retry"
+    assert [flag.name for flag in flagged.flags] == ["budget_spent", "ridge_at_vmax"]
+    assert flagged.flags[0].action == Keep(note="budget spent")
+    assert not flagged.flags[0].fixable
+    assert "ridge_at_vmax" in flagged.flags[0].message
+    assert was_refused(flagged) and not was_refused(asked)
 
 
 def test_a_retry_that_changes_nothing_is_refused_and_said() -> None:
@@ -320,7 +323,7 @@ def test_a_retry_that_changes_nothing_is_refused_and_said() -> None:
     assert next_try(asked, "phase_shift", budget, changes) is None
     assert unchanged(asked, "phase_shift", changes) and not unchanged(asked, "phase_shift", {})
     assert next_try(asked, "phase_shift", budget, {}) is not None
-    said = {why: budget_spent(asked, why).flags[0] for why in ("budget", "unchanged")}
+    said = {why: refused(asked, why).flags[0] for why in ("budget", "unchanged")}
     assert [flag.name for flag in said.values()] == ["budget_spent", "nothing_to_try"]
     assert all(not flag.fixable and "ridge_at_vmax" in flag.message for flag in said.values())
 
@@ -1009,9 +1012,8 @@ def test_judge_run_puts_the_four_gates_in_the_log_and_the_report(
         unit = next(unit for unit in report.units if unit.unit == name)
         assert "shifted_trigger" not in {flag.name for flag in unit.flags.get("G1", ())}
     # G2 and G3 on the four windows: G3 passes three of the four 24-receiver windows, its kept
-    # flags said: the shots nearer than half the longest wavelength kept (each window has one
-    # 0.75 m off an end), an inverse trend; it rejects xmid 53.25, whose pick keeps a single
-    # point, in the aliasing zone.
+    # flag said (an inverse trend); it rejects xmid 53.25, whose pick keeps a single point, in
+    # the aliasing zone.
     windows = [unit for unit in report.units if unit.xmid is not None]
     assert {unit.unit: unit.verdicts["G3"] for unit in windows} == {
         "xmid_17.25": "pass",
@@ -1020,7 +1022,7 @@ def test_judge_run_puts_the_four_gates_in_the_log_and_the_report(
         "xmid_125.25": "pass",
     }
     assert {unit.unit: [flag.name for flag in unit.flags["G3"]] for unit in windows} == {
-        "xmid_17.25": ["near_field"],
+        "xmid_17.25": [],
         "xmid_53.25": [
             "sharpness",
             "on_data",
@@ -1028,10 +1030,9 @@ def test_judge_run_puts_the_four_gates_in_the_log_and_the_report(
             "aliasing_zone",
             "too_few_points",
             "narrow_span",
-            "near_field",
         ],
-        "xmid_89.25": ["near_field"],
-        "xmid_125.25": ["inverse_dispersion", "near_field"],
+        "xmid_89.25": [],
+        "xmid_125.25": ["inverse_dispersion"],
     }
     # The band reaches the image's 100 Hz: kept, not widened. The records each window stacks are
     # usable together from 16.3 to 85.7 Hz (197.dat's band): its coherent band covers them. With
@@ -1044,7 +1045,7 @@ def test_judge_run_puts_the_four_gates_in_the_log_and_the_report(
     assert all(unit.curve is not None and unit.curve.n_points for unit in windows)
     # S3 saved each curve in PAC's layout.
     assert all((run_folder / unit.unit / CURVES_FILE).exists() for unit in windows)
-    # G4 over the line, on the three curves G3 passed: xmid 17.25's is 23% off its neighbours on
+    # G4 over the line, on the three curves G3 did not reject: xmid 17.25's is 23% off its neighbours on
     # its only side, which agree with each other, to be picked again along their median curve;
     # xmid 53.25, whose curve G3 rejected, a gap in the section.
     assert {unit.unit: unit.verdicts.get("G4") for unit in windows} == {
@@ -1066,7 +1067,6 @@ def test_judge_run_puts_the_four_gates_in_the_log_and_the_report(
     text = summarize_report(report)
     assert "G2 band_at_fmax, xmid 17.25-125.25 (4)" in text
     assert "shifted_trigger" not in text
-    assert "G3 near_field, xmid 17.25-125.25 (4)" in text
     assert "G4 gaps, line: No curve at xmid 53.25 (1): the section has gaps there." in text
 
     # The picking again for a window, with an override (asked of the agent): the window's

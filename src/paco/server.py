@@ -434,7 +434,7 @@ def invert(
     hand: Hand = None,
 ) -> inversion.InversionStatus | StageResult:
     """Invert curves into layered Vs models as a background job, every mode of each window:
-    those G3 and G4 passed, and those picked by hand (taken as they are); unjudged automatic
+    those G3 and G4 did not reject, and those picked by hand (taken as they are); unjudged automatic
     curves are judged first. By default the windows without a model. Bounds from each curve
     (values given are checked), G5 and G6 retrying what they can. Follow it with job_status.
     Models already there, or made by hand, give options first."""
@@ -506,8 +506,8 @@ def job_status(job_id: JobId, ctx: Context) -> inversion.InversionStatus:
 @_agent_errors
 def petro_models(run_id: RunId) -> qc.PetroChoice:
     """Only if the user asks for soils or the water table: the Silex models of the
-    petrophysical inversion, what each was trained on, and how many of the run's curves G4
-    passed it covers (why not the others). Choose the one covering the most."""
+    petrophysical inversion, what each was trained on, and how many of the curves not rejected
+    it covers (why not the others). Choose the one covering the most."""
     return qc.petro_models(run_id, get_settings())
 
 
@@ -520,7 +520,7 @@ def invert_petro(
     windows: Windows = None,
     hand: Hand = None,
 ) -> StageResult:
-    """Only if the user asks: invert the run's curves G4 passed that `model` covers into soils,
+    """Only if the user asks: invert the curves invert takes that `model` covers into soils,
     N values and the water table, checked by G7 per window and G8 along the line; writes PAC's
     petrophysical sections. Returns the gates' summary and what the models say. Soil columns
     already there, or made by hand, give options first."""
@@ -1054,11 +1054,12 @@ def _after_picking(report: qc.QCReport) -> _Next:
         unit
         for unit in report.units
         if unit.xmid is not None
-        and unit.verdicts.get("G3") == "pass"
-        and unit.verdicts.get("G4") == "pass"
+        and unit.verdicts.get("G3") not in (None, "reject")
+        and unit.verdicts.get("G4") != "reject"
     ]
     return _Next(
-        f"{len(curves)} curves of run {report.run_id} passed G3 and G4: invert gives their models. "
+        f"{len(curves)} curves of run {report.run_id} not rejected by G3 or G4: invert gives "
+        "their models. "
         "Higher modes (M1, M2) are picked by hand in PAC's Dispersion picking page, then invert "
         "takes them with M0."
     )

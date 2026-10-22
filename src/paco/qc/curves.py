@@ -27,7 +27,7 @@ from sigpipe.masw.runs.finding import IMAGE_FILE
 from sigpipe.masw.runs.origin import JUDGED
 
 from paco.qc.attempts import set_aside
-from paco.qc.budgets import budget_spent
+from paco.qc.budgets import refused, was_refused
 from paco.qc.coherence import nearest_offset
 from paco.qc.config import QCConfig, run_qc_config
 from paco.qc.g3_curve import judge_curve
@@ -145,7 +145,7 @@ def _retries(
     results: Sequence[GateResult], run_folder: Path, config: QCConfig, manifest: RunManifest
 ) -> dict[str, tuple[dict[str, Any], str]]:
     """The windows of `results` to pick again, with their parameters and trigger; the ones
-    that ask for it without budget left are rejected ("budget spent")."""
+    that ask for it and cannot have it stay flagged, a note saying why ("budget spent")."""
     attempts = read_attempts(run_folder)
     budget = RetryBudget(attempts, config.budgets, max(1, len(manifest.windows)))
     given = locked(run_folder, "picking")
@@ -157,13 +157,13 @@ def _retries(
         wanted = next_try(result, "picking", budget, attempt.parameters, given)
         if wanted is not None:
             again[result.unit] = wanted
-        elif spent(result, "picking"):
+        elif spent(result, "picking") and not was_refused(result):
             record_result(
                 run_folder,
                 result.unit,
                 "picking",
                 attempt.attempt,
-                budget_spent(result, *refusal(result, "picking", attempt.parameters, given)),
+                refused(result, *refusal(result, "picking", attempt.parameters, given)),
             )
     return again
 

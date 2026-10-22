@@ -323,12 +323,14 @@ phase velocity v and frequency f.
 
 ## Deciding and freezing
 
-- Accept a window whose curve passed G3 with no blocking flag, and G4; its notes need your reason.
-  Reject one only once tried hard: the line's pick, a pick after it when it carried fixable flags
+- Accept a window whose curve G3 and G4 did not reject, with no blocking flag: a flagged curve
+  goes on, as every flagged unit; its flags and notes need your reason. Reject one only once tried
+  hard: the line's pick, a pick after it when it carried fixable flags
   (or a reason naming them: why none applies), a guide from its neighbours when one side has two
   passing, a lasso when you see the images. decide refuses otherwise, saying what is owed; your
   own picks owe nothing more.
-- Look at a window's image and pick before accepting it with notes or rejecting it: a curve G3
-  passed off its ridge is not accepted, and one it failed on a clean ridge is worth a lasso.
+- Look at a window's image and pick before accepting it with flags or notes, or rejecting it: a
+  curve G3 passed off its ridge is not accepted, and one it flagged or rejected on a clean ridge is
+  worth a lasso.
 - When every window is decided, freeze. Ask the user first when more than 30 % of the windows
   would be rejected.

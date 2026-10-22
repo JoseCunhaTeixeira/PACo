@@ -5,7 +5,7 @@ inverted the QC way, and the stages done again; the petrophysical inversion's ra
 gates, G7 and G8."""
 
 from .attempts import ATTEMPTS_FOLDER, STAGE_FILES, archived_attempts, downstream, invalidate
-from .budgets import budget_spent, can_retry, run_budget
+from .budgets import can_retry, refused, run_budget
 from .coherence import (
     CoherenceRules,
     LengthChoice,
@@ -157,7 +157,6 @@ __all__ = [
     "archived_attempts",
     "at_positions",
     "attempts_of",
-    "budget_spent",
     "build_report",
     "can_retry",
     "cap_band",
@@ -213,6 +212,7 @@ __all__ = [
     "rebuild_state",
     "record_result",
     "redo_stage",
+    "refused",
     "rerun_inversion",
     "rerun_phase_shift",
     "rerun_picking",

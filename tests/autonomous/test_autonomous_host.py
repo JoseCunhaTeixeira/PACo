@@ -139,12 +139,9 @@ PLAY = [
     call(
         "pick", {"ways": [{"windows": "verdict:retry", "how": "guide", "guide": "neighbours"}]}, 7
     ),
-    call("decide", {"windows": "verdict:pass", "status": "accepted"}, 8),
-    call(
-        "decide",
-        {"windows": "verdict:pass", "status": "accepted", "reason": "the near field noted"},
-        9,
-    ),
+    # The flagged windows accepted, some without a curve, none with a reason: refused.
+    call("decide", {"windows": "verdict:retry", "status": "accepted"}, 8),
+    call("decide", {"windows": "verdict:pass", "status": "accepted"}, 9),
     call(
         "decide",
         {"windows": "status:pending", "status": "rejected", "reason": REJECTED_CURVES},
@@ -350,10 +347,10 @@ def test_what_was_tried_falls_back_on_the_journal_and_its_numbers_are_checked(
 @pytest.mark.slow
 def test_the_model_reads_the_refusals_and_a_fresh_start_after_the_freeze(played: Played) -> None:
     bodies = [body for body in played.model.bodies if "tools" in body]
-    # The note refused without a reason (decide), the model read it next.
+    # The decide refused, the model read it next.
     refused = bodies[8]["messages"][-2]
     assert refused["role"] == "tool"
-    assert "accepting curves with notes needs a reason" in refused["content"]
+    assert "Nothing decided" in refused["content"]
     # After the freeze: the request, the frozen curves and the processing, nothing else.
     after = bodies[11]["messages"]
     assert [message["role"] for message in after] == ["system", "user", "user"]

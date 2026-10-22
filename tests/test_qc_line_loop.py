@@ -305,11 +305,12 @@ def test_the_loop_keeps_at_most_its_changes(
 
 
 @pytest.mark.slow
-def test_an_ask_of_a_setting_the_user_gave_rejects_its_window(
+def test_an_ask_of_a_setting_the_user_gave_leaves_its_window_flagged(
     demo_input_dir: Path, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     # The ground is faster than the 250 m/s given: G2 asks a wider range, the user's to give;
-    # the line keeps it, and the windows asking are rejected with the change they ask.
+    # the line keeps it, and the windows asking stay flagged, a note first saying the change they
+    # ask: they go on, as every flagged window.
     monkeypatch.chdir(tmp_path)
     settings = _demo(demo_input_dir, tmp_path)
     overrides = {"masw": {"length": 24, "step": 24}, "dispersion": {"vmax": 250}}
@@ -324,7 +325,7 @@ def test_an_ask_of_a_setting_the_user_gave_rejects_its_window(
         for window in manifest.windows
         if (attempt := latest(attempts, window.folder, "phase_shift")) is not None
         and (g2 := attempt.results.get("G2")) is not None
-        and g2.verdict == "reject"
+        and g2.verdict == "retry"
     ]
     assert refused
     assert all(g2.flags[0].name == "locked" for g2 in refused)

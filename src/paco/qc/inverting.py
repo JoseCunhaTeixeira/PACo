@@ -1,8 +1,8 @@
-"""S4 on a judged run, the QC way (docs/qc_workflow.md): the windows G4 passed, each
-inverted with bounds derived from its own curve (the checks before S4) and the values given, in
-worker processes; G5 on each model and its retries (sampling longer, a bound widened, a layer
-more or fewer), then G6 over the line and its own (a non-unique model inverted again), within
-the budgets; every attempt in the QC log, and the report written. What invert runs as a
+"""S4 on a judged run, the QC way (docs/qc_workflow.md): the windows whose curve G3 and G4 did
+not reject, each inverted with bounds derived from its own curve (the checks before S4) and the
+values given, in worker processes; G5 on each model and its retries (sampling longer, a bound
+widened, a layer more or fewer), then G6 over the line and its own (a non-unique model inverted
+again), within the budgets; every attempt in the QC log, and the report written. What invert runs as a
 background job, whose record (inversion.json) job_status reads."""
 
 import logging
@@ -59,7 +59,7 @@ from paco.inversion import (
     write_record,
 )
 from paco.qc.attempts import invalidate, restore, set_aside
-from paco.qc.budgets import budget_spent
+from paco.qc.budgets import refused, was_refused
 from paco.qc.config import QCConfig, read_qc_config, run_qc_config
 from paco.qc.g5_model import ModelThresholds, judge_model, significant
 from paco.qc.g6_models import LINE, judge_model_profile
@@ -224,11 +224,12 @@ def _run_job(
         report = read_report(run_folder)
         summary = summarize_report(report, gates=("G5", "G6"))
         changed = changed_settings(report, ("inversion",))
-        # The verdicts as they ended: a retry refused for want of budget is a reject.
+        # The verdicts as they ended: a retry refused for want of budget stays flagged.
         final = {unit.unit: unit.verdicts.get("G5") for unit in report.units}
-        # PAC's section of the line, over the models G5 passed, as its Visualization shows it
-        # (smoothed too, over the run's window length): best effort, never the job's failure.
-        passed = [unit for unit, verdict in final.items() if verdict == "pass"]
+        # PAC's section of the line, over the models G5 did not reject (passed or flagged), as
+        # its Visualization shows it (smoothed too, over the run's window length): best effort,
+        # never the job's failure.
+        passed = [unit for unit, verdict in final.items() if verdict in ("pass", "retry")]
         # A person's models too, made in PAC's Seismic inversion page: verified by them.
         manifest = load_manifest(record.run_id, settings)
         passed += [
@@ -237,7 +238,9 @@ def _run_job(
         try:
             window_m = window_length(run_folder)
             if (section := save_section(run_folder, passed, window_m=window_m)) is not None:
-                summary += f"\nSection of the {len(passed)} models G5 passed: {section.name}."
+                summary += (
+                    f"\nSection of the {len(passed)} models G5 did not reject: {section.name}."
+                )
             save_sections_file(run_folder, passed)
             save_comparison(run_folder, passed)
             model = read_qc_config(run_folder).model
@@ -610,7 +613,8 @@ def retry_failed(batch: RetryBatch) -> None:
 
 def _retry_models(results: Sequence[GateResult], batch: RetryBatch) -> bool:
     """Invert again the windows whose `results` ask a change of the inversion and have budget
-    left (the others that ask are rejected, "budget spent"); whether any was."""
+    left (the others that ask stay flagged, a note saying why: "budget spent"); whether any
+    was."""
     run_folder, config, ready = batch.run_folder, batch.config, batch.ready
     attempts = read_attempts(run_folder)
     budget = RetryBudget(attempts, config.budgets, batch.n_units)
@@ -618,13 +622,13 @@ def _retry_models(results: Sequence[GateResult], batch: RetryBatch) -> bool:
     by_trigger: dict[str, dict[str, Derived]] = {}
     for result in results:
         attempt = latest(attempts, result.unit, "inversion")
-        if attempt is None or result.verdict != "retry":
+        if attempt is None or result.verdict != "retry" or was_refused(result):
             continue
         wanted = stage_changes(result, "inversion", mine)
         if wanted is None:
             why, held = refusal(result, "inversion", attempt.parameters, mine)
             if why == "locked":
-                spent = budget_spent(result, why, held)
+                spent = refused(result, why, held)
                 record_result(run_folder, result.unit, "inversion", attempt.attempt, spent)
             continue
         changes, flag = wanted
@@ -632,13 +636,13 @@ def _retry_models(results: Sequence[GateResult], batch: RetryBatch) -> bool:
         # Its parameters already the attempt's: it would give its result again.
         unchanged = given == dict(attempt.parameters)
         if unchanged or not budget.grant(result.unit, result.gate):
-            spent = budget_spent(result, "unchanged" if unchanged else "budget")
+            spent = refused(result, "unchanged" if unchanged else "budget")
             record_result(run_folder, result.unit, "inversion", attempt.attempt, spent)
             continue
         try:
             derived = derive_inversion(ready[result.unit], config.priors, given, mine)
         except InversionError:
-            spent = budget_spent(result)
+            spent = refused(result)
             record_result(run_folder, result.unit, "inversion", attempt.attempt, spent)
             continue
         by_trigger.setdefault(f"{result.gate}:{flag}", {})[result.unit] = derived
@@ -649,8 +653,9 @@ def _retry_models(results: Sequence[GateResult], batch: RetryBatch) -> bool:
 
 def invertible(run_folder: Path, manifest: RunManifest) -> dict[str, DispersionCurve]:
     """The windows whose M0 the inversion takes, with that curve: a person's, as it is
-    (verified by them), or an automatic one G3 and G4 passed as it is now, on a line G4 did not
-    reject (the gate decision before S4). Refuses a run with none, saying why."""
+    (verified by them), or an automatic one G3 and G4 judged as it is now and did not reject
+    (passed or flagged: only a rejected unit stops), on a line G4 did not reject (the gate
+    decision before S4). Refuses a run with none, saying why."""
     attempts = read_attempts(run_folder)
     work = run_work(run_folder, manifest, attempts)
     line = latest(attempts, LINE, "picking")
@@ -663,8 +668,9 @@ def invertible(run_folder: Path, manifest: RunManifest) -> dict[str, DispersionC
         picked = latest(attempts, window.folder, "picking")
         if state == "judged" and (
             picked is None
+            or "G3" not in picked.results
             or any(
-                gate not in picked.results or picked.results[gate].verdict != "pass"
+                gate in picked.results and picked.results[gate].verdict == "reject"
                 for gate in ("G3", "G4")
             )
         ):
@@ -686,14 +692,14 @@ def invertible(run_folder: Path, manifest: RunManifest) -> dict[str, DispersionC
         raise RunError(
             f"G4 rejected the line of run '{run_id}': no curve passed, nothing to invert."
         )
-    raise RunError(f"Run '{run_id}' has no curve G3 and G4 passed, nor one picked by hand.")
+    raise RunError(f"Run '{run_id}' has no curve G3 and G4 did not reject, nor one picked by hand.")
 
 
 def judge_model_line(
     run_folder: Path, manifest: RunManifest, config: QCConfig
 ) -> tuple[GateResult, ...]:
-    """G6 over the line: the ensemble of every window whose latest inversion passed G5,
-    down to its depth of investigation (half its curve's longest wavelength), against its
+    """G6 over the line: the ensemble of every window whose latest inversion G5 did not reject
+    (passed or flagged), down to its depth of investigation (half its curve's longest wavelength), against its
     neighbours. A window's verdict goes to its latest inversion attempt, the line's own to an
     attempt of the unit "line"."""
     attempts = read_attempts(run_folder)
@@ -702,11 +708,12 @@ def judge_model_line(
     informed: dict[str, float | None] = {}
     without: list[float] = []
     shallow: list[float] = []
+    flagged: set[str] = set()
     for window in manifest.windows:
         inverted = latest(attempts, window.folder, "inversion")
         g5 = inverted.results.get("G5") if inverted is not None else None
         path = run_folder / window.folder / MEASURES_FILE
-        if inverted is None or g5 is None or g5.verdict != "pass" or not path.exists():
+        if inverted is None or g5 is None or g5.verdict == "reject" or not path.exists():
             without.append(window.xmid)
             continue
         measures = InversionMeasures.model_validate_json(path.read_text())
@@ -733,8 +740,12 @@ def judge_model_line(
         if picked is not None and "G4" in picked.results:
             curves[window.folder] = picked.results["G4"]
         informed[window.folder] = None if np.isinf(limit) else limit
+        if g5.verdict == "retry":
+            flagged.add(window.folder)
     started_at = datetime.now(UTC)
-    results = judge_model_profile(models, curves, informed, config.models, without, shallow)
+    results = judge_model_profile(
+        models, curves, informed, config.models, without, shallow, frozenset(flagged)
+    )
     for result in results:
         if result.unit != LINE:
             inverted = latest(attempts, result.unit, "inversion")

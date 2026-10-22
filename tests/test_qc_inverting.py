@@ -1,7 +1,7 @@
-"""S4 on a judged run: the windows G4 passed inverted with bounds from their own curves, G5 on
-each model, G6 over the line, every attempt in the log; the inversion done again for one window;
-what is refused. Short chains: the sampler is not seeded, so only what does not depend on its
-draws is checked."""
+"""S4 on a judged run: the windows G3 and G4 did not reject inverted with bounds from their own
+curves, G5 on each model, G6 over the line, every attempt in the log; the inversion done again for
+one window; what is refused. Short chains: the sampler is not seeded, so only what does not depend
+on its draws is checked."""
 
 import json
 from collections.abc import Mapping
@@ -72,16 +72,17 @@ def inverted(
 
 
 @pytest.mark.slow
-def test_the_windows_g4_passed_are_inverted_with_bounds_from_their_curves(
+def test_the_windows_not_rejected_are_inverted_with_bounds_from_their_curves(
     inverted: tuple[Settings, str, Path],
 ) -> None:
     _, _, run_folder = inverted
     attempts = read_attempts(run_folder)
 
-    # G4 passed two of the four windows (G3 rejected xmid 53.25's pick, a single point; G4 found
-    # xmid 17.25's off its neighbours, with no retry to pick it again): each inverted.
+    # Three of the four windows: G3 rejected xmid 53.25's pick, a single point; G4 flagged xmid
+    # 17.25's, off its neighbours, with no retry to pick it again: flagged, it goes on. Each
+    # inverted.
     inversions = [a for a in attempts if a.stage == "inversion" and a.unit.startswith("xmid_")]
-    assert sorted({a.unit for a in inversions}) == ["xmid_125.25", "xmid_89.25"]
+    assert sorted({a.unit for a in inversions}) == ["xmid_125.25", "xmid_17.25", "xmid_89.25"]
     for attempt in inversions:
         assert (attempt.attempt, attempt.status, attempt.triggered_by) == (
             1,
@@ -114,7 +115,7 @@ def test_the_windows_g4_passed_are_inverted_with_bounds_from_their_curves(
 
 
 @pytest.mark.slow
-def test_g5_finds_the_chains_too_short_and_g6_has_no_model(
+def test_g5_finds_the_chains_too_short_and_g6_compares_the_flagged_models(
     inverted: tuple[Settings, str, Path],
 ) -> None:
     _, _, run_folder = inverted
@@ -125,19 +126,19 @@ def test_g5_finds_the_chains_too_short_and_g6_has_no_model(
         attempt = latest(attempts, unit, "inversion")
         assert attempt is not None
         g5 = attempt.results["G5"]
-        # G5 asks the iterations 100 models a chain need; with no budget, the window is
-        # rejected, its flags kept.
-        assert g5.verdict == "reject"
+        # G5 asks the iterations 100 models a chain need; with no budget, the window stays
+        # flagged, a note first saying why, its flags kept: it goes on.
+        assert g5.verdict == "retry"
         assert [flag.name for flag in g5.flags][:2] == ["budget_spent", "not_converged"]
         flag = next(flag for flag in g5.flags if flag.name == "not_converged")
         assert flag.action.model_dump()["overrides"] == {
             "n_iterations": 20_000,
             "n_burnin_iterations": 5_000,
         }
-    # No model passed G5: the line has none, and says where.
+    # Flagged, the models go on: G6 compares them along the line.
     line = next(unit for unit in report.units if unit.unit == "line")
-    assert line.verdicts == {"G4": "pass", "G6": "reject"}
-    assert report.counts["G5"] == {"reject": 2}
+    assert line.verdicts == {"G4": "pass", "G6": "pass"}
+    assert report.counts["G5"] == {"retry": 3}
 
 
 @pytest.mark.slow

@@ -1,5 +1,5 @@
 """G4, the curve profile QC over the whole line (docs/qc_workflow.md): the pseudo-section
-Vr(wavelength, xmid) of the curves that passed G3, each curve against its neighbours on either
+Vr(wavelength, xmid) of the curves G3 did not reject, each curve against its neighbours on either
 side, an isolated outlier (off neighbours that agree with each other, fitting no side) told
 from a change shared with one side (geology), and the coverage. Its verdict is the go/no-go for
 the inversion."""
@@ -166,7 +166,8 @@ def _line_result(
             bound="min",
             passed=len(curves) >= 1,
             of="line",
-            over=f"the line's {len(curves) + len(without)} windows: a curve G3 passed",
+            over=f"the line's {len(curves) + len(without)} windows: a curve G3 did not reject, "
+            "compared",
         ),
         Metric(
             name="without_curve",

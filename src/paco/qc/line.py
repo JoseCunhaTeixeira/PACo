@@ -44,7 +44,7 @@ from sigpipe.masw.windows import Exclusions, build_windows
 
 from paco import stopping
 from paco.qc.attempts import invalidate_record, restore_record
-from paco.qc.budgets import budget_spent
+from paco.qc.budgets import refused, was_refused
 from paco.qc.coherence import (
     TrialJudge,
     cap_band,
@@ -814,8 +814,8 @@ def image_line(
 def keep_line_asks(run_folder: Path) -> None:
     """Once the line is settled, the records' G1 and the windows' G2 still asking a change of the
     line's settings: their asks kept as notes (kept_on_line), the line's settings staying the
-    same for every record and window; an ask of a setting the user gave rejects its unit, the
-    change it asks said (the gate fails and suggests)."""
+    same for every record and window; an ask of a setting the user gave leaves its unit flagged,
+    the change it asks said (the gate suggests it to the user)."""
     attempts = read_attempts(run_folder)
     given = {**locked(run_folder, "preprocessing"), **locked(run_folder, "phase_shift")}
     for stage, gate in (("preprocessing", "G1"), ("phase_shift", "G2")):
@@ -825,12 +825,14 @@ def keep_line_asks(run_folder: Path) -> None:
             result = attempt.results.get(gate) if attempt is not None else None
             if attempt is None or result is None or result.verdict != "retry":
                 continue
+            if was_refused(result):
+                continue
             held = deep_merge(
                 held_changes(result, "preprocessing", given),
                 held_changes(result, "phase_shift", given),
             )
             if held:
-                settled = budget_spent(result, "locked", said(held, given))
+                settled = refused(result, "locked", said(held, given))
             elif line_change(result):
                 settled = kept_on_line(result)
             else:

@@ -24,12 +24,12 @@ journal lines; the journal and observe give them back.
 
 - The user first: the settings they gave stay as they gave them. PACo applies them to every
   trial, commit and inversion and refuses a call that changes one; a window a gate could fix only
-  by changing one is rejected, the change it asks said. Propose such a change to them, never
+  by changing one stays flagged, the change it asks said. Propose such a change to them, never
   make it. Work they made in PAC's pages is theirs.
-- Then the gates: their verdicts stand. A blocking flag: the window cannot be accepted until a
-  later attempt clears it. A fixable flag: a hint, the change the gate suggests, which you may
-  follow or not. A note: acceptable, with a one-line reason when you accept a window that
-  carries it.
+- Then the gates: their verdicts stand; a rejected window stops, a flagged one goes on. A blocking
+  flag: the window cannot be accepted until a later attempt clears it. A fixable flag: a hint, the
+  change the gate suggests, which you may follow or not. A fixable flag or a note: acceptable, with
+  a one-line reason when you accept a window that carries it.
 - Then you, as a geophysicist: the physics bounds every choice (the shots' reach, the windows'
   length and aperture, the band over which the images' ridge stays coherent); you choose the
   settings, the picks and the models, and say why.

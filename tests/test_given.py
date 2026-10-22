@@ -4,8 +4,8 @@ needs one changed rejects its window, saying the change it asks."""
 import json
 from pathlib import Path
 
-from paco.qc import Budgets, GateResult, QCReport, UnitReport, left_out
-from paco.qc.budgets import budget_spent
+from paco.qc import Budgets, GateResult, QCReport, UnitReport, left_out, summarize_report
+from paco.qc.budgets import refused
 from paco.qc.coherence import cap_band
 from paco.qc.given import give, given_of, leaves, limits_of, locked, said, unlocked
 from paco.qc.log import LOG_FILE, read_attempts
@@ -68,24 +68,25 @@ def test_a_retry_that_only_changes_a_given_setting_is_refused_as_locked() -> Non
         "locked",
         "dispersion vmax 900 (given: 400)",
     )
-    rejected = budget_spent(result, "locked", "dispersion vmax 900 (given: 400)")
-    assert rejected.verdict == "reject" and rejected.flags[0].name == "locked"
-    assert "dispersion vmax 900 (given: 400), which the user gave" in rejected.flags[0].message
-    # The window's line in the answer says the change asked, for the user to choose.
+    flagged = refused(result, "locked", "dispersion vmax 900 (given: 400)")
+    assert flagged.verdict == "retry" and flagged.flags[0].name == "locked"
+    assert "a setting the user gave" in flagged.flags[0].message
+    assert "asks dispersion vmax 900 (given: 400)" in flagged.flags[0].message
+    # Flagged, the window goes on, never left out; the summary says the change asked, for the
+    # user to choose.
     unit = UnitReport(
         unit="xmid_2.88",
         xmid=2.88,
-        verdicts={"G2": "reject"},
-        flags={"G2": rejected.flags},
+        verdicts={"G2": "retry"},
+        flags={"G2": flagged.flags},
         attempts=1,
         parameters={},
         rejected_for=(),
         curve=None,
     )
     report = QCReport(run_id="r", budgets=Budgets(), n_xmids=1, retries=0, units=(unit,), counts={})
-    assert left_out(report, ("G2",)) == (
-        "xmid 2.88 (1): G2 locked, asks dispersion vmax 900 (given: 400), ridge_at_vmax",
-    )
+    assert left_out(report, ("G2",)) == ()
+    assert "-> keep: locked, asks dispersion vmax 900 (given: 400)" in summarize_report(report)
     # Without the lock, the gate's change goes through.
     assert next_try(result, "phase_shift", budget, {}, {}) is not None
 

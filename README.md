@@ -116,7 +116,7 @@ you> Process active_test_profile with windows of 24 receivers, every 24 receiver
    run_processing: 4 of 4 windows
 -> pick({"run_id": "20261018-144613-9de0"})
 
-paco> 3 of the 4 windows have a curve that passed G3 and G4. At xmid 89.25 m, competing ridges
+paco> 3 of the 4 windows have a curve G3 and G4 did not reject. At xmid 89.25 m, competing ridges
 left no curve to pick. G1 left out 3 shots, and a mute made the images cleaner.
 
 Left out:
