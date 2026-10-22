@@ -603,7 +603,8 @@ def changes_of(
     """The changes of the line's settings `point` makes (`base`: the settings it changes, its
     length given): each of its values merged, a passive line's segments as long as its window
     says, no farthest shot nearer than the window's half length and two receivers, the near field
-    a share of the window. None when it means nothing: a near field reaching the farthest shot."""
+    a share of the window. None when it means nothing: a near field reaching the farthest shot,
+    the one from the window's receivers, the other from its middle."""
     made: dict[str, Any] = {}
     for axis in moved:
         if axis.name in point:
@@ -624,7 +625,7 @@ def changes_of(
     share = made.pop(NEAR, None)
     if share is not None:
         near = round(share * span, 1)
-        if near and farthest is not None and near >= float(farthest):
+        if near and farthest is not None and near + span / 2 >= float(farthest):
             return None
         made[trials.NEAR_FIELD] = near or None
     return made
@@ -681,6 +682,9 @@ def search(
         except ValueError as error:
             refused.append(str(error))
             continue
+        if trial.near_field_m is None:
+            # A near field that drops no shot is none: the variant without it.
+            change.pop(trials.NEAR_FIELD, None)
         same = json.dumps(
             [trial.preset.model_dump(mode="json"), trial.near_field_m], sort_keys=True
         )

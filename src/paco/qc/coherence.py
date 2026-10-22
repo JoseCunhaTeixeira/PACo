@@ -621,7 +621,7 @@ def near_field_windows(
 ) -> tuple[list[MASWWindow], int]:
     """`windows` without their shots nearer than `distance_m` to their nearest receiver, where
     they keep a farther one whose record G1 keeps (`excluded`: the records it leaves out of every
-    window): a window with near shots only keeps them (G3 flags its near field). Returns the
+    window): a window with near shots only keeps them (its nearest shot reported). Returns the
     windows, and how many kept near shots only."""
     found: list[MASWWindow] = []
     near_only = 0

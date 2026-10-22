@@ -8,6 +8,7 @@ that a study resumed shows the same; state.json is rewritten from them each time
 alone."""
 
 import json
+import re
 from collections import Counter
 from collections.abc import Mapping
 from pathlib import Path
@@ -40,6 +41,8 @@ STATE = "state.json"  # in the study's folder
 # The open issues and the experiments the card lists at most.
 ISSUES = 5
 EXPERIMENTS = 3
+# How a pick's result counts the windows it picked: "Picked 16 windows in 4 ways".
+_PICKED = re.compile(r"Picked (\d+) window")
 
 
 class State(BaseModel):
@@ -104,10 +107,11 @@ def card(study: Study, settings: Settings) -> str:
     return "\n".join(lines + _held(find_run(line.run_id, settings), user))
 
 
-def outcome(study: Study, settings: Settings, tool: str) -> str | None:
+def outcome(study: Study, settings: Settings, tool: str, said: str = "") -> str | None:
     """What a call of `tool` did, in a few words for the user's list of steps: the survey, the
-    search, an experiment, a commit, the windows picked again, the curves' or the models'
-    decisions, the freeze, the models inverted; none for a tool that only reads."""
+    search, an experiment, a commit, the windows it picked again (as its result `said` counts
+    them), the curves' or the models' decisions, the freeze, the models inverted; none for a tool
+    that only reads."""
     found = journal.entries(study)
     if tool == "survey" and (study.folder / SAVED).exists():
         return _surveyed(Survey.model_validate_json((study.folder / SAVED).read_text()))
@@ -135,7 +139,9 @@ def outcome(study: Study, settings: Settings, tool: str) -> str | None:
         return None
     folder = find_run(line.run_id, settings)
     if tool == "pick":
-        return f"{len(pick.recipes(study, line.run_id))} windows picked again"
+        found = _PICKED.search(said)
+        count = int(found.group(1)) if found else len(pick.recipes(study, line.run_id))
+        return f"{count} window{'s' if count != 1 else ''} picked again"
     if made is not None:
         return _decided(models.statuses(study, folder, line.run_id), len(made.curves), "models")
     manifest = RunManifest.model_validate_json((folder / "run.json").read_text())

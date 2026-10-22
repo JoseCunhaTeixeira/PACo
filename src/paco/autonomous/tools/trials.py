@@ -380,7 +380,9 @@ def concrete(
     """The line's `settings` (its mode, a preset's stages as sigpipe overrides them, `picking`
     and `near_field_m`) made concrete for `profile`; refused, saying what to change, when they
     cannot be. A window stacks no shot past the line's reach (`reach_m`, the survey's) unless the
-    settings give masw.distance_max, as PACo's workflow sets it."""
+    settings give masw.distance_max, as PACo's workflow sets it. A near field that drops no shot
+    from any window (none keeps a farther one within the shots used) is none: a search counts it
+    once, a commit never says it."""
     stages = {
         key: value for key, value in settings.items() if key not in (PICKING, NEAR_FIELD, MODE)
     }
@@ -416,7 +418,21 @@ def concrete(
     parameters = PickingParameters.model_validate(
         {**config.picking.model_dump(), **cast(Mapping[str, Any], picking)}
     )
-    return Trial(made, preset, parameters, float(near) if near is not None else None)
+    distance = float(near) if near is not None else None
+    if distance is not None and not _drops(profile, preset, distance):
+        distance = made[NEAR_FIELD] = None
+    return Trial(made, preset, parameters, distance)
+
+
+def _drops(profile: Profile, preset: Preset, distance: float) -> bool:
+    """Whether a near field of `distance` drops a shot from a window of `preset`'s line: one
+    keeps a farther shot, within the shots its settings give it."""
+    windows = build_windows(profile, preset.masw)
+    kept, _ = near_field_windows(windows, distance)
+    return any(
+        len(one.selected_files) < len(window.selected_files)
+        for one, window in zip(kept, windows, strict=True)
+    )
 
 
 def survey_reach(study: Study) -> float | None:

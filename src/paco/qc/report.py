@@ -16,6 +16,7 @@ from pydantic import BaseModel, ConfigDict
 from sigpipe.masw.runs import RunManifest
 from sigpipe.masw.runs.writing import write_atomic
 
+from paco.qc.g1_signal import LINE
 from paco.qc.log import RULES, read_attempts, retries_in_run, retries_of_inversion
 from paco.qc.models import (
     Action,
@@ -213,8 +214,11 @@ def build_report(run_id: str, run_folder: Path, budgets: Budgets, n_xmids: int) 
         _unit_report(unit, logged.get(unit, []), work.get(unit))
         for unit in [*logged, *(unit for unit in work if unit not in logged)]
     )
+    # The records' and the windows', as a stage's line says them: not the line's own result.
     counts: dict[str, Counter[Verdict]] = defaultdict(Counter)
     for unit in units:
+        if unit.unit == LINE:
+            continue
         for gate, verdict in unit.verdicts.items():
             counts[gate][verdict] += 1
     retried: dict[str, list[str]] = defaultdict(list)

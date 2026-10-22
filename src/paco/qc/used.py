@@ -4,11 +4,13 @@ with where it comes from (given, a rule on the data, a gate, or a default). The 
 after every answer, as it lists the settings the gates changed."""
 
 import json
+import math
 import re
 from collections.abc import Iterable, Mapping, Sequence
 from typing import Any, cast
 
 from sigpipe.algorithms.picking.dispersion.tracking import PickingParameters
+from sigpipe.masw.presets import make_preset
 from sigpipe.masw.runs import RunManifest
 
 from paco.qc.models import Attempt
@@ -18,15 +20,20 @@ GIVEN = "given (in your request, or chosen by the agent)"
 _LADDER = re.compile(r"masw length \d+ for the whole line, (.*?): trial windows G3 passed ")
 _TRIAL = re.compile(r"(\d+/\d+) at (\d+)(?: \(([^)]*)\))?")
 DEFAULT = "the preset's default"
+# The stages the passive segments' trial sets (qc.segments).
+_SEGMENTS = ("slicing", "selection")
 
 
 def processing_used(
     manifest: RunManifest, given: Mapping[str, Any] | None = None, notes: Sequence[str] = ()
 ) -> tuple[str, ...]:
     """The run's mode, its MASW windows and the settings of each stage, as run.json has them,
-    each with its reason: `given` (the overrides of the call), the rules' `notes` on the line
-    (the window length's trials, the shots' reach, the band's cap), or the preset."""
+    each with its reason: `given` (the overrides of the call), the `notes` on the line (the
+    rules': the window length's trials, the shots' reach, the band's cap; the agent's commit), or
+    the preset: its default, else given when the run was made (a run inspected or done again)."""
     preset: dict[str, Any] = manifest.preset.model_dump(mode="json")
+    made = dict(preset)
+    defaults: dict[str, Any] = make_preset(made["mode"]).model_dump(mode="json")
     masw = preset.pop("masw")
     spacing = manifest.profile.receiver_spacing_m
     given = given or {}
@@ -40,21 +47,35 @@ def processing_used(
         note = next((note for note in reversed(notes) if note.startswith(prefix)), None)
         return note.split(": ", 1)[1].rstrip(".") if note is not None else None
 
+    def kept(stage: str, keys: Iterable[str] | None = None) -> str:
+        # The preset's default when the run has it (a default the profile derives takes any).
+        values: Mapping[str, Any] = made.get(stage) or {}
+        default: Mapping[str, Any] = defaults.get(stage) or {}
+        same = all(_same(values.get(key), default.get(key)) for key in keys or values)
+        return DEFAULT if same else GIVEN
+
     xmids = [window.xmid for window in manifest.windows]
     where = f", {len(xmids)} windows, xmid {min(xmids):g} to {max(xmids):g} m" if xmids else ""
     length = masw["length"]
-    ladder = next((note for note in notes if note.startswith("masw length")), None)
+    ladder = next((note for note in notes if _LADDER.match(note)), None)
     if asked("masw", "length"):
         length_why = GIVEN + (f"; its trial windows: {_tried(ladder)}" if ladder else "")
     elif ladder:
         length_why = f"{_ladder_rule(ladder)}; trial windows G3 passed: {_tried(ladder)}"
     else:
-        length_why = DEFAULT
+        length_why = rule("masw length") or kept("masw", ["length"])
+    mode = preset.pop("mode")
     used = [
-        f"mode {preset.pop('mode')}: " + (GIVEN if "mode" in given else "the profile's kind"),
+        f"mode {mode}: "
+        + (
+            GIVEN
+            if "mode" in given
+            else rule("mode:") or ("the profile's kind" if mode == manifest.profile.kind else GIVEN)
+        ),
         f"MASW windows of {length} receivers ({(length - 1) * spacing:g} m){where}: {length_why}",
         f"windows every {masw['step']} receiver{'s' if masw['step'] != 1 else ''} "
-        f"({masw['step'] * spacing:g} m): " + (GIVEN if asked("masw", "step") else DEFAULT),
+        f"({masw['step'] * spacing:g} m): "
+        + (GIVEN if asked("masw", "step") else rule("masw step") or kept("masw", ["step"])),
         f"shots {_distances(masw['distance_min'], masw['distance_max'])} from a window's middle: "
         + _shots_why(
             GIVEN if asked("masw", "distance_min") else rule("near_field distance_m"),
@@ -70,7 +91,7 @@ def processing_used(
             + (
                 GIVEN
                 if asked("dispersion", "fmin") or asked("dispersion", "fmax")
-                else band or DEFAULT
+                else band or kept("dispersion", ["fmin", "fmax"])
             )
         )
         used.append(
@@ -80,7 +101,9 @@ def processing_used(
             + (
                 GIVEN
                 if asked("dispersion", "vmin") or asked("dispersion", "vmax")
-                else rule("dispersion vmax") or rule("dispersion vmin") or DEFAULT
+                else rule("dispersion vmax")
+                or rule("dispersion vmin")
+                or kept("dispersion", ["vmin", "vmax", "nv"])
             )
         )
     muting = preset.pop("muting", None)
@@ -92,7 +115,7 @@ def processing_used(
             )
             used.append(
                 f"muting {bounds} m/s: "
-                + (GIVEN if "muting" in given else rule("muting mute") or DEFAULT)
+                + (GIVEN if "muting" in given else rule("muting ") or kept("muting"))
             )
     trigger = preset.pop("trigger", None)
     if isinstance(trigger, Mapping) and isinstance(
@@ -100,32 +123,57 @@ def processing_used(
     ):
         used.append(
             f"trigger t0 {t0:g} s: "
-            + (GIVEN if "trigger" in given else rule("trigger t0") or DEFAULT)
+            + (GIVEN if "trigger" in given else rule("trigger t0") or kept("trigger", ["t0"]))
         )
+    # The passive segments' trial sets the segments and the FK selection in one note.
+    trial = rule("Segments of")
     for stage, values in preset.items():
-        if isinstance(values, Mapping):
-            method = cast(Mapping[str, Any], values).get("method")
-            if method not in (None, "none"):
-                used.append(
-                    f"{stage} {method}: "
-                    + (GIVEN if stage in given else rule(f"{stage} ") or DEFAULT)
-                )
+        if not isinstance(values, Mapping):
+            continue
+        values = cast(Mapping[str, Any], values)
+        why = (
+            GIVEN
+            if stage in given
+            else rule(f"{stage} ")
+            or (f"the segments' trial, {trial}" if trial and stage in _SEGMENTS else None)
+            or kept(stage)
+        )
+        method = values.get("method")
+        if stage == "slicing":
+            used.append(
+                f"segments of {_value(values, 'segment_duration')} s, every "
+                f"{_value(values, 'segment_step')} s: {why}"
+            )
+        # A step on, or off where the preset has it on.
+        elif method not in (None, "none") or kept(stage, ["method"]) != DEFAULT:
+            used.append(f"{stage} {method}{_parameters(values)}: {why}")
     return tuple(used)
 
 
 def picking_used(
-    parameters: PickingParameters, given: Mapping[str, Any] | None = None
+    parameters: PickingParameters,
+    given: Mapping[str, Any] | None = None,
+    aliased: Sequence[float] = (),
 ) -> tuple[str, ...]:
-    """The picker's settings every window started from: PACo's, which G3 changes window by
-    window (in the gates' changes); then the values the call gave (`given`), if any."""
+    """The picker's settings every window started from: PACo's, which G2 lowers below a
+    window's alias (`aliased`: those windows' fmax) and G3 changes window by window (in the
+    gates' changes); then the values the call gave (`given`), if any."""
     band = _band(parameters.fmin, parameters.fmax)
     return (
         f"picking: M0 tracked along its ridge (threshold {parameters.threshold:g}, corridor "
         f"{parameters.corridor:.0%} of the velocity{band}), points under "
         f"{parameters.min_relative_coherence:g} of the mode's coherence dropped, resampled every "
         f"{parameters.wavelength_step:g} m of wavelength: PACo's starting values, changed "
-        "window by window where G3 asked; a higher mode, by hand in PAC's Dispersion picking "
-        "page",
+        "window by window where G2 or G3 asked; a higher mode, by hand in PAC's Dispersion "
+        "picking page",
+        *(
+            [
+                f"picking fmax {_span(aliased)} Hz at {len(aliased)} windows (each window its "
+                "own): below the alias G2 found in its dispersion image"
+            ]
+            if aliased
+            else []
+        ),
         *(
             [
                 "picking "
@@ -136,6 +184,23 @@ def picking_used(
             else []
         ),
     )
+
+
+def aliased_limits(
+    attempts: Iterable[Attempt],
+    parameters: PickingParameters,
+    given: Mapping[str, Any] | None = None,
+) -> tuple[float, ...]:
+    """The fmax of each window whose first pick G2 lowered below its image's alias, where
+    neither PACo's values (`parameters`) nor the call (`given`) give one."""
+    if parameters.fmax is not None or (given and "fmax" in given):
+        return ()
+    first: dict[str, float] = {}
+    for attempt in attempts:
+        fmax = attempt.parameters.get("fmax")
+        if attempt.stage == "picking" and attempt.attempt == 1 and isinstance(fmax, int | float):
+            first[attempt.unit] = float(fmax)
+    return tuple(first.values())
 
 
 def _band(low: float | None, high: float | None) -> str:
@@ -250,6 +315,16 @@ def inversion_used(
     return tuple(said)
 
 
+def _same(value: object, default: object) -> bool:
+    """A value as the preset's default has it; a default derived from the profile (None) takes
+    any value."""
+    if default is None:
+        return True
+    if isinstance(value, int | float) and isinstance(default, int | float):
+        return math.isclose(float(value), float(default))
+    return value == default
+
+
 def _distances(near: float | None, far: float | None) -> str:
     """The distances a window's shots lie within, a bound left out none: "2 to 30 m", "any
     distance"."""
@@ -298,6 +373,16 @@ def _span(values: Iterable[float]) -> str:
 
 def _number(value: float) -> str:
     return f"{int(value)}" if value.is_integer() else f"{value:g}"
+
+
+def _parameters(values: Mapping[str, Any]) -> str:
+    """A stage's values but its method, those set: " (threshold 0.3)"; none: ""."""
+    said = [
+        f"{key} {_shown_given(value)}"
+        for key, value in values.items()
+        if key != "method" and value is not None
+    ]
+    return f" ({', '.join(said)})" if said else ""
 
 
 def _value(values: Mapping[str, Any], key: str) -> str:

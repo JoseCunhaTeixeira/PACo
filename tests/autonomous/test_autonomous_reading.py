@@ -21,18 +21,18 @@ def test_observe_summarizes_a_gate(judged_line: JudgedLine) -> None:
     text = observe(judged_line.folder, "curves", QCConfig())
 
     assert text.splitlines()[0] == "G3: 3 pass, 1 reject"
-    assert "G3 near_field, xmid 17.25-125.25 (4)" in text
+    assert "G3 inverse_dispersion, xmid 125.25 (1): Velocity falls with wavelength" in text
 
 
 @pytest.mark.slow
 def test_observe_gives_the_rows_where_asked(judged_line: JudgedLine) -> None:
     lines = observe(
-        judged_line.folder, "curves", QCConfig(), where="flag:near_field+xmids:80-130"
+        judged_line.folder, "curves", QCConfig(), where="verdict:pass+xmids:80-130"
     ).splitlines()
 
-    assert lines[0] == "G3 where flag:near_field+xmids:80-130: 2 units, page 1 of 1."
+    assert lines[0] == "G3 where verdict:pass+xmids:80-130: 2 units, page 1 of 1."
     assert [line.split(":")[0] for line in lines[1:]] == ["89.25", "125.25"]
-    assert lines[1].startswith("89.25: pass; near_field; λ 8-16 m;")
+    assert lines[1].startswith("89.25: pass; no flag; λ 8-16 m;")
 
 
 @pytest.mark.slow

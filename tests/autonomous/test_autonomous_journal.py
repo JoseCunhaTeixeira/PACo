@@ -56,6 +56,19 @@ def test_an_entry_is_refused_saying_why(
     assert journal.entries(study) == []
 
 
+def test_an_entry_may_rest_on_the_studys_search_once_made(study: Study) -> None:
+    with pytest.raises(ValueError, match="no entry S1"):
+        journal.write(study, "decision", "Commit the search's choice.", of=["S1"])
+    searches = study.folder / "searches"
+    searches.mkdir()
+    (searches / "S1.json").write_text("{}")
+
+    # The search's choice, the evidence a commit of it rests on.
+    entry = journal.write(study, "decision", "Commit the search's choice.", of=["S1"])
+
+    assert entry.of == ("S1",)
+
+
 def test_the_readings_of_a_setting(study: Study) -> None:
     journal.append(
         study,

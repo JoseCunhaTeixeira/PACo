@@ -354,6 +354,28 @@ def test_a_curve_spanning_too_few_wavelengths_asks_to_keep_more_of_the_ridge() -
     assert ratio.value is not None and ratio.value < 4 / 3 and not ratio.passed
 
 
+def test_keeping_more_of_the_ridge_stops_at_the_coherence_floor() -> None:
+    # Each pick asks 0.6 of its coherence again: down to a tenth of the mode's typical one, never
+    # under it, where the points kept are noise; there, the pick's own, a change already tried.
+    image = _image(_ridge(M0, 0.8, 1.5))
+    fs = np.linspace(29.0, 33.0, 8)
+    vs = 150 + 250 * np.exp(-fs / 15)
+    asked = [
+        judge_curve(
+            "xmid_12.50",
+            image,
+            _picked(image, M0, fs=fs, vs=vs),
+            THRESHOLDS,
+            picking=PickingParameters(min_relative_coherence=coherence),
+        )
+        .flags[0]
+        .action.model_dump()["overrides"]["min_relative_coherence"]
+        for coherence in (0.18, 0.11, 0.1)
+    ]
+
+    assert asked == [0.11, 0.1, 0.1]
+
+
 def test_the_uncertainty_is_reported_not_judged() -> None:
     # The picker caps each point's at 0.4 of its velocity: no limit over it could fail, one under
     # it would leave out a line's shortest windows. Reported; a point without one leaves the

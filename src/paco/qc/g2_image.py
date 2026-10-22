@@ -65,7 +65,9 @@ def judge_image(
         metrics += [Metric(**one.model_dump()) for one in correlations.measures]
         short = [one for one in correlations.measures if one.name in _JUDGED and not one.passed]
         if short:
-            flags.append(_short("noisy_correlations", "Its stacked correlations", short, more))
+            flags.append(
+                _short("noisy_correlations", "Its stacked correlations fall short", short, more)
+            )
         bad = [one for one in correlations.measures if one.name in _TRACES and not one.passed]
         if bad:
             flags.append(
@@ -83,7 +85,7 @@ def judge_image(
         metrics += [Metric(**one.model_dump()) for one in selection]
         kept = [one for one in selection if one.name == "fk_kept" and not one.passed]
         if kept:
-            flags.append(_short("few_segments_kept", "Its fk selection", kept, more))
+            flags.append(_short("few_segments_kept", "Its fk selection falls short", kept, more))
     mute = Override(
         stage="preprocessing",
         overrides={
@@ -274,25 +276,33 @@ _WORDS = {
 }
 
 
+def _amount(measure: Measure, value: float | None) -> str:
+    """A measure's value or limit as a flag says it: a share in percent, else with its unit."""
+    if value is None:
+        return "none"
+    if measure.name == "fk_kept":
+        return f"{value * 100:.2g} %"
+    return f"{value:g}" + (f" {measure.unit}" if measure.unit else "")
+
+
 def _short(name: str, said: str, short: Sequence[Measure], more: Override | None) -> Flag:
-    """A flag of `short` measures (of the correlations, or the selection): the phase shift again
-    with more of the data (`more`), else rejected."""
+    """A flag of `short` measures (of the correlations, or the selection), `said` what falls
+    short: the phase shift again with more of the data (`more`), else rejected."""
     found = ", ".join(
-        f"{_WORDS[one.name]} {'none' if one.value is None else f'{one.value:g}'}"
-        f"{' ' + one.unit if one.unit and one.value is not None else ''}"
-        + ("" if one.threshold is None else f" (at least {one.threshold:g})")
+        f"{_WORDS[one.name]} {_amount(one, one.value)}"
+        + ("" if one.threshold is None else f" (at least {_amount(one, one.threshold)})")
         for one in short
     )
     if more is not None:
         return Flag(
             name=name,
-            message=f"{said} fall short, {found}: the phase shift again with more of the data.",
+            message=f"{said}, {found}: the phase shift again with more of the data.",
             stage="phase_shift",
             action=more,
         )
     return Flag(
         name=name,
-        message=f"{said} fall short, {found}: all of its data is stacked already.",
+        message=f"{said}, {found}: all of its data is stacked already.",
         stage="phase_shift",
         action=Reject(reason="the window's correlations fall short, with all its data"),
         fixable=False,

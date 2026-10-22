@@ -115,6 +115,18 @@ def test_a_window_stacks_no_shot_past_the_reach(input_dir: Path) -> None:
     assert farthest(CURRENT, None) is None
 
 
+def test_a_near_field_that_drops_no_shot_is_none(input_dir: Path) -> None:
+    profile = load_profile("active_test_profile", Settings(input_dir=input_dir))
+    # Windows of 15 receivers (21 m) stacking the shots within 31.6 m of their middle: none of
+    # them 21 m past a window's nearest receiver, so a near field of 21 m drops nothing: none.
+    within = {"masw": {"length": 15, "distance_max": 31.6}, "near_field_m": 21.0}
+    trial = concrete(within, profile, QCConfig(), None)
+    assert trial.near_field_m is None and trial.settings["near_field_m"] is None
+    # With every shot of the line, farther ones remain: it drops the near ones.
+    wider = concrete({**within, "masw": {"length": 15}}, profile, QCConfig(), None)
+    assert wider.near_field_m == 21.0
+
+
 @pytest.mark.slow
 def test_the_current_settings_and_three_variants_are_scored(made: Made) -> None:
     first = made.first

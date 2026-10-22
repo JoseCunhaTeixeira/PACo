@@ -20,8 +20,10 @@ import openai
 import pytest
 from autonomous_scripted import ScriptedServer, usage
 from mcp import Client
+from mcp.types import Tool
 
 from paco.agent.answer import unfound_numbers
+from paco.agent.record import ToolStep
 from paco.autonomous import prompts, server
 from paco.autonomous.host import budgets
 from paco.autonomous.host.answer import GeoAnswerForm, report
@@ -292,6 +294,14 @@ def test_each_step_that_changes_the_study_says_what_it_did(played: Played) -> No
     assert first["try_settings"] == "<- try_settings: 1 variant on 3 test windows"
     assert first["commit"] == "<- commit: 78 receivers, farthest shot 150 m, dispersion nv 250"
     assert first["decide"].startswith("<- decide: ") and " windows accepted, " in first["decide"]
+    # The windows the call picked, as its result counts them, not every one picked so far.
+    said = next(
+        step.result
+        for step in played.host.steps
+        if isinstance(step, ToolStep) and step.name == "pick" and "Picked " in step.result
+    )
+    count = said.split("Picked ", 1)[1].split(" ", 1)[0]
+    assert first["pick"].startswith(f"<- pick: {count} window")
     assert first["freeze"].startswith("<- freeze: 8 curves accepted, ")
     assert first["invert"] == "<- invert: 8 of 8 windows inverted"
     assert any(" models accepted, " in line for line in outcomes if line.startswith("<- decide"))
@@ -358,6 +368,28 @@ def test_the_model_reads_the_refusals_and_a_fresh_start_after_the_freeze(played:
     assert [message["role"] for message in after] == ["system", "user", "user"]
     assert after[1]["content"].startswith(f"{REQUEST}\n\n[PACo] The objective:")
     assert "[PACo] The curves are frozen: Frozen, from L1" in after[1]["content"]
+
+
+def test_after_the_freeze_the_inversion_is_offered_only_when_asked(
+    paco_env: Settings, tmp_path: Path
+) -> None:
+    names = ["inspect", "journal", "observe", "look", "invert", "job_status", "decide"]
+    tools = [Tool(name=name, input_schema={"type": "object"}) for name in names]
+    host = Host(None, None, tools, paco_env)  # pyright: ignore[reportArgumentType]
+    folder = tmp_path / STUDIES / "20261022-120000-abcd"
+    folder.mkdir(parents=True)
+    host.study = Study("active_test_profile", folder)
+    host.scope = GeoScope.model_validate(
+        {**BLANK, "process": True, "pick": True, "profile": "active_test_profile"}
+    )
+
+    # No inversion asked: after the freeze, the model reads and reports; before it, as ever.
+    offered = host._offered  # pyright: ignore[reportPrivateUsage]
+    assert [tool.name for tool in offered("P4")] == ["inspect", "journal", "observe", "look"]
+    assert "look" in [tool.name for tool in offered("P2")]
+    # Models asked: every tool of the inversion.
+    host.scope = host.scope.model_copy(update={"invert": True})
+    assert [tool.name for tool in offered("P4")] == names
 
 
 def test_an_image_counts_as_its_pixels_not_its_characters() -> None:

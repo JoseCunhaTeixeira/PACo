@@ -111,7 +111,8 @@ def snapshot_qc_config(config: QCConfig, run_folder: Path) -> Path:
 
 
 def read_qc_config(run_folder: Path) -> QCConfig:
-    return QCConfig.model_validate_json((run_folder / CONFIG_FILE).read_text())
+    """The configuration a run used, as recorded: a setting PACo no longer has left out."""
+    return QCConfig.model_validate_json((run_folder / CONFIG_FILE).read_text(), extra="ignore")
 
 
 def run_qc_config(run_folder: Path, path: Path | None) -> QCConfig:

@@ -579,11 +579,12 @@ def test_a_search_runs_the_grid_once_and_sorts_it_into_sheets(
 def test_every_sheet_is_judged_until_the_search_chooses(paco_env: Settings) -> None:
     profile = "active_test_profile"
     study = new_study(profile, paco_env)
+    # Windows of 21 receivers: more of the grid's variants give images than a final holds.
     give(
         study,
         Given(
             line={
-                "masw": {"length": 24},
+                "masw": {"length": 21},
                 "muting": {"method": "none"},
                 "image_stacking": {"method": "linear"},
             }

@@ -150,7 +150,7 @@ def test_the_ladder_keeps_the_most_precise_length_that_passes(
     # nearest receiver, where it has a farther shot whose record G1 keeps. xmid 53.25 has none
     # (101.dat, 117.dat and 165.dat left out): it keeps its near shot, 149.dat.
     assert near.startswith("near_field distance_m 8.5 m: a window stacks no shot nearer than")
-    assert near.endswith("; 1 window with near shots only keeps them (G3 flags its near field).")
+    assert near.endswith("; 1 window with near shots only keeps them.")
     # The gates of the processing ran on it (the picking's are pick's), and the summary gives
     # the change.
     assert set(report.counts) == {"G1", "G2"}
@@ -194,8 +194,8 @@ def test_a_record_g1_rejects_goes_into_no_window(demo_input_dir: Path, tmp_path:
         demo_input_dir, tmp_path, {"masw": {"length": 24, "step": 24}}, QUICK
     )
 
-    # The line's own G1 result (its receivers) passes too.
-    assert report.counts["G1"] == {"pass": 4, "reject": 4}
+    # The records' verdicts: the line's own G1 result (its receivers) is not one of them.
+    assert report.counts["G1"] == {"pass": 3, "reject": 4}
     settings = Settings(input_dir=demo_input_dir, output_dir=run_folder.parents[1])
     assert load_manifest(report.run_id, settings).exclusions.records == (
         "101.dat",
@@ -222,9 +222,9 @@ def test_an_active_profile_is_processed_passive_active(
         QUICK,
     )
 
-    # The records judged as in active mode: 3 kept, and the line's receivers; 101.dat, 117.dat,
-    # 133.dat and 165.dat left out (test_a_record_g1_rejects_goes_into_no_window).
-    assert report.counts["G1"] == {"pass": 4, "reject": 4}
+    # The records judged as in active mode: 3 kept; 101.dat, 117.dat, 133.dat and 165.dat left
+    # out (test_a_record_g1_rejects_goes_into_no_window).
+    assert report.counts["G1"] == {"pass": 3, "reject": 4}
     settings = Settings(input_dir=demo_input_dir, output_dir=run_folder.parents[1])
     manifest = load_manifest(report.run_id, settings)
     assert manifest.preset.mode == "passive-active"

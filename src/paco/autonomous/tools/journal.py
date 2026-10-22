@@ -13,6 +13,7 @@ from typing import Any, Literal
 
 from pydantic import BaseModel, ConfigDict, Field
 
+from paco.autonomous.tools import search as searching
 from paco.autonomous.tools.commit import Committed
 from paco.autonomous.tools.freeze import Frozen
 from paco.autonomous.tools.trials import Experiment, Study, figures
@@ -103,14 +104,17 @@ def check(
     study: Study, kind: ModelKind, text: str, of: Sequence[str] = (), expect: str | None = None
 ) -> str:
     """Refused, saying why, unless the model's entry can be written: its text, one paragraph of
-    MOST_TEXT characters at most; the entries `of` in the journal; a hypothesis's `expect`. Its
-    text on one line."""
+    MOST_TEXT characters at most; the entries `of` in the journal, or the study's search once made
+    (S1, the evidence a commit of its choice rests on); a hypothesis's `expect`. Its text on one
+    line."""
     said = " ".join(text.split())
     if not said:
         raise ValueError("text: what the entry says, one paragraph.")
     if len(said) > MOST_TEXT:
         raise ValueError(f"text: {MOST_TEXT} characters at most ({len(said)} given): say less.")
     known = {entry.id for entry in entries(study)}
+    if (study.folder / searching.SEARCHES / f"{searching.SEARCH}.json").exists():
+        known.add(searching.SEARCH)
     if unknown := [one for one in of if one not in known]:
         raise ValueError(
             f"of: no entry {', '.join(unknown)} in the journal; read it for the ids (E3, H2)."

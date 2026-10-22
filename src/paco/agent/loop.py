@@ -430,13 +430,14 @@ class Agent:
 
     def _held(self) -> list[str]:
         """What the conversation holds that an answer's numbers may come from: the user's
-        messages and the tools' results, earlier turns' as kept (not the answers, written by
-        the model)."""
-        return [
+        messages and the tools' results, earlier turns' whole as their steps keep them (the
+        history keeps them short), not the answers, written by the model."""
+        said = [
             str(message.get("content") or "")
             for message in self.messages
-            if message["role"] in ("user", "tool")
+            if message["role"] == "user"
         ]
+        return [*said, *(step.result for step in self.steps if isinstance(step, ToolStep))]
 
     @property
     def offers(self) -> tuple[Offer, ...]:

@@ -48,6 +48,7 @@ from sigpipe.masw.windows import Exclusions
 
 from paco import stopping
 from paco.autonomous.tools import pick as picking
+from paco.autonomous.tools import search as searching
 from paco.autonomous.tools.decide import DECISIONS
 from paco.autonomous.tools.given import REASON, check_line, given_of, missing, without
 from paco.autonomous.tools.pick import Picked, Recipe
@@ -181,8 +182,21 @@ def commit(
         raise ValueError("The line holds these settings already: give one to change.")
     after = deep_merge(line.settings if line is not None else {}, changed)
     trial = concrete(after, profile, config, survey_reach(study))
-    if experiment is not None and not (study.folder / EXPERIMENTS / f"{experiment}.json").is_file():
-        raise ValueError(f"No experiment '{experiment}' in this study: E<n>, as try_settings says.")
+    if changed.get(NEAR_FIELD) is not None and trial.near_field_m is None:
+        raise ValueError(
+            f"{NEAR_FIELD} {changed[NEAR_FIELD]:g}: it drops no shot, no window keeping a farther "
+            "one within masw.distance_max: leave it out, or widen distance_max."
+        )
+    # The experiment it rests on: one try_settings made, or the study's search once made.
+    tried = study.folder / EXPERIMENTS / f"{experiment}.json"
+    searched = study.folder / searching.SEARCHES / f"{searching.SEARCH}.json"
+    if experiment is not None and not (
+        tried.is_file() or (experiment == searching.SEARCH and searched.is_file())
+    ):
+        raise ValueError(
+            f"No experiment '{experiment}' in this study: E<n>, as try_settings says, or S1, the "
+            "search."
+        )
     if not line_windows(profile, trial):
         raise ValueError(
             f"No window of {trial.preset.masw.length} receivers has a shot within "

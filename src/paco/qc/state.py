@@ -6,7 +6,7 @@ from pathlib import Path
 from sigpipe.masw.runs import RunError, RunManifest
 from sigpipe.masw.runs.writing import write_atomic
 
-from paco.qc.config import CONFIG_FILE, QCConfig
+from paco.qc.config import CONFIG_FILE, read_qc_config
 from paco.qc.models import Budgets
 from paco.qc.report import REPORT_FILE, QCReport, build_report
 
@@ -27,7 +27,7 @@ def rebuild_state(run_folder: Path) -> QCReport:
     else:
         raise RunError(f"{run_folder} holds no run: no run.json, no QC report.")
     if config_path.exists():
-        budgets = QCConfig.model_validate_json(config_path.read_text()).budgets
+        budgets = read_qc_config(run_folder).budgets
     elif saved.exists():
         budgets = QCReport.model_validate_json(saved.read_text()).budgets
     else:

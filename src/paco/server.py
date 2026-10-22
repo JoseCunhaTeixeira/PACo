@@ -780,7 +780,10 @@ def _line_notes(report: qc.QCReport) -> tuple[str, ...]:
 def _picking_used(
     run_id: str, settings: Settings, given: dict[str, Any] | None = None
 ) -> tuple[str, ...]:
-    return qc.picking_used(qc.read_qc_config(runs.find_run(run_id, settings)).picking, given)
+    run_folder = runs.find_run(run_id, settings)
+    parameters = qc.read_qc_config(run_folder).picking
+    aliased = qc.aliased_limits(qc.read_attempts(run_folder), parameters, given)
+    return qc.picking_used(parameters, given, aliased)
 
 
 def _qc_config(settings: Settings) -> qc.QCConfig:

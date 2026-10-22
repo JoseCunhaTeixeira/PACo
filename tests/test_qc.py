@@ -73,7 +73,7 @@ from paco.qc.g3_curve import CurveThresholds
 from paco.qc.log import ASKED, LINE_CHANGE
 from paco.qc.loops import RetryBudget, deep_merge, next_try, unchanged
 from paco.qc.report import merged
-from paco.qc.used import picking_used
+from paco.qc.used import aliased_limits, picking_used
 from paco.settings import Settings
 
 SMALL_WINDOWS = {"masw": {"length": 24, "step": 24}}
@@ -490,6 +490,11 @@ def test_the_configuration_is_loaded_from_a_file_and_recorded_with_the_run(tmp_p
     given.write_text('{"curve": {"metrics": {"min_sharpnes": 1}}}')
     with pytest.raises(ValidationError, match="min_sharpnes"):
         load_qc_config(given)
+    # A run's record still reads once PACo has dropped one of its settings.
+    recorded = json.loads((run_folder / CONFIG_FILE).read_text())
+    recorded["curve"]["dropped_setting"] = 0.5
+    (run_folder / CONFIG_FILE).write_text(json.dumps(recorded))
+    assert read_qc_config(run_folder) == config
 
 
 # ---------------------------------------------------------------- attempts kept inside one run
@@ -789,6 +794,27 @@ def test_the_picking_values_the_user_gave_are_said_with_those_used() -> None:
         ({"fmax": 40.0}, ", up to 40 Hz)"),
     ):
         assert words in picking_used(PickingParameters.model_validate(band))[0]
+
+
+def test_the_picking_says_where_g2_stopped_it_below_an_alias() -> None:
+    # Two windows' first picks stopped below their image's alias; a retry's band is G3's.
+    first = [
+        _attempt(unit, "picking", 1).model_copy(update={"parameters": {"fmax": fmax}})
+        for unit, fmax in (("xmid_1.00", 31.0), ("xmid_2.00", 24.5))
+    ]
+    retried = _attempt("xmid_1.00", "picking", 2).model_copy(update={"parameters": {"fmax": 99.9}})
+
+    aliased = aliased_limits([*first, retried], PickingParameters())
+    said = picking_used(PickingParameters(), None, aliased)
+
+    assert aliased == (31.0, 24.5)
+    assert "changed window by window where G2 or G3 asked" in said[0]
+    assert said[1] == (
+        "picking fmax 24.5-31 Hz at 2 windows (each window its own): below the alias G2 found in "
+        "its dispersion image"
+    )
+    # A band the call gives: its own.
+    assert aliased_limits(first, PickingParameters(), {"fmax": 40.0}) == ()
 
 
 def test_the_settings_the_gates_changed_are_said_from_and_to(tmp_path: Path) -> None:

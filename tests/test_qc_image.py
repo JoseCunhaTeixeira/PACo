@@ -308,7 +308,7 @@ def test_a_windows_correlations_are_judged_as_a_record_is() -> None:
     }
     (flag,) = lost.flags
     assert flag.name == "noisy_correlations" and lost.verdict == "reject"
-    assert "median SNR 2.1 dB (at least 6)" in flag.message
+    assert "median SNR 2.1 dB (at least 6 dB)" in flag.message
     assert "coherence 0.4 (at least 0.5)" in flag.message
     # Every measure says its object: the correlations' signal and spectrum, the image's.
     assert {metric.of for metric in noisy.metrics} == {"signal", "spectrum", "image"}
@@ -337,6 +337,9 @@ def test_a_passive_windows_fk_selection_is_judged() -> None:
 
     (flag,) = few.flags
     assert flag.name == "few_segments_kept" and few.verdict == "retry"
+    assert flag.message.startswith(
+        "Its fk selection falls short, share of segments kept 0.5 % (at least 1 %): "
+    )
     kept = next(metric for metric in few.metrics if metric.name == "fk_kept")
     assert (kept.value, kept.threshold, kept.of) == (0.005, 0.01, "selection")
     assert rare.flags == () and rare.verdict == "pass"

@@ -34,7 +34,7 @@ from paco.qc.given import given_of as paco_given_of
 from paco.qc.inverting import QUICK_SAMPLER
 from paco.qc.judging import saved_m0
 from paco.qc.log import append_attempt, latest, read_attempts
-from paco.qc.models import Attempt, Flag, GateResult, Override, Reject
+from paco.qc.models import Attempt, Flag, GateResult, Keep, Override, Reject
 from paco.settings import Settings
 
 # As narrow_velocities and tight_bounds type them.
@@ -202,15 +202,22 @@ def test_what_the_users_settings_hold_back(tmp_path: Path) -> None:
         stage="inversion",
         action=Override(stage="inversion", overrides={"n_iterations": 4000}),
     )
+    # An older log's, which rejected the windows; now they stay flagged, the retry refused.
     for xmid in ("23.25", "24.75"):
         g2 = GateResult(gate="G2", unit=f"xmid_{xmid}", verdict="reject", flags=(locked,))
         logged(f"xmid_{xmid}", "phase_shift", g2, ())
+    kept_flagged = locked.model_copy(
+        update={"action": Keep(note="locked, asks dispersion vmax 525 (given: 350)")}
+    )
+    g2 = GateResult(gate="G2", unit="xmid_26.25", verdict="retry", flags=(kept_flagged,))
+    logged("xmid_26.25", "phase_shift", g2, ())
     g5 = GateResult(gate="G5", unit="xmid_30.75", verdict="retry", flags=(longer,))
     kept = "free.vs_max 300 m/s below 1.1 times the curve's fastest velocity (330 m/s): kept as "
     logged("xmid_30.75", "inversion", g5, (f"{kept}given (the check sets 363 m/s).", "seed 7"))
 
     assert asks(tmp_path, USER) == [
         "xmid 23.25-24.75 (2): G2 rejected them, asking dispersion vmax 525 (given: 350)",
+        "xmid 26.25 (1): G2 flagged them, asking dispersion vmax 525 (given: 350)",
         "xmid 30.75 (1): G5 asks n_iterations 4000 (given: 2000)",
         "xmid 30.75 (1): the checks before S4 kept free.vs_max as given, asking 363 m/s",
     ]
@@ -300,13 +307,13 @@ def test_the_first_commit_runs_with_them_and_logs_them(kept: Kept) -> None:
 
 
 @pytest.mark.slow
-def test_g2_rejects_the_windows_they_hold_back_and_the_card_says_so(kept: Kept) -> None:
+def test_g2_flags_the_windows_they_hold_back_and_the_card_says_so(kept: Kept) -> None:
     held = asks(kept.run, given_of(kept.study))
 
     # The ground is faster than 350 m/s under some windows: G2 asks a wider grid, which only the
-    # user may give.
+    # user may give; they stay flagged and go on.
     assert len(held) == 1
-    assert held[0].endswith(": G2 rejected them, asking dispersion vmax 525 (given: 350)")
+    assert held[0].endswith(": G2 flagged them, asking dispersion vmax 525 (given: 350)")
     lines = card(kept.study, kept.settings).splitlines()
     assert lines[1] == "Kept as you gave: masw length 24; dispersion vmax 350"
     assert lines[-1] == (

@@ -14,6 +14,7 @@ from sigpipe.masw.runs import RunError, RunManifest, find_run, list_runs, load_m
 from sigpipe.masw.runs.finding import window_length
 
 from paco.qc.config import CONFIG_FILE, QCConfig, load_qc_config, read_qc_config
+from paco.qc.g4_profile import LINE
 from paco.qc.inverting import MEASURES_FILE
 from paco.qc.log import read_attempts
 from paco.qc.origin import WindowWork, assistant_run, run_work
@@ -87,7 +88,7 @@ def run_text(run_id: str, settings: Settings) -> str:
     by_unit = {unit.unit: unit for unit in report.units}
     lines = [
         _header(manifest, run_folder, work),
-        "Settings: " + "; ".join(processing_used(manifest)),
+        "Settings: " + "; ".join(processing_used(manifest, notes=_line_notes(report))),
     ]
     if RETRIES_SAID.get():
         lines.append(f"Retries: {report.retries} of {budget} spent.")
@@ -140,6 +141,12 @@ def window_text(run_id: str, position: float, settings: Settings) -> str:
             + "."
         )
     return "\n".join(lines)
+
+
+def _line_notes(report: QCReport) -> tuple[str, ...]:
+    """What the line's settings were set to and why: the rules', or the agent's commit."""
+    line = next((unit for unit in report.units if unit.unit == LINE), None)
+    return tuple(note for notes in line.notes.values() for note in notes) if line else ()
 
 
 def _judged(

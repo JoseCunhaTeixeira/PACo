@@ -1441,6 +1441,49 @@ def test_a_tool_call_has_a_timeout() -> None:
     assert "   failed: no result in 2 s" in events
 
 
+class AliasServer(PlanServer):
+    """Stands in for PACo's server: pick also says where the images alias, which the history
+    does not keep."""
+
+    async def call_tool(
+        self,
+        name: str,
+        arguments: dict[str, Any],
+        read_timeout_seconds: float | None = None,  # noqa: ARG002
+        progress_callback: ProgressFnT | None = None,
+        meta: dict[str, Any] | None = None,
+    ) -> CallToolResult:
+        result = await super().call_tool(name, arguments, None, progress_callback, meta)
+        if name != "pick":
+            return result
+        said = json.loads(str(result.content[0].text))  # type: ignore[union-attr]
+        return _structured({**said, "summary": "G2: aliasing from 31.2 Hz."})
+
+
+def test_an_answer_may_use_the_numbers_of_an_earlier_turns_results() -> None:
+    # The pick's summary is kept short in the history, whole in its step: the next answer's
+    # 31.2 Hz is found there.
+    server_ = AliasServer()
+    server_.runs = TWO_RUNS
+    model = ScriptedModel(
+        _calls(("pick", {"run_id": RUN_A})),
+        _says("Picked."),
+        _says("The images alias from 31.2 Hz."),
+        scopes=(_on("pick", run_id=RUN_A), _on()),
+    )
+
+    async def conversation() -> tuple[str, Agent]:
+        agent = Agent(cast(Client, server_), model, [], None, on_event=lambda _: None)
+        await agent.answer(f"Pick run {RUN_A}.")
+        return await agent.answer("Where do they alias?"), agent
+
+    answer, agent = anyio.run(conversation)
+
+    assert "31.2" not in "".join(_tool_results(agent.messages))
+    assert "The images alias from 31.2 Hz." in answer
+    assert "Numbers not found" not in answer
+
+
 def test_earlier_results_are_kept_short_and_the_trace_whole() -> None:
     model = ScriptedModel(
         _with_tokens(_calls(("pick", {"run_id": "r"})), 95, 10),

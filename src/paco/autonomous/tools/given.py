@@ -25,7 +25,7 @@ from paco.qc import given as paco_given
 from paco.qc.config import CONFIG_FILE, QCConfig, read_qc_config
 from paco.qc.log import latest, read_attempts
 from paco.qc.loops import deep_merge
-from paco.qc.models import Override, Reject, Stage
+from paco.qc.models import Keep, Override, Reject, Stage
 from paco.qc.report import stretches, xmid_of
 
 if TYPE_CHECKING:  # trials keeps the user's settings in its trials
@@ -229,9 +229,15 @@ def asks(run_folder: Path, given: Given) -> list[str]:
                 held: Mapping[str, Any] = {}
                 if gate == "G5" and isinstance(flag.action, Override) and mine:
                     held = paco_given.unlocked(flag.action.overrides, mine)[1]
-                if flag.name == LOCKED and isinstance(flag.action, Reject):
-                    said = flag.action.reason.removeprefix(f"{LOCKED}, asks ")
-                    found.setdefault(f"{gate} rejected them, asking {said}", []).append(unit)
+                # Kept flagged, its retry refused; an older log's rejected the unit.
+                if flag.name == LOCKED and isinstance(flag.action, Keep | Reject):
+                    kept = isinstance(flag.action, Keep)
+                    reason = (
+                        flag.action.note if isinstance(flag.action, Keep) else flag.action.reason
+                    )
+                    said = reason.removeprefix(f"{LOCKED}, asks ")
+                    verb = "flagged" if kept else "rejected"
+                    found.setdefault(f"{gate} {verb} them, asking {said}", []).append(unit)
                 elif held:
                     said = paco_given.said(held, mine)
                     found.setdefault(f"G5 asks {said}", []).append(unit)

@@ -499,7 +499,10 @@ def commit(
     ],
     ctx: Context,
     experiment: Annotated[
-        str | None, Field(description="The experiment the changes come from, by its id (E<n>).")
+        str | None,
+        Field(
+            description="The experiment the changes come from, by its id (E<n>, or S1, the search)."
+        ),
     ] = None,
     conclusion: Annotated[
         str | None,

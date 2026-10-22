@@ -17,6 +17,9 @@ from paco.qc.models import Flag, GateResult, Keep, Kept, Metric, Override, Rejec
 from paco.quality import ImageQuality, QualityParameters, quality_of
 
 GATE = "G3"
+# The lowest relative coherence G3 suggests keeping more of a ridge with: points a tenth of their
+# mode's typical coherence are noise, not the ridge.
+COHERENCE_FLOOR = 0.1
 
 
 class CurveThresholds(CurveLimits):
@@ -114,9 +117,7 @@ def judge_curve(
                 stage="picking",
                 action=Override(
                     stage="picking",
-                    overrides={
-                        "min_relative_coherence": round(picking.min_relative_coherence * 0.6, 2)
-                    },
+                    overrides={"min_relative_coherence": _more_of_the_ridge(picking)},
                 ),
             )
         )
@@ -226,9 +227,16 @@ def _too_few_points(
         stage="picking",
         action=Override(
             stage="picking",
-            overrides={"min_relative_coherence": round(picking.min_relative_coherence * 0.6, 2)},
+            overrides={"min_relative_coherence": _more_of_the_ridge(picking)},
         ),
     )
+
+
+def _more_of_the_ridge(picking: PickingParameters) -> float:
+    """The relative coherence that keeps more of the ridge's points: 0.6 of the pick's, never
+    under COHERENCE_FLOOR, where the points kept are noise; there, the pick's own, a change
+    already tried."""
+    return round(max(COHERENCE_FLOOR, picking.min_relative_coherence * 0.6), 2)
 
 
 def _constant_wavelength_cut(m0: PickedMode | None, length: float) -> float | None:

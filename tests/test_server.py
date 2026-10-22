@@ -279,7 +279,7 @@ def test_a_setting_the_tool_does_not_have_is_ignored_and_said() -> None:
     assert not picked.is_error and picked.structured_content is not None
     (mode,) = picked.structured_content["ignored"]
     assert mode.startswith('mode "M1": not a picking setting: PACo picks M0')
-    assert picked.structured_content["summary"].startswith("G4: ")
+    assert picked.structured_content["summary"].startswith("G3: ")
     # A wrong value of a setting the picking has refuses the call, with why.
     refused = _call("pick", {"run_id": _run_id(processed), "changes": {"corridor": -1}})
     assert refused.is_error and "corridor" in _text(refused)
@@ -302,7 +302,7 @@ def test_the_workflow_process_pick_redo_invert() -> None:
     # What the gates did, in a few lines, and what to call next.
     done = processed.structured_content
     assert done is not None
-    assert done["summary"].splitlines()[:2] == ["G1: 4 pass, 4 reject", "G2: 4 pass"]
+    assert done["summary"].splitlines()[:2] == ["G1: 3 pass, 4 reject", "G2: 4 pass"]
     # No trigger corrected: the files say the shot comes 20 ms in; G1 puts 149.dat's and
     # 165.dat's first breaks 18 ms earlier, and the line's trial windows gain too little by the
     # correction to keep it (below).
@@ -338,14 +338,14 @@ def test_the_workflow_process_pick_redo_invert() -> None:
     assert picked.structured_content is not None
     # Every window keeps its traces (none is off the decay in most records) and stacks its
     # shots out of the near field where it has farther ones G1 keeps: xmid 53.25, whose farther
-    # shots G1 left out, keeps its near one (G3 flags its near field).
+    # shots G1 left out, keeps its near one (its nearest shot reported).
     # xmid 125.25's pick is a single point in the aliasing zone, off its columns' brightest
     # values (competing ridges): G3 picks it again in the coherent band, more of the ridge kept,
     # and leaves it flagged when its retries are spent: it goes on, G4 judging it with the
     # others. Three curves pass, one flagged.
     assert picked.structured_content["summary"].splitlines()[:2] == [
-        "G4: 5 pass",
         "G3: 3 pass, 1 retry",
+        "G4: 4 pass",
     ]
     (change,) = picked.structured_content["changed"]
     assert change.startswith(

@@ -91,6 +91,15 @@ TRANSCRIPTS = "transcripts"  # in the study's folder
 CARD = "[PACo] The state card, as it is now:"
 # The phases a model with vision sees PACo's atlas in, with the request: until the freeze.
 ATLAS_PHASES = ("P1", "P2")
+# The inversion's tools, offered after the freeze only when the request asks for models or soils
+# (or gives the inversion's settings); without them, the model reports.
+INVERSION_TOOLS = frozenset(
+    {"invert", "job_status", "decide", "advise", "petro_models", "invert_petro"}
+)
+NO_INVERSION = (
+    "[PACo] The user asked for no inversion: the curves are frozen. Report what was done, "
+    "without models."
+)
 DROPPED = (
     "[PACo] Older calls were dropped from the conversation to keep it short: the journal (journal "
     "read) and the state card hold what they found."
@@ -366,7 +375,7 @@ class Host:
             if (said := _stop(spent)) is not None:
                 self._on_event(f"   ({said})")
                 return self._stands(said)
-            tools = tools_for_model(offered(phase, self._tools))
+            tools = tools_for_model(self._offered(phase))
             messages = self._messages(phase, _tokens([json.dumps(tools)]))
             self.sizes.append(_size(messages, tools))
             started = time.perf_counter()
@@ -404,8 +413,10 @@ class Host:
         """What the model reads: the role and the phase's manual, the conversation, then the
         state card as it is now. A model with vision sees PACo's atlas until the freeze,
         after the request: kept out of the conversation, which drops a figure once seen."""
-        manual = MANUALS.get(phase)
+        manual = MANUALS.get(phase) if self._inverts(phase) else None
         system = prompts.prompt("role") + (f"\n\n{prompts.prompt(manual)}" if manual else "")
+        if not self._inverts(phase):
+            system += f"\n\n{NO_INVERSION}"
         state(self._study, self._settings)
         self._card = now = card(self._study, self._settings)
         self._dropped(system, now, tools)
@@ -430,6 +441,11 @@ class Host:
         else:
             said = (
                 refusal(phase, call.name)
+                or (
+                    f"Not called: {NO_INVERSION.removeprefix('[PACo] ')}"
+                    if call.name in INVERSION_TOOLS and not self._inverts(phase)
+                    else None
+                )
                 or budgets.refusal(spent, call.name)
                 or (None if isinstance(arguments, dict) else "Not called: arguments are an object.")
             )
@@ -477,7 +493,7 @@ class Host:
             }
             carried = [followed]
         self._short[call.id] = self._shortened(call.name, text, failed)
-        if not failed and (did := outcome(study, self._settings, call.name)) is not None:
+        if not failed and (did := outcome(study, self._settings, call.name, text)) is not None:
             self._on_event(f"<- {call.name}: {did}")
         return carried
 
@@ -685,6 +701,22 @@ class Host:
                     self.history[index] = {**message, "content": short}
             elif message["role"] == "user" and isinstance(message.get("content"), list):
                 self.history[index] = {"role": "user", "content": "(A figure, seen.)"}
+
+    def _offered(self, phase: Phase) -> list[Tool]:
+        """The tools `phase` offers the model: after the freeze, the inversion's only when the
+        request asks for it."""
+        tools = offered(phase, self._tools)
+        if self._inverts(phase):
+            return tools
+        return [tool for tool in tools if tool.name not in INVERSION_TOOLS]
+
+    def _inverts(self, phase: Phase) -> bool:
+        """Whether, after the freeze (P4), the request asks for models or soils, or gives the
+        inversion's settings; so before it, and for a study whose request is not known here (one
+        resumed by another host)."""
+        if phase != "P4" or self.scope is None:
+            return True
+        return bool(self.scope.invert or self.scope.soils or given.given_of(self._study).inversion)
 
     def _dropped(self, system: str, now: str, tools: int) -> None:
         """Past COMPACT_AT of the model's context, the oldest calls dropped, each with its
