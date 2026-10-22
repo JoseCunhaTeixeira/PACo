@@ -80,6 +80,11 @@ COMPACT_AT = 0.6
 CONTEXT_FLOOR = 32_768
 # The calls kept whole however full the context, the latest.
 KEPT_CALLS = 3
+# An image's tokens as Claude counts them: its pixels over 750, its long edge brought to 1568 px at
+# most; one whose size is not read, as a large one.
+IMAGE_EDGE = 1568
+IMAGE_TOKENS = 1600
+_IMAGE = re.compile(r"data:image/[\w.+-]+;base64,([A-Za-z0-9+/=]+)")
 # A tool result's first lines, as earlier calls keep it.
 KEPT_LINES = 2
 TRANSCRIPTS = "transcripts"  # in the study's folder
@@ -855,12 +860,34 @@ def _stop(spent: budgets.Spent) -> str | None:
 
 
 def _size(messages: Sequence[ChatCompletionMessageParam], tools: Sequence[object]) -> int:
-    """A call's size in tokens, estimated: four characters a token."""
+    """A call's size in tokens, estimated: four characters a token, an image as it counts."""
     return _tokens([json.dumps(messages), json.dumps(tools)])
 
 
 def _tokens(texts: Sequence[str]) -> int:
-    return sum(len(text) for text in texts) // 4
+    """`texts`' tokens, estimated: four characters a token of their text; an image (a data URL)
+    as the model counts it, never by its characters, which would drop calls long before the
+    context fills."""
+    total = 0
+    for text in texts:
+        found = list(_IMAGE.finditer(text))
+        total += (len(text) - sum(len(one.group(0)) for one in found)) // 4
+        total += sum(_image_tokens(one.group(1)) for one in found)
+    return total
+
+
+def _image_tokens(data: str) -> int:
+    """A PNG's tokens, from its size in its header: its pixels over 750, its long edge brought to
+    IMAGE_EDGE; IMAGE_TOKENS for one whose size it does not give."""
+    try:
+        head = base64.b64decode(data[:32])
+    except ValueError:
+        return IMAGE_TOKENS
+    if len(head) < 24 or head[:8] != b"\x89PNG\r\n\x1a\n":
+        return IMAGE_TOKENS
+    width, height = int.from_bytes(head[16:20]), int.from_bytes(head[20:24])
+    scale = min(1.0, IMAGE_EDGE / max(width, height, 1))
+    return max(1, round(width * height * scale * scale / 750))
 
 
 def _assistant_message(reply: Reply) -> ChatCompletionMessageParam:

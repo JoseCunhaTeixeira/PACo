@@ -42,7 +42,10 @@ def connect(
     key = api_key.get_secret_value()
     if provider == "anthropic":
         client = AsyncAnthropic(api_key=key, base_url=base_url)
-        return AnthropicChat(client, model, vision=vision, reconnect_s=reconnect_s)
+        # The prompt's fixed parts cached an hour on Anthropic's own API, which takes it.
+        return AnthropicChat(
+            client, model, vision=vision, reconnect_s=reconnect_s, hour=base_url is None
+        )
     return OpenAIChat(
         AsyncOpenAI(base_url=base_url or ADDRESSES.get(provider), api_key=key),
         model,

@@ -7,9 +7,12 @@ in user messages only), the state card after the results.
 
 What Claude's API adds, used here:
 
-- Prompt caching: the tools, the system prompt and the conversation up to the model's last reply
-  are marked for the cache, so that each call reads them back; the host keeps the prompt's
-  beginning the same from call to call.
+- Prompt caching: the tools, the system prompt, the conversation's first turn (the request, and
+  the atlas it carries) and the conversation up to the model's last reply are marked for the
+  cache, so that each call reads them back; the host keeps the prompt's beginning the same from
+  call to call. On Anthropic's own API the parts fixed for a phase (the tools, the system prompt,
+  the first turn) are kept an hour: a tool that runs longer than the cache's 5 minutes (the
+  search's judging, an inversion followed to its end) leaves them read back.
 - Thinking as the model takes it, which the models API says: adaptive where it can, else a budget
   of tokens; its blocks given back unchanged with the calls they led to, as the API asks within a
   tool loop.
@@ -63,6 +66,8 @@ UNIONS = 16
 # What a form's tool, offered without forcing it, is asked with.
 FILL = "Fill the form now: call the tool form, whose fields are your answer."
 CACHED: dict[str, Any] = {"type": "ephemeral"}
+# The parts of the prompt fixed for a phase, kept an hour where the API takes it.
+FIXED: dict[str, Any] = {"type": "ephemeral", "ttl": "1h"}
 _DATA_URL = re.compile(r"data:(?P<type>[\w/+.-]+);base64,(?P<data>.+)", re.DOTALL)
 # The OpenAI SDK's errors, by the status Anthropic's API answered.
 _STATUS: dict[int, type[openai.APIStatusError]] = {
@@ -81,7 +86,8 @@ class AnthropicChat:
     own connect it on), `thinking` unless a call says otherwise, at the model's own effort. A
     conversation holding an image is refused without vision, before anything is sent. A server
     that refuses or drops the connection is asked again for up to `reconnect_s`, waiting with
-    `sleep`, as the other client does."""
+    `sleep`, as the other client does. `hour`: the prompt's fixed parts cached an hour (Anthropic's
+    own API), else 5 minutes as every part."""
 
     def __init__(
         self,
@@ -92,8 +98,10 @@ class AnthropicChat:
         thinking: bool = True,
         reconnect_s: float = RECONNECT_S,
         sleep: Callable[[float], Awaitable[None]] = anyio.sleep,
+        hour: bool = False,
     ) -> None:
         self._client = client
+        self._fixed = FIXED if hour else CACHED
         self.name = model
         self.vision = vision
         self.thinking = thinking
@@ -120,7 +128,7 @@ class AnthropicChat:
         await self._described()
         think = self.thinking if thinking is None else thinking
         system, turns = self._converted(messages)
-        offered = _tools(tools)
+        offered = _tools(tools, self._fixed)
         choice: ToolChoiceParam = {"type": "auto", "disable_parallel_tool_use": not parallel}
         config = self._thinking(think)
         response = await self._create(
@@ -282,8 +290,9 @@ class AnthropicChat:
     ) -> tuple[list[TextBlockParam], list[MessageParam]]:
         """`messages`, in OpenAI's format, as Anthropic's API takes them: the system prompt, and
         the turns, a role's messages in a row merged into one, each result first in its turn,
-        the cache marked at the end of the system prompt and of the turns before the model's
-        last reply."""
+        the cache marked at the end of the system prompt and of the first turn (fixed for the
+        phase), and at the end of the model's last reply: the results after it shrink once read,
+        the conversation up to it does not."""
         system: list[dict[str, Any]] = []
         turns: list[dict[str, Any]] = []
         previous = ""
@@ -315,10 +324,12 @@ class AnthropicChat:
                 _join(turns, "user", _user(content))
             previous = role
         if system:
-            system[-1]["cache_control"] = CACHED
+            system[-1]["cache_control"] = self._fixed
+        if len(turns) > 1 and turns[0]["role"] == "user":
+            turns[0]["content"][-1]["cache_control"] = self._fixed
         replies = [index for index, turn in enumerate(turns) if turn["role"] == "assistant"]
-        if replies and replies[-1] > 0:
-            turns[replies[-1] - 1]["content"][-1]["cache_control"] = CACHED
+        if replies:
+            turns[replies[-1]]["content"][-1]["cache_control"] = CACHED
         return cast(list[TextBlockParam], system), cast(list[MessageParam], turns)
 
     def _assistant(self, message: dict[str, Any]) -> list[dict[str, Any]]:
@@ -356,8 +367,10 @@ def as_openai(error: anthropic.APIError) -> openai.APIError:
     return openai.APIError(error.message, error.request, body=error.body)
 
 
-def _tools(tools: Sequence[ChatCompletionFunctionToolParam]) -> list[ToolParam]:
-    """The tools as Anthropic's API takes them, the last marked for the cache."""
+def _tools(
+    tools: Sequence[ChatCompletionFunctionToolParam], cached: dict[str, Any] = CACHED
+) -> list[ToolParam]:
+    """The tools as Anthropic's API takes them, the last marked for the cache (`cached`)."""
     converted: list[dict[str, Any]] = []
     for tool in tools:
         function = cast(dict[str, Any], tool["function"])
@@ -369,7 +382,7 @@ def _tools(tools: Sequence[ChatCompletionFunctionToolParam]) -> list[ToolParam]:
             }
         )
     if converted:
-        converted[-1]["cache_control"] = CACHED
+        converted[-1]["cache_control"] = cached
     return cast(list[ToolParam], converted)
 
 

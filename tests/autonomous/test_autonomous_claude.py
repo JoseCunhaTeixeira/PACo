@@ -20,7 +20,7 @@ from test_autonomous_host import PLAY, REQUEST
 from paco.autonomous import server as autonomous_server
 from paco.autonomous.host.loop import CARD, Host
 from paco.autonomous.host.phases import phase_of
-from paco.llm.claude import CACHED, FORM_TOKENS, AnthropicChat
+from paco.llm.claude import CACHED, FIXED, FORM_TOKENS, AnthropicChat
 from paco.llm.model import Filled, Reply
 from paco.settings import get_settings
 
@@ -97,7 +97,7 @@ def test_the_hosts_conversation_reads_as_anthropics_turns() -> None:
         },
     ]
     request, reply_turn, results = body["messages"]
-    # The turns up to the model's last reply cached.
+    # The first turn cached, and the conversation up to the model's last reply.
     assert request == {
         "role": "user",
         "content": [
@@ -110,7 +110,13 @@ def test_the_hosts_conversation_reads_as_anthropics_turns() -> None:
     }
     assert reply_turn["content"] == [
         {"type": "tool_use", "id": "toolu_look", "name": "look", "input": {}},
-        {"type": "tool_use", "id": "toolu_observe", "name": "observe", "input": {}},
+        {
+            "type": "tool_use",
+            "id": "toolu_observe",
+            "name": "observe",
+            "input": {},
+            "cache_control": CACHED,
+        },
     ]
     # The results first, the figure inside its own, the state card after them.
     assert results["content"] == [
@@ -164,8 +170,41 @@ def test_the_thinking_goes_back_with_the_calls_it_led_to() -> None:
     assert given_back["content"] == [
         {"type": "thinking", "thinking": "The image before the picks.", "signature": "s"},
         {"type": "text", "text": "Looking first."},
-        {"type": "tool_use", "id": "toolu_look", "name": "look", "input": {}},
+        {
+            "type": "tool_use",
+            "id": "toolu_look",
+            "name": "look",
+            "input": {},
+            "cache_control": CACHED,
+        },
     ]
+
+
+def test_on_anthropics_own_api_the_fixed_parts_are_cached_an_hour() -> None:
+    server = ScriptedAnthropic(ANSWERED)
+    history: list[Any] = [
+        *QUESTION,
+        {"role": "assistant", "content": "", "tool_calls": _calls("look")},
+        {"role": "tool", "tool_call_id": "toolu_look", "content": "Clean."},
+        {"role": "user", "content": f"{CARD}\nPhase: P2"},
+    ]
+
+    async def ask() -> Reply:
+        model = AnthropicChat(server.client, MODEL, hour=True)
+        return await model([{"role": "system", "content": "The role."}, *history], TOOLS)
+
+    anyio.run(ask)
+
+    body = server.bodies[0]
+    # The tools, the system prompt and the first turn, fixed for the phase: an hour; the
+    # conversation up to the model's last reply, which the results after it leave the same: 5
+    # minutes, after them as the API asks.
+    assert body["tools"][-1]["cache_control"] == FIXED
+    assert body["system"][-1]["cache_control"] == FIXED
+    request, reply_turn, results = body["messages"]
+    assert request["content"][-1]["cache_control"] == FIXED
+    assert reply_turn["content"][-1]["cache_control"] == CACHED
+    assert all("cache_control" not in block for block in results["content"])
 
 
 @pytest.mark.parametrize(

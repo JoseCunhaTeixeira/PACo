@@ -5,6 +5,7 @@ The model is scripted (tests/scripted.py); the line, 78-receiver windows on a co
 windows: the 8 whose curves pass accepted, the others rejected once those beside them were picked
 again along their neighbours), a commit in seconds."""
 
+import base64
 import json
 import shutil
 from collections.abc import Callable, Iterator
@@ -26,6 +27,7 @@ from paco.autonomous.host import budgets
 from paco.autonomous.host.answer import GeoAnswerForm, report
 from paco.autonomous.host.card import card
 from paco.autonomous.host.loop import CARD, DROPPED, PENDING, Host, Limits
+from paco.autonomous.host.loop import _tokens as tokens  # pyright: ignore[reportPrivateUsage]
 from paco.autonomous.host.phases import phase_of, reopen, wanted
 from paco.autonomous.host.scope import BLANK, GeoScope
 from paco.autonomous.tools import grid, journal
@@ -356,6 +358,18 @@ def test_the_model_reads_the_refusals_and_a_fresh_start_after_the_freeze(played:
     assert [message["role"] for message in after] == ["system", "user", "user"]
     assert after[1]["content"].startswith(f"{REQUEST}\n\n[PACo] The objective:")
     assert "[PACo] The curves are frozen: Frozen, from L1" in after[1]["content"]
+
+
+def test_an_image_counts_as_its_pixels_not_its_characters() -> None:
+    _, png = prompts.atlas()[1]
+    url = f"data:image/png;base64,{base64.b64encode(png).decode()}"
+    message = {"role": "user", "content": [{"type": "image_url", "image_url": {"url": url}}]}
+    said = json.dumps([message])
+
+    # The atlas's dispersion images, 1080 x 648 px: 933 tokens, as the model counts them, not
+    # the 86 000 their characters would say, which would drop calls long before the context fills.
+    assert len(said) // 4 > 80_000
+    assert 933 <= tokens([said]) < 1_000
 
 
 @pytest.mark.slow
