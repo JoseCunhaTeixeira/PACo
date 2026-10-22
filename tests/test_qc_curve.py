@@ -378,7 +378,9 @@ def test_a_shot_closer_than_half_the_longest_wavelength_is_reported() -> None:
     assert near.verdict == "pass"
     (flag,) = near.flags
     assert flag.name == "near_field" and flag.stage == "phase_shift"
-    assert flag.message.startswith("The nearest shot is 0.75 m from the window, under half the")
+    assert flag.message.startswith(
+        "The nearest shot is 0.75 m from the window, nearer than λmax / 2"
+    )
     assert flag.action.model_dump()["kind"] == "keep"
     metric = next(metric for metric in near.metrics if metric.name == "near_offset")
     assert (metric.value, metric.threshold, metric.bound, metric.passed) == (

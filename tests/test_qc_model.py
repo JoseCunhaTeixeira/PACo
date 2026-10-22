@@ -215,7 +215,7 @@ def test_a_posterior_piled_at_a_vs_bound_widens_that_bound() -> None:
 
     assert result.verdict == "retry"
     flag = _flags(result)["at_bound"]
-    assert "vs2 min 130 m/s, 30%" in flag.message and "vs1 max 450 m/s, 15%" in flag.message
+    assert "vs2 min 130 m/s, 30 %" in flag.message and "vs1 max 450 m/s, 15 %" in flag.message
     layers = flag.action.model_dump()["overrides"]["vs_layers"]
     assert [(layer["vs_min"], layer["vs_max"]) for layer in layers] == [(130.0, 562), (104, 450.0)]
 
@@ -271,7 +271,7 @@ def test_a_misfit_only_the_models_median_makes_is_kept() -> None:
 
     assert result.verdict == "pass"
     flag = _flags(result)["smoothing_misfit"]
-    assert flag.message.startswith("The ensemble misfits 2.6 at short wavelengths (2-4 m)")
+    assert flag.message.startswith("The ensemble misfits 2.6 at short wavelengths (2 to 4 m)")
     assert flag.action.model_dump() == {
         "kind": "keep",
         "note": "re-inverting cannot fix the models' median blurring",
@@ -285,7 +285,7 @@ def test_a_model_that_misfits_gets_one_more_layer_up_to_the_limit() -> None:
 
     assert result.verdict == "retry"
     flag = _flags(result)["underfit"]
-    assert "long wavelengths (7-11 m)" in flag.message
+    assert "long wavelengths (7 to 11 m)" in flag.message
     assert flag.action.model_dump()["overrides"] == {"n_layers": 3}
     four = InversionParameters.model_validate(
         {
@@ -398,7 +398,7 @@ def test_alike_layers_of_a_model_that_fits_are_one() -> None:
     assert result.verdict == "retry"
     flag = _flags(result)["alike_layers"]
     assert flag.message == (
-        "Layers 2 and 3 of the layered median (330 and 340 m/s, 3% apart) are one: one layer fewer."
+        "Layers 2 and 3 of the layered median (330 and 340 m/s, 3 % apart) are one: one layer fewer."
     )
     assert flag.action.model_dump()["overrides"] == {"n_layers": 3}
     # Not below the fewest the loop allows: 3 layers misfit before.
@@ -451,7 +451,7 @@ def test_implausible_profiles_are_reported_never_failed() -> None:
     assert result.verdict == "pass"
     flags = _flags(result)
     assert flags["strong_inversion"].message.startswith(
-        "Layer 2 of the layered median (128 m/s) is 40% of the Vs above it (320 m/s)"
+        "Layer 2 of the layered median (128 m/s) is 40 % of the Vs above it (320 m/s)"
     )
     assert flags["implausible_vs"].action.model_dump()["kind"] == "keep"
 

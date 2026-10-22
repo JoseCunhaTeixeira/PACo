@@ -372,7 +372,7 @@ def test_a_band_much_narrower_than_the_usable_one_is_reported() -> None:
     narrow = judge_image("xmid_12.50", _image(_ridge(M0, 0.8, band=(15.0, 25.0))), THRESHOLDS,
                          (10.0, 40.0))  # fmt: skip
     (flag,) = [one for one in narrow.flags if one.name == "narrower_than_usable"]
-    assert flag.stage == "phase_shift" and "33%" in flag.message
+    assert flag.stage == "phase_shift" and "33 %" in flag.message
     assert flag.action.model_dump()["kind"] == "keep"
 
 

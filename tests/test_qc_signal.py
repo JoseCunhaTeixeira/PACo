@@ -151,7 +151,7 @@ def test_a_record_is_measured_where_the_images_look() -> None:
     assert kept.verdict == "pass" and "within the images', 0-30 Hz" in snr.over
     missed = judge_signal("1.dat", _shot(), THRESHOLDS, image_band=(200.0, 300.0))
     (flag,) = [flag for flag in missed.flags if flag.name == "no_usable_band"]
-    assert missed.verdict == "reject" and "misses the images' band" in flag.message
+    assert missed.verdict == "reject" and "misses the dispersion images' band" in flag.message
 
 
 def test_a_reversed_trace_is_not_judged() -> None:
@@ -201,7 +201,7 @@ def test_a_shot_before_the_records_start_sets_the_trigger_to_0() -> None:
     moved = _shot(t0=-0.04)
     early = (_shot(t0=-0.01), 0.03)
     (flag,) = judge_signal("1.dat", moved, THRESHOLDS, applied_s=0.03, before_muting=early).flags
-    assert flag.name == "shifted_trigger" and "its trigger set to 0" in flag.message
+    assert flag.name == "shifted_trigger" and "Its trigger set to 0" in flag.message
     assert flag.action.model_dump()["overrides"]["trigger"]["t0"] == 0.0
     # Not moved, the shot 20 ms before the start: nothing to correct, only said.
     unmoved = _shot(t0=-0.02)
@@ -347,7 +347,7 @@ def test_a_receiver_off_the_decay_in_most_records_leaves_every_window() -> None:
     assert flag.name == "off_decay_receivers" and not flag.fixable
     assert flag.action.model_dump() == {"kind": "exclude_traces", "record": "line", "traces": (10,)}
     assert flag.message.startswith(
-        "The receiver at 15 m (5 of 8 records) is too weak or too strong for its distance"
+        "The receiver at 15 m (in 5 of the 8 records reaching it) is too weak or too loud for its distance"
     )
 
 
@@ -359,7 +359,8 @@ def test_a_receiver_off_in_a_few_records_stays() -> None:
     assert result.metrics[0].value == 0 and result.metrics[0].passed
     several = judge_receivers({3: 4, 9: 8}, {3: 8, 9: 8}, POSITIONS, THRESHOLDS)
     assert several.flags[0].message.startswith(
-        "The receivers at 4.5 m (4 of 8 records) and 13.5 m (8 of 8 records) are too weak or"
+        "The receivers at 4.5 m (in 4 of the 8 records reaching it) and 13.5 m (in 8 of the 8 "
+        "records reaching it) are too weak or"
     )
 
 
@@ -398,5 +399,5 @@ def test_a_receiver_off_its_neighbours_spectra_in_most_records_is_flagged_and_ke
 
     assert metric.value == 1 and not metric.passed
     assert flag is not None and flag.action.model_dump()["kind"] == "keep"
-    assert "7 m (3 of 4 records)" in flag.message
+    assert "7 m (in 3 of the 4 records reaching it)" in flag.message
     assert judge_spectra({2: 1}, {2: 4}, positions, THRESHOLDS)[1] is None

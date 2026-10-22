@@ -128,14 +128,15 @@ def judge_signal(
     for name, mask, what in (
         ("dead_traces", report.dead, "dead"),
         ("clipped_traces", report.clipped, "clipped"),
-        ("nan_traces", report.nan, "not a number"),
+        ("nan_traces", report.nan, "holding NaN samples"),
     ):
         if mask.any():
             traces = tuple(int(i) for i in np.flatnonzero(mask))
             flags.append(
                 Flag(
                     name=name,
-                    message=f"Traces {list(traces)} are {what}: no parameter improves them.",
+                    message=f"{_traces_at(preprocessed, traces)} {what}: no setting improves "
+                    f"{'it' if len(traces) == 1 else 'them'}.",
                     stage="preprocessing",
                     action=ExcludeTraces(record=record, traces=traces),
                     fixable=False,
@@ -149,8 +150,8 @@ def judge_signal(
         flags.append(
             Flag(
                 name="record_too_short",
-                message="The record ends before the slowest arrival within the line's reach "
-                "leaves room for a noise window: no SNR, no usable band.",
+                message="The record is too short for a noise window after its surface waves: no "
+                "SNR, no usable band.",
                 stage="preprocessing",
                 action=ExcludeRecord(record=record),
                 fixable=False,
@@ -163,16 +164,17 @@ def judge_signal(
     noise_where = f"noise {report.noise_where}"
     if imaged is None:
         found = (
-            f"its usable band {band[0]:.1f}-{band[1]:.1f} Hz misses the images' band "
+            f"its usable band, {band[0]:.1f} to {band[1]:.1f} Hz, misses the dispersion images' "
+            "band"
             if band is not None and image_band is not None
-            else f"its surface waves stand {thresholds.band_db:g} dB over its {noise_where} "
+            else f"its surface waves stand {thresholds.band_db:g} dB over the {noise_where} "
             f"across less than {thresholds.min_band_hz:g} Hz"
         )
         flags.append(
             Flag(
                 name="no_usable_band",
-                message=f"No usable band: {found.rstrip()}, nothing to image. Left out: a filter "
-                "or a mute would measure the same.",
+                message=f"No usable band: {found}, nothing to image. Left out: a filter or a "
+                "mute would measure the same.",
                 stage="preprocessing",
                 action=ExcludeRecord(record=record),
                 fixable=False,
@@ -183,8 +185,8 @@ def judge_signal(
         flags.append(
             Flag(
                 name="low_snr",
-                message=f"Median SNR {said:.1f} dB in its usable band {imaged[0]:.1f}-"
-                f"{imaged[1]:.1f} Hz ({noise_where}), under {thresholds.min_snr_db:g} dB. Left "
+                message=f"Median SNR {said:.1f} dB, under {thresholds.min_snr_db:g} dB: in its "
+                f"usable band, {imaged[0]:.1f} to {imaged[1]:.1f} Hz, the {noise_where}. Left "
                 "out: a filter or a mute would measure the same.",
                 stage="preprocessing",
                 action=ExcludeRecord(record=record),
@@ -197,10 +199,10 @@ def judge_signal(
         flags.append(
             Flag(
                 name="low_coherence",
-                message=f"Neighbouring traces correlate at {said:.2f} in the surface-wave window"
-                + (" and its usable band" if imaged is not None else "")
-                + f", under {thresholds.min_coherence:g}: noisy or scattered. Left out: a "
-                "filter or a mute would measure the same.",
+                message=f"Neighbouring traces correlate at {said:.2f}, under "
+                f"{thresholds.min_coherence:g}: noisy or scattered, where the surface waves arrive"
+                + (" and in its usable band" if imaged is not None else "")
+                + ". Left out: a filter or a mute would measure the same.",
                 stage="preprocessing",
                 action=ExcludeRecord(record=record),
                 fixable=False,
@@ -219,8 +221,8 @@ def judge_signal(
         flags.append(
             Flag(
                 name="inconsistent_trigger",
-                message=f"The first breaks scatter by {scatter * 1000:.0f} ms about their line: "
-                "the delay differs from trace to trace, which no correction fixes.",
+                message=f"The first breaks stray by {scatter * 1000:.0f} ms from a straight "
+                "line: the delay differs from trace to trace, which no correction fixes.",
                 stage="preprocessing",
                 action=ExcludeRecord(record=record),
                 fixable=False,
@@ -232,19 +234,17 @@ def judge_signal(
         # The trigger never below 0: a shot before the record's start, the recording started late;
         # the trigger at 0 and what is left said, or, at 0 already, said alone.
         t0 = round(applied_s + error, 4)
-        said_error = (
-            f"The first breaks put the shot {error * 1000:+.0f} ms from the time origin the "
-            "muting's trigger moved, the same on every trace"
-        )
-        early = f"{-t0 * 1000:.0f} ms before the record starts: it began after the shot"
+        off = f"Trigger off by {error * 1000:+.0f} ms"
+        early = f"the shot came {-t0 * 1000:.0f} ms before the record started"
         flags.append(
             Flag(
                 name="shifted_trigger",
-                message=f"{said_error}: correct its trigger by them."
+                message=f"{off}, the same on every trace: correct it by the first breaks "
+                "nearest the shot."
                 if t0 >= 0
-                else f"{said_error}, {early}; its trigger set to 0."
+                else f"{off}: {early}. Its trigger set to 0."
                 if applied_s > 0
-                else f"{said_error}, {early}. No trigger corrects it.",
+                else f"{off}: {early}. No trigger corrects it.",
                 stage="preprocessing",
                 action=Override(stage="preprocessing", overrides={"trigger": {"t0": max(t0, 0.0)}})
                 if t0 >= 0 or applied_s > 0
@@ -283,17 +283,11 @@ def judge_spectra(
     )
     if not bad:
         return metric, None
-    each = [f"{positions[r]:g} m ({off[r]} of {reached[r]} records)" for r in bad]
-    which, its = (
-        (f"The receiver at {each[0]} is", "its")
-        if len(bad) == 1
-        else (f"The receivers at {', '.join(each[:-1])} and {each[-1]} are", "their")
-    )
+    which, its = _receivers(bad, off, reached, positions)
     return metric, Flag(
         name="spectral_receivers",
-        message=f"{which} off {its} neighbours' spectra in most of the records that reach "
-        f"{'it' if len(bad) == 1 else 'them'}: a dead band, a gain or a response of {its} own. "
-        "Kept, to look at.",
+        message=f"{which} a spectrum unlike {its} neighbours': a dead band, a gain or a "
+        f"response of {its} own. Kept, to look at.",
         stage="preprocessing",
         action=Keep(note="a geophone of its own"),
         fixable=False,
@@ -331,22 +325,17 @@ def judge_receivers(
     ]
     flags: list[Flag] = []
     if bad:
-        each = [
-            f"{positions[receiver]:g} m ({off[receiver]} of {reached[receiver]} records)"
-            for receiver in bad
-        ]
-        which, its = (
-            (f"The receiver at {each[0]} is", "its")
-            if len(bad) == 1
-            else (f"The receivers at {', '.join(each[:-1])} and {each[-1]} are", "their")
-        )
+        which, its = _receivers(bad, off, reached, positions, has=False)
         flags.append(
             Flag(
                 name="off_decay_receivers",
-                message=f"{which} too weak or too strong for {its} distance from the shot (off "
-                "the amplitude decay with offset) in most of the records that reach "
-                f"{'it' if len(bad) == 1 else 'them'}: a noisy or badly coupled geophone, left "
-                "out of every window.",
+                message=f"{which} too weak or too loud for {its} distance from the shot: "
+                + (
+                    "a noisy or badly coupled geophone"
+                    if len(bad) == 1
+                    else "noisy or badly coupled geophones"
+                )
+                + ", left out of every window.",
                 stage="preprocessing",
                 action=ExcludeTraces(record=LINE, traces=tuple(bad)),
                 fixable=False,
@@ -399,9 +388,9 @@ def judge_fast_arrivals(
             Flag(
                 name="fast_arrivals",
                 message=(
-                    f"{share:.0%} of the record's surface-wave energy arrives faster than the "
-                    f"gathers' cone ({muting['vmax']:g} m/s): body waves or refractions; muted "
-                    f"around the cone, {muting['vmin']:g} to {muting['vmax']:g} m/s."
+                    f"{100 * share:.0f} % of the record's surface-wave energy arrives faster "
+                    f"than {muting['vmax']:g} m/s: body waves or refractions. Muted around the "
+                    f"gathers' cone, {muting['vmin']:g} to {muting['vmax']:g} m/s."
                 ),
                 stage="preprocessing",
                 action=Override(stage="preprocessing", overrides={"muting": dict(muting)}),
@@ -411,6 +400,34 @@ def judge_fast_arrivals(
     return result.model_copy(
         update={"metrics": (*result.metrics, metric), "flags": flags, "verdict": verdict}
     )
+
+
+def _traces_at(stream: Stream, traces: Sequence[int]) -> str:
+    """Traces by their receivers' positions: "The trace at 3 m", "The traces at 3 and 4.5 m"."""
+    receivers = stream.acquisition.receivers
+    at = [f"{receivers[i].x:g}" if i < len(receivers) else f"#{i}" for i in traces]
+    if len(at) == 1:
+        return f"The trace at {at[0]} m is"
+    return f"The traces at {', '.join(at[:-1])} and {at[-1]} m are"
+
+
+def _receivers(
+    bad: Sequence[int],
+    off: Mapping[int, int],
+    reached: Mapping[int, int],
+    positions: Sequence[float],
+    has: bool = True,
+) -> tuple[str, str]:
+    """The receivers a line check found, each in how many of the records reaching it: "The
+    receiver at 12 m (in 3 of the 5 records reaching it) has"; and their pronoun. `has`: the
+    sentence goes on with what they have, else with what they are."""
+    each = [
+        f"{positions[r]:g} m (in {off[r]} of the {reached[r]} records reaching it)" for r in bad
+    ]
+    if len(bad) == 1:
+        return f"The receiver at {each[0]} {'has' if has else 'is'}", "its"
+    listed = f"{', '.join(each[:-1])} and {each[-1]}"
+    return f"The receivers at {listed} {'have' if has else 'are'}", "their"
 
 
 def _result(record: str, metrics: list[Metric], flags: list[Flag], kept: Kept) -> GateResult:

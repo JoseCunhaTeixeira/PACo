@@ -98,10 +98,7 @@ def judge_image(
     # flagged and kept there, the later gates judging its pick.
     mutable = mode != "passive" and not muted
     if n_coherent == 0:
-        said = (
-            f"No column of the image rises {thresholds.coherent_level:.0%} of the way from the "
-            "noise floor to 1: nothing to pick."
-        )
+        said = "No frequency of the image has a coherent peak: nothing to pick."
         flags.append(
             Flag(
                 name="no_coherent_energy",
@@ -121,8 +118,8 @@ def judge_image(
     assert band is not None  # coherent columns found
     if share < thresholds.min_coherent_columns:
         said = (
-            f"Only {share:.0%} of the columns are coherent ({band[0]:.1f}-{band[1]:.1f} Hz): the "
-            "image is mostly noise."
+            f"Only {100 * share:.0f} % of the image's frequencies are coherent, {band[0]:.1f} to "
+            f"{band[1]:.1f} Hz: the image is mostly noise."
         )
         flags.append(
             Flag(
@@ -147,9 +144,9 @@ def judge_image(
         else max(thresholds.vmin_floor, round(float(vs.min()) / 1.5, 1))
     )
     at_floor = not artifact and vmin >= round(float(vs.min()), 1)
-    for name, count, edge, override in (
-        ("ridge_at_vmin", report.low, vs.min(), {"vmin": vmin}),
-        ("ridge_at_vmax", report.high, vs.max(), {"vmax": round(vs.max() * 1.5, 1)}),
+    for name, count, edge, override, side in (
+        ("ridge_at_vmin", report.low, vs.min(), {"vmin": vmin}, "lowest"),
+        ("ridge_at_vmax", report.high, vs.max(), {"vmax": round(vs.max() * 1.5, 1)}, "highest"),
     ):
         edge_share = count / n_coherent
         if edge_share > thresholds.max_edge_columns:
@@ -158,8 +155,8 @@ def judge_image(
             flags.append(
                 Flag(
                     name=name,
-                    message=f"{edge_share:.0%} of the coherent columns peak at {edge:g} m/s, the "
-                    "grid's edge: "
+                    message=f"{100 * edge_share:.0f} % of the coherent frequencies peak at "
+                    f"{edge:g} m/s, the image's {side} velocity: "
                     + (
                         "an artifact below any surface wave; start the range above it."
                         if name == "ridge_at_vmin" and artifact
@@ -220,8 +217,8 @@ def judge_image(
             flags.append(
                 Flag(
                     name="aliasing",
-                    message=f"{competing_share:.0%} of the coherent columns hold a second ridge, "
-                    f"mostly below the aliasing limit 2 dx f: an alias from {first:.1f} Hz on, "
+                    message=f"A second ridge at {100 * competing_share:.0f} % of the coherent "
+                    f"frequencies, mostly in the aliasing zone: an alias from {first:.1f} Hz on, "
                     "picked below it.",
                     stage="picking",
                     action=Override(stage="picking", overrides={"fmax": round(first, 1)}),
@@ -233,9 +230,9 @@ def judge_image(
             flags.append(
                 Flag(
                     name="competing_ridges",
-                    message=f"{competing_share:.0%} of the coherent columns hold a second ridge of "
-                    "similar strength: a higher mode may dominate. Kept, the pick's checks "
-                    "judging it.",
+                    message=f"A second ridge of similar strength at {100 * competing_share:.0f} % "
+                    "of the coherent frequencies: a higher mode may dominate. Kept, the pick's "
+                    "checks judging it.",
                     stage="picking",
                     action=Keep(note="the fundamental mode picked as the slowest ridge"),
                 )
@@ -250,9 +247,9 @@ def judge_image(
         flags.append(
             Flag(
                 name="narrower_than_usable",
-                message=f"The coherent band {band[0]:.1f}-{band[1]:.1f} Hz is "
-                f"{report.band_share:.0%} of the records' usable band within the image, "
-                f"{usable[0]:.1f}-{usable[1]:.1f} Hz: the image does not use all the data offers.",
+                message=f"The coherent band, {band[0]:.1f} to {band[1]:.1f} Hz, covers "
+                f"{100 * report.band_share:.0f} % of the records' usable band, {usable[0]:.1f} to "
+                f"{usable[1]:.1f} Hz: the image does not use all the data offers.",
                 stage="phase_shift",
                 action=Keep(note="the band is capped, never widened: see band_at_fmax"),
             )
@@ -269,7 +266,7 @@ _TRACES = ("dead_traces", "clipped_traces", "nan_traces")
 _WORDS = {
     "dead_traces": "dead traces",
     "clipped_traces": "clipped traces",
-    "nan_traces": "traces not a number",
+    "nan_traces": "traces holding NaN samples",
     "snr_db": "median SNR",
     "usable_band_hz": "usable band",
     "lateral_coherence": "coherence",
@@ -280,7 +277,7 @@ _WORDS = {
 def _short(name: str, said: str, short: Sequence[Measure], more: Override | None) -> Flag:
     """A flag of `short` measures (of the correlations, or the selection): the phase shift again
     with more of the data (`more`), else rejected."""
-    found = "; ".join(
+    found = ", ".join(
         f"{_WORDS[one.name]} {'none' if one.value is None else f'{one.value:g}'}"
         f"{' ' + one.unit if one.unit and one.value is not None else ''}"
         + ("" if one.threshold is None else f" (at least {one.threshold:g})")

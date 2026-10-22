@@ -103,7 +103,7 @@ def judge_profile(
             flags.append(
                 Flag(
                     name="outlier",
-                    message=f"The curve is {worst:.0%} off its neighbours, which agree with each "
+                    message=f"The curve is {100 * worst:.0f} % off its neighbours, which agree with each "
                     f"other, {near.where}: pick it again along their median curve.",
                     stage="picking",
                     action=Override(stage="picking", overrides={"guide": guide}),
@@ -113,7 +113,7 @@ def judge_profile(
             flags.append(
                 Flag(
                     name="shared_change",
-                    message=f"The curve is {near.off[0].misfit:.0%} off the neighbours on one side "
+                    message=f"The curve is {100 * near.off[0].misfit:.0f} % off the neighbours on one side "
                     "and fits the other: a change in the ground, kept.",
                     stage="picking",
                     action=Keep(note="a change shared with one side is geology"),
@@ -207,7 +207,7 @@ def _line_result(
         flags.append(
             Flag(
                 name="uneven_depth",
-                message=f"The longest wavelengths vary by {depth_spread:.0%} along the line: the "
+                message=f"The longest wavelengths vary by {100 * depth_spread:.0f} % along the line: the "
                 "depths "
                 "of investigation are not comparable.",
                 stage="picking",

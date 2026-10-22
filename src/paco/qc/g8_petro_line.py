@@ -122,7 +122,7 @@ def _window_result(
     shown = {flag.name for flag in curve.flags} if curve is not None else set()
     flags: list[Flag] = []
     for what, near, off in (
-        ("rock physics' Vs", vs, f"{vs.worst:.0%}"),
+        ("rock physics' Vs", vs, f"{100 * vs.worst:.0f} %"),
         ("water table", table, f"{table.worst:g} m"),
     ):
         if near.standing == "outlier" and "shared_change" in shown:

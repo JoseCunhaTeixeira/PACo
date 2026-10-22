@@ -187,7 +187,7 @@ def judge_model(
             Flag(
                 name="uninformed",
                 message="The curve informs no depth of the model: the models' Vs spread U is over "
-                f"{thresholds.useful_uncertainty:.0%} at every depth, the model is the prior's. "
+                f"{100 * thresholds.useful_uncertainty:.0f} % at every depth, the model is the prior's. "
                 "The picks' uncertainties are too large for it: longer windows (run_processing "
                 "again) give smaller ones.",
                 stage="phase_shift",
@@ -219,7 +219,7 @@ def judge_model(
     worst = _worst_band(monitored, names)
     if settled and worst is not None and worst[1] > thresholds.max_misfit:
         name, value, band = worst
-        where = f"{name} wavelengths ({band[0]:g}-{band[1]:g} m)"
+        where = f"{name} wavelengths ({band[0]:g} to {band[1]:g} m)"
         if fits_within(layered, thresholds.max_misfit):
             loop.flags.append(
                 Flag(
@@ -277,7 +277,7 @@ def judge_model(
         loop.change(
             "alike_layers",
             f"Layers {index + 1} and {index + 2} of the layered median ({first:g} and "
-            f"{second:g} m/s, {share:.0%} apart) are one: one layer fewer.",
+            f"{second:g} m/s, {100 * share:.0f} % apart) are one: one layer fewer.",
             n_layers=parameters.n_layers - 1,
         )
 
@@ -384,7 +384,7 @@ class _Loop:
                 else:
                     continue
                 named.append(
-                    f"{share.parameter} {share.bound} {share.value:g} m/s, {share.share:.0%}"
+                    f"{share.parameter} {share.bound} {share.value:g} m/s, {100 * share.share:.0f} %"
                 )
             return "; ".join(named)
         for share in measures.at_bounds:
@@ -395,7 +395,9 @@ class _Loop:
                 layer["vs_min"] = round(layer["vs_min"] * WIDEN_LOW)
             else:
                 layer["vs_max"] = round(layer["vs_max"] * WIDEN_HIGH)
-            named.append(f"{share.parameter} {share.bound} {share.value:g} m/s, {share.share:.0%}")
+            named.append(
+                f"{share.parameter} {share.bound} {share.value:g} m/s, {100 * share.share:.0f} %"
+            )
         return "; ".join(named)
 
     def finished(self) -> tuple[Flag, ...]:
@@ -482,7 +484,7 @@ def _thickness_flags(
         if share.bound == "min" and n_layers - 1 >= max(fewest_layers, MIN_LAYERS):
             loop.change(
                 "thin_layer",
-                f"{share.share:.0%} of {share.parameter}'s samples sit at its thinnest "
+                f"{100 * share.share:.0f} % of {share.parameter}'s samples sit at its thinnest "
                 f"({share.value:g} m): the layer is not resolved.",
                 n_layers=n_layers - 1,
             )
@@ -493,7 +495,7 @@ def _thickness_flags(
             layer["thickness_max"] = round(layer["thickness_max"] * WIDEN_HIGH, 2)
             loop.change(
                 "at_bound",
-                f"{share.share:.0%} of {share.parameter}'s samples sit at its thickest "
+                f"{100 * share.share:.0f} % of {share.parameter}'s samples sit at its thickest "
                 f"({share.value:g} m), shallower than the curve reaches ({reach_m:g} m): "
                 "widen it.",
                 "thickness_layers",
@@ -502,7 +504,7 @@ def _thickness_flags(
             loop.flags.append(
                 Flag(
                     name="deep_interface",
-                    message=f"{share.share:.0%} of {share.parameter}'s samples sit at its thickest "
+                    message=f"{100 * share.share:.0f} % of {share.parameter}'s samples sit at its thickest "
                     f"({share.value:g} m): the interface would go deeper than the curve resolves.",
                     stage="inversion",
                     action=Keep(note="the depth limit stays: the curve does not reach deeper"),
@@ -524,7 +526,7 @@ def _free_flags(loop: _Loop, measures: InversionMeasures, thresholds: ModelThres
                 loop.free["max_layers"] = min(thresholds.max_layers, most + MORE_LAYERS)
                 loop.change(
                     "at_bound",
-                    f"{share.share:.0%} of the models hold the most layers allowed ({most}): "
+                    f"{100 * share.share:.0f} % of the models hold the most layers allowed ({most}): "
                     f"allow {loop.free['max_layers']}.",
                     "free",
                 )
@@ -533,7 +535,7 @@ def _free_flags(loop: _Loop, measures: InversionMeasures, thresholds: ModelThres
                 loop.flags.append(
                     Flag(
                         name="most_layers",
-                        message=f"{share.share:.0%} of the models hold the most layers the "
+                        message=f"{100 * share.share:.0f} % of the models hold the most layers the "
                         f"loop allows ({most}).",
                         stage="inversion",
                         action=Keep(note="the loop's limit stays"),
@@ -543,7 +545,7 @@ def _free_flags(loop: _Loop, measures: InversionMeasures, thresholds: ModelThres
             loop.flags.append(
                 Flag(
                     name="deep_interface",
-                    message=f"{share.share:.0%} of the models put an interface at the deepest "
+                    message=f"{100 * share.share:.0f} % of the models put an interface at the deepest "
                     f"allowed ({share.value:g} m): the curve resolves no deeper.",
                     stage="inversion",
                     action=Keep(note="the depth limit stays: the curve does not reach deeper"),
@@ -613,7 +615,7 @@ def _plausibility(vs_layers: tuple[float, ...], thresholds: ModelThresholds) -> 
             Flag(
                 name="strong_inversion",
                 message=f"Layer {index + 2} of the layered median ({vs_layers[index + 1]:g} m/s) "
-                f"is {ratio:.0%} of the Vs above it ({vs_layers[index]:g} m/s): a strong "
+                f"is {100 * ratio:.0f} % of the Vs above it ({vs_layers[index]:g} m/s): a strong "
                 "low-velocity layer, possible under a stiff crust; worth a look.",
                 stage="inversion",
                 action=Keep(note="reported: plausibility is the user's to judge"),

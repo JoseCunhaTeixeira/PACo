@@ -77,9 +77,9 @@ def judge_curve(
         flags.append(
             Flag(
                 name="aliasing_zone",
-                message=f"{report.aliased:.0%} of the points lie under twice the receiver "
-                f"spacing ({report.shortest:g} m): the aliasing zone, where the ridge may be its "
-                "alias.",
+                message=f"{100 * report.aliased:.0f} % of the points at wavelengths under "
+                f"{report.shortest:g} m, twice the receiver spacing: the aliasing zone, where the "
+                "ridge may be its alias.",
                 stage="picking",
                 action=Keep(note="points in the aliasing zone"),
                 fixable=False,
@@ -89,9 +89,9 @@ def judge_curve(
         flags.append(
             Flag(
                 name="beyond_reach",
-                message=f"{report.beyond:.0%} of the points lie over three window lengths "
-                f"({report.longest:.3g} m): beyond the window's reach, where the pick may be "
-                "the tracker's.",
+                message=f"{100 * report.beyond:.0f} % of the points at wavelengths over "
+                f"{report.longest:.3g} m, three window lengths: beyond the window's reach, where "
+                "the pick may be the tracker's.",
                 stage="picking",
                 action=Keep(note="points beyond the window's reach"),
                 fixable=False,
@@ -108,8 +108,8 @@ def judge_curve(
         flags.append(
             Flag(
                 name="narrow_span",
-                message=f"The curve spans {kept_wl.min():.1f}-{kept_wl.max():.1f} m of wavelength "
-                f"(ratio {report.ratio:.2f}): too narrow for a layered model. Keep more of the "
+                message=f"The curve spans wavelengths from {kept_wl.min():.1f} to "
+                f"{kept_wl.max():.1f} m only: too narrow for a layered model. Keep more of the "
                 "ridge.",
                 stage="picking",
                 action=Override(
@@ -129,8 +129,8 @@ def judge_curve(
         flags.append(
             Flag(
                 name="air_wave",
-                message=f"{report.air:.0%} of the points sit at {low:g}-{high:g} m/s: the air "
-                "wave, not the ground; no mute parts them.",
+                message=f"{100 * report.air:.0f} % of the points at {low:g} to {high:g} m/s: the "
+                "air wave, not the ground; no mute parts them.",
                 stage="picking",
                 action=Reject(reason="the air wave, not the ground"),
                 fixable=False,
@@ -155,9 +155,8 @@ def judge_curve(
         flags.append(
             Flag(
                 name="near_field",
-                message=f"The nearest shot is {nearest_offset:.2f} m from the window, under "
-                f"half the longest wavelength kept ({limit:.2f} m): the long wavelengths may "
-                "read slow (near field).",
+                message=f"The nearest shot is {nearest_offset:.2f} m from the window, nearer than "
+                f"λmax / 2 = {limit:.2f} m: the long wavelengths may read slow (near field).",
                 stage="phase_shift",
                 action=Keep(
                     note="reported: the window has no farther shot, or its curve reaches "
@@ -181,7 +180,10 @@ def _mode_jump(
     """The flag of a jump onto another mode: first cut the band where the largest step between
     points consecutive in frequency sits (after a jump the wavelengths interleave), the side
     with fewer points going; once the band is cut, track with a narrower corridor."""
-    message = f"A {jump:.0%} step between consecutive points: the pick jumped onto another mode."
+    message = (
+        f"A {100 * jump:.0f} % velocity step between neighbouring points: the pick jumped onto "
+        "another mode."
+    )
     if picking.fmin is None and picking.fmax is None:
         order = np.argsort(frequencies)
         fs, vs = frequencies[order], velocities[order]
@@ -317,15 +319,15 @@ def _flag(
             overrides = {"fmin": _low(band), "fmax": _high(band)} if band else {}
             return Flag(
                 name="on_data",
-                message=f"Only {quality.on_data:.0%} of the points sit on their column's brightest "
-                "value: competing ridges. Pick in the coherent band alone.",
+                message=f"Only {100 * (quality.on_data or 0.0):.0f} % of the points sit on their "
+                "frequency's brightest value: competing ridges. Pick in the coherent band alone.",
                 stage="picking",
                 action=Override(stage="picking", overrides=overrides),
             )
         case _:
             message = (
-                f"{quality.constant_wavelength:.0%} of the points follow the edge of what the "
-                "window resolves, not a dispersion curve"
+                f"{100 * (quality.constant_wavelength or 0.0):.0f} % of the points follow the edge of what "
+                "the window resolves, not a dispersion curve"
             )
             if cut is None or cut <= 0:
                 return Flag(

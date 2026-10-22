@@ -526,7 +526,11 @@ def trial_indices(n_windows: int, trials: int) -> list[int]:
 
 def nearest_offset(window_folder: Path) -> float | None:
     """The distance from the window's nearest shot to its nearest receiver, over the records it
-    uses (window.json, sigpipe's nearest_offset); None when the window has none."""
+    uses (window.json, sigpipe's nearest_offset); None when the window has none: a passive line's
+    records hold no shot, their source at the origin only by default."""
+    manifest = window_folder.parent / "run.json"
+    if manifest.exists() and json.loads(manifest.read_text())["profile"]["kind"] == "passive":
+        return None
     return window_nearest_offset(
         MASWWindow.model_validate_json((window_folder / "window.json").read_text())
     )

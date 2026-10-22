@@ -109,7 +109,7 @@ def judge_model_profile(
                 flags.append(
                     Flag(
                         name="model_change",
-                        message=f"The model is {worst:.0%} off its neighbours {near.where}, and "
+                        message=f"The model is {100 * worst:.0f} % off its neighbours {near.where}, and "
                         "the curves show the change too: kept.",
                         stage="inversion",
                         action=Keep(note="the curves show the same change"),
@@ -119,7 +119,7 @@ def judge_model_profile(
                 flags.append(
                     Flag(
                         name="model_change",
-                        message=f"The model is {worst:.0%} off its neighbours {near.where}; its "
+                        message=f"The model is {100 * worst:.0f} % off its neighbours {near.where}; its "
                         "curve had no agreeing neighbours to say whether the change is real.",
                         stage="inversion",
                         action=Keep(note="the curves cannot tell"),
@@ -131,7 +131,7 @@ def judge_model_profile(
                 flags.append(
                     Flag(
                         name="non_unique",
-                        message=f"The model is {worst:.0%} off its neighbours {near.where}, while "
+                        message=f"The model is {100 * worst:.0f} % off its neighbours {near.where}, while "
                         "its curve fits theirs: another model fits the same data. Kept, to look "
                         "at.",
                         stage="inversion",
@@ -142,7 +142,7 @@ def judge_model_profile(
             flags.append(
                 Flag(
                     name="model_change",
-                    message=f"The model is {near.off[0].misfit:.0%} off the neighbours on one side "
+                    message=f"The model is {100 * near.off[0].misfit:.0f} % off the neighbours on one side "
                     "and fits the other: a change in the ground, kept.",
                     stage="inversion",
                     action=Keep(note="a change shared with one side is geology"),
@@ -248,7 +248,7 @@ def _line_result(
         flags.append(
             Flag(
                 name="uneven_depth_informed",
-                message=f"The depth informed varies by {depth_spread:.0%} along the line: the "
+                message=f"The depth informed varies by {100 * depth_spread:.0f} % along the line: the "
                 "models do not see equally deep.",
                 stage="inversion",
                 action=Keep(note="compare the models only down to the shallowest depth informed"),

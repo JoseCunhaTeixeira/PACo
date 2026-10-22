@@ -1,134 +1,208 @@
 # The autonomous mode
 
-In the autonomous mode the model works as a geophysicist does with PAC: it surveys the line, runs
-a full grid of the line's settings, judges the images by eye until it has chosen the cleanest,
-commits that set of settings for the whole line, decides each window, freezes the curves, inverts
-them and reports.
-PACo gives it the tools and the rules; code checks every rule, never the model alone.
+In the autonomous mode the agent processes a line as a geophysicist does in PAC. It looks at the
+records. It compares every combination of the line's settings on their dispersion images and
+chooses the cleanest. It processes the whole line with it, reviews the picked curves and decides
+each window. It inverts the accepted curves and reports.
 
-Run it with `paco-server --mode autonomous` and `paco-agent --mode autonomous`, or from PAC's
-AI agent page with the mode set to Autonomous. It needs a frontier model with vision and a long
-context (128k tokens): every choice of settings is made by eye.
+The agent chooses; PACo does the processing and enforces the rules. Every rule is checked in
+code, never left to the agent alone.
 
-## Phases
+Run it with `paco-server --mode autonomous` and `paco-agent --mode autonomous`, or from PAC's AI
+agent page with the mode set to Autonomous. It needs a model with vision and a long context
+(128k tokens): every choice of settings is made by looking at dispersion images.
 
-A conversation is one study of one profile: its first message makes the study, each later
-message goes on with it, and a new conversation makes a new study. Every message is read into the
-objective's form: the settings it plainly asks for are kept over those given before (a setting it
-only suggests or asks about reaches the model as words, not kept), and a message about another
-profile asks for a new conversation. The study's phase is read from its records before
-every call, so a stopped answer goes on, at the next message, where the study stands.
+## Words used here
 
-| Phase | What the model does | Ends when |
-|---|---|---|
-| P0, objective | Code reads the message into a form: the profile, the objective (target depth, priority, effort), the settings the user typed | The study exists |
-| P1, survey | `survey`: the geometry, the records as G1 measures them, the reach, the usable band, the surface waves' cone; `look` at gathers and spectra | The model writes its conclusion in the journal |
-| P2, curves | `search`, `choose` the cleanest of its 3 finalists, `commit` it, `pick`, `decide` each window | `freeze` |
-| P3, freeze | The accepted curves frozen in `curves.json`; nothing is processed or picked after it | At once |
-| P4, inversion | `invert` the frozen curves, `decide` each model; soils only when asked (`petro_models`, `invert_petro`) | Every model decided |
-| P5, report | Code writes the report around the model's text | Done |
+| Word | Meaning |
+|---|---|
+| Line | The profile's receivers and records |
+| Window | A group of neighbouring receivers; each gives one dispersion image, one curve, one model |
+| Settings | Everything PAC's processing page sets: window length, shots used, mute, filter, dispersion image, stacking, picking |
+| Variant | One combination of settings |
+| Study | One conversation's work on one profile, kept in its own folder |
+| Journal | The study's record: the request, what was tried, what was chosen and why |
 
-Each phase offers only its tools. PACo's read-only tools (`inspect`, `preset_settings`,
-`inversion_settings`) and `journal` are offered in every phase.
+## The checks
+
+PACo checks every step. A check passes, flags or rejects; the agent then accepts or rejects.
+
+| Check | What it judges |
+|---|---|
+| Signal check (G1) | Each record: dead or clipped traces, SNR, usable band, trigger; along the line, bad receivers |
+| Dispersion image check (G2) | Each window's image: coherent band, peaks at the velocity range's edges, second ridges |
+| Curve check (G3) | Each window's picked curve: points on the ridge, aliasing, near field, jumps, wavelength range |
+| Check against the neighbouring curves (G4) | Each curve against its neighbours; along the line, gaps and spread |
+| Model check (G5) | Each Vs model: fit to its curve, chains, depth informed |
+| Check against the neighbouring models (G6) | Each model against its neighbours; along the line, gaps and spread |
+| Soil column check (G7) | Each soil column's fit to its curve |
+| Check against the neighbouring soil columns (G8) | Each soil column against its neighbours |
+
+## What happens, step by step
+
+### 1. The request
+
+The first message of a conversation makes a study. PACo reads the message into a form: the
+profile, the objective (the depth sought, what matters most, the effort) and the settings the user
+typed.
+
+The settings the user typed are locked: every later step uses them, and a change of one is refused.
+A later message goes on with the same study; a setting it plainly asks for replaces the one given
+before. A message about another profile asks for a new conversation.
+
+### 2. The survey
+
+`survey` measures the line before any setting is chosen: its geometry, each record as the signal
+check measures it, how far the waves reach from the shots, the usable band, the surface waves'
+cone. The agent looks at gathers and spectra (`look`) and writes its conclusion in the journal.
+
+### 3. The search
+
+`search` compares every combination of the line's settings. The values tried are in
+`src/paco/autonomous/grid.yaml` (`paco-grid` prints how many combinations). It runs once a study.
+
+1. PACo makes every variant on the same 12 windows along the line.
+2. It drops the variants with no dispersion image, or with fewer than a quarter of their windows
+   passing the checks.
+3. The others are compared by eye, in sheets of 12 variants. A sheet shows a variant a row: its
+   dispersion images at up to 12 places along the line, the same places in every row. The images
+   are shown alone, without picks, so a pick cannot sway the choice.
+4. The first sheets group the variants by window length.
+5. Short calls of their own judge the sheets, three sheets a call. Each keeps the 3 cleanest
+   variants of each sheet. These calls do not think aloud, and the agent's conversation never
+   carries the sheets.
+6. The variants kept are mixed into new sheets, round after round, until 3 are left.
+7. The agent looks at those 3 itself and chooses the cleanest (`choose`), giving its reason.
+
+Each sheet's judgment is saved. No score ranks the variants: the scores only drop the clearly bad
+ones in step 2.
+
+After the search, nothing more is tried: every combination was seen. `try_settings` is offered
+only when the search chose none.
+
+### 4. The commit
+
+`commit` processes the whole line with the chosen settings, in PAC's layout:
+
+- the signal check judges every record;
+- every window, one receiver apart, gets its dispersion image, judged by the dispersion image
+  check;
+- PACo picks the curve of every window whose image was not rejected, judged by the curve check;
+- the check against the neighbouring curves judges the line.
+
+The reason for each setting is kept with the run; PAC's run card shows it.
+
+### 5. The review of the curves
+
+The agent looks at the picks and the checks' results (`observe`, `look`). Where a pick is poor, it
+picks again (`pick`): with the tracker, guided by the neighbours' curves, with a lasso on the image,
+by deleting points, or by applying the change the curve check suggested. The checks judge each new
+pick.
+
+Then the agent decides each window (`decide`): accepted, or rejected with its reason. PACo refuses:
+
+- accepting a curve the curve check did not pass, or one off its neighbours;
+- rejecting a window before it was tried hard: the line's pick, a pick after a flag that can be
+  fixed, a pick guided by its neighbours, and a lasso.
+
+### 6. The freeze
+
+`freeze` keeps the accepted curves for the inversion. Nothing is processed or picked after it.
+
+### 7. The inversion
+
+`invert` inverts the frozen curves in the background, in groups of windows that share their
+parameters. Each window's bounds come from its own curve; the settings the user typed stay. The
+model check judges each model, then the check against the neighbouring models judges the line.
+Nothing is retried automatically: the agent reads the checks' results and inverts a group again,
+within each window's budget of retries. It then decides each model.
+
+### 8. The soil columns
+
+Only when the request asks for them: `petro_models` lists the soil models, and `invert_petro` makes
+each window's soil column, N values and water table.
+
+### 9. The report
+
+PACo writes the report around the agent's own text.
 
 ## Tools
 
+Each step offers only its tools. `inspect`, `preset_settings`, `inversion_settings` and
+`journal` are offered at every step.
+
 | Tool | What it does |
 |---|---|
-| `survey` | The line before any setting is chosen: geometry, records, reach, usable band, cone, modes |
-| `search` | The full grid of the line's settings, scored in code; the variants judged by eye in sheets until 3 are left |
-| `choose` | The model's own choice of the cleanest of the search's 3 finalists, by eye on their dispersion images |
-| `try_settings` | Only when the search chose none: variants of the line's settings on chosen windows, judged by G1 to G3, against the current settings; changes no run |
-| `commit` | The line made with the settings, every window one receiver apart, judged by G1 to G4; the run in PAC's layout |
-| `observe`, `look` | The gates' results as text; figures of records, images, picks, experiments and models |
-| `advise` | PACo's own choice for a lever (window length, mute, segments, picking), not applied |
-| `pick` | Windows picked again, each way with its windows: the tracker, a guide, a lasso, a deletion, or `fixes` (each window's own change G3 suggested); then G4, once |
-| `decide` | Each window accepted or rejected with its reason; a rejection only once the window was tried hard |
-| `freeze` | The decided curves frozen for the inversion |
-| `invert`, `job_status` | The frozen curves inverted in the background, followed by the host |
-| `petro_models`, `invert_petro` | Soils, N values and the water table, when asked |
-| `journal` | Hypotheses, conclusions and decisions, each resting on the entries it names |
+| `survey` | Measures the line before any setting is chosen |
+| `search` | Compares every combination of settings by eye until 3 are left |
+| `choose` | The agent's choice of the cleanest of the search's last 3 |
+| `try_settings` | Only when the search chose none: variants of the settings on a few windows |
+| `commit` | Processes the whole line with the chosen settings |
+| `observe`, `look` | The checks' results as text; figures of records, images, picks and models |
+| `advise` | PACo's own choice for one setting, not applied |
+| `pick` | Picks windows again, each its own way |
+| `decide` | Accepts or rejects each window, with its reason |
+| `freeze` | Keeps the accepted curves for the inversion |
+| `invert`, `job_status` | Inverts the frozen curves; follows the job |
+| `petro_models`, `invert_petro` | Soil columns, when asked |
+| `journal` | The agent's hypotheses, conclusions and decisions, each naming what it rests on |
 
-`try_settings` takes the hypothesis it tests, by its id or in words, and `commit` the conclusion it
-rests on: each is written in the journal with them.
+## Rules PACo enforces
 
-## The search and the judging
-
-`search` runs once a study. Every setting of PAC's page for the line's method takes the values in
-`src/paco/autonomous/grid.yaml` (`paco-grid` prints the grid's size), and every combination is
-tried on the same 12 windows along the line. The variants with no image, or with fewer than a
-quarter of their windows passing, are dropped. Every other variant is judged by eye, with no
-score:
-
-- The variants come in sheets of 12, by window length in the first round, a variant a row: its
-  windows nearest twelve places along the line, as many as it has, the images alone (no pick drawn:
-  it would sway the eye; the line is picked once the choice is committed).
-- The host judges the sheets in short calls of their own, three sheets a call: the judging
-  prompt, the atlas's dispersion images, the line's facts and the sheets, a form without thinking.
-  The conversation itself never carries the sheets.
-- Each sheet's 3 cleanest are kept and mixed into new sheets, round after round, until 3 are left.
-  Their sheet, the final, goes to the model itself, which chooses the cleanest (`choose`): the
-  search's choice.
-- Each sheet's judgment is saved in `searches/S1_judged.jsonl`.
-
-The model commits its choice: nothing is tried after it, every combination was seen. `commit`
-waits until the choice is made; `try_settings` serves only when the search chose none.
-
-## The study's folder
-
-`<output>/<profile>/studies/<id>/` holds the work:
-
-| File | What it holds |
-|---|---|
-| `journal.jsonl` | The objective, the experiments, the commits, the model's hypotheses, conclusions and decisions |
-| `given.json` | The settings the user typed, locked for every trial, commit and inversion |
-| `survey.json` | The survey |
-| `searches/` | The grid's variants and scores, the knockout and its choice, each sheet's judgment, the finalists' thumbnails |
-| `experiments/` | Each experiment's variants and scorecards; their dispersion images as thumbnails (`images/`) |
-| `line.json` | The committed line: its run and its commits with their reasons |
-| `picks.jsonl`, `decisions.jsonl` | The model's own picks and decisions |
-| `curves.json` | The frozen curves |
-| `usage.jsonl` | Every model call, form and tool call, with its tokens and time |
-| `transcripts/` | The conversations |
-
-## The model's context
-
-Before each call the host rebuilds what the model reads: the role and the phase's manual, the
-conversation, and the state card last (the phase, the objective, the budgets, the line now, its
-open issues). A tool's result shrinks to its journal line once read, and figures leave the
-conversation once seen. Past 60 % of the model's context, the oldest calls drop out. At the freeze
-the conversation starts again from the request, the objective and the frozen curves.
-
-## Rules code enforces
-
-- The settings the user typed stay as they gave them; a change of one is refused.
-- A tool of another phase is refused.
-- A window is rejected only once tried hard: the line's pick, a pick after a fixable flag, a guide
-  from its neighbours, a lasso when the model sees the images.
+- The settings the user typed stay as given.
+- A tool of another step is refused.
+- A window is rejected only once tried hard.
 - Nothing is processed or picked after the freeze.
+- A budget spent stops the tools that use it.
 
 ## Budgets
 
-The objective's effort sets the budgets. At 80 % of a budget the state card says so; a tool call
-past a budget is refused, saying what to do instead; once the model calls or the tokens are spent,
-the run stops and says where the work stands. The budgets are the study's, so the conversation's:
-a new conversation starts a new study, its budgets fresh.
+The effort in the request sets the budgets. At 80 % of a budget the agent is told. A tool call past
+a budget is refused, saying what to do instead. Once the agent's calls or its tokens are spent,
+the study stops and says where the work stands. A new conversation starts a new study, with fresh
+budgets.
 
-| Effort | Experiments | Commits | CPU in P2 | Inversion retries a window | Model calls | Tokens |
+| Effort | Experiments | Commits | Processing time | Inversion retries a window | Agent calls | Tokens |
 |---|---|---|---|---|---|---|
 | quick | 8 | 2 | 6 × the first processing | 2 | 60 | 2 M |
 | normal | 30 | 6 | 60 × | 6 | 200 | 5 M |
 | thorough | 60 | 8 | 120 × | 6 | 400 | 10 M |
 
-The tokens count everything the model reads and writes, its forms (the judging's) too. The
-search's judging is not counted as model calls, and the search's time is not counted as CPU.
+The tokens count everything the agent reads and writes, the sheets' judging included. The judging
+calls do not count as agent calls, and the search's time does not count as processing time.
+
+## What the agent reads
+
+Before each call PACo rebuilds what the agent reads: its role and the step's instructions, the
+conversation, and a state card last (the step, the objective, the budgets, the line now, its open
+issues). A tool's result shrinks to its journal line once read, and figures leave the conversation
+once seen. Past 60 % of the context, the oldest calls drop out. At the freeze the conversation
+starts again from the request, the objective and the frozen curves.
+
+## The study's folder
+
+`<output>/<profile>/studies/<id>/` holds the study:
+
+| File | What it holds |
+|---|---|
+| `journal.jsonl` | The request, the experiments, the commits, the agent's hypotheses, conclusions and decisions |
+| `given.json` | The settings the user typed |
+| `survey.json` | The survey |
+| `searches/` | The search: its variants, each sheet's judgment, the choice, the last 3's dispersion images |
+| `experiments/` | Each experiment's variants and their dispersion images |
+| `line.json` | The committed line: its run, its settings and their reasons |
+| `picks.jsonl`, `decisions.jsonl` | The agent's picks and decisions |
+| `curves.json` | The frozen curves |
+| `usage.jsonl` | Every call, with its tokens and time |
+| `transcripts/` | The conversations |
 
 ## After a session
 
-Only the results stay. At the freeze, and when a session ends, the study's working files are
-removed: the records each base preprocessed, the trials' windows, G1's settled records, the
-search's thumbnails but its finalists', and once the curves are frozen the survey's figures. The
-images' cache is emptied when a session ends, once no other conversation answers. The line's run,
-the frozen curves, the journal, the decisions, the experiments' and the search's scores, the
-search's finalists' and each experiment's dispersion images (as thumbnails) and the transcripts
-stay. A study opened again after its report makes again what it needs.
+Only the results stay. At the freeze, and when a session ends, PACo removes the study's working
+files: the trials' records and windows, the search's dispersion images but the last 3's, and once
+the curves are frozen, the survey's figures. The images' cache is emptied when a session ends, once
+no other conversation answers.
+
+The line's run, the frozen curves, the journal, the decisions, the experiments' and the search's
+results with their dispersion images, and the transcripts stay. A study opened again after its
+report makes again what it needs.
