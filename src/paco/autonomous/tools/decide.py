@@ -23,7 +23,6 @@ from sigpipe.masw.picks import CURVES_FILE
 from sigpipe.masw.quality.line import Series
 from sigpipe.masw.runs import RunManifest
 
-from paco.autonomous.sensors.checks import shot_note
 from paco.autonomous.sensors.flags import flag_class
 from paco.autonomous.tools.pick import Picked, manifest_of, neighbours, passing_curves, picks_of
 from paco.autonomous.tools.trials import Study, check_open
@@ -197,12 +196,7 @@ def acceptable(
             "pick it along them (how=guide, guide=neighbours)",
             [],
         )
-    mode = str(manifest_of(run_folder).preset.mode)
-    return None, [
-        flag.name
-        for flag in _flags(g3, g4)
-        if flag_class(flag) == "note" and not shot_note(flag.name, mode)
-    ]
+    return None, [flag.name for flag in _flags(g3, g4) if flag_class(flag) == "note"]
 
 
 def describe_decided(decided: Decided) -> str:

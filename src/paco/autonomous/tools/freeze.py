@@ -17,7 +17,7 @@ from sigpipe.masw.picks import CURVES_FILE
 from sigpipe.masw.runs import RunError, window_length
 from sigpipe.masw.runs.writing import write_atomic
 
-from paco.autonomous.sensors.checks import median_known, shot_note, window_checks
+from paco.autonomous.sensors.checks import median_known, window_checks
 from paco.autonomous.sensors.flags import flag_class
 from paco.autonomous.tools.commit import Line
 from paco.autonomous.tools.decide import acceptable, current
@@ -141,7 +141,7 @@ def freeze(study: Study, run_folder: Path, line: Line) -> Frozen:
                     for result in (g3, g4)
                     if result is not None
                     for flag in result.flags
-                    if flag_class(flag) == "note" and not shot_note(flag.name, mode)
+                    if flag_class(flag) == "note"
                 ),
                 reason=decision.reason,
             )

@@ -147,24 +147,6 @@ def judge_curve(
                 action=Keep(note="an inverse trend can be geology"),
             )
         )
-    # The near field: the line leaves out a window's shots nearer than half the trial curves'
-    # longest wavelength where it has farther ones (coherence.near_field_windows). Its own curve
-    # may reach longer wavelengths, and a window with near shots only keeps them: reported.
-    limit = report.near_limit
-    if nearest_offset is not None and limit is not None and nearest_offset < limit:
-        flags.append(
-            Flag(
-                name="near_field",
-                message=f"The nearest shot is {nearest_offset:.2f} m from the window, nearer than "
-                f"λmax / 2 = {limit:.2f} m: the long wavelengths may read slow (near field).",
-                stage="phase_shift",
-                action=Keep(
-                    note="reported: the window has no farther shot, or its curve reaches "
-                    "longer wavelengths than the line's trial curves"
-                ),
-            )
-        )
-
     kept = Kept(
         band_hz=(float(kept_fs.min()), float(kept_fs.max())) if n_points else quality.band_hz,
         wavelength_m=(float(kept_wl.min()), float(kept_wl.max())) if n_points else None,

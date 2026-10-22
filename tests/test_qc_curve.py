@@ -370,28 +370,16 @@ def test_the_uncertainty_is_reported_not_judged() -> None:
     assert uncertainty.threshold is None and uncertainty.passed
 
 
-def test_a_shot_closer_than_half_the_longest_wavelength_is_reported() -> None:
+def test_the_nearest_shot_is_reported_never_flagged() -> None:
     image = _image(_ridge(M0, 0.8, 1.5))
-    picked = _picked(image, M0)  # wavelengths up to 27.85 m: the near field ends at 13.9 m
+    picked = _picked(image, M0)  # wavelengths up to 27.85 m
 
+    # A shot next to the window, well within half the longest wavelength: reported, no flag.
     near = judge_curve("xmid_12.50", image, picked, THRESHOLDS, nearest_offset=0.75)
-    assert near.verdict == "pass"
-    (flag,) = near.flags
-    assert flag.name == "near_field" and flag.stage == "phase_shift"
-    assert flag.message.startswith(
-        "The nearest shot is 0.75 m from the window, nearer than λmax / 2"
-    )
-    assert flag.action.model_dump()["kind"] == "keep"
+    assert near.verdict == "pass" and near.flags == ()
     metric = next(metric for metric in near.metrics if metric.name == "near_offset")
-    assert (metric.value, metric.threshold, metric.bound, metric.passed) == (
-        0.75,
-        13.93,
-        "min",
-        False,
-    )
-    # A shot far enough, or no geometry at all: nothing to say.
-    far = judge_curve("xmid_12.50", image, picked, THRESHOLDS, nearest_offset=20.0)
-    assert far.flags == () and "near_offset" in {metric.name for metric in far.metrics}
+    assert (metric.value, metric.threshold, metric.bound, metric.passed) == (0.75, None, None, True)
+    # No geometry: nothing to report.
     unknown = judge_curve("xmid_12.50", image, picked, THRESHOLDS)
     assert "near_offset" not in {metric.name for metric in unknown.metrics}
 

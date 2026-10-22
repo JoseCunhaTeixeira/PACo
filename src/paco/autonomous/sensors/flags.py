@@ -66,7 +66,6 @@ FLAGS: dict[tuple[str, str], frozenset[FlagClass]] = {
     ("G3", "mode_jump"): FIXABLE,
     ("G3", "air_wave"): BLOCKING,
     ("G3", "inverse_dispersion"): NOTE,
-    ("G3", "near_field"): NOTE,
     # G4, the curves along the line
     ("G4", "outlier"): FIXABLE,
     ("G4", "shared_change"): NOTE,

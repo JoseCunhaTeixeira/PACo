@@ -651,9 +651,9 @@ def near_field_windows(
 def near_note(distance_m: float, longest: float, near_only: int) -> str:
     """The near-field rule, as the line's note says it."""
     kept = (
-        "; 1 window with near shots only keeps them (G3 flags its near field)"
+        "; 1 window with near shots only keeps them"
         if near_only == 1
-        else f"; {near_only} windows with near shots only keep them (G3 flags their near field)"
+        else f"; {near_only} windows with near shots only keep them"
         if near_only
         else ""
     )

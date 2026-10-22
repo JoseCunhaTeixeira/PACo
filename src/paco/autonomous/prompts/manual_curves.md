@@ -93,8 +93,8 @@ phase velocity v and frequency f.
 
 - near_field_m (active and passive-active: a shot correlated brings its near field too): a window
   stacks no shot nearer than that to its nearest receiver, where it has a farther one; one with
-  near shots only keeps them (G3 notes near_field). Keep the nearest shot at least λmax/2 from the
-  window.
+  near shots only keeps them. G3 reports each window's nearest shot (near_offset), never judges
+  it. Keep the nearest shot at least λmax/2 from the window.
 - masw distance_max: the farthest shot from a window's middle, at the survey's reach by default;
   the window's far half extends L/2 beyond it. Far shots lose the high frequencies first, near
   ones carry them but bring the near field to the low ones: judge the ridge's high end and its
@@ -104,11 +104,12 @@ phase velocity v and frequency f.
 - Shots on both sides average out dipping layers: keep both when the distances allow. More shots
   raise the SNR, not a near-field bias.
 - PACo's rule sets the near-field distance at half the median λmax of the trial curves, once the
-  length is chosen; dropping the near shots of every window cost a third of the curves on PAC's active test line. A
-  better one may come from each window's own λmax, read within its reach: try it on the windows
-  G3 flags near_field and a control set. At the line's ends the rule may leave a window only a
-  far, weak shot: a shorter distance gives the near shot back, at the price of a near-field bias
-  at its longest wavelengths. Try it, and say which you keep.
+  length is chosen; dropping the near shots of every window cost a third of the curves on PAC's
+  active test line. A better one may come from each window's own λmax, read within its reach:
+  try it on the windows whose nearest shot is within their λmax/2 and a control set. At the
+  line's ends the rule may leave a window only a far, weak shot: a shorter distance gives the
+  near shot back, at the price of a near-field bias at its longest wavelengths. Try it, and say
+  which you keep.
 
 ## Preprocessing
 
@@ -234,8 +235,6 @@ phase velocity v and frequency f.
   it; energy all along the traces is noise, and its image stripes; an arrival far faster than the
   surface waves is body waves or noise common to the receivers, and its image smears at high
   velocities, however high its SNR. The atlas's correlations show the three.
-- G3's near_field note on a passive window means nothing: its virtual source is its own first
-  receiver. decide and freeze leave it out.
 - passive-active, a mode of an active line: each window correlates the shots beyond its ends,
   within distance_max of its middle, as noise, and stacks the correlations phase-weighted. The
   trigger and the mute work as the active mode's, the mute being its surface-wave window, since
@@ -261,7 +260,7 @@ phase velocity v and frequency f.
   band only; too_few_points (under 4), resample finer, then a lower min_relative_coherence;
   narrow_span (λmax/λmin under 1.34), a lower min_relative_coherence; mode_jump, cut the band at
   the largest step, then halve the corridor; no_ridge, mode_min_ratio 1.2; the air wave, reject.
-  inverse_dispersion, aliasing_zone, beyond_reach and near_field are notes.
+  inverse_dispersion, aliasing_zone and beyond_reach are notes.
 - Points under 2·dx and beyond 3·L stay, flagged. The inversion's depth follows the longest
   wavelength, so a tail beyond the window's reach or in the near field drives the model's deep
   part: say so, or cut it (picking max_wavelength, in window lengths; min_wavelength, the

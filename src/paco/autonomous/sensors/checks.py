@@ -40,7 +40,7 @@ class Checks:
 
     @property
     def in_near_field(self) -> bool:
-        """Whether its nearest shot lies within half its longest wavelength (G3's near_field)."""
+        """Whether its nearest shot lies within half its longest wavelength."""
         return self.nearest_shot is not None and self.nearest_shot < 1
 
 
@@ -71,6 +71,10 @@ class Run:
     near_only: tuple[float, ...]  # those of its windows that stack near shots only
 
 
+# The near field: within this share of a curve's longest wavelength from its nearest shot.
+NEAR_FIELD = 0.5
+
+
 def window_checks(g3: GateResult, length_m: float, shots: bool = True) -> Checks | None:
     """The checks of the curve G3 judged in `g3`, on a window `length_m` long from its first
     receiver to its last (sigpipe's window_length); None when the window has no curve. Without
@@ -83,8 +87,8 @@ def window_checks(g3: GateResult, length_m: float, shots: bool = True) -> Checks
     shortest, longest = wavelengths
     near = _metric(g3, "near_offset")
     nearest_shot = (
-        near.value / near.threshold
-        if shots and near is not None and near.value is not None and near.threshold
+        near.value / (NEAR_FIELD * longest)
+        if shots and near is not None and near.value is not None and longest > 0
         else None
     )
     return Checks(
@@ -97,12 +101,6 @@ def window_checks(g3: GateResult, length_m: float, shots: bool = True) -> Checks
         nearest_shot=nearest_shot,
         uncertainty=_value(g3, "uncertainty"),
     )
-
-
-def shot_note(flag_name: str, mode: str) -> bool:
-    """Whether a flag G3 raises reads a window's shots where the line has none: its near field
-    on a passive line, whose windows' virtual source is their first receiver."""
-    return mode == "passive" and flag_name == "near_field"
 
 
 def line_checks(checks: Collection[Checks], target_depth_m: float | None = None) -> LineChecks:
