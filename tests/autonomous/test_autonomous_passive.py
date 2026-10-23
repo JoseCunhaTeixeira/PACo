@@ -188,7 +188,7 @@ def test_g3_raises_no_near_field_note_on_a_passive_window(passive: Passive) -> N
 def test_advise_on_a_passive_line(passive: Passive) -> None:
     # One threshold, on one window: PACo's FK selection trial in seconds.
     quick = QCConfig.model_validate(
-        {"segments": {"thresholds": [0.2], "bands": [[None, None]], "trial_windows": 1}}
+        {"coherence": {"trials": 1}, "segments": {"thresholds": [0.2], "bands": [[None, None]]}}
     )
 
     assert advise(passive.study, "mute", LINE, passive.settings, quick) == NO_MUTE

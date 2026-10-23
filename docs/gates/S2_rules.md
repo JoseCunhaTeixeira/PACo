@@ -19,7 +19,7 @@ the agent reads them first in the summary; the ladder's trials are kept in the r
 | The band | fmax capped at the smaller of the median usable fmax of the records G1 kept and Nyquist; fmin raised to their median usable fmin. Never widened: PAC's 100 Hz stays when the records go higher | Widening the band makes G3 worse at every window length on the demo (below): above 100 Hz a second ridge competes and the picker jumps. The median, not the worst record: on `active_p2` the worst records' limits (24 to 86 Hz) would cut the whole line's long wavelengths, where the median record is usable from 2.3 to 298 Hz |
 | The far limit | `masw.distance_max` at the line's reach, where the traces' median SNR falls under 2 dB (sigpipe's `line_reach`, G1's `reach_snr_db`), unless the user gave one | A window stacks no shot whose traces there are mostly noise: PAC's 100 m takes `active_p2`'s traces beyond about 60 m, which are noise |
 | The near limit | none: a window stacks its nearest shots too, G3 reporting its nearest shot (`near_offset`), unless the user gives `masw.distance_min` | A near field gives `active_p2` no cleaner image and breaks its passive-active images; on the demo it costs curves (below) |
-| The window length | one length for the whole line. Given none: a ladder of the autonomous search's lengths shorter than the line (5, 7, 9, 11, 13, 15, 17, 21, 25, 33, 41 and 47 receivers), each tried on 27 windows spread evenly along the line, its ends included (S2, the picking and G3; a passive line's each with segments as long as its window asks, below). Up the ladder from the first length whose trial windows G3 passes 80 % of, while the next lengths pass too: the longest before one fails is kept, the one that failed tried for comparison; none passing, the one that passed most (the shortest on a tie). A length given (by the user or the agent) is kept, its trial windows tried for the record | The longest window whose images hold along the line: longer windows resolve the velocity and reach deeper until the ground's lateral changes break their images and G3 fails them. No share of the line caps it: a 24-geophone spread may need most of its length, and `active_p1`'s windows pass best at 47 or 48 receivers, half its line (below) |
+| The window length | one length for the whole line. Given none: a ladder of the autonomous search's lengths shorter than the line (5, 7, 9, 11, 13, 15, 17, 21, 25, 33, 41 and 47 receivers), each tried on the same 27 sample windows spread evenly along the line, its ends included (S2, the picking and G3; a passive line's each with segments as long as its window asks, below), the mute trial and the line loop on as many. The length whose sample windows G3 passes most is kept; on a tie, the one whose curves reach deepest (the longest median wavelength), then the shorter. A length given (by the user or the agent) is kept, its trial windows tried for the record | The length whose images give the most curves along the line, as its sample windows show it, and of those the deepest. No share of the line caps it: a 24-geophone spread may need most of its length, and `active_p1`'s windows pass best at 47 or 48 receivers, half its line (below) |
 | The frequency step | 1/T by construction: no padding before the phase shift, so the image's step follows the record length | A finer step only interpolates |
 | The velocity range | left to G2, which flags a ridge on the grid's edges per window | The trial images could set it; not needed on the demo (1 to 1,000 m/s) |
 
@@ -41,10 +41,9 @@ shot).
 Its `next` says the length is the ladder's proposal, to change with `masw.length` when the
 request needs more depth or lateral detail, saying why; the ideal scripted agent then takes 24
 receivers for "as deep as this line allows" and 7 for "as much lateral detail as the data
-allow". A length given is never climbed past: a climb would turn a given 7 receivers (6 of 9
-trials passing) into 16.
+allow". A length given is kept, whatever the ladder would choose.
 
-## Up the ladder while the windows pass
+## The most sample windows passing
 
 Every length tried on PAC's lines, the trial windows G3 passed of 27 (the picks stopping at
 three window lengths, a passive line's segments sized to each length):
@@ -56,12 +55,11 @@ three window lengths, a passive line's segments sized to each length):
 | `active_p2` passive-active | 18 | 17 | 15 | 22 | 21 | 21 | 21 | 20 | 16 | 17 | 14 | 6 |
 | `passive_p2` | 10 | 9 | 21 | 14 | 27 | 25 | 16 | 24 | 20 | 13 | 17 | 17 |
 
-The ladder keeps 47 receivers on `active_p1` (curves to 30 m), 17 on `active_p2` (21 fails), 11
-in passive-active (13 fails) and 15 on `passive_p2` (17 fails): where the eye puts them, 48 on
-`active_p1` and, by the autonomous agent's eye, 15, 9 and 15 on the others. The first length whose
-picks' median uncertainty is within 20 % stops short (13, 11, 11 and 13): on `active_p1` that
-uncertainty grows with the length (19 % at 13 receivers, 27 % at 47), as its curves reach deeper
-(8 m, 30 m).
+The ladder keeps 47 receivers on `active_p1` (27 of 27, as 21 and 41, its curves the deepest, to
+30 m), 9 on `active_p2` (25 of 27, as 7, its curves to 29 m against 22 m), 11 in passive-active
+(22 of 27) and 13 on `passive_p2` (27 of 27). On `active_p1` the picks' median uncertainty grows
+with the length (19 % at 13 receivers, 27 % at 47) as its curves reach deeper (8 m, 30 m): a
+precision rule would stop at 13.
 
 ## On the demo profile, the picks cut at 2 window lengths
 
@@ -115,7 +113,7 @@ with. Longer windows need longer segments: with PAC's 1 s for every length, `pas
 trial windows pass G3 on 21 of 27 at 13 receivers, against 27 of 27 with its own 2.25 s.
 
 When the user gives the segments' length, `segments.py` tries their FK selection on three
-windows spread along the line (`SegmentRules`): the line's own, and the selection with no band
+windows at the line's length, the ladder's: the line's own, and the selection with no band
 and within 80-1,500 m/s at thresholds 0.05 to 0.3, never off. Each segment is sliced, whitened,
 normalized, tapered and correlated once, as the pipeline does, flipped and not, and its f-k
 lopsidedness measured (sigpipe's `fk_ratio`, the selection's own measure); a candidate keeps the
@@ -130,5 +128,5 @@ converged. The trials are kept in `segments.json`, the choice in the line's note
 The segments' length is not tried that way: on `passive_p2` at 13 receivers, the same trial
 over the segments' length too takes 4.5 s segments and the FK selection at 0.1 within 80 to
 1,500 m/s (their M0 over 4.7 times its shortest wavelength, against 3.5), and G3 then passes 51
-of the line's 84 curves, against 80 with the length's own segments: three windows do not stand
+of the line's 84 curves, against 80 with the length's own segments: three windows did not stand
 for the line.

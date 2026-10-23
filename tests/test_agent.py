@@ -428,7 +428,7 @@ def test_the_host_lists_the_parameters_used_and_the_settings_the_gates_changed()
     assert "near_field" not in rules
     assert rules.endswith(
         "Tried for the line, not kept: trigger t0 0.0016 s, asked by 4 windows "
-        "(G1:shifted_trigger): 2 of 4 trial windows passing G3 against 3, under 2 more."
+        "(G1:shifted_trigger): 2 of 4 trial windows passing G3 against 3."
     )
     assert "trigger" not in used
     assert "left out of the windows" not in listed

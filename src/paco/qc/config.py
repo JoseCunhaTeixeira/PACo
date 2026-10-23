@@ -37,9 +37,13 @@ RETIRED = {
     "signal": ("min_correlation_snr_db",),
     # The segment trials keep G2's floor on the fk selection's share (min_fk_kept_share); a
     # passive line's segments take one length, sized to its windows (segment_crossings).
-    "segments": ("min_kept_share", "crossings"),
-    # The ladder climbs the lengths shorter than the line while their windows pass G3.
-    "coherence": ("min_precision_gain", "max_line_share", "max_uncertainty"),
+    "segments": ("min_kept_share", "crossings", "trial_windows"),
+    # The ladder keeps the length whose trial windows G3 passes most.
+    "coherence": ("min_precision_gain", "max_line_share", "max_uncertainty", "min_pass_share"),
+    # Every trial is made on the ladder's sample windows (coherence.trials), the most passing
+    # kept, the deepest curves on a tie.
+    "mute": ("trials", "min_gain", "max_wavelength_loss", "guard_share"),
+    "line": ("trials", "min_gain", "max_wavelength_loss"),
 }
 # Thresholds renamed, their value kept under the new name (one name, one meaning):
 # the first breaks' shot time off the trigger is an error, the trigger's shift the muting's.

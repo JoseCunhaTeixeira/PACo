@@ -148,6 +148,7 @@ def _trial(
             config.signal,
             trial.picking,
             exclusions,
+            config.coherence.trials,
             frozenset(user.line) & SEGMENT_STAGES,
         )
         said = [

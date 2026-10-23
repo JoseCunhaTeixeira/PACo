@@ -14,8 +14,10 @@ from dataclasses import dataclass
 import numpy as np
 
 from paco.autonomous.sensors.checks import failing_runs, median_known, window_checks
-from paco.qc.line_loop import LineRules
 from paco.qc.models import GateResult
+
+# The share of the best's depth a variant may lose: more, it is shortened.
+DEPTH_LOSS = 0.2
 
 
 @dataclass(frozen=True, slots=True)
@@ -172,10 +174,9 @@ def _mean(values: Iterable[float | None]) -> float | None:
     return sum(known) / len(known) if known else None
 
 
-def against(variant: Scorecard, best: Scorecard, rules: LineRules | None = None) -> Against:
-    """`variant` against the current `best`, on the windows both judged; `rules`: the run's
-    line rules (QCConfig.line), for the share of its longest wavelengths a variant may lose."""
-    loss = (rules or LineRules()).max_wavelength_loss
+def against(variant: Scorecard, best: Scorecard, loss: float = DEPTH_LOSS) -> Against:
+    """`variant` against the current `best`, on the windows both judged; `loss`: the share of
+    the best's depth a variant may lose before it is shortened."""
     common = set(variant.windows) & set(best.windows)
     ours, theirs = set(variant.covered) & common, set(best.covered) & common
     gained, lost = tuple(sorted(ours - theirs)), tuple(sorted(theirs - ours))

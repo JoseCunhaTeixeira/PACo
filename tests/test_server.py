@@ -324,7 +324,7 @@ def test_the_workflow_process_pick_redo_invert() -> None:
     assert "near_field" not in changed[1]
     assert changed[1].endswith(
         "Tried for the line, not kept: trigger t0 0.0016 s, asked by 4 windows "
-        "(G1:shifted_trigger): 2 of 4 trial windows passing G3 against 3, under 2 more."
+        "(G1:shifted_trigger): 2 of 4 trial windows passing G3 against 3."
     )
     # No trace left out for its amplitude in one record: the line judges its receivers.
     assert len(changed) == 2

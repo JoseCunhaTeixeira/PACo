@@ -113,9 +113,7 @@ def test_advise_reads_the_committed_lines_gates(judged_line: JudgedLine, tmp_pat
 @pytest.mark.slow
 def test_advise_makes_pacos_trials_once(input_dir: Path, tmp_path: Path) -> None:
     # Few trial windows and two lengths: PACo's ladder and mute trial in a few seconds.
-    config = QCConfig.model_validate(
-        {"coherence": {"trials": 3, "lengths": [9, 13]}, "mute": {"trials": 3}}
-    )
+    config = QCConfig.model_validate({"coherence": {"trials": 3, "lengths": [9, 13]}})
     settings = Settings(input_dir=input_dir, output_dir=tmp_path / "output", workers=2)
     study = new_study("active_test_profile", settings)
 

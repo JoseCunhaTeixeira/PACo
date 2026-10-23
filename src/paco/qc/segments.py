@@ -1,8 +1,8 @@
 """S2's segments on a passive line. Their length follows the window's span: the slowest wave
 (G1's vg_min) crosses the window `segment_crossings` times in a segment, end to end
 (sized_slicing); the ladder tries each window length with its own, and the line keeps its
-length's. For segments the user gave, their FK selection is tried on a few trial windows of the
-chosen length: each segment is whitened, normalized, tapered and correlated once, as the pipeline
+length's. For segments the user gave, their FK selection is tried on the ladder's sample windows
+at the chosen length (`trials`): each segment is whitened, normalized, tapered and correlated once, as the pipeline
 does, flipped and not; each FK selection (a velocity band and a threshold, the selection always
 on) then keeps the segments whose f-k energy is lopsided enough in the band, flipped where it runs
 the other way, and stacks them. A candidate is judged by the dispersion image its stack makes:
@@ -67,9 +67,6 @@ class SegmentRules(BaseModel):
         default=((None, None), (80.0, 1500.0)),
         description="m/s, the velocity bands the lopsidedness is measured in (None: no bound)",
     )
-    trial_windows: int = Field(
-        default=3, ge=1, description="Windows along the line the candidates are tried on"
-    )
     min_convergence: float = Field(
         default=0.7,
         gt=-1,
@@ -120,6 +117,7 @@ def choose_segments(
     signal: SignalThresholds,
     picking: PickingParameters,
     exclusions: Exclusions,
+    trials: int,
     given: frozenset[str] = frozenset(),
 ) -> tuple[dict[str, object] | None, tuple[str, ...]]:
     """The FK selection for the line's segments, as long as the line has them, and a note of
@@ -128,7 +126,7 @@ def choose_segments(
     (receivers not evenly spaced, no window)."""
     windows = [
         window
-        for built in _spread(build_windows(profile, preset.masw), rules.trial_windows)
+        for built in _spread(build_windows(profile, preset.masw), trials)
         if (window := apply_exclusions(built, exclusions, GEOMETRIES["passive"])) is not None
     ]
     if not windows or "selection" in given:
@@ -144,11 +142,11 @@ def choose_segments(
     dispersion = Dispersion(method="phase", **stage_kwargs(preset, "dispersion"))
     try:
         bands = [one[0] for one in selections if one is not None]
-        trials = [_segments(window, preset, run_folder, bands) for window in windows]
+        made = [_segments(window, preset, run_folder, bands) for window in windows]
     except ValueError as error:  # refused by sigpipe; receivers not evenly spaced
         return None, (f"The segments' FK selection not tried: {error}.",)
     candidates = [
-        _judge(trials, length, chosen, stack, dispersion, signal, picking) for chosen in selections
+        _judge(made, length, chosen, stack, dispersion, signal, picking) for chosen in selections
     ]
     baseline = candidates[0]
     valid = [

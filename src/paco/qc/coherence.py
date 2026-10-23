@@ -1,10 +1,9 @@
 """The coherence rules for S2 (docs/qc_workflow.md), checked before the phase shift runs: the
 image's band within what G1 found usable in the records, and one window length for the whole
-line, the longest at which most trial windows still give a curve G3 passes, before longer
-windows' images break along the line."""
+line, the one at which most trial windows give a curve G3 passes, the deepest curves on a
+tie."""
 
 import json
-import math
 import shutil
 from collections.abc import Callable, Collection, Mapping, Sequence
 from dataclasses import dataclass, field
@@ -41,20 +40,16 @@ class CoherenceRules(BaseModel):
     lengths: tuple[int, ...] = Field(
         default=(5, 7, 9, 11, 13, 15, 17, 21, 25, 33, 41, 47),
         description="Window lengths tried, in receivers, shortest first (the autonomous search's), "
-        "those shorter than the line: the longest before one fails G3 is kept; a line where none "
-        "passes takes the one that passed most.",
+        "those shorter than the line: the one whose trial windows G3 passes most is kept, the "
+        "deepest curves on a tie.",
     )
     trials: int = Field(
         default=27,
         ge=1,
-        description="Trial windows per length, spread evenly along the whole line, its ends "
-        "included: enough that their share passing G3 is the line's.",
-    )
-    min_pass_share: float = Field(
-        default=0.8,
-        gt=0,
-        le=1,
-        description="Share of the trial windows G3 must pass for a length to be kept.",
+        description="Sample windows every trial is made on (each length of the ladder, each "
+        "mute of the mute trial, each change of the line loop, each FK selection of a passive "
+        "line's segments), spread evenly along the whole line, its ends included: enough that "
+        "their share passing G3 is the line's.",
     )
 
 
@@ -167,21 +162,19 @@ def choose_length(
     exclusions: Exclusions | None = None,
     slicing: Callable[[int], Mapping[str, Any]] | None = None,
 ) -> LengthChoice:
-    """The window length, from trial windows spread along the line: up the ladder (the lengths
-    shorter than the line) from the first length G3 passes `min_pass_share` of, while the next
-    ones pass too, the longest before one fails kept (where longer windows' images break), the
-    one that failed kept to compare; none passing, the one that passed most (the shortest on a
-    tie); or `first`, a length given (by the user or the agent), kept as it is with its trial
-    windows' result (the ladder proposes, a length given decides). `slicing`: a passive line's
-    segments for each length, as long as the window asks. Trial windows go to
-    <run_folder>/coherence/<length>/, on the run's records."""
+    """The window length, from trial windows spread along the line: every length of the ladder
+    shorter than the line tried, the one whose trial windows G3 passes most kept, the deepest
+    curves on a tie (the longest median wavelength), then the shorter; or `first`, a length
+    given (by the user or the agent), kept as it is with its trial windows' result (the ladder
+    proposes, a length given decides). `slicing`: a passive line's segments for each length, as
+    long as the window asks. Trial windows go to <run_folder>/coherence/<length>/, on the run's
+    records."""
     rules = judge.rules
     # The lengths shorter than the line, as many as it holds: a short spread's longest too.
     count = len(profile.receivers)
     rungs = [length for length in rules.lengths if length < count] or [
         length for length in rules.lengths if length == count
     ]
-    share = f"{rules.min_pass_share:.0%}"
 
     def attempt(length: int) -> LengthTrial | None:
         sliced = slicing(length) if slicing is not None else None
@@ -189,8 +182,10 @@ def choose_length(
             profile, preset, records, run_folder, judge, workers, length, exclusions, sliced
         )
 
-    def passes(trial: LengthTrial) -> bool:
-        return trial.passed >= math.ceil(rules.min_pass_share * len(trial.xmids))
+    def rank(trial: LengthTrial) -> tuple[float, float, int]:
+        share = trial.passed / len(trial.xmids) if trial.xmids else 0.0
+        deepest = trial.wavelengths_m[1] if trial.wavelengths_m is not None else 0.0
+        return share, deepest, -trial.length
 
     trials: list[LengthTrial] = []
     why = "as given"
@@ -203,29 +198,14 @@ def choose_length(
         trials.append(given)
         kept = given
     else:
-        for length in rungs:
-            trial = attempt(length)
-            if trial is None:
-                continue
-            trials.append(trial)
-            if not passes(trial) and any(passes(before) for before in trials[:-1]):
-                break  # longer windows' images break: the longest that passed is kept
+        trials = [trial for length in rungs if (trial := attempt(length)) is not None]
         if not trials:
             raise RunError("No window length gives a window with a shot: check masw's distances.")
-        passing = [trial for trial in trials if passes(trial)]
-        if not passing:
-            kept = max(trials, key=lambda trial: (trial.passed, -trial.length))
-            why = f"the most passes (none passed {share})"
-        elif passing[-1] is trials[-1]:
-            kept = passing[-1]
-            why = f"the longest, no length failing after the first that passed {share}"
-        else:
-            kept = passing[-1]
-            why = f"the longest before a length failed {share}"
-        trials = [
-            trial.model_copy(update={"compared": True}) if trial.length > kept.length else trial
-            for trial in trials
-        ]
+        kept = max(trials, key=rank)
+        tied = [trial for trial in trials if rank(trial)[0] == rank(kept)[0]]
+        why = "the most trial windows G3 passed" + (
+            ", the deepest curves of those tied" if len(tied) > 1 else ""
+        )
     tried = ", ".join(_tried(trial) for trial in trials)
     note = f"masw length {kept.length} for the whole line, {why}: trial windows G3 passed {tried}."
     receivers = profile.receivers

@@ -24,7 +24,6 @@ from paco.qc.line_loop import (
     kept_on_line,
 )
 from paco.qc.line_loop import _said as said  # pyright: ignore[reportPrivateUsage]
-from paco.qc.line_loop import _sample as sample  # pyright: ignore[reportPrivateUsage]
 from paco.qc.log import LINE_CHANGE
 from paco.qc.models import Flag, GateResult, Keep, Override
 from paco.settings import Settings
@@ -120,20 +119,6 @@ def test_a_change_only_passing_windows_ask_is_not_tried() -> None:
     del picks["xmid_4.00"]
     (wider,) = candidates({}, images, picks, USES, CURRENT, {}, frozenset())
     assert wider.failing == 1
-
-
-def test_the_trial_windows_spread_among_those_asking_and_the_others() -> None:
-    order = [f"xmid_{index}.00" for index in range(20)]
-    asking = set(order[5:9])
-
-    chosen = sample(order, asking, 6)
-
-    # Half among the four asking, half among the others, each spread: the line's ends too.
-    assert len(chosen) == 6 and len(set(chosen) & asking) == 3
-    assert chosen[0] == "xmid_0.00" and chosen[-1] == "xmid_19.00"
-    assert set(sample(order, asking, 8)) >= asking
-    # Fewer others than half: the rest of the trials go to those asking.
-    assert sample(order[:3], set(order[:3]), 6) == order[:3]
 
 
 def test_a_change_is_worded_as_the_lines_rules_word_their_settings() -> None:

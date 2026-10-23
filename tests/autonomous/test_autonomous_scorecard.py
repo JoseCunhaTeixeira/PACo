@@ -5,7 +5,6 @@ import pytest
 from autonomous_judged import JudgedLine
 
 from paco.autonomous.sensors.scorecard import Scorecard, against, dominated, scorecard
-from paco.qc.line_loop import LineRules
 from paco.qc.models import GateResult, Metric
 
 
@@ -64,9 +63,7 @@ def test_a_variant_gaining_windows_by_shortening_its_curves_is_marked() -> None:
     # Shorter, gaining nothing: nothing to mark.
     assert not against(_card((1.0,), depth_m=5.0), best).shortened
     # The run's own rules.
-    assert against(
-        _card((1.0, 2.0), depth_m=8.5), best, LineRules(max_wavelength_loss=0.1)
-    ).shortened
+    assert against(_card((1.0, 2.0), depth_m=8.5), best, loss=0.1).shortened
 
 
 def test_the_images_are_scored_by_their_coherence_their_background_and_the_picks_on_them() -> None:

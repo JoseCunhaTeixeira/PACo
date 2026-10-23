@@ -266,7 +266,7 @@ def _process(
     elif str(mode) == "passive" and given != SEGMENT_STAGES:
         picked, segment_notes = choose_segments(
             loaded, preset, run_folder, config.segments, config.signal, config.picking,
-            exclusions, given,
+            exclusions, config.coherence.trials, given,
         )  # fmt: skip
         if picked is not None:
             changes = deep_merge(changes, picked)
@@ -737,7 +737,6 @@ def settle_line(
                 records,
                 exclusions,
                 judge,
-                rules,
                 settings.workers,
             )
             trials.append(trial)

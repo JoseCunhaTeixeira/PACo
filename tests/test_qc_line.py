@@ -35,7 +35,7 @@ from paco.qc.segments import SEGMENTS_FILE
 from paco.settings import Settings
 
 # Three rungs and three trial windows: the ladder of the test line in a few seconds.
-QUICK = QCConfig(coherence=CoherenceRules(lengths=(5, 24, 32), trials=3, min_pass_share=2 / 3))
+QUICK = QCConfig(coherence=CoherenceRules(lengths=(5, 24, 32), trials=3))
 
 
 def test_the_band_is_capped_by_the_records_and_nyquist_never_widened() -> None:
@@ -66,10 +66,10 @@ def test_the_band_is_capped_by_the_records_and_nyquist_never_widened() -> None:
 
 
 def test_the_ladder_defaults_to_27_trials_and_four_fifths() -> None:
-    # 80 % of the trials, 27 of them over the whole line, the autonomous search's lengths shorter
-    # than the line: a line where none passes takes the one that passed most.
+    # 27 sample windows over the whole line for every trial, the autonomous search's lengths
+    # shorter than the line.
     rules = CoherenceRules()
-    assert (rules.trials, rules.min_pass_share) == (27, 0.8)
+    assert rules.trials == 27
     assert rules.lengths == (5, 7, 9, 11, 13, 15, 17, 21, 25, 33, 41, 47)
 
 
@@ -98,7 +98,7 @@ def _line(
 
 
 @pytest.mark.slow
-def test_the_ladder_keeps_the_longest_length_before_one_fails(
+def test_the_ladder_keeps_the_length_most_trial_windows_pass(
     demo_input_dir: Path, tmp_path: Path
 ) -> None:
     # The step keeps the line to four windows; the length is left to the ladder.
@@ -106,10 +106,9 @@ def test_the_ladder_keeps_the_longest_length_before_one_fails(
 
     choice = json.loads((run_folder / COHERENCE_FILE).read_text())
     # At 5 receivers (6 m) the trial windows keep too few points: none of the 3 passes. 24
-    # passes 2 of 3, the share asked, and 32 passes 1: 24, the longest before a length failed, is
-    # kept, 32 for the agent to compare the depth it would reach.
+    # passes 2 of 3 and 32 passes 1: 24, the most passing, is kept.
     assert [trial["length"] for trial in choice["trials"]] == [5, 24, 32]
-    assert [trial["compared"] for trial in choice["trials"]] == [False, False, True]
+    assert [trial["compared"] for trial in choice["trials"]] == [False, False, False]
     five, twenty_four, _ = choice["trials"]
     assert (five["passed"], len(five["xmids"])) == (0, 3)
     assert (twenty_four["passed"], twenty_four["uncertainty"]) == (2, pytest.approx(0.076))
@@ -129,23 +128,28 @@ def test_the_ladder_keeps_the_longest_length_before_one_fails(
     # each record's shot, 20 ms in): xmid 17.25 stacks 149.dat, 54 m away, not 165.dat, 78 m
     # away. The mute trial at the line's length keeps the tight cone (test_qc_muting.py).
     assert line is not None
+    # The line loop keeps the records' shot time 1.6 ms later: as many trial windows passing,
+    # their curves deeper.
     assert line.parameters == {
         "masw": {"distance_max": 57.79, "length": 24},
         "muting": {"method": "mute", "vmin": 134.5, "vmax": 302.7, "width": 0.05, "taper": 20},
+        "trigger": {"t0": 0.0016},
     }
     # In the order of PAC's page, the windows' (the farthest shot, the length; no near field),
-    # then the preprocessing's (the mute); the line loop's tries after them.
-    far, note, muted = [one for one in line.notes if not one.startswith("Tried for the line")]
+    # then the preprocessing's (the mute); the line loop's after them.
+    kept = [one for one in line.notes if not one.startswith("Tried for the line")]
+    far, note, muted, trigger = kept
     assert far == (
         "masw distance_max 57.79 m: beyond it from the shot, the traces' median SNR falls under "
         "2 dB (G1), so the windows stack no farther shot."
     )
     assert note.startswith(
-        "masw length 24 for the whole line, the longest before a length failed 67%: "
+        "masw length 24 for the whole line, the most trial windows G3 passed: "
         "trial windows G3 passed 0/3 at 5, 2/3 at 24 (picks "
     )
-    assert note.endswith("1/3 at 32 (picks 5%; compared).")
+    assert note.endswith("1/3 at 32 (picks 5%).")
     assert muted.startswith("muting mute 134.5 to 302.7 m/s: the mute trial ")
+    assert trigger.startswith("trigger t0 0.0016 s: the line loop, asked by ")
     # The gates of the processing ran on it (the picking's are pick's), and the summary gives
     # the change.
     assert set(report.counts) == {"G1", "G2"}
@@ -159,7 +163,7 @@ def test_a_given_length_is_kept_as_it_is(demo_input_dir: Path, tmp_path: Path) -
     # Given, the length stays whatever its trial windows give (the ladder proposes, a length
     # given decides), with nothing to compare: 32 receivers, where 1 trial window of the 3 the
     # rules ask passes, a length the ladder never tries.
-    strict = QCConfig(coherence=CoherenceRules(lengths=(5, 24), trials=3, min_pass_share=1.0))
+    strict = QCConfig(coherence=CoherenceRules(lengths=(5, 24), trials=3))
     run_folder, report = _line(
         demo_input_dir, tmp_path, {"masw": {"length": 32, "step": 24}}, strict
     )
@@ -229,10 +233,11 @@ def test_an_active_profile_is_processed_passive_active(
         assert (folder / "DispersionImage_0000.hdf5").exists()
 
 
-def test_the_ladder_climbs_while_its_windows_pass(
+def test_the_ladder_keeps_the_length_most_windows_pass_the_deepest_on_a_tie(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     passes = {5: 1, 7: 3, 9: 3, 16: 3, 48: 1}
+    deepest = {5: 6.0, 7: 9.0, 9: 12.0, 16: 10.0, 48: 30.0}
 
     def tried(*args: Any) -> LengthTrial:  # noqa: ANN401
         length = cast(int, args[6])
@@ -242,6 +247,7 @@ def test_the_ladder_climbs_while_its_windows_pass(
             verdicts=("pass",) * passes[length] + ("retry",) * (3 - passes[length]),
             flags=(),
             passed=passes[length],
+            wavelengths_m=(3.0, deepest[length]),
         )
 
     monkeypatch.setattr(coherence, "_try_length", tried)
@@ -252,15 +258,18 @@ def test_the_ladder_climbs_while_its_windows_pass(
         CoherenceRules(lengths=(5, 7, 9, 16, 48), trials=3), CurveThresholds(), PickingParameters()
     )
 
-    def choose() -> tuple[int, list[tuple[int, bool]]]:
+    def choose() -> tuple[int, list[int]]:
         choice = choose_length(line, make_preset("active", None), (), tmp_path, judge, 1)
-        return choice.length, [(trial.length, trial.compared) for trial in choice.trials]
+        return choice.length, [trial.length for trial in choice.trials]
 
-    # 5 receivers fail; from 7 every length passes up to 48, which fails: 16 kept, 48 compared.
-    assert choose() == (16, [(5, False), (7, False), (9, False), (16, False), (48, True)])
-    # Every length passing to the last: the longest kept, nothing to compare.
+    # Every length tried; 7, 9 and 16 pass 3 of 3, and of those 9's curves reach deepest.
+    assert choose() == (9, [5, 7, 9, 16, 48])
+    # As deep as 9: the shorter of the two.
+    deepest[16] = 12.0
+    assert choose() == (9, [5, 7, 9, 16, 48])
+    # 48 passing as many and deeper: 48.
     passes[48] = 3
-    assert choose() == (48, [(5, False), (7, False), (9, False), (16, False), (48, False)])
+    assert choose() == (48, [5, 7, 9, 16, 48])
 
 
 def test_the_hint_keeps_the_ladders_length_whatever_the_request() -> None:
@@ -329,7 +338,7 @@ def test_the_lengths_tried_are_said_for_the_agent_to_choose() -> None:
     )
 
 
-def test_the_ladder_keeps_the_longest_before_a_failure_and_keeps_what_is_given(
+def test_the_ladder_keeps_the_most_passing_and_keeps_what_is_given(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     passes = {5: 1, 7: 1, 9: 3, 11: 3, 16: 3, 24: 2}
@@ -353,19 +362,13 @@ def test_the_ladder_keeps_the_longest_before_a_failure_and_keeps_what_is_given(
         )
         return choose_length(line, make_preset("active", None), (), tmp_path, judge, 1, first)
 
-    # None reaches 3 of 3: the one that passed most, the shortest on a tie; nothing compared.
+    # The one that passed most, every length tried; with no curves to compare their depth, the
+    # shortest on a tie.
     assert [trial.length for trial in choose((5, 7, 24)).trials] == [5, 7, 24]
     assert choose((5, 7, 24)).length == 24
     assert choose((5, 7)).length == 5
-    # Up the ladder from the first length that passes while the next ones pass: 16, the longest
-    # before 24 fails, 24 kept to compare.
-    climbed = choose((5, 7, 9, 11, 16, 24))
-    assert climbed.length == 16
-    assert [trial.compared for trial in climbed.trials] == [False] * 5 + [True]
-    shorter = choose((5, 7, 9, 11, 24))
-    assert shorter.length == 11
-    assert [trial.length for trial in shorter.trials] == [5, 7, 9, 11, 24]
-    assert [trial.compared for trial in shorter.trials] == [False] * 4 + [True]
+    assert choose((5, 7, 9, 11, 16, 24)).length == 9
+    assert [trial.length for trial in choose((5, 7, 9, 11, 24)).trials] == [5, 7, 9, 11, 24]
     # A length given is kept, alone, whatever it gives.
     assert [trial.length for trial in choose((5, 7, 9), first=7).trials] == [7]
     assert choose((5, 7, 9), first=7).length == 7
@@ -404,7 +407,8 @@ def test_a_passive_ladder_slices_each_length_as_asked(
 def test_a_short_line_tries_the_lengths_shorter_than_it(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    # 12 receivers: the lengths shorter than the line, both passing: the longer kept.
+    # 12 receivers: the lengths shorter than the line, both passing, no curves to compare: the
+    # shorter kept.
     tried: list[int] = []
 
     def attempt(*args: Any) -> LengthTrial:  # noqa: ANN401
@@ -420,7 +424,7 @@ def test_a_short_line_tries_the_lengths_shorter_than_it(
 
     choice = choose_length(line, make_preset("active", None), (), tmp_path, judge, 1)
 
-    assert (tried, choice.length, choice.longest) == ([5, 7], 7, 7)
+    assert (tried, choice.length, choice.longest) == ([5, 7], 5, 7)
 
 
 @pytest.mark.slow

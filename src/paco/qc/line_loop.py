@@ -4,10 +4,9 @@ passes. The gates judge each record (G1) and each window (G2, and G3 on a trial 
 image); the changes they ask of the records or of the images are the line's to make
 (`candidates`): grouped by what they change (the records' trigger delays as their median), each
 tried in the order of PAC's page (the records' changes, then the images'), and in each the one
-the most failing windows ask first, on windows spread among those asking it and
-the others (`try_candidate`), and kept when it gives `min_gain` more of them a curve G3 passes
-without losing the long wavelengths. paco.qc.line runs the loop and makes the whole line again
-with each change kept; the picking of each window, after it, is the window's own."""
+the most failing windows ask first, on the ladder's sample windows (`try_candidate`), and
+kept when more of them give a curve G3 passes, or as many with deeper curves. paco.qc.line runs the loop and makes the whole line again with each change
+kept; the picking of each window, after it, is the window's own."""
 
 import json
 import shutil
@@ -54,25 +53,6 @@ class LineRules(BaseModel):
         ge=0,
         description="Changes of the line's settings kept, at most: each makes the whole line "
         "again.",
-    )
-    min_gain: int = Field(
-        default=2,
-        ge=1,
-        description="Trial windows a change must add to those whose curve passes G3: one is "
-        "within what they vary by.",
-    )
-    trials: int = Field(
-        default=15,
-        ge=2,
-        description="Windows a change is tried on: those asking it, spread, and as many of the "
-        "others, spread along the line, when there are.",
-    )
-    max_wavelength_loss: float = Field(
-        default=0.2,
-        ge=0,
-        lt=1,
-        description="The share of the trial curves' median longest wavelength a change may "
-        "lose: more, it cut what the line resolves deepest (over-muting the far offsets).",
     )
 
 
@@ -264,15 +244,16 @@ def try_candidate(
     records: tuple[RecordOutcome, ...],
     exclusions: Exclusions,
     judge: TrialJudge,
-    rules: LineRules,
     workers: int,
 ) -> LineTrial:
     """`candidate` tried on trial windows of the run's (`windows`, by folder, in the line's
-    order): those asking it and the others, spread (`_sample`), made from records preprocessed
+    order): the ladder's sample windows, spread evenly along the line, made from records preprocessed
     with it (a change of the records) or from the run's (of the images), picked and judged by G3
-    as the run's own were (`picks`); kept with `min_gain` more passing, the passed curves' median
-    longest wavelength kept within `max_wavelength_loss`. Its trial files removed after."""
-    chosen = _sample(list(windows), set(candidate.windows), rules.trials)
+    as the run's own were (`picks`); kept when more pass, or as many with the passed curves'
+    median longest wavelength longer. As many trial windows as the ladder's
+    (`judge.rules.trials`). Its trial files removed after."""
+    order = list(windows)
+    chosen = [order[index] for index in trial_indices(len(order), judge.rules.trials)]
     tried_preset = resolve_preset(apply_overrides(preset, candidate.overrides), profile)
     folder = run_folder / LINE_CHANGES_FOLDER
     shutil.rmtree(folder, ignore_errors=True)
@@ -318,12 +299,10 @@ def try_candidate(
     ]
     longest_before = round(statistics.median(longest), 1) if longest else None
     longest_after = tried.wavelengths_m[1] if tried.wavelengths_m is not None else None
-    lost = (
-        longest_before is not None
-        and longest_after is not None
-        and longest_after < (1 - rules.max_wavelength_loss) * longest_before
+    deeper = (
+        longest_after is not None and longest_before is not None and longest_after > longest_before
     )
-    kept = tried.passed - before >= rules.min_gain and not lost
+    kept = tried.passed > before or (tried.passed == before and deeper)
     what = _said(candidate.overrides)
     asked = f"asked by {len(candidate.windows)} windows ({candidate.flag})"
     scores = f"{tried.passed} of {len(chosen)} trial windows passing G3 against {before}"
@@ -331,12 +310,12 @@ def try_candidate(
         # Worded as the line's other rules (the setting, then why): the parameters used read it.
         note = f"{what}: the line loop, {asked}: {scores} with the line's settings before it."
     else:
-        why = (
-            f"the curves' longest wavelengths {longest_after:g} m against {longest_before:g}"
-            if lost and longest_after is not None and longest_before is not None
-            else f"under {rules.min_gain} more"
+        no_deeper = (
+            f", its curves no deeper ({longest_after:g} m against {longest_before:g})"
+            if tried.passed == before and longest_after is not None and longest_before is not None
+            else ""
         )
-        note = f"Tried for the line, not kept: {what}, {asked}: {scores}, {why}."
+        note = f"Tried for the line, not kept: {what}, {asked}: {scores}{no_deeper}."
     return LineTrial(
         stage=candidate.stage,
         overrides=candidate.overrides,
@@ -351,20 +330,6 @@ def try_candidate(
         kept=kept,
         note=note,
     )
-
-
-def _sample(order: Sequence[str], asking: set[str], trials: int) -> list[str]:
-    """Up to `trials` windows, in the line's `order`: spread among those `asking`, and as many
-    of the others, spread, when there are (the rest of the trials theirs when fewer ask)."""
-    ask = [unit for unit in order if unit in asking]
-    other = [unit for unit in order if unit not in asking]
-    n_other = min(len(other), trials // 2)
-    n_ask = min(len(ask), trials - n_other)
-    n_other = min(len(other), trials - n_ask)
-    chosen = {ask[index] for index in trial_indices(len(ask), n_ask)} if n_ask else set()
-    if n_other:
-        chosen |= {other[index] for index in trial_indices(len(other), n_other)}
-    return [unit for unit in order if unit in chosen]
 
 
 # The units of the settings a change words.

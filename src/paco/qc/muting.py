@@ -9,12 +9,11 @@ preprocessed with it, imaged, picked and judged by G3 as the window-length ladde
 mute; the standard 80-1500 m/s mute G2 and G3 repair with; the cone widened by the square of
 `widening` each side; the cone widened by `widening`; and the tight cone, the median peak
 velocity divided and multiplied by `widening` (strong refractions pull the peaks' fast
-quartile up; their median holds). The most windows passing G3 wins, ties to the earlier, the
-less cutting. A mute is kept only with `min_gain` more windows passing than no mute, and
-without losing the long wavelengths (`max_wavelength_loss`): over-muting cuts the far offsets
-and the low band the image needs. Active and passive-active lines (a passive line has no
+quartile up; their median holds). The most windows passing G3 wins, the tightest mute on a tie
+(the narrowest velocity window). Active and passive-active lines (a passive line has no
 muting); never a muting the user gave, which stays as given."""
 
+import math
 from collections.abc import Mapping
 from pathlib import Path
 from typing import Any, Literal, cast
@@ -43,7 +42,6 @@ class MuteRules(BaseModel):
 
     model_config = ConfigDict(frozen=True, extra="forbid")
 
-    trials: int = Field(default=15, ge=3, description="Windows each candidate is tried on.")
     length: int = Field(
         default=9,
         ge=3,
@@ -76,26 +74,6 @@ class MuteRules(BaseModel):
         "pulse width before G1 measures one).",
     )
     taper_s: float = Field(default=0.01, ge=0, description="The mute's taper, s.")
-    min_gain: int = Field(
-        default=2,
-        ge=1,
-        description="Windows passing G3 a mute must add over no mute: one is within what the "
-        "trial windows vary by.",
-    )
-    max_wavelength_loss: float = Field(
-        default=0.2,
-        ge=0,
-        lt=1,
-        description="The share of no mute's median longest wavelength a mute may lose: more, "
-        "it cut the far offsets or the low band (over-muting).",
-    )
-    guard_share: float = Field(
-        default=1 / 3,
-        gt=0,
-        le=1,
-        description="The share of the trial windows no mute must pass for its longest "
-        "wavelengths to judge a mute's: fewer curves say little of what the line reaches.",
-    )
 
 
 class MuteTrial(BaseModel):
@@ -159,7 +137,8 @@ def choose_mute(
     windows = build_windows(profile, trial_preset.masw)
     if not windows:
         return None
-    chosen = [windows[index] for index in trial_indices(len(windows), rules.trials)]
+    # The ladder's sample windows at the line's length.
+    chosen = [windows[index] for index in trial_indices(len(windows), judge.rules.trials)]
     needed = sorted({path.name for window in chosen for path in window.selected_files})
     trials: list[MuteTrial] = []
     for candidate, muting in mute_candidates(cone, rules, profile).items():
@@ -204,7 +183,7 @@ def choose_mute(
                 wavelengths_m=tried.wavelengths_m,
             )
         )
-    kept, trials = _decide(trials, rules)
+    kept, trials = _decide(trials)
     choice = MuteChoice(
         chosen=kept.candidate,
         muting=kept.muting,
@@ -287,37 +266,17 @@ def mute_candidates(
     }
 
 
-def _decide(trials: list[MuteTrial], rules: MuteRules) -> tuple[MuteTrial, list[MuteTrial]]:
-    """The candidate kept, and the trials with why each mute that passed most was refused: the
-    most windows passing G3, ties to the earlier; a mute only with `min_gain` more than no mute
-    and its longest wavelengths kept (judged when no mute passes `guard_share` of the trial
-    windows)."""
-    none = trials[0]
-    guarded = none.passed >= rules.guard_share * len(none.verdicts)
-    checked: list[MuteTrial] = [none]
-    for trial in trials[1:]:
-        refused = None
-        if trial.passed < none.passed + rules.min_gain:
-            refused = (
-                f"{trial.passed - none.passed:+d} trial windows passing against no mute, "
-                f"{rules.min_gain} more needed"
-            )
-        elif (
-            guarded
-            and none.wavelengths_m is not None
-            and trial.wavelengths_m is not None
-            and trial.wavelengths_m[1] < none.wavelengths_m[1] * (1 - rules.max_wavelength_loss)
-        ):
-            refused = (
-                f"its longest wavelengths ({trial.wavelengths_m[1]:g} m) below no mute's "
-                f"({none.wavelengths_m[1]:g} m): it cuts the far offsets or the low band"
-            )
-        checked.append(trial.model_copy(update={"refused": refused}))
-    kept = max(
-        (trial for trial in checked if trial.refused is None),
-        key=lambda trial: trial.passed,  # max keeps the first of equals: no mute first
-    )
-    return kept, checked
+def _decide(trials: list[MuteTrial]) -> tuple[MuteTrial, list[MuteTrial]]:
+    """The candidate kept, and the trials: the most windows passing G3, the tightest mute on a
+    tie (the narrowest velocity window, its vmax over its vmin; no mute the widest)."""
+
+    def rank(trial: MuteTrial) -> tuple[int, float]:
+        muting = trial.muting
+        low = float(muting["vmin"]) if muting is not None else 0.0
+        width = float(muting["vmax"]) / low if muting is not None and low > 0 else math.inf
+        return trial.passed, -width
+
+    return max(trials, key=rank), trials
 
 
 def _named(trial: MuteTrial) -> str:

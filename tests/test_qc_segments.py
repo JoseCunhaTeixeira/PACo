@@ -27,9 +27,10 @@ def test_the_demos_passive_line_tries_the_fk_selection_of_its_segments(
     profiles: dict[str, Profile], tmp_path: Path
 ) -> None:
     # passive_test_profile's windows span 34.5 m, crossed in 0.43 s at 80 m/s: segments of ten
-    # crossings, 4.31 s, as the ladder sizes them. Their FK selection at 0.05 gives an M0 pick over
-    # 4.3 times its shortest wavelength, 77 % of the segments kept and the correlograms converged
-    # (0.72), against 3.9 with the line's own (0.2), whose correlograms do not converge (0.41).
+    # crossings, 4.31 s, as the ladder sizes them. On 3 sample windows, their FK selection at 0.05
+    # gives an M0 pick over 4.3 times its shortest wavelength, 77 % of the segments kept and the
+    # correlograms converged (0.72), against 3.9 with the line's own (0.2), whose correlograms do
+    # not converge (0.41).
     profile = profiles["passive_test_profile"]
     rules = SegmentRules()
     sized = segments.sized_slicing(24, profile, rules, 80.0)
@@ -37,7 +38,7 @@ def test_the_demos_passive_line_tries_the_fk_selection_of_its_segments(
     preprocess_records(preset, profile, tmp_path, workers=1)
 
     changes, notes = choose_segments(
-        profile, preset, tmp_path, rules, SignalThresholds(), PickingParameters(), Exclusions()
+        profile, preset, tmp_path, rules, SignalThresholds(), PickingParameters(), Exclusions(), 3
     )
 
     assert changes == {"selection": {"method": "fk", "threshold": 0.05, "vmin": None, "vmax": None}}
@@ -55,7 +56,7 @@ def test_the_demos_passive_line_tries_the_fk_selection_of_its_segments(
     # The user's own selection stays as it is.
     kept, _ = choose_segments(
         profile, preset, tmp_path, rules, SignalThresholds(), PickingParameters(),
-        Exclusions(), frozenset({"slicing", "selection"}),
+        Exclusions(), 3, frozenset({"slicing", "selection"}),
     )  # fmt: skip
     assert kept is None
 

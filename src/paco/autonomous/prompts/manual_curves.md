@@ -76,10 +76,9 @@ phase velocity v and frequency f.
   receivers 23 at 26 %, 16 receivers 13 at 18 %, 24 receivers 13 at 9 %, 48 receivers 15 at 5 %.
 - PACo's ladder (advise window_length) tries the search's lengths shorter than the line on 27
   windows spread along the line, its picks stopping at 3·L, a passive line's with segments of 10
-  crossings of each window at 80 m/s: from the first length 80 % pass, it climbs while the next
-  ones pass and keeps the longest before one fails (17 receivers on active_p2, 11 in
-  passive-active, 15 on passive_p2, 47 on active_p1). It favours long windows; where the
-  objective asks lateral detail, a shorter window is the hypothesis to test against it.
+  crossings of each window at 80 m/s: it keeps the length G3 passes most of the 27, the deepest
+  curves on a tie (9 receivers on active_p2, 11 in passive-active, 13 on passive_p2, 47 on
+  active_p1). Its mute trial and its line loop use as many trial windows.
 - Choose the length by the images: the one whose images are cleanest (by eye, one ridge unbroken
   over the widest band; lateral coherence near 1), its curves serving the objective. A target
   depth z needs λmax near 2·z, so L of at least 2·z/3 (λmax within 3·L), but only as far as the
@@ -129,12 +128,12 @@ phase velocity v and frequency f.
   The mute you drew by eye on the survey's gathers is one of them. On active_p2 in
   passive-active, PACo's mute trial kept the cone widened by 2.25 (68 to 2,086 m/s), whose images
   are quieter over 16 to 45 m (background 0.10 to 0.14) than the standard mute's (0.15 to 0.21).
-- Keeping a mute: PACo keeps one only with 2 more windows passing than no mute, a tie going to no
-  mute; on active_p2 a tie kept no mute though the cone's curves reached 59 m against 28 m. Keep a
-  mute that passes as many windows with longer curves within the windows' reach; drop one that
-  loses windows, or whose median λmax falls under 0.8 of no mute's: muting too much cuts the far
-  offsets and the low frequencies. In passive-active on active_p2, the standard mute passed 15
-  trial windows against 11 without.
+- Keeping a mute: PACo keeps the mute most windows pass, the tightest on a tie (the narrowest
+  velocity window); on active_p2 a tie of four mutes at 26 of 27 keeps the tight cone. Keep a mute
+  that passes as many windows with longer curves within the windows' reach; drop one that loses
+  windows, or whose median λmax falls under 0.8 of no mute's: muting too much cuts the far offsets
+  and the low frequencies. In passive-active on active_p2, the standard mute passed 15 trial
+  windows against 11 without.
 - trigger t0 corrects a delay common to every trace, when the headers are wrong: it changes no
   image, only where a mute's window falls, so it matters on muted records. A t0 varying from trace
   to trace rejects the record (G1).
@@ -290,17 +289,17 @@ phase velocity v and frequency f.
   ladder, no near field), the preprocessing (the mute trial at that length), the interferometry (a
   passive line's segments, sized with its length), the dispersion image (the band capped at the
   usable band); then the line loop: the changes the gates ask of the records and images (a mute, a
-  trigger, a velocity grid), each tried on 15 windows, half asking, and kept with 2 more passing
-  and at most 20 % of λmax lost, 4 at most; then each window's picks, stopping at 3·L, G3's
+  trigger, a velocity grid), each tried on the ladder's 27 sample windows and kept when more pass,
+  or as many with deeper curves, 4 at most; then each window's picks, stopping at 3·L, G3's
   retries and G4's guide.
-- Its scores count G3's passes alone, and a tie goes to the less cutting change. On active_p2 in
-  passive-active it covers 86 of 86 windows at 11 receivers, its picks at a median uncertainty of
-  23 %.
-- Where you can do better: a length whose images are cleaner than its ladder's (the longest before
-  its trial windows stop passing G3: 17 receivers on active_p2); a mute kept on a tie when it
-  lengthens the curves within reach; a mute cutting one side only; nearer shots for the high
-  frequencies (its distance_max is the reach); on a passive line, segment lengths other than its
-  10 crossings, and FK bands between its candidates; on a passive or passive-active line, the
+- Its scores count G3's passes alone, on the same 27 sample windows in every trial. On active_p2
+  in passive-active it covers 86 of 86 windows at 11 receivers, its picks at a median uncertainty
+  of 23 %.
+- Where you can do better: a length whose images are cleaner than its ladder's (the one G3 passes
+  most of its 27 trial windows: 9 receivers on active_p2); on a tie, the mute whose curves reach
+  deeper within reach (it keeps the tightest); a mute cutting one side only; nearer shots for the
+  high frequencies (its distance_max is the reach); on a passive line, segment lengths other than
+  its 10 crossings, and FK bands between its candidates; on a passive or passive-active line, the
   whitening, the normalization and the stacking's nu, which it leaves at the preset's; a score
   weighing coverage and depth within reach together, as the scorecard does. The grid tries them;
   advise gives PACo's choice, to compare with yours on the same windows.

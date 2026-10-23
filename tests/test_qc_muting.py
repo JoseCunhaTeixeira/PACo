@@ -10,11 +10,12 @@ from sigpipe.base.acquisition import LinearAcquisition
 from sigpipe.base.coordinate import Coordinate
 from sigpipe.base.stream import Stream
 from sigpipe.masw.presets import make_preset
-from sigpipe.masw.runs import find_run, list_runs, load_manifest
+from sigpipe.masw.runs import find_run, list_runs
 
 from paco.evaluation.defects import REFRACTED
 from paco.evaluation.defects import _refracted as refracted  # pyright: ignore[reportPrivateUsage]
 from paco.qc import LINE, QCConfig, compare_settings, latest, process_line, read_attempts
+from paco.qc.coherence import CoherenceRules
 from paco.qc.g1_signal import SignalThresholds, judge_fast_arrivals
 from paco.qc.models import GateResult, Override
 from paco.qc.muting import (
@@ -50,38 +51,25 @@ def _trial(candidate: str, muting: dict[str, Any] | None, passed: int, longest: 
     )
 
 
-def test_a_mute_is_kept_only_with_enough_more_windows_passing() -> None:
-    rules = MuteRules()
+def test_the_mute_most_windows_pass_is_kept_the_tightest_on_a_tie() -> None:
     none = _trial("none", None, 12, 39.5)
 
-    # +1 is within what the trial windows vary by: no mute kept.
-    kept, checked = _decide([none, _trial("cone", CONE, 13, 55.5)], rules)
-    assert kept.candidate == "none"
-    assert checked[1].refused == "+1 trial windows passing against no mute, 2 more needed"
-    # +2, and the earlier of equals, the less cutting: the standard mute before the wider cone.
-    kept, _ = _decide(
-        [none, _trial("standard", STANDARD, 14, 60), _trial("wider", WIDER, 14, 59),
-         _trial("cone", CONE, 13, 53)],
-        rules,
-    )  # fmt: skip
-    assert (kept.candidate, kept.muting) == ("standard", STANDARD)
+    # One more window passing: the cone kept.
+    assert _decide([none, _trial("cone", CONE, 13, 55.5)])[0].candidate == "cone"
+    # As many as no mute: the mute, the tighter.
+    assert _decide([none, _trial("cone", CONE, 12, 39.5)])[0].candidate == "cone"
+    # Tied on the most: the narrowest velocity window, the cone's 113.5 to 332.7 m/s.
+    tied = [none, _trial("standard", STANDARD, 14, 60), _trial("wider", WIDER, 14, 59),
+            _trial("cone", CONE, 14, 53)]  # fmt: skip
+    assert _decide(tied)[0].candidate == "cone"
+    # The wider cone, 75.6 to 499.1 m/s, tighter than the standard mute's 80 to 1500 m/s.
+    assert _decide(tied[:3])[0].candidate == "wider"
 
 
-def test_a_mute_that_loses_the_long_wavelengths_is_refused() -> None:
-    # Over-muting: more windows pass, but the curves no longer reach the long wavelengths the
-    # far offsets and the low band give.
+def test_more_windows_passing_win_over_deeper_curves() -> None:
+    # The count first: 14 windows passing with curves to 30 m, against 10 to 40 m.
     none = _trial("none", None, 10, 40.0)
-    shorter = _trial("cone", CONE, 14, 30.0)
-
-    kept, checked = _decide([none, shorter], MuteRules())
-
-    assert kept.candidate == "none"
-    assert checked[1].refused is not None and "its longest wavelengths (30 m)" in checked[1].refused
-    # No mute passing a single window says nothing of what the line reaches: a gather swamped
-    # by refractions, which the tight cone takes out.
-    swamped = _trial("none", None, 1, 16.0)
-    tight = _trial("tight", CONE, 7, 11.0)
-    assert _decide([swamped, tight], MuteRules())[0].candidate == "tight"
+    assert _decide([none, _trial("cone", CONE, 14, 30.0)])[0].candidate == "cone"
 
 
 def test_the_trial_says_each_candidate_and_why_it_was_not_kept(tmp_path: Path) -> None:
@@ -158,31 +146,36 @@ def test_g1_mutes_a_record_whose_arrivals_outrun_the_cone() -> None:
 
 
 @pytest.mark.slow
-def test_the_demo_line_is_tried_with_mutes_and_kept_unmuted(
+def test_the_demo_line_is_tried_with_mutes_and_keeps_the_most_passing(
     demo_input_dir: Path, tmp_path: Path
 ) -> None:
     settings = Settings(input_dir=demo_input_dir, output_dir=tmp_path, workers=2)
-    # active_test_profile's shots need a mute (the tight cone passes the 15 trial windows, no mute 4):
-    # rules asking more windows than the trial has keep none.
-    unmuted = QCConfig(mute=MuteRules(min_gain=MuteRules().trials + 1))
 
     report = process_line(
-        "active_test_profile", {"masw": {"length": 24, "step": 24}}, settings, unmuted
+        "active_test_profile", {"masw": {"length": 24, "step": 24}}, settings, QCConfig()
     )
 
     run_folder = find_run(report.run_id, settings)
     choice = read_mute_choice(run_folder)
-    # Five candidates on the same trial windows; no mute gave the windows passing G3 the rules
-    # ask over none: the line stays unmuted, as it was.
-    assert choice is not None and choice.chosen == "none" and choice.muting is None
+    # Five candidates on the ladder's 27 sample windows; the most passing kept, the tightest on a
+    # tie (the narrowest velocity window).
+    assert choice is not None
     assert [trial.candidate for trial in choice.trials] == [
         "none", "standard", "wider", "cone", "tight",
     ]  # fmt: skip
-    assert [trial.refused is not None for trial in choice.trials] == [False] + [True] * 4
-    assert load_manifest(report.run_id, settings).preset.muting.method == "none"  # pyright: ignore[reportAttributeAccessIssue]
-    # Nothing changed: no note among the line's changes; the trial's candidates in mute.json.
+    assert {len(trial.verdicts) for trial in choice.trials} == {CoherenceRules().trials}
+    best = max(trial.passed for trial in choice.trials)
+    widths = {
+        trial.candidate: float(trial.muting["vmax"]) / float(trial.muting["vmin"])
+        for trial in choice.trials
+        if trial.passed == best and trial.muting is not None
+    }
+    assert choice.chosen == (min(widths, key=widths.__getitem__) if widths else "none")
+    # The line takes it: its note among the line's changes, the records muted as it says.
     line = latest(read_attempts(run_folder), LINE, "phase_shift")
-    assert line is not None and not any(note.startswith("muting") for note in line.notes)
+    assert line is not None
+    noted = any(note.startswith("muting mute") for note in line.notes)
+    assert noted == (choice.muting is not None)
     # Given by the user, a muting is theirs: no trial.
     muted = {
         "masw": {"length": 24, "step": 24},
@@ -231,7 +224,7 @@ def test_strong_refractions_are_muted_with_the_tight_cone(
     choice = read_mute_choice(find_run(report.run_id, settings))
     assert choice is not None and choice.chosen == "tight"
     none, *_, tight = choice.trials
-    assert tight.passed >= none.passed + MuteRules().min_gain
+    assert tight.passed == max(trial.passed for trial in choice.trials) > none.passed
     # The cone widened keeps the head wave; the tight cone, around the median, alone cuts it.
     assert choice.cone_m_s is not None
     _, median, fast = choice.cone_m_s
