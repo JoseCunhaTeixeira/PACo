@@ -76,8 +76,8 @@ phase velocity v and frequency f.
   passing of 27 and their median uncertainty: 5 receivers 25 at 40 %, 7 receivers 24 at 30 %, 11
   receivers 23 at 26 %, 16 receivers 13 at 18 %, 24 receivers 13 at 9 %, 48 receivers 15 at 5 %.
 - PACo's ladder (advise window_length) tries the search's lengths shorter than the line on 27
-  windows spread along the line, its picks stopping at 3·L, a passive line's with segments of 10
-  crossings of each window at 80 m/s: it keeps the length G3 passes most of the 27, the deepest
+  windows spread along the line, a passive line's with segments of 10 crossings of each window at
+  80 m/s: it keeps the length G3 passes most of the 27, the deepest
   curves on a tie (9 receivers on active_p2, 11 in passive-active, 13 on passive_p2, 47 on
   active_p1). Its mute trial and its line loop use as many trial windows.
 - Choose the length by the images: the one whose images are cleanest (by eye, one ridge unbroken

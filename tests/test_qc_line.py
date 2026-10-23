@@ -106,6 +106,9 @@ def test_the_ladder_keeps_the_length_most_trial_windows_pass(
     run_folder, report = _line(demo_input_dir, tmp_path, {"masw": {"step": 24}}, QUICK)
 
     choice = json.loads((run_folder / COHERENCE_FILE).read_text())
+    # Its picks, the trials' and the line's, go as far as their ridge holds, as PAC's auto pick.
+    picking = json.loads((run_folder / "qc_config.json").read_text())["picking"]
+    assert picking["max_wavelength"] is None
     # At 5 receivers (6 m) the trial windows keep too few points: none of the 3 passes. 24
     # passes 2 of 3 and 32 passes 1: 24, the most passing, is kept.
     assert [trial["length"] for trial in choice["trials"]] == [5, 24, 32]

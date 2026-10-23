@@ -24,7 +24,6 @@ from paco.qc import (
     run_work,
 )
 from paco.qc.attempts import HAND_FOLDER
-from paco.qc.config import within_reach
 from paco.qc.log import JUDGED
 from paco.qc.models import Keep
 from paco.settings import get_settings
@@ -219,12 +218,12 @@ def asked_nothing() -> Check:
 
 
 def thresholds_unchanged() -> Check:
-    """Every run used the configuration of thresholds the play's server read (Trial.qc_config),
-    as the workflow uses it (its picks within the window's reach): the judge stays fixed."""
+    """Every run used the configuration of thresholds the play's server read (Trial.qc_config):
+    the judge stays fixed."""
     name = "the thresholds stayed the configuration's"
 
     def check(trial: Trial) -> CheckResult:
-        expected = within_reach(load_qc_config(trial.qc_config or get_settings().qc_config))
+        expected = load_qc_config(trial.qc_config or get_settings().qc_config)
         changed = [
             path.parent.name
             for path in trial.output_dir.glob("*/*/qc_config.json")

@@ -27,7 +27,7 @@ from paco.autonomous.tools.trials import (
     with_records,
 )
 from paco.qc.coherence import TrialJudge, choose_length, describe_lengths
-from paco.qc.config import QCConfig, within_reach
+from paco.qc.config import QCConfig
 from paco.qc.line_loop import candidates
 from paco.qc.log import latest, read_attempts
 from paco.qc.loops import deep_merge
@@ -102,7 +102,7 @@ def _trial(
     if saved.exists() and (topic != "window_length" or (folder / LENGTH).exists()):
         return saved.read_text()
     profile = load_profile(study.profile, settings)
-    trial = concrete(current, profile, within_reach(config), survey_reach(study))
+    trial = concrete(current, profile, config, survey_reach(study))
     if topic == "mute" and not mutable(trial.preset):
         return NO_MUTE
     if topic == "segments" and trial.preset.mode != "passive":

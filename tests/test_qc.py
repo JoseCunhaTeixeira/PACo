@@ -69,7 +69,6 @@ from paco.qc import (
     xmid_of,
 )
 from paco.qc.budgets import was_refused
-from paco.qc.config import within_reach
 from paco.qc.g3_curve import CurveThresholds
 from paco.qc.log import ASKED, LINE_CHANGE
 from paco.qc.loops import RetryBudget, deep_merge, next_try, unchanged
@@ -488,13 +487,6 @@ def test_the_configuration_defaults_hold_the_thresholds_and_the_budgets() -> Non
     # The run's picking starts there: as far as the ridge holds.
     assert config.picking == PickingParameters()
     assert load_qc_config(None) == config
-
-
-def test_the_workflows_picks_stop_at_the_windows_reach() -> None:
-    # Three window lengths, G3's reach, unless the configuration sets its own.
-    assert within_reach(QCConfig()).picking == PickingParameters(max_wavelength=3.0)
-    own = QCConfig.model_validate({"picking": {"max_wavelength": None}})
-    assert within_reach(own) == own
 
 
 def test_the_configuration_is_loaded_from_a_file_and_recorded_with_the_run(tmp_path: Path) -> None:

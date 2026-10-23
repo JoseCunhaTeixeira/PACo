@@ -8,7 +8,7 @@ windows ask), the dispersion image (its band capped by G1's usable band); S2 on 
 G2 on every window, and the line loop (qc.line_loop): the changes of the records or the images
 the gates ask, tried for the line and kept when more windows get a curve G3 passes, the whole
 line made again with each. What run_processing runs; the picking and G3, G4 are pick's, each
-window's own. Its picks stop at the window's reach (qc.config.within_reach)."""
+window's own. Its picks go as far as their ridge holds, as PAC's and the autonomous mode's do."""
 
 import shutil
 import statistics
@@ -53,7 +53,7 @@ from paco.qc.coherence import (
     given_length,
     receiver_spacing,
 )
-from paco.qc.config import QCConfig, snapshot_qc_config, within_reach
+from paco.qc.config import QCConfig, snapshot_qc_config
 from paco.qc.g1_signal import (
     SPECTRA_MODES,
     judge_fast_arrivals,
@@ -172,8 +172,6 @@ def _process(
 ) -> QCReport:
     """process_line's work, in the new run `run_folder`."""
     mode = (overrides or {}).get("mode", loaded.kind)
-    # The workflow's picks, the trials' and the line's, stop at the window's reach.
-    config = within_reach(config)
     snapshot_qc_config(config, run_folder)
     # The user's settings, locked before any gate judges (qc.given).
     give(run_folder, "processing", overrides)
