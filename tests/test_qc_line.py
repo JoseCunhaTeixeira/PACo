@@ -138,11 +138,10 @@ def test_the_ladder_keeps_the_most_precise_length_that_passes(
     assert line.parameters == {
         "masw": {"distance_max": 57.79, "length": 24},
         "muting": {"method": "mute", "vmin": 134.5, "vmax": 302.7, "width": 0.05, "taper": 20},
-        "near_field": {"distance_m": 8.5},
     }
-    # In the order of PAC's page, the windows' (the farthest shot, the length, the near field),
+    # In the order of PAC's page, the windows' (the farthest shot, the length; no near field),
     # then the preprocessing's (the mute); the line loop's tries after them.
-    far, note, near, muted = [one for one in line.notes if not one.startswith("Tried for the line")]
+    far, note, muted = [one for one in line.notes if not one.startswith("Tried for the line")]
     assert far == (
         "masw distance_max 57.79 m: beyond it from the shot, the traces' median SNR falls under "
         "2 dB (G1), so the windows stack no farther shot."
@@ -153,11 +152,6 @@ def test_the_ladder_keeps_the_most_precise_length_that_passes(
     )
     assert note.endswith("1/3 at 32 (picks 5%; compared).")
     assert muted.startswith("muting mute 134.5 to 302.7 m/s: the mute trial ")
-    # Out of the near field: half the longest wavelength of the trial curves from a window's
-    # nearest receiver, where it has a farther shot whose record G1 keeps. xmid 53.25 has none
-    # (101.dat, 117.dat and 165.dat left out): it keeps its near shot, 149.dat.
-    assert near.startswith("near_field distance_m 8.5 m: a window stacks no shot nearer than")
-    assert near.endswith("; 1 window with near shots only keeps them.")
     # The gates of the processing ran on it (the picking's are pick's), and the summary gives
     # the change.
     assert set(report.counts) == {"G1", "G2"}
@@ -186,10 +180,9 @@ def test_a_given_length_is_kept_as_it_is(demo_input_dir: Path, tmp_path: Path) -
     assert line.notes[1].startswith(
         "masw length 32 for the whole line, as given: trial windows G3 passed 1/3 at 32 (picks "
     )
-    # At 32 receivers, the mute trial keeps a mute; in the order of PAC's page, the windows'
-    # near field before it, the line loop's tries after them.
-    assert line.notes[2].startswith("near_field distance_m ")
-    assert line.notes[3].startswith("muting mute ")
+    # At 32 receivers, the mute trial keeps a mute, after the windows' notes in the order of
+    # PAC's page; the line loop's tries after them.
+    assert line.notes[2].startswith("muting mute ")
 
 
 @pytest.mark.slow
@@ -425,6 +418,28 @@ def test_a_passive_ladder_slices_each_length_as_asked(
         5: {"slicing": {"segment_duration": 0.5}},
         9: {"slicing": {"segment_duration": 0.9}},
     }
+
+
+def test_a_short_line_tries_the_shortest_length(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    # 12 receivers: a quarter of the line is 3, under the shortest length, which is tried alone.
+    tried: list[int] = []
+
+    def attempt(*args: Any) -> LengthTrial:  # noqa: ANN401
+        length = cast(int, args[6])
+        tried.append(length)
+        return LengthTrial(length=length, xmids=(1.0,), verdicts=("pass",), flags=(), passed=1)
+
+    monkeypatch.setattr(coherence, "_try_length", attempt)
+    line = cast(Profile, SimpleNamespace(receivers=[SimpleNamespace(x=1.0 * k) for k in range(12)]))
+    judge = TrialJudge(
+        CoherenceRules(lengths=(5, 7), trials=1), CurveThresholds(), PickingParameters()
+    )
+
+    choice = choose_length(line, make_preset("active", None), (), tmp_path, judge, 1)
+
+    assert (tried, choice.length, choice.longest) == ([5], 5, 5)
 
 
 @pytest.mark.slow

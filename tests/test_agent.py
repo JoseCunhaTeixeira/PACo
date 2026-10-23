@@ -418,17 +418,17 @@ def test_the_host_lists_the_parameters_used_and_the_settings_the_gates_changed()
     )
     assert used.splitlines()[-1].startswith("- picking: M0 tracked along its ridge")
     # No trigger changed: the files say the shot comes 20 ms in; G1 puts two shots' first breaks
-    # 18 ms earlier, and the line's trial windows gain too little by the correction to keep it.
+    # 18 ms earlier, and the line's trial windows do worse with the correction: not kept.
     # First the records G1 left out of every window, then the line's rules: the shots' reach, the
-    # length as given, the mute trial's cone, the near field. No trace left out for its
-    # amplitude in one record: the line judges its receivers over them all.
+    # length as given, the mute trial's cone; no near field. No trace left out for its amplitude
+    # in one record: the line judges its receivers over them all.
     records, rules = listed.splitlines()[:2]
     assert records == "- 101.dat, 117.dat, 133.dat, 165.dat: left out of every window"
     assert rules.startswith("- line: masw distance_max ")
-    assert "near_field distance_m " in rules
+    assert "near_field" not in rules
     assert rules.endswith(
-        "Tried for the line, not kept: trigger t0 0.0016 s, asked by 3 windows "
-        "(G1:shifted_trigger): 3 of 4 trial windows passing G3 against 3, under 2 more."
+        "Tried for the line, not kept: trigger t0 0.0016 s, asked by 4 windows "
+        "(G1:shifted_trigger): 2 of 4 trial windows passing G3 against 3, under 2 more."
     )
     assert "trigger" not in used
     assert "left out of the windows" not in listed

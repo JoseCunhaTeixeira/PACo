@@ -32,7 +32,7 @@ flagged unit goes on to the next step; only a rejected one stops.
 |---|---|
 | Signal check (G1) | Each record: dead or clipped traces, SNR, usable band, trigger; along the line, bad receivers |
 | Dispersion image check (G2) | Each window's image: coherent band, peaks at the velocity range's edges, second ridges |
-| Curve check (G3) | Each window's picked curve: points on the ridge, aliasing, near field, jumps, wavelength range |
+| Curve check (G3) | Each window's picked curve: points on the ridge, aliasing, jumps, wavelength range; its nearest shot reported |
 | Check against the neighbouring curves (G4) | Each curve against its neighbours; along the line, gaps and spread |
 | Model check (G5) | Each Vs model: fit to its curve, chains, depth informed |
 | Check against the neighbouring models (G6) | Each model against its neighbours; along the line, gaps and spread |

@@ -61,7 +61,7 @@ class CoherenceRules(BaseModel):
         gt=0,
         le=1,
         description="Longest window, as a share of the line's receivers: a quarter, as the "
-        "autonomous search's.",
+        "autonomous search's; the shortest length is tried on any line.",
     )
     max_uncertainty: float = Field(
         default=0.2,
@@ -192,7 +192,8 @@ def choose_length(
     a passive line's segments for each length, as long as the window asks. Trial windows go to
     <run_folder>/coherence/<length>/, on the run's records."""
     rules = judge.rules
-    longest = max(3, int(len(profile.receivers) * rules.max_line_share))
+    # A quarter of the line, as the search's, its shortest length always: a short line's too.
+    longest = max(int(len(profile.receivers) * rules.max_line_share), min(rules.lengths))
 
     def attempt(length: int) -> LengthTrial | None:
         sliced = slicing(length) if slicing is not None else None
@@ -593,24 +594,6 @@ def given_length(overrides: Mapping[str, object] | None) -> int | None:
     return None
 
 
-def near_field(
-    overrides: Mapping[str, object] | None, mode: str, choice: LengthChoice
-) -> tuple[float | None, float | None]:
-    """How far from a window's nearest receiver a shot must stand to be out of the near field:
-    half the longest wavelength the line's trial curves reached (Park et al.: nearer, the wave
-    is not yet a plane surface wave and the long wavelengths read slow), and that wavelength.
-    None for shots not imaged as recorded (another mode than active), and where the user gave
-    masw.distance_min: theirs rules."""
-    masw = (overrides or {}).get("masw")
-    if mode != "active" or (isinstance(masw, Mapping) and "distance_min" in masw):
-        return None, None
-    kept = next((trial for trial in choice.trials if trial.length == choice.length), None)
-    if kept is None or kept.wavelengths_m is None:
-        return None, None
-    longest = kept.wavelengths_m[1]
-    return round(longest / 2, 2), longest
-
-
 def near_field_windows(
     windows: Sequence[MASWWindow], distance_m: float, excluded: Collection[str] = ()
 ) -> tuple[list[MASWWindow], int]:
@@ -641,19 +624,3 @@ def near_field_windows(
             )
         )
     return found, near_only
-
-
-def near_note(distance_m: float, longest: float, near_only: int) -> str:
-    """The near-field rule, as the line's note says it."""
-    kept = (
-        "; 1 window with near shots only keeps them"
-        if near_only == 1
-        else f"; {near_only} windows with near shots only keep them"
-        if near_only
-        else ""
-    )
-    return (
-        f"near_field distance_m {distance_m:g} m: a window stacks no shot nearer than that to its "
-        f"nearest receiver, half the longest wavelength its trial curves reached ({longest:g} m), "
-        f"where it has a farther one G1 keeps{kept}."
-    )

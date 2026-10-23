@@ -18,8 +18,8 @@ the agent reads them first in the summary; the ladder's trials are kept in the r
 |---|---|---|
 | The band | fmax capped at the smaller of the median usable fmax of the records G1 kept and Nyquist; fmin raised to their median usable fmin. Never widened: PAC's 100 Hz stays when the records go higher | Widening the band makes G3 worse at every window length on the demo (below): above 100 Hz a second ridge competes and the picker jumps. The median, not the worst record: on `active_p2` the worst records' limits (24 to 86 Hz) would cut the whole line's long wavelengths, where the median record is usable from 2.3 to 298 Hz |
 | The far limit | `masw.distance_max` at the line's reach, where the traces' median SNR falls under 2 dB (sigpipe's `line_reach`, G1's `reach_snr_db`), unless the user gave one | A window stacks no shot whose traces there are mostly noise: PAC's 100 m takes `active_p2`'s traces beyond about 60 m, which are noise |
-| The near limit | on an active line, a window stacks no shot nearer to its nearest receiver than half the longest wavelength the kept length's trial curves reached (the line's note `near_field`), where it has a farther one; a window with near shots only keeps them, and G3 reports its nearest shot (`near_offset`). A `masw.distance_min` the user gives rules instead | Nearer, the wave is not yet a plane surface wave and the long wavelengths read slow (Park et al.). A window keeps its near shots when it has no other: leaving out every window's near shots costs the demo a third of its curves (below) |
-| The window length | one length for the whole line. Given none: a ladder of the autonomous search's lengths (5, 7, 9, 11, 13, 15, 17, 21, 25, 33, 41 and 47 receivers, up to a quarter of the line), each tried on 27 windows spread evenly along the line, its ends included (S2, the picking and G3; a passive line's each with segments as long as its window asks, below). Up the ladder to the first length whose trial windows G3 passes 80 % of with the passed curves' median velocity uncertainty within 20 %; none that precise, the most precise that passed (the shorter on a tie); none passing, the one that passed most (the shortest on a tie). The next length, when there is one, is tried for comparison. A length given (by the user or the agent) is kept, its trial windows tried for the record | Lateral resolution, and picks precise enough for the inversion: a short window's picks sit at the array's 40 % and on no ridge it resolves (`active_p2` at 7 receivers: picks at 300 to 400 m/s inside a smear, above the ridge at 200 to 250 m/s that 15-receiver windows show) |
+| The near limit | none: a window stacks its nearest shots too, G3 reporting its nearest shot (`near_offset`), unless the user gives `masw.distance_min` | A near field gives `active_p2` no cleaner image and breaks its passive-active images; on the demo it costs curves (below) |
+| The window length | one length for the whole line. Given none: a ladder of the autonomous search's lengths (5, 7, 9, 11, 13, 15, 17, 21, 25, 33, 41 and 47 receivers, up to a quarter of the line, the shortest always), each tried on 27 windows spread evenly along the line, its ends included (S2, the picking and G3; a passive line's each with segments as long as its window asks, below). Up the ladder to the first length whose trial windows G3 passes 80 % of with the passed curves' median velocity uncertainty within 20 %; none that precise, the most precise that passed (the shorter on a tie); none passing, the one that passed most (the shortest on a tie). The next length, when there is one, is tried for comparison. A length given (by the user or the agent) is kept, its trial windows tried for the record | Lateral resolution, and picks precise enough for the inversion: a short window's picks sit at the array's 40 % and on no ridge it resolves (`active_p2` at 7 receivers: picks at 300 to 400 m/s inside a smear, above the ridge at 200 to 250 m/s that 15-receiver windows show) |
 | The frequency step | 1/T by construction: no padding before the phase shift, so the image's step follows the record length | A finer step only interpolates |
 | The velocity range | left to G2, which flags a ridge on the grid's edges per window | The trial images could set it; not needed on the demo (1 to 1,000 m/s) |
 
@@ -76,14 +76,20 @@ fmax (x 1.5) makes the loop worse, so G2's band flags are kept, not retried (`G2
 
 ### The near field
 
-The spec asks for the nearest source offset to be at least λmax/2 against near-field effects.
-Applied to every window alike, as `masw.distance_min` at 1.5 window lengths from the source to
-the window's middle (λmax at 2 window lengths), it drops the near shot from the windows at both
-ends of the demo line, and G3 falls from 17 to 11 passes of 19 at 24 receivers (8 mode jumps),
-from 12 to 5 of 21 at 16. So a window with near shots only keeps them, and G3 reports each
-window's nearest shot (`near_offset`), never flagging it: on a line whose windows stack the
-shots next to them, every window's nearest is within half its longest wavelength. With the picker following its ridge, the demo's 24-receiver
-trial curves reach 34 m: a near field of 17 m, where 2 of the 4 windows keep near shots only.
+The spec asks for the nearest source offset to be at least λmax/2 against near-field effects
+(Park et al.: nearer, the wave is not yet a plane surface wave and the long wavelengths read
+slow). The workflow sets none, as the images ask:
+
+- On `active_p2`, active, with shots up to 63 m, near fields of 0 to 1.5 window lengths from a
+  window's nearest receiver give the same images at 11 and 15 receivers; in passive-active at 11
+  receivers, 15 to 22.5 m breaks the band above about 40 Hz into stripes.
+- On the demo line, `masw.distance_min` at 1.5 window lengths from the source to the window's
+  middle (λmax at 2 window lengths) drops the near shot from the windows at both ends, and G3
+  falls from 17 to 11 passes of 19 at 24 receivers (8 mode jumps), from 12 to 5 of 21 at 16.
+
+G3 reports each window's nearest shot (`near_offset`), never flagging it: on a line whose
+windows stack the shots next to them, every window's nearest is within half its longest
+wavelength.
 
 ## The trials on longer lines
 

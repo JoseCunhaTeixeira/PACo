@@ -304,8 +304,8 @@ def test_the_workflow_process_pick_redo_invert() -> None:
     assert done is not None
     assert done["summary"].splitlines()[:2] == ["G1: 3 pass, 4 reject", "G2: 4 pass"]
     # No trigger corrected: the files say the shot comes 20 ms in; G1 puts 149.dat's and
-    # 165.dat's first breaks 18 ms earlier, and the line's trial windows gain too little by the
-    # correction to keep it (below).
+    # 165.dat's first breaks 18 ms earlier, and the line's trial windows do worse with the
+    # correction: not kept (below).
     assert not [used for used in done["used"] if used.startswith("trigger")]
     assert done["next"] == f"Run {run_id}'s images are made: pick gives their curves."
     # The settings the gates changed, in words, for the agent to report.
@@ -313,19 +313,18 @@ def test_the_workflow_process_pick_redo_invert() -> None:
     # The records G1 left out, whole: 101.dat for its SNR, 117.dat, 133.dat and 165.dat for
     # their traces' coherence.
     assert changed[0] == "101.dat, 117.dat, 133.dat, 165.dat: left out of every window"
-    # The line's rules in the order of PAC's page: the shots' reach, the length as given, the
-    # near field, the mute trial's cone; then the trigger G1 asked, tried and not kept.
+    # The line's rules in the order of PAC's page: the shots' reach, the length as given (no
+    # near field), the mute trial's cone; then the trigger G1 asked, tried and not kept.
     assert changed[1].startswith(
         "line: masw distance_max 57.79 m: beyond it from the shot, the traces' median SNR falls "
         "under 2 dB (G1), so the windows stack no farther shot. masw length 24 for the whole "
         "line, as given: trial windows G3 passed 14/27 at 24 (picks "
     )
-    assert "%). near_field distance_m " in changed[1]
-    assert ". muting mute 134.5 to 302.7 m/s: the mute trial " in changed[1]
-    assert changed[1].index("near_field distance_m") < changed[1].index("muting mute")
+    assert "%). muting mute 134.5 to 302.7 m/s: the mute trial " in changed[1]
+    assert "near_field" not in changed[1]
     assert changed[1].endswith(
-        "Tried for the line, not kept: trigger t0 0.0016 s, asked by 3 windows "
-        "(G1:shifted_trigger): 3 of 4 trial windows passing G3 against 3, under 2 more."
+        "Tried for the line, not kept: trigger t0 0.0016 s, asked by 4 windows "
+        "(G1:shifted_trigger): 2 of 4 trial windows passing G3 against 3, under 2 more."
     )
     # No trace left out for its amplitude in one record: the line judges its receivers.
     assert len(changed) == 2
@@ -338,21 +337,16 @@ def test_the_workflow_process_pick_redo_invert() -> None:
     ]
     assert picked.structured_content is not None
     # Every window keeps its traces (none is off the decay in most records) and stacks its
-    # shots out of the near field where it has farther ones G1 keeps: xmid 53.25, whose farther
-    # shots G1 left out, keeps its near one (its nearest shot reported).
-    # xmid 125.25's pick is a single point in the aliasing zone, off its columns' brightest
-    # values (competing ridges): G3 picks it again in the coherent band, more of the ridge kept,
-    # and leaves it flagged when its retries are spent: it goes on, G4 judging it with the
-    # others. Three curves pass, one flagged.
+    # shots, the nearest too (its nearest shot reported).
+    # xmid 125.25's pick lies off its columns' brightest values (competing ridges): G3 picks it
+    # again in the coherent band, and leaves it flagged when its retries are spent: it goes on,
+    # G4 judging it with the others. Three curves pass, one flagged.
     assert picked.structured_content["summary"].splitlines()[:2] == [
         "G3: 3 pass, 1 retry",
         "G4: 4 pass",
     ]
     (change,) = picked.structured_content["changed"]
-    assert change.startswith(
-        "min_relative_coherence 0.5 -> 0.3; fmin the default -> 0.3; fmax the default -> 100 at "
-        "xmid 125.25 (1)"
-    )
+    assert change.startswith("fmin the default -> 0.3; fmax the default -> 97.7 at xmid 125.25 (1)")
     assert change.endswith(", by G3:on_data")
     assert picked.structured_content["next"] == (
         f"4 curves of run {run_id} not rejected by G3 or G4: invert gives their models. Higher "

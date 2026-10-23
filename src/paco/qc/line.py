@@ -3,8 +3,7 @@ of settings for the whole line, every record and every window alike, as a person
 PAC's pages. S1 on every record, G1 judging each (the traces and records it excludes left out of
 the windows), G1 over the line (the receivers off the amplitude decay in most records left out
 of every window); then the settings in the order of PAC's page: the windows (the shots stacked
-up to the line's reach, the length from the ladder, the near field from its curves), the
-preprocessing (the mute trial), the interferometry (a passive line's segments, as long as its
+up to the line's reach, the length from the ladder), the preprocessing (the mute trial), the interferometry (a passive line's segments, as long as its
 windows ask), the dispersion image (its band capped by G1's usable band); S2 on the whole line,
 G2 on every window, and the line loop (qc.line_loop): the changes of the records or the images
 the gates ask, tried for the line and kept when more windows get a curve G3 passes, the whole
@@ -52,9 +51,6 @@ from paco.qc.coherence import (
     cap_band,
     choose_length,
     given_length,
-    near_field,
-    near_field_windows,
-    near_note,
     receiver_spacing,
 )
 from paco.qc.config import QCConfig, snapshot_qc_config, within_reach
@@ -201,9 +197,10 @@ def _process(
     # The band the records G1 kept share, as first preprocessed: a rejected record constrains
     # nothing, and a mute, narrowing a record's spectrum, would cut the long wavelengths.
     kept = [band for name, band in usable.items() if name not in exclusions.records]
-    # The settings in the order of PAC's page: the windows (the farthest shot, the length, the
-    # near field), the preprocessing (the mute), the interferometry (a passive line's segments),
-    # then the dispersion image (its band).
+    # The settings in the order of PAC's page: the windows (the farthest shot, the length), the
+    # preprocessing (the mute), the interferometry (a passive line's segments), then the
+    # dispersion image (its band). A window stacks its nearest shots too: no near field unless
+    # the user gives masw.distance_min.
     far, far_notes = far_limit(overrides, reach, config.signal.reach_snr_db)
     # A passive line's lengths each tried with segments as long as its windows ask, the user's
     # left as they are: longer windows need longer segments.
@@ -228,7 +225,6 @@ def _process(
     if sized is not None:
         changes = deep_merge(changes, sized(choice.length))
     preset = resolve_preset(apply_overrides(preset, changes), loaded)
-    near, longest = near_field(overrides, str(mode), choice)
     # The mute trial at the line's length: a mute kept changes the images, never the windows;
     # the records then preprocessed again with it, and judged again by G1.
     mute_notes: tuple[str, ...] = ()
@@ -283,12 +279,6 @@ def _process(
         changes = deep_merge(changes, band)
         preset = resolve_preset(apply_overrides(preset, band), loaded)
     windows = build_windows(loaded, preset.masw)
-    near_notes: tuple[str, ...] = ()
-    logged = dict(changes)
-    if near is not None and longest is not None:
-        windows, near_only = near_field_windows(windows, near, exclusions.records)
-        near_notes = (near_note(near, longest, near_only),)
-        logged["near_field"] = {"distance_m": near}
     if not windows:
         raise RunError(
             f"No window of {choice.length} receivers of profile '{profile}' has a valid shot: "
@@ -331,8 +321,8 @@ def _process(
                 error=outcome.error,
             ),
         )
-    notes = far_notes + choice.notes + near_notes + mute_notes + segment_notes + band_notes
-    line_settings(run_folder, logged, notes, started_at)
+    notes = far_notes + choice.notes + mute_notes + segment_notes + band_notes
+    line_settings(run_folder, changes, notes, started_at)
     judge_images(run_folder, manifest, config, settings, usable)
     settled = settle_line(
         run_id, run_folder, loaded, preset, records, exclusions, usable, config, settings, reach
@@ -340,7 +330,7 @@ def _process(
     if settled.notes:
         # The line's settings with the changes the loop kept, and what it tried.
         line_settings(
-            run_folder, deep_merge(logged, settled.changes), notes + settled.notes, started_at
+            run_folder, deep_merge(changes, settled.changes), notes + settled.notes, started_at
         )
     keep_line_asks(run_folder)
     report = build_report(run_id, run_folder, config.budgets, len(manifest.windows))

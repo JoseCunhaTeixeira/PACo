@@ -286,24 +286,23 @@ phase velocity v and frequency f.
 
 - The workflow's order: the user's settings locked; the cone, the reach and G1 on the records;
   then PAC's page in its order: the windows (the farthest shot at the reach, the length by the
-  ladder, the near field from that length's curves), the preprocessing (the mute trial at that
-  length), the interferometry (a passive line's segments, sized with its length), the dispersion
-  image (the band capped at the usable band); then the line loop: the changes the gates ask of
-  the records and images (a mute, a trigger, a velocity grid), each tried on 15 windows, half
-  asking, and kept with 2 more passing and at most 20 % of λmax lost, 4 at most; then each
-  window's picks, stopping at 3·L, G3's retries and G4's guide.
+  ladder, no near field), the preprocessing (the mute trial at that length), the interferometry (a
+  passive line's segments, sized with its length), the dispersion image (the band capped at the
+  usable band); then the line loop: the changes the gates ask of the records and images (a mute, a
+  trigger, a velocity grid), each tried on 15 windows, half asking, and kept with 2 more passing
+  and at most 20 % of λmax lost, 4 at most; then each window's picks, stopping at 3·L, G3's
+  retries and G4's guide.
 - Its scores count G3's passes alone, and a tie goes to the less cutting change. On active_p2 in
   passive-active it covers 86 of 86 windows at 11 receivers, its picks at a median uncertainty of
   23 %.
-- Where you can do better: a longer length where the images stay as clean (its ladder stops at
-  the first length within 20 %: 11 receivers on active_p2); a mute kept on a tie when it lengthens
-  the curves within reach; a mute cutting one side only; the near field from each window's own
-  λmax within its reach; nearer shots for the high frequencies (its distance_max is the reach); on
-  a passive line, segment lengths other than its 10 crossings, and FK bands between its
-  candidates; on a passive or passive-active line, the whitening, the normalization and the
-  stacking's nu, which it leaves at the preset's; a score weighing coverage and depth within reach
-  together, as the scorecard does. The grid tries them; advise gives PACo's choice, to compare
-  with yours on the same windows.
+- Where you can do better: a longer length where the images stay as clean (its ladder stops at the
+  first length within 20 %: 11 receivers on active_p2); a mute kept on a tie when it lengthens the
+  curves within reach; a mute cutting one side only; nearer shots for the high frequencies (its
+  distance_max is the reach); on a passive line, segment lengths other than its 10 crossings, and
+  FK bands between its candidates; on a passive or passive-active line, the whitening, the
+  normalization and the stacking's nu, which it leaves at the preset's; a score weighing coverage
+  and depth within reach together, as the scorecard does. The grid tries them; advise gives PACo's
+  choice, to compare with yours on the same windows.
 
 ## Diagnosis
 
