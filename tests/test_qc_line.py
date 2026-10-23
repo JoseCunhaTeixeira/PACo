@@ -128,17 +128,15 @@ def test_the_ladder_keeps_the_length_most_trial_windows_pass(
     # each record's shot, 20 ms in): xmid 17.25 stacks 149.dat, 54 m away, not 165.dat, 78 m
     # away. The mute trial at the line's length keeps the tight cone (test_qc_muting.py).
     assert line is not None
-    # The line loop keeps the records' shot time 1.6 ms later: as many trial windows passing,
-    # their curves deeper.
+    # The line loop keeps no change: the records' shot time 1.6 ms later gives no more of the
+    # windows asking it a curve G3 passes.
     assert line.parameters == {
         "masw": {"distance_max": 57.79, "length": 24},
         "muting": {"method": "mute", "vmin": 134.5, "vmax": 302.7, "width": 0.05, "taper": 20},
-        "trigger": {"t0": 0.0016},
     }
     # In the order of PAC's page, the windows' (the farthest shot, the length; no near field),
-    # then the preprocessing's (the mute); the line loop's after them.
-    kept = [one for one in line.notes if not one.startswith("Tried for the line")]
-    far, note, muted, trigger = kept
+    # then the preprocessing's (the mute); the line loop's tries after them.
+    far, note, muted = [one for one in line.notes if not one.startswith("Tried for the line")]
     assert far == (
         "masw distance_max 57.79 m: beyond it from the shot, the traces' median SNR falls under "
         "2 dB (G1), so the windows stack no farther shot."
@@ -149,7 +147,6 @@ def test_the_ladder_keeps_the_length_most_trial_windows_pass(
     )
     assert note.endswith("1/3 at 32 (picks 5%).")
     assert muted.startswith("muting mute 134.5 to 302.7 m/s: the mute trial ")
-    assert trigger.startswith("trigger t0 0.0016 s: the line loop, asked by ")
     # The gates of the processing ran on it (the picking's are pick's), and the summary gives
     # the change.
     assert set(report.counts) == {"G1", "G2"}

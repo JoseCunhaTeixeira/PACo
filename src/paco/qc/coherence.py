@@ -14,6 +14,7 @@ import numpy as np
 from pydantic import BaseModel, ConfigDict, Field
 from sigpipe.algorithms.picking.dispersion.tracking import PickingParameters, pick_modes
 from sigpipe.base.dispersion_curve import DispersionCurve
+from sigpipe.masw.pipelines.common import stage_kwargs
 from sigpipe.masw.presets import ActivePreset, PassivePreset, apply_overrides, resolve_preset
 from sigpipe.masw.profiles import Profile
 from sigpipe.masw.runs import RecordOutcome, RunError, WindowOutcome, load_image
@@ -82,6 +83,7 @@ class LengthTrial(BaseModel):
     # The median velocity uncertainty (G3's) of the curves G3 passed: the array's precision.
     uncertainty: float | None = None
     compared: bool = False  # tried past the kept length, for the agent to compare
+    segment_s: float | None = None  # a passive line's segments for this length, s
 
 
 class LengthChoice(BaseModel):
@@ -328,6 +330,9 @@ def _try_length(
         windows=len(build_windows(profile, on_line.masw)),
         wavelengths_m=tried.wavelengths_m,
         uncertainty=tried.uncertainty,
+        segment_s=stage_kwargs(trial_preset, "slicing")["segment_duration"]
+        if slicing is not None
+        else None,
     )
 
 

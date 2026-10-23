@@ -4,8 +4,9 @@ passes. The gates judge each record (G1) and each window (G2, and G3 on a trial 
 image); the changes they ask of the records or of the images are the line's to make
 (`candidates`): grouped by what they change (the records' trigger delays as their median), each
 tried in the order of PAC's page (the records' changes, then the images'), and in each the one
-the most failing windows ask first, on the ladder's sample windows (`try_candidate`), and
-kept when more of them give a curve G3 passes, or as many with deeper curves. paco.qc.line runs the loop and makes the whole line again with each change
+the most failing windows ask first, on the ladder's sample windows and on those asking it
+(`try_candidate`), and kept when more of those asking it give a curve G3 passes without fewer of
+the sample windows doing so. paco.qc.line runs the loop and makes the whole line again with each change
 kept; the picking of each window, after it, is the window's own."""
 
 import json
@@ -75,8 +76,8 @@ class Candidate:
 
 
 class LineTrial(BaseModel):
-    """One change tried: on which trial windows, how many passed G3 with the line's settings
-    and with the change, their curves' median longest wavelength, m, and whether it was kept."""
+    """One change tried: on the ladder's sample windows and on those asking it, how many passed
+    G3 with the line's settings and with the change, and whether it was kept."""
 
     model_config = ConfigDict(frozen=True)
 
@@ -85,9 +86,13 @@ class LineTrial(BaseModel):
     change: str  # the change in words, as the line's rules word their settings
     flag: str
     asked_by: int  # windows asking it
-    xmids: tuple[float, ...]
+    xmids: tuple[float, ...]  # the ladder's sample windows
     before: int
     after: int
+    # Those asking it, as many at most, spread: its gain where it was asked.
+    asked_xmids: tuple[float, ...] = ()
+    asked_before: int | None = None
+    asked_after: int | None = None
     longest_before: float | None = None
     longest_after: float | None = None
     kept: bool
@@ -246,14 +251,17 @@ def try_candidate(
     judge: TrialJudge,
     workers: int,
 ) -> LineTrial:
-    """`candidate` tried on trial windows of the run's (`windows`, by folder, in the line's
-    order): the ladder's sample windows, spread evenly along the line, made from records preprocessed
-    with it (a change of the records) or from the run's (of the images), picked and judged by G3
-    as the run's own were (`picks`); kept when more pass, or as many with the passed curves'
-    median longest wavelength longer. As many trial windows as the ladder's
-    (`judge.rules.trials`). Its trial files removed after."""
+    """`candidate` tried on the run's windows (`windows`, by folder, in the line's order): the
+    ladder's sample windows, spread evenly along the line, and those asking it, as many at most,
+    spread; made from records preprocessed with it (a change of the records) or from the run's
+    (of the images), picked and judged by G3 as the run's own were (`picks`). Kept when more of
+    those asking it pass, without fewer of the sample windows passing. Its trial files removed
+    after."""
     order = list(windows)
-    chosen = [order[index] for index in trial_indices(len(order), judge.rules.trials)]
+    sample = [order[index] for index in trial_indices(len(order), judge.rules.trials)]
+    asking = [unit for unit in order if unit in candidate.windows]
+    asked = [asking[index] for index in trial_indices(len(asking), judge.rules.trials)]
+    chosen = [unit for unit in order if unit in {*sample, *asked}]
     tried_preset = resolve_preset(apply_overrides(preset, candidate.overrides), profile)
     folder = run_folder / LINE_CHANGES_FOLDER
     shutil.rmtree(folder, ignore_errors=True)
@@ -289,44 +297,38 @@ def try_candidate(
         )
     finally:
         shutil.rmtree(folder, ignore_errors=True)
-    before = sum(1 for unit in chosen if unit in picks and picks[unit].verdict == "pass")
-    longest = [
-        reach[1]
-        for unit in chosen
-        if unit in picks
-        and picks[unit].verdict == "pass"
-        and (reach := picks[unit].kept.wavelength_m) is not None
-    ]
-    longest_before = round(statistics.median(longest), 1) if longest else None
-    longest_after = tried.wavelengths_m[1] if tried.wavelengths_m is not None else None
-    deeper = (
-        longest_after is not None and longest_before is not None and longest_after > longest_before
-    )
-    kept = tried.passed > before or (tried.passed == before and deeper)
+    verdicts = dict(zip(tried.xmids, tried.verdicts, strict=True))
+
+    def passing(units: Sequence[str], changed: bool) -> int:
+        if changed:
+            return sum(1 for unit in units if verdicts.get(windows[unit].xmid) == "pass")
+        return sum(1 for unit in units if unit in picks and picks[unit].verdict == "pass")
+
+    before, after = passing(sample, False), passing(sample, True)
+    asked_before, asked_after = passing(asked, False), passing(asked, True)
+    kept = asked_after > asked_before and after >= before
     what = _said(candidate.overrides)
-    asked = f"asked by {len(candidate.windows)} windows ({candidate.flag})"
-    scores = f"{tried.passed} of {len(chosen)} trial windows passing G3 against {before}"
+    by = f"asked by {len(candidate.windows)} windows ({candidate.flag})"
+    scores = f"{after} of {len(sample)} trial windows passing G3 against {before}"
+    if set(asked) != set(sample):
+        scores += f", {asked_after} of the {len(asked)} asking it against {asked_before}"
     if kept:
         # Worded as the line's other rules (the setting, then why): the parameters used read it.
-        note = f"{what}: the line loop, {asked}: {scores} with the line's settings before it."
+        note = f"{what}: the line loop, {by}: {scores} with the line's settings before it."
     else:
-        no_deeper = (
-            f", its curves no deeper ({longest_after:g} m against {longest_before:g})"
-            if tried.passed == before and longest_after is not None and longest_before is not None
-            else ""
-        )
-        note = f"Tried for the line, not kept: {what}, {asked}: {scores}{no_deeper}."
+        note = f"Tried for the line, not kept: {what}, {by}: {scores}."
     return LineTrial(
         stage=candidate.stage,
         overrides=candidate.overrides,
         change=what,
         flag=candidate.flag,
         asked_by=len(candidate.windows),
-        xmids=tuple(windows[unit].xmid for unit in chosen),
+        xmids=tuple(windows[unit].xmid for unit in sample),
         before=before,
-        after=tried.passed,
-        longest_before=longest_before,
-        longest_after=longest_after,
+        after=after,
+        asked_xmids=tuple(windows[unit].xmid for unit in asked),
+        asked_before=asked_before,
+        asked_after=asked_after,
         kept=kept,
         note=note,
     )

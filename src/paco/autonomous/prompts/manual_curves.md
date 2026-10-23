@@ -289,9 +289,9 @@ phase velocity v and frequency f.
   ladder, no near field), the preprocessing (the mute trial at that length), the interferometry (a
   passive line's segments, sized with its length), the dispersion image (the band capped at the
   usable band); then the line loop: the changes the gates ask of the records and images (a mute, a
-  trigger, a velocity grid), each tried on the ladder's 27 sample windows and kept when more pass,
-  or as many with deeper curves, 4 at most; then each window's picks, stopping at 3·L, G3's
-  retries and G4's guide.
+  trigger, a velocity grid), each tried on the ladder's 27 sample windows and on those asking it,
+  kept when more of those asking it pass without fewer of the 27 passing, 4 at most; then each
+  window's picks, stopping at 3·L, G3's retries and G4's guide.
 - Its scores count G3's passes alone, on the same 27 sample windows in every trial. On active_p2
   in passive-active it covers 86 of 86 windows at 11 receivers, its picks at a median uncertainty
   of 23 %.
