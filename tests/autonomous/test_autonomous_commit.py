@@ -14,6 +14,7 @@ import pytest
 from sigpipe.masw.presets import make_preset
 from sigpipe.masw.runs import find_run, load_manifest
 
+from paco.autonomous.host import answer
 from paco.autonomous.tools import commit as committing
 from paco.autonomous.tools import search as searching
 from paco.autonomous.tools.commit import Committed, commit, describe_commit, line_of, line_state
@@ -250,6 +251,12 @@ def test_what_every_combination_of_the_search_had_needs_no_reason(
     said = committed.line.commits[0].reasons
     assert said["dispersion nv"] == searching.SHARED
     assert said["masw length"] == FIRST_REASONS["masw length"]
+    # The search compared lengths alone: what the line holds of the rest no variant chose.
+    assert searching.varied(study) == {"masw length"}
+    # The report says it as the search's, no model's.
+    used = answer.parameters_used(study, settings)
+    velocities = next(line for line in used if line.startswith("velocities "))
+    assert velocities.endswith(f"(250 steps): {searching.SHARED}")
 
 
 def test_a_setting_given_at_its_value_is_no_change_and_needs_no_reason() -> None:

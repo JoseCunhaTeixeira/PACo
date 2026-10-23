@@ -128,7 +128,7 @@ def test_a_passive_line_is_committed_and_said_as_such(passive: Passive) -> None:
     used = answer.parameters_used(passive.study, passive.settings)
     assert used[0] == (
         "passive mode (each window correlates the ambient noise's segments and stacks them): the "
-        "preset's default"
+        "profile's kind"
     )
     assert any(
         line.startswith("slicing: segment_duration 1.0, segment_step 1.0: ") for line in used

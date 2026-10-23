@@ -417,20 +417,19 @@ def test_the_host_lists_the_parameters_used_and_the_settings_the_gates_changed()
         "your request, or chosen by the agent)"
     )
     assert used.splitlines()[-1].startswith("- picking: M0 tracked along its ridge")
-    # No trigger changed: the files say the shot comes 20 ms in; G1 puts two shots' first breaks
-    # 18 ms earlier, and the line's trial windows do worse with the correction: not kept.
+    # The shots' trigger where their first breaks put them: the files say the shot comes 20 ms
+    # in, G1 puts the shots' first breaks 18 ms earlier.
     # First the records G1 left out of every window, then the line's rules: the shots' reach, the
-    # length as given, the mute trial's cone; no near field. No trace left out for its amplitude
-    # in one record: the line judges its receivers over them all.
+    # length as given, the trigger and the mute trial's tight cone; no near field, and nothing
+    # left for the line loop to try. No trace left out for its amplitude in one record: the line
+    # judges its receivers over them all.
     records, rules = listed.splitlines()[:2]
     assert records == "- 101.dat, 117.dat, 133.dat, 165.dat: left out of every window"
     assert rules.startswith("- line: masw distance_max ")
     assert "near_field" not in rules
-    assert rules.endswith(
-        "Tried for the line, not kept: trigger t0 0.0016 s, asked by 4 windows "
-        "(G1:shifted_trigger): 2 of 4 trial windows passing G3 against 3."
-    )
-    assert "trigger" not in used
+    assert rules.endswith("the cone 59.4 to 392.7 m/s 15.")
+    assert "Tried for the line" not in rules
+    assert "\n- trigger t0 0.0016 s: where the first breaks put the shots, " in used
     assert "left out of the windows" not in listed
     # What the user saw is what the conversation keeps.
     assert messages[-1] == {"role": "assistant", "content": answer}

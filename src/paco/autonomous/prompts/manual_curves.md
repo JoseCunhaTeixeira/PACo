@@ -54,7 +54,8 @@ phase velocity v and frequency f.
   beyond, beyond_reach); trust about 2·L on a noisy image. The depth figures count the points
   beyond the reach too: read the share beyond the reach before trusting a depth.
 - Aliasing: a wavelength under 2·dx aliases (v < 2·dx·f). G3 flags points there
-  (aliasing_zone), and G2 cuts a window's picking at its first aliased column.
+  (aliasing_zone). A ridge's alias lies under one spacing (v < dx·f), as bright as the ridge on
+  evenly spaced receivers: the picker never searches there, and it competes with nothing.
 - The near field: within about λmax/2 of the shot the wave is not yet a plane surface wave; its
   long wavelengths read slow and the curve bends down at low frequencies.
 - The phase shift normalizes every trace's spectrum and stacks the traces along trial

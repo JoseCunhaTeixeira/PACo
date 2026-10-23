@@ -100,6 +100,7 @@ from paco.qc.muting import (
     choose_mute,
     estimate_cone,
     given_muting,
+    line_trigger,
     mutable,
     mute_candidates,
 )
@@ -226,28 +227,50 @@ def _process(
         changes = deep_merge(changes, sized(choice.length))
     preset = resolve_preset(apply_overrides(preset, changes), loaded)
     # The mute trial at the line's length: a mute kept changes the images, never the windows;
-    # the records then preprocessed again with it, and judged again by G1.
+    # the records then preprocessed again with it, and judged again by G1. First the shots'
+    # trigger, where their first breaks put them (the trigger is the muting's), unless the user
+    # gave one; each muted candidate's records judged by G1 as the line's are then.
     mute_notes: tuple[str, ...] = ()
     if cone is not None:
+        trigger, trigger_notes = (
+            line_trigger(
+                first_g1(run_folder, records, exclusions),
+                file_triggers(loaded),
+                config.signal.max_trigger_error_s,
+            )
+            if "trigger" not in (overrides or {})
+            else ({}, ())
+        )
         trial = choose_mute(
             loaded,
-            preset,
+            resolve_preset(apply_overrides(preset, trigger), loaded),
             run_folder,
             TrialJudge(config.coherence, config.curve, config.picking, config.image),
             config.mute,
             settings.workers,
             cone,
             exclusions=exclusions,
+            settle=partial(settle_trial, profile=loaded, config=config, reach_m=reach),
+            trigger=trigger.get("trigger"),
         )
         muted = changed_muting(trial)
         if muted is not None:
             # A change of the line's: the note says it (no mute keeps the line as it is, and
-            # run_processing says the trial's candidates apart).
-            mute_notes = trial.notes if trial is not None else ()
-            changes = deep_merge(changes, muted)
-            preset = resolve_preset(apply_overrides(preset, muted), loaded)
+            # run_processing says the trial's candidates apart); the trigger with it, the
+            # muting's.
+            mute_notes = trigger_notes + (trial.notes if trial is not None else ())
+            change = deep_merge(trigger, muted)
+            changes = deep_merge(changes, change)
+            preset = resolve_preset(apply_overrides(preset, change), loaded)
             records = reprocess_records(
-                run_folder, loaded, preset, records, exclusions, settings.workers, MUTE_TRIAL, muted
+                run_folder,
+                loaded,
+                preset,
+                records,
+                exclusions,
+                settings.workers,
+                MUTE_TRIAL,
+                change,
             )
             records, exclusions, usable = settle_records(
                 run_folder, loaded, preset, records, config, reach
@@ -423,14 +446,15 @@ def settle_records(
     config: QCConfig,
     reach_m: float | None = None,
     cone: Mapping[str, Any] | None = None,
+    draw: bool = True,
 ) -> tuple[tuple[RecordOutcome, ...], Exclusions, Bands]:
     """G1 on every preprocessed record, the line's settings the same for each: the traces and
     records it excludes recorded (for S2 to leave out, and for G1 to judge the record again
     without them) until it excludes nothing more. A change of a record's preprocessing it asks
     (its trigger, a mute) is the line's to make (the line loop), never made for one record. With
     `cone` (the mute trial's, on a line it left unmuted), a record not muted is checked for
-    arrivals faster than it. Returns the records, the exclusions and each record's usable
-    band."""
+    arrivals faster than it; with `draw`, each record's spectra drawn beside it. Returns the
+    records, the exclusions and each record's usable band."""
     outcomes = {record.name: record for record in records}
     exclusions = Exclusions()
     results: dict[str, GateResult] = {}
@@ -480,7 +504,7 @@ def settle_records(
                 latest_attempt.attempt if latest_attempt is not None else 0,
                 result.kept.band_hz,
             )
-            if drawn.get(name) != shown:
+            if draw and drawn.get(name) != shown:
                 draw_spectra(stream, folder, result.kept.band_hz)
                 drawn[name] = shown
         before = exclusions
@@ -511,6 +535,35 @@ def settle_records(
         _log_line(run_folder, _spectra_result(run_folder, profile, outcomes, exclusions, config))
     usable: Bands = {name: result.kept.band_hz for name, result in results.items()}
     return tuple(outcomes.values()), exclusions, usable
+
+
+def settle_trial(
+    trial_folder: Path,
+    preset: ActivePreset | PassivePreset,
+    records: tuple[RecordOutcome, ...],
+    profile: Profile,
+    config: QCConfig,
+    reach_m: float | None,
+) -> Exclusions:
+    """A mute trial candidate's records (in its `trial_folder`, preprocessed with its `preset`)
+    judged by G1 as settle_records judges the line's once a mute is kept: the traces and records
+    it leaves out. Its log and its spectra stay out of the run's."""
+    return settle_records(trial_folder, profile, preset, records, config, reach_m, draw=False)[1]
+
+
+def first_g1(
+    run_folder: Path, records: tuple[RecordOutcome, ...], exclusions: Exclusions
+) -> dict[str, GateResult]:
+    """G1's latest result on each record it kept, by name, as the run's log holds it."""
+    attempts = read_attempts(run_folder)
+    results: dict[str, GateResult] = {}
+    for record in records:
+        attempt = latest(attempts, record.name, "preprocessing")
+        if record.name not in exclusions.records and attempt is not None:
+            result = attempt.results.get("G1")
+            if result is not None:
+                results[record.name] = result
+    return results
 
 
 def settle_receivers(

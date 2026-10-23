@@ -116,7 +116,7 @@ def test_a_flag_touching_a_given_setting_is_held_back_whole() -> None:
 
 
 def test_a_band_the_user_gave_is_a_limit_the_gates_narrow_within() -> None:
-    # The picking's band: a gate may narrow it (an alias, the coherent band), never widen it.
+    # The picking's band: a gate may narrow it (the coherent band), never widen it.
     given = {"fmin": 10.0, "fmax": 50.0}
     limits = limits_of("picking")
 

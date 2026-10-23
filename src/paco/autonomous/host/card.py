@@ -161,9 +161,9 @@ def _surveyed(found: Survey) -> str:
 
 
 def _searched(made: searching.Search, knockout: searching.Knockout | None) -> str:
-    """The search in a few words: its combinations, then its choice, its final, or the round
-    being judged."""
-    said = f"{len(made.rows)} combinations compared"
+    """The search in a few words: its combinations and those it dropped as really bad (the
+    others are judged by eye), then its choice, its final, or the round being judged."""
+    said = f"{len(made.rows)} combinations, {made.dropped} dropped as really bad"
     if knockout is None:
         return said
     if knockout.best is not None:

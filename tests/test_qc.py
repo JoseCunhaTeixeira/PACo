@@ -74,7 +74,7 @@ from paco.qc.g3_curve import CurveThresholds
 from paco.qc.log import ASKED, LINE_CHANGE
 from paco.qc.loops import RetryBudget, deep_merge, next_try, unchanged
 from paco.qc.report import merged
-from paco.qc.used import aliased_limits, picking_used
+from paco.qc.used import picking_used
 from paco.settings import Settings
 
 SMALL_WINDOWS = {"masw": {"length": 24, "step": 24}}
@@ -273,6 +273,24 @@ def test_a_stage_started_afresh_forgets_its_attempts_not_their_cost(tmp_path: Pa
     assert report.retries == 2
     assert [unit.unit for unit in report.units] == ["xmid_13.00", "xmid_12.50"]
     assert report.changed["backtrack"] == ("phase_shift", {"dispersion": {"vmax": 900}}, True)
+
+
+def test_a_first_attempt_started_afresh_is_read_against_it(tmp_path: Path) -> None:
+    # A window picked once, free, then picked again in a wider corridor: the new attempt
+    # carries no cost, but the parameters it replaced, which its change is read against.
+    first = _attempt("xmid_12.50", "picking", 1).model_copy(
+        update={"parameters": {"threshold": 0.35, "corridor": 0.2}}
+    )
+    append_attempt(tmp_path, first)
+    wider = _attempt("xmid_12.50", "picking", 2, "backtrack").model_copy(
+        update={"parameters": {"threshold": 0.35, "corridor": 0.3}}
+    )
+    again = afresh(tmp_path, wider)
+    append_attempt(tmp_path, again)
+
+    assert (again.attempt, again.forgotten) == (1, 0)
+    report = build_report("run", tmp_path, Budgets(), 1)
+    assert report.changed["backtrack"] == ("picking", {"corridor": 0.3}, True)
 
 
 # ---------------------------------------------------------------- budgets
@@ -804,27 +822,6 @@ def test_the_picking_values_the_user_gave_are_said_with_those_used() -> None:
         assert words in picking_used(PickingParameters.model_validate(band))[0]
 
 
-def test_the_picking_says_where_g2_stopped_it_below_an_alias() -> None:
-    # Two windows' first picks stopped below their image's alias; a retry's band is G3's.
-    first = [
-        _attempt(unit, "picking", 1).model_copy(update={"parameters": {"fmax": fmax}})
-        for unit, fmax in (("xmid_1.00", 31.0), ("xmid_2.00", 24.5))
-    ]
-    retried = _attempt("xmid_1.00", "picking", 2).model_copy(update={"parameters": {"fmax": 99.9}})
-
-    aliased = aliased_limits([*first, retried], PickingParameters())
-    said = picking_used(PickingParameters(), None, aliased)
-
-    assert aliased == (31.0, 24.5)
-    assert "changed window by window where G2 or G3 asked" in said[0]
-    assert said[1] == (
-        "picking fmax 24.5-31 Hz at 2 windows (each window its own): below the alias G2 found in "
-        "its dispersion image"
-    )
-    # A band the call gives: its own.
-    assert aliased_limits(first, PickingParameters(), {"fmax": 40.0}) == ()
-
-
 def test_the_settings_the_gates_changed_are_said_from_and_to(tmp_path: Path) -> None:
     started = datetime(2026, 9, 24, 12, 0, tzinfo=UTC)
 
@@ -1070,12 +1067,15 @@ def test_judge_run_puts_the_four_gates_in_the_log_and_the_report(
     }
     # The band reaches the image's 100 Hz: kept, not widened. The records each window stacks are
     # usable together from 16.3 to 85.7 Hz (197.dat's band): its coherent band covers them. With
-    # receivers 1.5 m apart, most coherent columns also hold an alias, a second ridge under the
-    # aliasing limit 2 dx f: picked below it.
+    # receivers 1.5 m apart, each ridge's alias lies under one spacing, where no ridge competes;
+    # xmid 53.25 holds a second ridge of its own, kept.
     assert all(unit.verdicts["G2"] == "pass" for unit in windows)
-    assert all(
-        {flag.name for flag in unit.flags["G2"]} == {"band_at_fmax", "aliasing"} for unit in windows
-    )
+    assert {unit.unit: sorted(flag.name for flag in unit.flags["G2"]) for unit in windows} == {
+        "xmid_17.25": ["band_at_fmax"],
+        "xmid_53.25": ["band_at_fmax", "competing_ridges"],
+        "xmid_89.25": ["band_at_fmax"],
+        "xmid_125.25": ["band_at_fmax"],
+    }
     assert all(unit.curve is not None and unit.curve.n_points for unit in windows)
     # S3 saved each curve in PAC's layout.
     assert all((run_folder / unit.unit / CURVES_FILE).exists() for unit in windows)

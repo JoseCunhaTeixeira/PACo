@@ -463,7 +463,9 @@ def _medians(ranges: Sequence[tuple[float, float]]) -> tuple[float, float] | Non
 
 def trial_indices(n_windows: int, trials: int) -> list[int]:
     """`trials` windows spread evenly along the whole line, its ends included: without the ends,
-    the trials pass G3 more often than the line's windows do."""
+    the trials pass G3 more often than the line's windows do. None of none."""
+    if n_windows <= 0:
+        return []
     positions = np.linspace(0, n_windows - 1, trials).round().astype(int)
     return [int(index) for index in np.unique(positions)]
 

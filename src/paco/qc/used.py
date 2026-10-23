@@ -151,13 +151,10 @@ def processing_used(
 
 
 def picking_used(
-    parameters: PickingParameters,
-    given: Mapping[str, Any] | None = None,
-    aliased: Sequence[float] = (),
+    parameters: PickingParameters, given: Mapping[str, Any] | None = None
 ) -> tuple[str, ...]:
-    """The picker's settings every window started from: PACo's, which G2 lowers below a
-    window's alias (`aliased`: those windows' fmax) and G3 changes window by window (in the
-    gates' changes); then the values the call gave (`given`), if any."""
+    """The picker's settings every window started from: PACo's, which G3 changes window by
+    window (in the gates' changes); then the values the call gave (`given`), if any."""
     band = _band(parameters.fmin, parameters.fmax)
     reach = (
         f", wavelengths up to {parameters.max_wavelength:g} window lengths"
@@ -169,16 +166,8 @@ def picking_used(
         f"{parameters.corridor:.0%} of the velocity{band}{reach}), points under "
         f"{parameters.min_relative_coherence:g} of the mode's coherence dropped, resampled every "
         f"{parameters.wavelength_step:g} m of wavelength: PACo's starting values, changed "
-        "window by window where G2 or G3 asked; a higher mode, by hand in PAC's Dispersion "
-        "picking page",
-        *(
-            [
-                f"picking fmax {_span(aliased)} Hz at {len(aliased)} windows (each window its "
-                "own): below the alias G2 found in its dispersion image"
-            ]
-            if aliased
-            else []
-        ),
+        "window by window where G3 asked; a higher mode, by hand in PAC's Dispersion picking "
+        "page",
         *(
             [
                 "picking "
@@ -189,23 +178,6 @@ def picking_used(
             else []
         ),
     )
-
-
-def aliased_limits(
-    attempts: Iterable[Attempt],
-    parameters: PickingParameters,
-    given: Mapping[str, Any] | None = None,
-) -> tuple[float, ...]:
-    """The fmax of each window whose first pick G2 lowered below its image's alias, where
-    neither PACo's values (`parameters`) nor the call (`given`) give one."""
-    if parameters.fmax is not None or (given and "fmax" in given):
-        return ()
-    first: dict[str, float] = {}
-    for attempt in attempts:
-        fmax = attempt.parameters.get("fmax")
-        if attempt.stage == "picking" and attempt.attempt == 1 and isinstance(fmax, int | float):
-            first[attempt.unit] = float(fmax)
-    return tuple(first.values())
 
 
 def _band(low: float | None, high: float | None) -> str:

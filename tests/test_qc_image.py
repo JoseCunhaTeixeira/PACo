@@ -8,7 +8,6 @@ import pytest
 from sigpipe.base import Coordinate, DispersionImage, LinearAcquisition, VelocityType
 from sigpipe.dataio.selection_plotting import SelectionScores
 from sigpipe.masw.quality.image import (
-    aliased,
     coherent_columns,
     competing_ridges,
     edge_peaks,
@@ -157,21 +156,16 @@ def test_a_second_ridge_of_similar_strength_is_a_higher_mode() -> None:
     assert _flags(_image(_ridge(M0, 0.8), _ridge(M0 * 1.8, 0.3))) == {}
 
 
-def test_a_second_ridge_below_the_aliasing_limit_stops_the_windows_picking() -> None:
-    coarse = _line(10, spacing=5.0)  # the alias limit 2 dx f is 100 to 400 m/s here
-    image = _image(_ridge(M0, 0.8), _ridge(M0 + 300, 0.7), acquisition=coarse)
-    coherent = coherent_columns(image, 0.3)
+def test_a_ridges_alias_under_one_spacing_is_no_second_ridge() -> None:
+    # Receivers 5 m apart alias M0 to 1 / (1 / M0 + 1 / 5f), under one spacing in wavelength,
+    # here brighter than M0: the picker never searches there, and no ridge competes.
+    coarse = _line(10, spacing=5.0)
+    alias = 1 / (1 / M0 + 1 / (5.0 * FREQUENCIES))
+    band = (15.0, 30.0)
+    image = _image(_ridge(M0, 0.8, band=band), _ridge(alias, 0.85, band=band), acquisition=coarse)
 
-    alias = aliased(image, coherent, 5.0)
-    flags = _flags(image)
-
-    # M0 = 150 + 250 exp(-f/15) drops below 10 f between 21 and 22 Hz.
-    first = FREQUENCIES[alias][0]
-    assert first == 21.5
-    # The image is the line's: the window's picking stops below the alias, the image stands.
-    assert flags == {
-        "aliasing": {"kind": "override", "stage": "picking", "overrides": {"fmax": float(first)}}
-    }
+    assert not competing_ridges(image, coherent_columns(image, 0.3), 0.7, 0.15, 30.0).any()
+    assert _flags(image) == {}
     assert judge_image("xmid_12.50", image, THRESHOLDS).verdict == "pass"
 
 

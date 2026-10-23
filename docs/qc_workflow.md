@@ -69,10 +69,10 @@ Artifacts in [ ], gates in < >.
 ### G2 dispersion image QC (per xmid, before picking)
 - Coherent energy: the share of frequency columns whose maximum rises 30 % of the way from the noise floor 1/sqrt(N) (the floor the picker uses) to 1.
 - Energy maximum on the grid edges: at vmin or vmax, the velocity range is too narrow; at fmin or fmax, the band may go on beyond the image (kept, never widened).
-- Competing ridges of similar strength at the same frequency: a higher mode dominating (kept: the fundamental mode is picked as the slowest ridge), or aliasing (compared with the aliasing limit v = 2·dx·f: the band is cut where the alias starts).
+- Competing ridges of similar strength at the same frequency, at wavelengths of a receiver spacing or more (under it lie the ridges' aliases, where the picker never searches): a higher mode dominating (kept: the fundamental mode is picked as the slowest ridge).
 - Coherent band much narrower than G1's usable band: reported; the band is capped, never widened.
 - A passive or passive-active window's stacked correlations, measured as a record is against G1's limits, and a passive window's fk selection: falling short, the phase shift again with more of the data, else the window rejected.
-- Actions: the line's vmin/vmax, a passive line's fk threshold, or a surface-wave mute of the line's records between the expected vg_min and vg_max (it often cleans the image a lot; asked only of a line not muted yet): the line loop's to try, for every window alike (`docs/gates/loop.md`). An alias stops the window's picking below it, the image staying the line's.
+- Actions: the line's vmin/vmax, a passive line's fk threshold, or a surface-wave mute of the line's records between the expected vg_min and vg_max (it often cleans the image a lot; asked only of a line not muted yet): the line loop's to try, for every window alike (`docs/gates/loop.md`).
 - The metrics computed on the picked M0 (sharpness, prominence, on_data, constant_wavelength) belong to G3. Details: `docs/gates/G2.md`.
 
 ### G3 curve QC (per xmid)
@@ -127,7 +127,7 @@ In the order of PAC's page for each method: the windows, the preprocessing, the 
 - Window length: one value for the whole profile, so lateral resolution and depth of investigation stay comparable and xmids don't move; proposed by a ladder of trial windows, the agent's to change (`docs/gates/S2_rules.md`).
 - Step: 1 receiver by default (every xmid). The records' and the images' settings are the line's, the same for every xmid, as in PAC's pages; the picking and the inversion change per xmid.
 - Offsets: the farthest shot within the reach G1 found; the nearest at least half the trial curves' longest wavelength from the window, against near-field effects, where the window has a farther one.
-- Muting: tried at the line's length on active and passive-active lines (`qc/muting.py`), unless the user gave one; a mute kept only where the images gain (below).
+- Muting: tried at the line's length on active and passive-active lines (`qc/muting.py`), unless the user gave one; a mute kept only where the images gain (below). First the shots' trigger, where their first breaks put them, when G1 finds the files' off by more than its limit (the trigger is the muting's); each muted candidate's records judged by G1 as the line's are once a mute is kept (those it left out before staying out), so that its trial windows count as the line's will.
 - Segments (passive lines): their length and FK selection (its threshold, its band open or 80 to 1,500 m/s) tried at the line's length (`docs/gates/S2_rules.md`).
 - Frequency range: fmin >= the records' median fmin_usable from G1; fmax <= min(their median fmax_usable, Nyquist), never widened.
 - Velocity range: vmin and vmax bracket the expected velocities: where a ridge sits on the grid's edge, G2 asks a wider range of the line, which the line loop tries.

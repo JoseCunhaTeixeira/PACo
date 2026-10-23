@@ -1,12 +1,12 @@
 """G2, the QC of a dispersion image before picking (docs/qc_workflow.md): coherent energy
-against the noise floor, the energy maximum on the grid's edges, competing ridges (a higher mode
-or aliasing), and a coherent band much narrower than the record's usable band. A passive or
+against the noise floor, the energy maximum on the grid's edges, competing ridges (a higher
+mode), and a coherent band much narrower than the record's usable band. A passive or
 passive-active window's stacked correlations, the signal its image is made of, measured as a
 record is (sigpipe's measure_signal, from the virtual source), and a passive window's fk segment
 selection: judged too, more of the data asked when they fall short, then rejected. The changes
 G2 asks of the records or the images are the line's to make, for every window alike (the line
-loop, qc.line_loop); an alias limits the window's own picking. The measures are sigpipe's
-(sigpipe.masw.quality.image, .measures); G2 judges them."""
+loop, qc.line_loop). The measures are sigpipe's (sigpipe.masw.quality.image, .measures); G2
+judges them."""
 
 from collections.abc import Mapping, Sequence
 from typing import Any
@@ -209,36 +209,23 @@ def judge_image(
 
     competing = report.competing if report.competing is not None else np.zeros(0, dtype=bool)
     competing_share = int(competing.sum()) / n_coherent
-    # On a grid too narrow, a truncated ridge makes second ridges and aliases of its own: the
-    # velocity range first.
+    # On a grid too narrow, a truncated ridge makes second ridges of its own: the velocity range
+    # first. The ridges' aliases, under one receiver spacing in wavelength, compete with nothing:
+    # the picker never searches there (sigpipe's competing_ridges leaves them out).
     grid_first = any(flag.name in ("ridge_at_vmin", "ridge_at_vmax") for flag in flags)
     if competing_share > thresholds.max_competing_columns and not grid_first:
-        alias = report.aliased if report.aliased is not None else np.zeros(0, dtype=bool)
-        if alias.sum() > competing.sum() / 2:
-            first = float(fs[alias][0])
-            flags.append(
-                Flag(
-                    name="aliasing",
-                    message=f"A second ridge at {100 * competing_share:.0f} % of the coherent "
-                    f"frequencies, mostly in the aliasing zone: an alias from {first:.1f} Hz on, "
-                    "picked below it.",
-                    stage="picking",
-                    action=Override(stage="picking", overrides={"fmax": round(first, 1)}),
-                )
+        # Kept: the fundamental mode is picked as the slowest ridge whatever the modes picked,
+        # and only it is judged; picking two changes neither.
+        flags.append(
+            Flag(
+                name="competing_ridges",
+                message=f"A second ridge of similar strength at {100 * competing_share:.0f} % "
+                "of the coherent frequencies: a higher mode may dominate. Kept, the pick's "
+                "checks judging it.",
+                stage="picking",
+                action=Keep(note="the fundamental mode picked as the slowest ridge"),
             )
-        else:
-            # Kept: the fundamental mode is picked as the slowest ridge whatever the modes
-            # picked, and only it is judged; picking two changes neither.
-            flags.append(
-                Flag(
-                    name="competing_ridges",
-                    message=f"A second ridge of similar strength at {100 * competing_share:.0f} % "
-                    "of the coherent frequencies: a higher mode may dominate. Kept, the pick's "
-                    "checks judging it.",
-                    stage="picking",
-                    action=Keep(note="the fundamental mode picked as the slowest ridge"),
-                )
-            )
+        )
 
     if (
         report.band_share is not None
@@ -328,13 +315,8 @@ def more_data(mode: str, values: Mapping[str, Any]) -> Override | None:
 
 def _result(unit: str, metrics: list[Metric], flags: list[Flag], kept: Kept) -> GateResult:
     # A kept flag is information: it never changes the verdict; one no change fixes rejects, as
-    # G3's. The picking's limits are the window's picking's: the image stands.
-    acted = [
-        flag
-        for flag in flags
-        if not isinstance(flag.action, Keep)
-        and not (isinstance(flag.action, Override) and flag.action.stage == "picking")
-    ]
+    # G3's.
+    acted = [flag for flag in flags if not isinstance(flag.action, Keep)]
     verdict = (
         "pass" if not acted else "reject" if any(not flag.fixable for flag in acted) else "retry"
     )

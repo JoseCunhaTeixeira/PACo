@@ -119,7 +119,9 @@ with care: never lengthen the windows to cut them when the images get worse.
 
 Stop refining when two experiments in a row bring no cleaner images by eye. Windows passing from
 the start are no reason to stop: the images can still get cleaner. At 80 % of a budget the
-card says so; once one is spent, commit your best settings and move on.
+card says so; once one is spent, commit your best settings and move on. Your last message leaves
+the budgets out and calls no setting a default: a setting no commit changed is the search's, the
+same in every combination it compared, and PACo's report gives each setting's source.
 
 ## When to ask the user
 

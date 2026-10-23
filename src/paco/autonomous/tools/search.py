@@ -46,6 +46,7 @@ SEARCHES = "searches"  # in the study's folder
 SEARCH = "S1"  # a study's one search
 # Why a setting is what every variant of the search had: none chose it.
 SHARED = "the same in every combination the search compared"
+SEARCHED = "chosen in the search"
 IMAGES = f"{SEARCH}_images"
 KNOCKOUT = f"{SEARCH}_knockout.json"
 JUDGED = f"{SEARCH}_judged.jsonl"
@@ -764,6 +765,21 @@ def shared(study: trials.Study) -> dict[str, Any]:
         name: value
         for name, value in first.items()
         if all(name in one and one[name] == value for one in each[1:])
+    }
+
+
+def varied(study: trials.Study) -> set[str]:
+    """The settings the study's search compared more than one value of ('<stage> <key>', or a
+    top-level key): what the line holds of them was chosen there; none before it ran."""
+    made = searched(study)
+    if made is None or not made.rows:
+        return set()
+    each = [named_values(row.changes) for row in made.rows]
+    names = set().union(*each)
+    return {
+        name
+        for name in names
+        if len({json.dumps(one.get(name), sort_keys=True) for one in each}) > 1
     }
 
 

@@ -10,11 +10,15 @@ mute; the standard 80-1500 m/s mute G2 and G3 repair with; the cone widened by t
 `widening` each side; the cone widened by `widening`; and the tight cone, the median peak
 velocity divided and multiplied by `widening` (strong refractions pull the peaks' fast
 quartile up; their median holds). The most windows passing G3 wins, the tightest mute on a tie
-(the narrowest velocity window). Active and passive-active lines (a passive line has no
+(the narrowest velocity window). Before it, the line's trigger where the first breaks put the
+shots, when G1 finds them off by more than its limit: a mute cuts around the shot. Each muted
+candidate's records judged by G1 as the line's are once a mute is kept, so that the windows each
+counts are those the line will have. Active and passive-active lines (a passive line has no
 muting); never a muting the user gave, which stays as given."""
 
 import math
-from collections.abc import Mapping
+import statistics
+from collections.abc import Callable, Mapping
 from pathlib import Path
 from typing import Any, Literal, cast
 
@@ -24,17 +28,22 @@ from sigpipe.masw.pipelines.preprocessing import shot_time_s, unmuted_record
 from sigpipe.masw.presets import ActivePreset, PassivePreset, apply_overrides, resolve_preset
 from sigpipe.masw.profiles import Profile
 from sigpipe.masw.quality.cone import Cone, peak_velocities, surface_wave_cone
+from sigpipe.masw.runs import RecordOutcome
 from sigpipe.masw.runs.processing import RECORDS_FOLDER, preprocess_records
 from sigpipe.masw.runs.writing import write_atomic
 from sigpipe.masw.windows import Exclusions, build_windows
 
 from paco import stopping
 from paco.qc.coherence import TrialJudge, receiver_spacing, trial_indices, try_windows
+from paco.qc.models import GateResult
 
 TRIALS_FOLDER = "mute_trials"  # inside the run folder: each candidate's records and windows
 MUTE_FILE = "mute.json"
 # From the least cutting to the most: ties go to the earlier.
 type Candidate = Literal["none", "standard", "wider", "cone", "tight"]
+# G1 on a candidate's muted records (its trial folder, its preset, its records), as the line
+# judges its records once a mute is kept: the traces and records it leaves out.
+type Settle = Callable[[Path, ActivePreset | PassivePreset, tuple[RecordOutcome, ...]], Exclusions]
 
 
 class MuteRules(BaseModel):
@@ -94,13 +103,17 @@ class MuteTrial(BaseModel):
 
 class MuteChoice(BaseModel):
     """The trial's outcome: the candidate kept and its muting (None: no mute), the cone the
-    gathers gave, the trial windows, every candidate's result, and the line's note."""
+    gathers gave, the trigger every candidate ran with, the trial windows, every candidate's
+    result, and the line's note."""
 
     model_config = ConfigDict(frozen=True)
 
     chosen: Candidate
     muting: dict[str, Any] | None
     cone_m_s: tuple[float, float, float] | None  # its slow edge, median and fast edge
+    # The trigger stage set before the trial, where the first breaks put the shots; None: the
+    # records' files'.
+    trigger: dict[str, Any] | None = None
     length: int
     xmids: tuple[float, ...]
     trials: tuple[MuteTrial, ...]
@@ -127,10 +140,15 @@ def choose_mute(
     cone: Cone,
     own: Mapping[str, Mapping[str, Any]] | None = None,
     exclusions: Exclusions | None = None,
+    settle: Settle | None = None,
+    trigger: Mapping[str, Any] | None = None,
 ) -> MuteChoice | None:
     """The mute trial on `profile`'s line, with `preset` (resolved, unmuted, at the line's
     window length) and the gathers' `cone`: each record with its `own` changes (G1's, by record
-    name), the traces and records G1 left out left out. Its outcome saved in the run's
+    name); without a mute, the traces and records G1 left out (`exclusions`) left out, with one,
+    those G1 leaves out of its muted records (`settle`), the records it left out before staying
+    out, as the line preprocesses them no more (without `settle`, `exclusions`); `trigger`, the
+    trigger stage `preset` holds when set before the trial. Its outcome saved in the run's
     mute.json; None when the line has no trial window."""
     length = preset.masw.length
     trial_preset = resolve_preset(apply_overrides(preset, {"masw": {"step": 1}}), profile)
@@ -162,6 +180,13 @@ def choose_mute(
             },
             stop=stopping.current(),
         )
+        # The records as G1 leaves them on the line with this muting: judged again once muted,
+        # those it left out before staying out.
+        judged = exclusions
+        if settle is not None and muting is not None:
+            judged = settle(folder, tried_preset, records)
+            for name in exclusions.records if exclusions is not None else ():
+                judged = judged.with_record(name)
         tried = try_windows(
             tried_preset,
             profile,
@@ -171,7 +196,7 @@ def choose_mute(
             folder / "windows",
             judge,
             workers,
-            exclusions,
+            judged,
         )
         trials.append(
             MuteTrial(
@@ -188,6 +213,7 @@ def choose_mute(
         chosen=kept.candidate,
         muting=kept.muting,
         cone_m_s=(cone.vmin, cone.median, cone.vmax),
+        trigger=dict(trigger) if trigger else None,
         length=length,
         xmids=tuple(window.xmid for window in chosen),
         trials=tuple(trials),
@@ -195,6 +221,34 @@ def choose_mute(
     )
     write_atomic(run_folder / MUTE_FILE, choice.model_dump_json(indent=2))
     return choice
+
+
+def line_trigger(
+    results: Mapping[str, GateResult], triggers: Mapping[str, float | None], limit_s: float
+) -> tuple[dict[str, Any], tuple[str, ...]]:
+    """The line's trigger before its mute trial, and its note: where the first breaks put the
+    shots, the median over the records G1 judged (`results`, unmuted: their trigger error
+    measured, not judged) of their file's trigger (`triggers`) and that error; none when the
+    median error is within G1's `limit_s` (the files' triggers stay). Never before the records'
+    start."""
+    errors: list[float] = []
+    shots: list[float] = []
+    for name, result in results.items():
+        measured = next(
+            (metric.value for metric in result.metrics if metric.name == "trigger_error_s"), None
+        )
+        if isinstance(measured, int | float) and math.isfinite(measured):
+            errors.append(float(measured))
+            shots.append((triggers.get(name) or 0.0) + float(measured))
+    if not errors or abs(error := statistics.median(errors)) <= limit_s:
+        return {}, ()
+    t0 = round(max(statistics.median(shots), 0.0), 4)
+    side = "before" if error < 0 else "after"
+    return {"trigger": {"t0": t0}}, (
+        f"trigger t0 {t0:g} s: where the first breaks put the shots, {abs(error) * 1000:.0f} ms "
+        f"{side} their files' trigger (the median of the {len(errors)} records G1 kept), set "
+        "before the mute trial so that every mute cuts around the shot.",
+    )
 
 
 def read_mute_choice(run_folder: Path) -> MuteChoice | None:

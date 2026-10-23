@@ -351,7 +351,7 @@ def test_the_windows_a_spec_names(judged_line: JudgedLine) -> None:
     assert named("all") == ["17.25", "53.25", "89.25", "125.25"]
     assert named("xmids:40-100") == ["53.25", "89.25"]
     assert named("xmids:[50, 120]") == ["53.25", "125.25"]
-    assert named("flag:aliasing+xmids:80-130") == ["89.25", "125.25"]
+    assert named("flag:band_at_fmax+xmids:80-130") == ["89.25", "125.25"]
     assert named("status:accepted", {"xmid_53.25": "accepted"}) == ["53.25"]
     assert named("status:pending", {"xmid_53.25": "accepted"}) == ["17.25", "89.25", "125.25"]
     with pytest.raises(ValueError, match="No window at 300 m"):

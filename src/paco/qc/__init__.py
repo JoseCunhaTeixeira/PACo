@@ -101,7 +101,7 @@ from .report import (
 from .rerun import rerun_phase_shift, rerun_picking
 from .state import read_report, rebuild_state
 from .stuck import Stuck
-from .used import aliased_limits, inversion_used, picking_used, processing_used
+from .used import inversion_used, picking_used, processing_used
 
 __all__ = [
     "ASKED",
@@ -153,7 +153,6 @@ __all__ = [
     "Verdict",
     "WindowWork",
     "afresh",
-    "aliased_limits",
     "append_attempt",
     "archived_attempts",
     "at_positions",

@@ -4,7 +4,8 @@ adds; code writes the rest from the study's records. In the middle of a run (a q
 user, a budget spent): the scope, the model's text, its question, and where the work stands. The
 report (P5) adds what was done, the windows left out, what was tried, each window's outcome, the
 model's interpretation, the parameters used, each with its source (the model's reason, given by
-the user, PACo's rule, or the preset's default), and the settings kept as the user gave them.
+the user, PACo's rule, or the search's: chosen in it, or the same in every combination it
+compared), and the settings kept as the user gave them.
 Numbers in the model's text that none of the results hold are flagged."""
 
 import json
@@ -22,6 +23,7 @@ from paco.agent.answer import AnswerError, AnswerForm, unfound_numbers
 from paco.agent.model import ChatModel, Filled
 from paco.autonomous import prompts
 from paco.autonomous.tools import decide, journal, models, pick
+from paco.autonomous.tools import search as searching
 from paco.autonomous.tools.commit import Line, line_of
 from paco.autonomous.tools.freeze import frozen
 from paco.autonomous.tools.given import asks, given_of
@@ -254,7 +256,8 @@ def outcomes(study: Study, settings: Settings) -> list[str]:
 
 def parameters_used(study: Study, settings: Settings) -> list[str]:
     """The committed line's settings, each with its source: the model's reason (with its commit
-    and experiment), given by the user, PACo's rule, or the preset's default."""
+    and experiment), given by the user, PACo's rule, or the search's (the preset's default before
+    any search)."""
     line = line_of(study)
     if line is None:
         return []
@@ -266,8 +269,11 @@ def parameters_used(study: Study, settings: Settings) -> list[str]:
     xmids = [window.xmid for window in manifest.windows]
     length = preset.masw.length
     mode = str(preset.mode)
+    said = source(MODE)
+    if said in (DEFAULT, searching.SHARED, searching.SEARCHED) and mode == manifest.profile.kind:
+        said = "the profile's kind"
     used = [
-        f"{mode} mode ({MODES_SAID.get(mode, mode)}): {source(MODE)}",
+        f"{mode} mode ({MODES_SAID.get(mode, mode)}): {said}",
         f"MASW windows of {length} receivers ({(length - 1) * spacing:g} m), {len(xmids)} "
         f"windows, xmid {min(xmids):.2f} to {max(xmids):.2f} m: {source('masw length')}",
         f"windows every receiver ({spacing:g} m): {STEP}",
@@ -310,8 +316,11 @@ def parameters_used(study: Study, settings: Settings) -> list[str]:
     keys = [f"{PICKING} {key}" for key in picking] if isinstance(picking, dict) else []
     recipes = pick.recipes(study, line.run_id)
     used.append(
-        f"picking: PACo's values, the line's changes {changed}: "
-        f"{source(*keys) if keys else DEFAULT}"
+        (
+            f"picking: PACo's values, the line's changes {changed}: {source(*keys)}"
+            if keys
+            else "picking: PACo's starting values"
+        )
         + (
             f"; {len(recipes)} window{'s' if len(recipes) != 1 else ''} picked their own way, "
             "the model's (each in the study's picks.jsonl)"
@@ -389,15 +398,20 @@ def held_back(study: Study, settings: Settings) -> list[str]:
 
 def _sources(study: Study, line: Line) -> Callable[..., str]:
     """Each setting's source, as said: the model's reason from its latest commit, given, or the
-    preset's default."""
+    search's, which set every other one (chosen in it, or the same in every combination it
+    compared); the preset's default before any search."""
     reasons: dict[str, str] = {}
     for one in line.commits:
         where = f"L{one.number}" + (f", {one.experiment}" if one.experiment else "")
         for key, reason in one.reasons.items():
-            reasons[key] = f"model: {reason} ({where})"
+            # The search's own reason, which code writes in the commit, is no model's.
+            reasons[key] = reason if reason == searching.SHARED else f"model: {reason} ({where})"
     given_keys = {
         f"{stage} {key}" for stage, values in given_of(study).line.items() for key in values
     }
+
+    made = searching.searched(study)
+    compared = searching.varied(study)
 
     def source(*keys: str) -> str:
         for key in keys:
@@ -405,6 +419,8 @@ def _sources(study: Study, line: Line) -> Callable[..., str]:
                 return reasons[key]
         if any(key in given_keys for key in keys):
             return GIVEN
+        if made is not None:
+            return searching.SEARCHED if any(key in compared for key in keys) else searching.SHARED
         return DEFAULT
 
     return source

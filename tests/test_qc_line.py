@@ -79,6 +79,7 @@ def test_the_trial_windows_cover_the_whole_line() -> None:
     assert trial_indices(92, 9) == [0, 11, 23, 34, 46, 57, 68, 80, 91]
     assert len(trial_indices(92, 27)) == 27
     assert trial_indices(4, 9) == [0, 1, 2, 3]
+    assert trial_indices(0, 9) == []
 
 
 def test_the_users_length_is_read_from_the_overrides() -> None:
@@ -126,17 +127,20 @@ def test_the_ladder_keeps_the_length_most_trial_windows_pass(
     line = latest(read_attempts(run_folder), "line", "phase_shift")
     # The farthest shot a window stacks, from the line's reach at 2 dB (G1, its windows from
     # each record's shot, 20 ms in): xmid 17.25 stacks 149.dat, 54 m away, not 165.dat, 78 m
-    # away. The mute trial at the line's length keeps the tight cone (test_qc_muting.py).
+    # away. Before the mute trial, the shots' trigger where their first breaks put them, 18 ms
+    # before the files' 20 ms; the trial at the line's length then keeps the cone: its records
+    # judged by G1 as the line's, the tight cone passes a trial window fewer (test_qc_muting.py).
     assert line is not None
-    # The line loop keeps no change: the records' shot time 1.6 ms later gives no more of the
-    # windows asking it a curve G3 passes.
     assert line.parameters == {
         "masw": {"distance_max": 57.79, "length": 24},
-        "muting": {"method": "mute", "vmin": 134.5, "vmax": 302.7, "width": 0.05, "taper": 20},
+        "trigger": {"t0": 0.0016},
+        "muting": {"method": "mute", "vmin": 59.4, "vmax": 392.7, "width": 0.05, "taper": 20},
     }
     # In the order of PAC's page, the windows' (the farthest shot, the length; no near field),
-    # then the preprocessing's (the mute); the line loop's tries after them.
-    far, note, muted = [one for one in line.notes if not one.startswith("Tried for the line")]
+    # then the preprocessing's (the trigger, the mute); the line loop's tries after them.
+    far, note, trigger, muted = [
+        one for one in line.notes if not one.startswith("Tried for the line")
+    ]
     assert far == (
         "masw distance_max 57.79 m: beyond it from the shot, the traces' median SNR falls under "
         "2 dB (G1), so the windows stack no farther shot."
@@ -146,7 +150,11 @@ def test_the_ladder_keeps_the_length_most_trial_windows_pass(
         "trial windows G3 passed 0/3 at 5, 2/3 at 24 (picks "
     )
     assert note.endswith("1/3 at 32 (picks 5%).")
-    assert muted.startswith("muting mute 134.5 to 302.7 m/s: the mute trial ")
+    assert trigger.startswith(
+        "trigger t0 0.0016 s: where the first breaks put the shots, 18 ms before their files' "
+        "trigger (the median of the 5 records G1 kept), set before the mute trial"
+    )
+    assert muted.startswith("muting mute 59.4 to 392.7 m/s: the mute trial ")
     # The gates of the processing ran on it (the picking's are pick's), and the summary gives
     # the change.
     assert set(report.counts) == {"G1", "G2"}
@@ -175,31 +183,32 @@ def test_a_given_length_is_kept_as_it_is(demo_input_dir: Path, tmp_path: Path) -
     assert line.notes[1].startswith(
         "masw length 32 for the whole line, as given: trial windows G3 passed 1/3 at 32 (picks "
     )
-    # At 32 receivers, the mute trial keeps a mute, after the windows' notes in the order of
-    # PAC's page; the line loop's tries after them.
-    assert line.notes[2].startswith("muting mute ")
+    # At 32 receivers, the mute trial keeps a mute, the shots' trigger before it, after the
+    # windows' notes in the order of PAC's page; the line loop's tries after them.
+    assert line.notes[2].startswith("trigger t0 ")
+    assert line.notes[3].startswith("muting mute ")
 
 
 @pytest.mark.slow
 def test_a_record_g1_rejects_goes_into_no_window(demo_input_dir: Path, tmp_path: Path) -> None:
-    # 101.dat's median SNR is 4.6 dB, under G1's 6 dB; the traces of 117.dat, and of 133.dat and
-    # 165.dat once muted, correlate under its 0.5: a filter or a mute would measure the same, so
-    # each record is rejected at once and left out of every window.
+    # 101.dat's median SNR is 4.6 dB, under G1's 6 dB; the traces of 117.dat, and of 133.dat once
+    # muted, correlate under its 0.5: a filter or a mute would measure the same, so each record
+    # is rejected at once and left out of every window. 165.dat, its shot 27 ms before its file's
+    # trigger, passes once the line's trigger is where the first breaks put the shots.
     run_folder, report = _line(
         demo_input_dir, tmp_path, {"masw": {"length": 24, "step": 24}}, QUICK
     )
 
     # The records' verdicts: the line's own G1 result (its receivers) is not one of them.
-    assert report.counts["G1"] == {"pass": 3, "reject": 4}
+    assert report.counts["G1"] == {"pass": 4, "reject": 3}
     settings = Settings(input_dir=demo_input_dir, output_dir=run_folder.parents[1])
     assert load_manifest(report.run_id, settings).exclusions.records == (
         "101.dat",
         "117.dat",
         "133.dat",
-        "165.dat",
     )
     assert (
-        "Changes at preprocessing, 101.dat, 117.dat, 133.dat, 165.dat: left out of every window\n"
+        "Changes at preprocessing, 101.dat, 117.dat, 133.dat: left out of every window\n"
     ) in summarize_report(report)
 
 

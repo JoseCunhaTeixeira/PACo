@@ -22,7 +22,7 @@ active:
   length:
     description: Window length (up to `longest` of the line's receivers)
     unit: receivers
-    longest: 0.25
+    longest: 0.5
     values: [5, 7, 9, 11, 13, 15, 17, 21, 25, 33, 41, 47, 95]
   distance_min:
     description: Nearest shot from the window's middle (null for none)
@@ -86,7 +86,7 @@ passive-active:
   length:
     description: Window length (up to `longest` of the line's receivers)
     unit: receivers
-    longest: 0.25
+    longest: 0.5
     values: [5, 7, 9, 11, 13, 15, 17, 21, 25, 33, 41, 47, 95]
   distance_min:
     description: Nearest shot from the window's middle (null for none)
@@ -152,7 +152,7 @@ passive:
   length:
     description: Window length (up to `longest` of the line's receivers)
     unit: receivers
-    longest: 0.25
+    longest: 0.5
     values: [5, 7, 9, 11, 13, 15, 17, 21, 25, 33, 41, 47, 95]
   filtering:
     description: Band-pass filter of the records

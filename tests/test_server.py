@@ -303,10 +303,13 @@ def test_the_workflow_process_pick_redo_invert() -> None:
     done = processed.structured_content
     assert done is not None
     assert done["summary"].splitlines()[:2] == ["G1: 3 pass, 4 reject", "G2: 4 pass"]
-    # No trigger corrected: the files say the shot comes 20 ms in; G1 puts 149.dat's and
-    # 165.dat's first breaks 18 ms earlier, and the line's trial windows do worse with the
-    # correction: not kept (below).
-    assert not [used for used in done["used"] if used.startswith("trigger")]
+    # The shots' trigger where their first breaks put them: the files say the shot comes 20 ms
+    # in, G1 puts the shots' first breaks 18 ms earlier; set before the mute trial.
+    assert [used for used in done["used"] if used.startswith("trigger")] == [
+        "trigger t0 0.0016 s: where the first breaks put the shots, 18 ms before their files' "
+        "trigger (the median of the 5 records G1 kept), set before the mute trial so that every "
+        "mute cuts around the shot"
+    ]
     assert done["next"] == f"Run {run_id}'s images are made: pick gives their curves."
     # The settings the gates changed, in words, for the agent to report.
     changed = done["changed"]
@@ -314,18 +317,18 @@ def test_the_workflow_process_pick_redo_invert() -> None:
     # their traces' coherence.
     assert changed[0] == "101.dat, 117.dat, 133.dat, 165.dat: left out of every window"
     # The line's rules in the order of PAC's page: the shots' reach, the length as given (no
-    # near field), the mute trial's cone; then the trigger G1 asked, tried and not kept.
+    # near field), the shots' trigger and the mute trial's tight cone; the line loop has nothing
+    # left to try.
     assert changed[1].startswith(
         "line: masw distance_max 57.79 m: beyond it from the shot, the traces' median SNR falls "
         "under 2 dB (G1), so the windows stack no farther shot. masw length 24 for the whole "
         "line, as given: trial windows G3 passed 14/27 at 24 (picks "
     )
-    assert "%). muting mute 134.5 to 302.7 m/s: the mute trial " in changed[1]
+    assert "%). trigger t0 0.0016 s: where the first breaks put the shots, " in changed[1]
+    assert "cuts around the shot. muting mute 134.5 to 302.7 m/s: the mute trial " in changed[1]
     assert "near_field" not in changed[1]
-    assert changed[1].endswith(
-        "Tried for the line, not kept: trigger t0 0.0016 s, asked by 4 windows "
-        "(G1:shifted_trigger): 2 of 4 trial windows passing G3 against 3."
-    )
+    assert changed[1].endswith("the cone 59.4 to 392.7 m/s 15.")
+    assert "Tried for the line" not in changed[1]
     # No trace left out for its amplitude in one record: the line judges its receivers.
     assert len(changed) == 2
     # The lengths the ladder tried, for the agent to choose from: the user's only, here.
@@ -337,16 +340,18 @@ def test_the_workflow_process_pick_redo_invert() -> None:
     assert picked.structured_content is not None
     # Every window keeps its traces (none is off the decay in most records) and stacks its
     # shots, the nearest too (its nearest shot reported).
-    # xmid 125.25's pick lies off its columns' brightest values (competing ridges): G3 picks it
-    # again in the coherent band, and leaves it flagged when its retries are spent: it goes on,
-    # G4 judging it with the others. Three curves pass, one flagged.
+    # xmid 53.25's pick keeps too few points: G3 resamples it finer, and it passes. xmid
+    # 125.25's lies off its columns' brightest values (competing ridges): G3 picks it again in
+    # the coherent band, and leaves it flagged when its retries are spent: it goes on, G4
+    # judging it with the others. Three curves pass, one flagged.
     assert picked.structured_content["summary"].splitlines()[:2] == [
         "G3: 3 pass, 1 retry",
         "G4: 4 pass",
     ]
-    (change,) = picked.structured_content["changed"]
-    assert change.startswith("fmin the default -> 0.3; fmax the default -> 97.7 at xmid 125.25 (1)")
-    assert change.endswith(", by G3:on_data")
+    fewer, off = picked.structured_content["changed"]
+    assert fewer == "wavelength_step 1 -> 0.4 at xmid 53.25 (1), by G3:too_few_points"
+    assert off.startswith("fmin the default -> 0.3; fmax the default -> 98.3 at xmid 125.25 (1)")
+    assert off.endswith(", by G3:on_data")
     assert picked.structured_content["next"] == (
         f"4 curves of run {run_id} not rejected by G3 or G4: invert gives their models. Higher "
         "modes (M1, M2) are picked by hand in PAC's Dispersion picking page, then invert takes "
@@ -360,8 +365,9 @@ def test_the_workflow_process_pick_redo_invert() -> None:
         {"run_id": run_id, "stage": "picking", "xmids": [125.25], "changes": {"corridor": 0.3}},
     )
     assert redone.structured_content is not None
+    # Its window picked once before, its change read against that attempt: still flagged.
     assert (
-        'Retried backtrack, xmid 125.25 (1) with picking {"corridor":0.3}: now 1 pass.'
+        'Retried backtrack, xmid 125.25 (1) with picking {"corridor":0.3}: now 1 retry.'
         in redone.structured_content["summary"]
     )
 
@@ -371,7 +377,7 @@ def test_the_workflow_process_pick_redo_invert() -> None:
     # invert returns a job or the user's choice: one of two models, wrapped.
     assert started.structured_content is not None
     job = started.structured_content["result"]
-    # xmid 125.25's curve, picked again in a wider corridor, passed: 4 windows to invert.
+    # xmid 125.25's curve, flagged, goes on: 4 windows to invert.
     assert job["state"] in ("queued", "running")
     assert job["total"] == 4
     status = _wait_for(job["job_id"])

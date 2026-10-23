@@ -30,7 +30,7 @@ from paco.settings import Settings
 
 MUTE = {"muting": {"method": "mute", "vmin": 80.0, "vmax": 1500.0}}
 KEPT_NOTE = (
-    "dispersion vmax 900 m/s: the line loop, asked by 1 windows (G2:ridge_at_vmax): 2 of 2 trial "
+    "dispersion vmax 900 m/s: the line loop, asked by 1 window (G2:ridge_at_vmax): 2 of 2 trial "
     "windows passing G3 against 0 with the line's settings before it."
 )
 WIDER = {"dispersion": {"vmax": 1500.0}}
@@ -131,21 +131,12 @@ def test_a_change_is_worded_as_the_lines_rules_word_their_settings() -> None:
 
 def test_an_ask_the_line_did_not_keep_is_kept_as_a_note() -> None:
     asked = _asking("G2", "xmid_1.00", "weak_coherence", "preprocessing", MUTE)
-    alias = Flag(
-        name="aliasing",
-        message="alias",
-        stage="picking",
-        action=Override(stage="picking", overrides={"fmax": 30.0}),
-    )
-    asked = asked.model_copy(update={"flags": (*asked.flags, alias)})
 
     kept = kept_on_line(asked)
 
     assert kept.verdict == "pass"
-    weak, still = kept.flags
+    (weak,) = kept.flags
     assert isinstance(weak.action, Keep) and "line's settings" in weak.action.note
-    # The picking's limit stays the window's.
-    assert still == alias
 
 
 def test_a_mute_tried_for_the_line_is_made_as_the_mute_trials(profiles: dict[str, Profile]) -> None:
@@ -234,7 +225,7 @@ def test_a_change_kept_is_made_on_the_whole_line(
     velocities = next(one for one in used if one.startswith("velocities"))
     assert velocities.startswith("velocities 1 to 900 m/s")
     assert velocities.endswith(
-        ": the line loop, asked by 1 windows (G2:ridge_at_vmax): 2 of 2 "
+        ": the line loop, asked by 1 window (G2:ridge_at_vmax): 2 of 2 "
         "trial windows passing G3 against 0 with the line's settings before it"
     )
     trials = json.loads((run_folder / LINE_LOOP_FILE).read_text())["trials"]

@@ -35,7 +35,7 @@ from paco.qc.g4_profile import LINE
 from paco.qc.given import locked
 from paco.qc.judging import judge_line, pick_windows, saved_m0
 from paco.qc.log import append_attempt, attempts_of, latest, read_attempts, record_result
-from paco.qc.loops import RetryBudget, deep_merge, next_try, refusal, spent, stage_changes
+from paco.qc.loops import RetryBudget, deep_merge, next_try, refusal, spent
 from paco.qc.models import Attempt, GateResult
 from paco.qc.origin import assistant_run, run_work
 from paco.qc.report import QCReport, build_report, write_report
@@ -70,7 +70,6 @@ def pick_line(
             f"Those it has: {', '.join(ready) or 'none'}."
         )
     work = run_work(run_folder, manifest, attempts)
-    given = locked(run_folder, "picking")
     jobs: dict[str, tuple[PickingParameters, tuple[float, float] | None]] = {}
     for unit in units if units is not None else list(ready):
         if work[unit].m0 == "user":
@@ -81,11 +80,6 @@ def pick_line(
         base = picked.parameters if picked is not None else config.picking.model_dump()
         parameters = deep_merge(base, changes or {})
         g2 = ready[unit]
-        mine = {**given, **(changes or {})}
-        if picked is None and g2 is not None and (wanted := stage_changes(g2, "picking", mine)):
-            # G2's advice for the picking (an alias: picked below it; an older log may hold two
-            # modes), within the band the call gives, a limit it narrows, never widens.
-            parameters = deep_merge(parameters, wanted[0])
         jobs[unit] = (
             PickingParameters.model_validate(parameters),
             g2.kept.band_hz if g2 is not None else None,

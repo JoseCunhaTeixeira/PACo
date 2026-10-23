@@ -50,7 +50,6 @@ FLAGS: dict[tuple[str, str], frozenset[FlagClass]] = {
     ("G2", "ridge_at_vmax"): FIXABLE,
     ("G2", "band_at_fmin"): NOTE,
     ("G2", "band_at_fmax"): NOTE,
-    ("G2", "aliasing"): FIXABLE,
     ("G2", "competing_ridges"): NOTE,
     ("G2", "narrower_than_usable"): NOTE,
     # G3, each curve

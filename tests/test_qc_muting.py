@@ -17,7 +17,7 @@ from paco.evaluation.defects import _refracted as refracted  # pyright: ignore[r
 from paco.qc import LINE, QCConfig, compare_settings, latest, process_line, read_attempts
 from paco.qc.coherence import CoherenceRules
 from paco.qc.g1_signal import SignalThresholds, judge_fast_arrivals
-from paco.qc.models import GateResult, Override
+from paco.qc.models import GateResult, Metric, Override
 from paco.qc.muting import (
     MuteChoice,
     MuteRules,
@@ -25,6 +25,7 @@ from paco.qc.muting import (
     _decide,  # pyright: ignore[reportPrivateUsage]
     describe_mutes,
     given_muting,
+    line_trigger,
     mutable,
     read_mute_choice,
 )
@@ -49,6 +50,33 @@ def _trial(candidate: str, muting: dict[str, Any] | None, passed: int, longest: 
         passed=passed,
         wavelengths_m=(5.0, longest),
     )
+
+
+def _first_breaks(error: float | None) -> GateResult:
+    metric = Metric(name="trigger_error_s", value=error, passed=True)
+    return GateResult(gate="G1", unit="1.dat", verdict="pass", metrics=(metric,))
+
+
+def test_the_trigger_is_set_where_the_first_breaks_put_the_shots_before_the_mutes() -> None:
+    # The files say the shot comes 20 ms in, the first breaks put it 15 to 19 ms earlier: every
+    # record's trigger at their median, 3 ms in, so that each mute cuts around the shot.
+    files = {"1.dat": 0.02, "2.dat": 0.02, "3.dat": 0.02}
+    early = {
+        name: _first_breaks(error)
+        for name, error in zip(files, (-0.015, -0.017, -0.019), strict=True)
+    }
+
+    trigger, (note,) = line_trigger(early, files, 0.01)
+
+    assert trigger == {"trigger": {"t0": 0.003}}
+    assert note.startswith(
+        "trigger t0 0.003 s: where the first breaks put the shots, 17 ms before their files' "
+        "trigger (the median of the 3 records G1 kept), set before the mute trial"
+    )
+    # Within G1's limit, or not measured: the files' triggers stay; never before the start.
+    assert line_trigger({"1.dat": _first_breaks(-0.004)}, files, 0.01) == ({}, ())
+    assert line_trigger({"1.dat": _first_breaks(None)}, files, 0.01) == ({}, ())
+    assert line_trigger({"1.dat": _first_breaks(-0.03)}, files, 0.01)[0] == {"trigger": {"t0": 0}}
 
 
 def test_the_mute_most_windows_pass_is_kept_the_tightest_on_a_tie() -> None:
@@ -171,6 +199,9 @@ def test_the_demo_line_is_tried_with_mutes_and_keeps_the_most_passing(
         if trial.passed == best and trial.muting is not None
     }
     assert choice.chosen == (min(widths, key=widths.__getitem__) if widths else "none")
+    # Every candidate with the shots' trigger where their first breaks put them, 18 ms before
+    # the files' 20 ms.
+    assert choice.trigger == {"t0": 0.0016}
     # The line takes it: its note among the line's changes, the records muted as it says.
     line = latest(read_attempts(run_folder), LINE, "phase_shift")
     assert line is not None

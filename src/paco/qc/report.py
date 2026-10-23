@@ -231,11 +231,12 @@ def build_report(run_id: str, run_folder: Path, budgets: Budgets, n_xmids: int) 
         if attempt.triggered_by not in ("initial", *RULES):
             if attempt.unit not in retried[attempt.triggered_by]:
                 retried[attempt.triggered_by].append(attempt.unit)
-            # Against the attempt before, or the one it replaced when it started afresh. A
+            # Against the attempt before, or the one it replaced when it started afresh (its
+            # cost, or its parameters, carried: a first attempt replaced, free, has no cost). A
             # window's first attempt at a stage starts from the run's values, whatever asked
             # it: it changes none of them.
             previous = before.get(key, attempt.replaced)
-            first = key not in before and not attempt.forgotten
+            first = key not in before and not (attempt.forgotten or attempt.replaced)
             change = {} if first else _changes(previous, attempt.parameters)
             if change:
                 changes[attempt.triggered_by].append((attempt.stage, change))

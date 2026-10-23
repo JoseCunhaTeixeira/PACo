@@ -308,7 +308,8 @@ def try_candidate(
     asked_before, asked_after = passing(asked, False), passing(asked, True)
     kept = asked_after > asked_before and after >= before
     what = _said(candidate.overrides)
-    by = f"asked by {len(candidate.windows)} windows ({candidate.flag})"
+    count = len(candidate.windows)
+    by = f"asked by {count} window{'s' if count != 1 else ''} ({candidate.flag})"
     scores = f"{after} of {len(sample)} trial windows passing G3 against {before}"
     if set(asked) != set(sample):
         scores += f", {asked_after} of the {len(asked)} asking it against {asked_before}"
@@ -379,12 +380,7 @@ def kept_on_line(result: GateResult) -> GateResult:
         else flag
         for flag in result.flags
     )
-    acted = [
-        flag
-        for flag in flags
-        if not isinstance(flag.action, Keep)
-        and not (isinstance(flag.action, Override) and flag.action.stage == "picking")
-    ]
+    acted = [flag for flag in flags if not isinstance(flag.action, Keep)]
     verdict = "pass" if not acted and result.verdict == "retry" else result.verdict
     return result.model_copy(update={"verdict": verdict, "flags": flags})
 
