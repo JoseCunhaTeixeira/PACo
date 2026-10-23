@@ -1,17 +1,17 @@
-"""S2's segments on a passive line: PACo optimizes the parameters the passive workflow has. The
-segments' length matters, set by the window's span; the FK selection shapes the dispersion image;
-the correlograms must converge. On a few trial windows of the chosen length, each candidate
-segment length (a number of times the slowest wave's crossing of the window) slices the noise,
-and each segment is whitened, normalized, tapered and correlated once, as the pipeline does,
-flipped and not; each FK selection (a velocity band and a threshold, the selection always on)
-then keeps the segments whose f-k energy is lopsided enough in the band, flipped where it runs the
-other way, and stacks them. A candidate is judged by the dispersion image its stack makes: the span of
-wavelengths its M0 pick holds (the picker's, as S3 runs it: how much of the curve, and of the
-depth, the image gives), then the pick's coherence; provided its correlograms converged (the
-virtual shots of the kept segments' two halves agree over their arrivals) and it keeps enough
-segments. The best wins when it widens the line's own span by `min_gain`; the trials are kept in
-segments.json. (G2's share of coherent columns tells nothing here: a passive line's stacked
-images come near 100 % whatever the settings.)"""
+"""S2's segments on a passive line. Their length follows the window's span: the slowest wave
+(G1's vg_min) crosses the window `segment_crossings` times in a segment, end to end
+(sized_slicing); the ladder tries each window length with its own, and the line keeps its
+length's. For segments the user gave, their FK selection is tried on a few trial windows of the
+chosen length: each segment is whitened, normalized, tapered and correlated once, as the pipeline
+does, flipped and not; each FK selection (a velocity band and a threshold, the selection always
+on) then keeps the segments whose f-k energy is lopsided enough in the band, flipped where it runs
+the other way, and stacks them. A candidate is judged by the dispersion image its stack makes:
+the span of wavelengths its M0 pick holds (the picker's, as S3 runs it: how much of the curve,
+and of the depth, the image gives), then the pick's coherence; provided its correlograms
+converged (the virtual shots of the kept segments' two halves agree over their arrivals) and it
+keeps enough segments. The best wins when it widens the line's own span by `min_gain`; the trials
+are kept in segments.json. (G2's share of coherent columns tells nothing here: a passive line's
+stacked images come near 100 % whatever the settings.)"""
 
 import json
 from collections.abc import Sequence
@@ -27,7 +27,7 @@ from sigpipe.algorithms.picking.dispersion.tracking import PickingParameters, pi
 from sigpipe.algorithms.selection.stream.fk import fk_ratio
 from sigpipe.base import DispersionImage, Stream
 from sigpipe.masw.pipelines.common import load_preprocessed, stage_kwargs
-from sigpipe.masw.presets import PassivePreset, apply_overrides, resolve_preset
+from sigpipe.masw.presets import PassivePreset
 from sigpipe.masw.profiles import Profile
 from sigpipe.masw.quality.signal import signal_windows
 from sigpipe.masw.runs.processing import GEOMETRIES, RECORDS_FOLDER
@@ -39,22 +39,24 @@ from paco.qc.g1_signal import SignalThresholds
 from paco.qc.g2_image import virtual_shot_snr
 
 SEGMENTS_FILE = "segments.json"  # the trials, in the run folder
-# The stages whose settings S2 tries on a passive line, unless the user set them.
+# A passive line's segment stages, which S2 sets (their length) or tries (their FK selection),
+# unless the user set them.
 SEGMENT_STAGES = frozenset({"slicing", "selection"})
 
 type Band = tuple[float | None, float | None]
 
 
 class SegmentRules(BaseModel):
-    """The candidates S2 tries for a passive line's segments, and how one wins, measured on
-    PAC's test lines."""
+    """A passive line's segments: their length, the FK selections S2 tries for them and how one
+    wins, measured on PAC's test lines."""
 
     model_config = ConfigDict(frozen=True, extra="forbid")
 
-    crossings: tuple[float, ...] = Field(
-        default=(10.0, 20.0, 40.0, 80.0),
-        description="The candidate segment lengths, in times the slowest wave (G1's vg_min) "
-        "takes to cross the window's receivers; the line's own length is tried too",
+    segment_crossings: float = Field(
+        default=10.0,
+        gt=0,
+        description="The segments' length, end to end, in times the slowest wave (G1's vg_min) "
+        "takes to cross the window's receivers",
     )
     thresholds: tuple[float, ...] = Field(
         default=(0.05, 0.1, 0.2, 0.3),
@@ -120,68 +122,35 @@ def choose_segments(
     exclusions: Exclusions,
     given: frozenset[str] = frozenset(),
 ) -> tuple[dict[str, object] | None, tuple[str, ...]]:
-    """The segments' length and FK selection for the line's windows (the stages of `given`, the
-    user's, left as they are), and a note of the choice: None when the line's own settings stay
-    (no candidate converged and kept enough segments with a better image), or the line cannot be
-    tried (receivers not evenly spaced, no window)."""
+    """The FK selection for the line's segments, as long as the line has them, and a note of
+    the choice: None when the line's own selection stays (no candidate converged and kept enough
+    segments with a better image), the user set it (`given`), or the line cannot be tried
+    (receivers not evenly spaced, no window)."""
     windows = [
         window
         for built in _spread(build_windows(profile, preset.masw), rules.trial_windows)
         if (window := apply_exclusions(built, exclusions, GEOMETRIES["passive"])) is not None
     ]
-    if not windows:
+    if not windows or "selection" in given:
         return None, ()
-    own = stage_kwargs(preset, "slicing")
-    own_length = round(float(own["segment_duration"]), 3)
-    own_selection = _given_selection(preset)
-    lengths = (
-        [own_length]
-        if "slicing" in given
-        else lengths_tried(own_length, windows, signal.vg_min, rules, profile)
-    )
-    selections: list[tuple[Band, float] | None] = [own_selection]
-    if "selection" not in given:
-        # The FK selection always on: its thresholds and bands tried, never none.
-        for one in ((band, t) for band in rules.bands for t in rules.thresholds):
-            if one not in selections:
-                selections.append(one)
+    length = round(float(stage_kwargs(preset, "slicing")["segment_duration"]), 3)
+    own = _given_selection(preset)
+    # The FK selection always on: its thresholds and bands tried, never none.
+    selections: list[tuple[Band, float] | None] = [own]
+    selections += [
+        one for one in ((band, t) for band in rules.bands for t in rules.thresholds) if one != own
+    ]
     stack = Stack(**stage_kwargs(preset, "stacking"))
     dispersion = Dispersion(method="phase", **stage_kwargs(preset, "dispersion"))
-    candidates: list[Candidate] = []
-    skipped: list[str] = []
-    for length in lengths:
-        try:
-            # Segments end to end (PACo's step, always its segments' length); a length the
-            # whitening's band or the records cannot take refused as sigpipe checks it. The user's
-            # own slicing, as it is.
-            sliced = (
-                preset
-                if "slicing" in given
-                else resolve_preset(
-                    apply_overrides(
-                        preset,
-                        {"slicing": {"segment_duration": length, "segment_step": length}},
-                    ),
-                    profile,
-                )
-            )
-            bands = [one[0] for one in selections if one is not None]
-            trials = [_segments(window, sliced, run_folder, bands) for window in windows]
-        except ValueError as error:  # refused by sigpipe; receivers not evenly spaced
-            skipped.append(f"{length:g} s: {error}")
-            continue
-        for chosen in selections:
-            candidates.append(_judge(trials, length, chosen, stack, dispersion, signal, picking))
-    baseline = next(
-        (
-            one
-            for one in candidates
-            if one.segment_s == own_length and _selection_of(one) == own_selection
-        ),
-        None,
-    )
-    if baseline is None:
-        return None, (f"The segments' settings not tried: {'; '.join(skipped)}.",)
+    try:
+        bands = [one[0] for one in selections if one is not None]
+        trials = [_segments(window, preset, run_folder, bands) for window in windows]
+    except ValueError as error:  # refused by sigpipe; receivers not evenly spaced
+        return None, (f"The segments' FK selection not tried: {error}.",)
+    candidates = [
+        _judge(trials, length, chosen, stack, dispersion, signal, picking) for chosen in selections
+    ]
+    baseline = candidates[0]
     valid = [
         one
         for one in candidates
@@ -216,42 +185,24 @@ def choose_segments(
             indent=2,
         ),
     )
-    span = median(_span(window) for window in windows)
-    if chosen is None:
+    if chosen is None or chosen.threshold is None:
         return None, (_kept_note(baseline, converged, rules, signal.min_fk_kept_share),)
-    changes: dict[str, object] = {}
-    if chosen.segment_s != own_length:
-        changes["slicing"] = {
-            "segment_duration": chosen.segment_s,
-            "segment_step": chosen.segment_s,
-        }
-    if _selection_of(chosen) != own_selection:
-        changes["selection"] = (
-            {"method": "none"}
-            if chosen.threshold is None
-            else {
-                "method": "fk",
-                "threshold": chosen.threshold,
-                "vmin": chosen.vmin,
-                "vmax": chosen.vmax,
-            }
-        )
-    crossings = chosen.segment_s * signal.vg_min / span if span > 0 else float("nan")
     said = (
-        f"Segments of {chosen.segment_s:g} s ({crossings:.0f} crossings of the windows' "
-        f"{span:g} m at {signal.vg_min:g} m/s)"
-        + (
-            ", no FK selection"
-            if chosen.threshold is None
-            else f", FK selection at {chosen.threshold:g} {_written(chosen.vmin, chosen.vmax)}"
-        )
-        + f": M0 picked over {chosen.wavelength_span or 0:.1f} times its shortest wavelength "
-        f"against {baseline.wavelength_span or 0:.1f} with the line's own settings"
+        f"FK selection at {chosen.threshold:g} {_written(chosen.vmin, chosen.vmax)} on the "
+        f"line's {length:g} s segments: M0 picked over {chosen.wavelength_span or 0:.1f} times "
+        f"its shortest wavelength against {baseline.wavelength_span or 0:.1f} with the line's own "
+        "selection"
         + ("" if converged else " (whose correlograms had not converged)")
         + f", correlograms converged ({chosen.convergence or 0:.2f}), "
         f"{chosen.kept_share:.0%} of the segments kept ({len(windows)} trial windows)."
     )
-    return changes, (said,)
+    selection = {
+        "method": "fk",
+        "threshold": chosen.threshold,
+        "vmin": chosen.vmin,
+        "vmax": chosen.vmax,
+    }
+    return {"selection": selection}, (said,)
 
 
 def _judge(
@@ -340,37 +291,19 @@ def halves_agreement(first: Stream, second: Stream, signal: SignalThresholds) ->
     return median(correlations) if correlations else None
 
 
-def lengths_tried(
-    own: float,
-    windows: Sequence[MASWWindow],
-    vmin: float,
-    rules: SegmentRules,
-    profile: Profile,
-) -> list[float]:
-    """The segment lengths tried: the line's own, and `rules.crossings` times the slowest wave's
-    crossing of the windows' span, within a tenth of a second (PAC's least) and the shortest
-    record."""
-    crossing = median(_span(window) for window in windows) / vmin
+def sized_slicing(
+    length: int, profile: Profile, rules: SegmentRules, vmin: float
+) -> dict[str, dict[str, float]]:
+    """Segments for windows of `length` receivers, end to end, as long as the slowest wave takes
+    to cross such a window `rules.segment_crossings` times, within a tenth of a second and the
+    shortest record."""
+    xs = sorted(receiver.x for receiver in profile.receivers)
+    spacing = float(np.median(np.diff(xs))) if len(xs) > 1 else 0.0
     shortest = min(record.duration_s for record in profile.records)
-    tried = {round(own, 3)}
-    for times in rules.crossings:
-        length = round(times * crossing, 2)
-        if 0.1 <= length <= shortest:
-            tried.add(length)
-    return sorted(tried)
-
-
-def _span(window: MASWWindow) -> float:
-    """The distance the window's receivers span, m."""
-    xs = [receiver.x for receiver in window.acquisitions[0].receivers]
-    return float(max(xs) - min(xs)) if xs else 0.0
-
-
-def _selection_of(candidate: Candidate) -> tuple[Band, float] | None:
-    """A candidate's FK selection, as `selections` lists them: None when off."""
-    if candidate.threshold is None:
-        return None
-    return (candidate.vmin, candidate.vmax), candidate.threshold
+    seconds = min(
+        max(round(rules.segment_crossings * (length - 1) * spacing / vmin, 2), 0.1), shortest
+    )
+    return {"slicing": {"segment_duration": seconds, "segment_step": seconds}}
 
 
 def _given_selection(preset: PassivePreset) -> tuple[Band, float] | None:
@@ -384,16 +317,16 @@ def _given_selection(preset: PassivePreset) -> tuple[Band, float] | None:
 def _kept_note(
     baseline: Candidate, converged: bool, rules: SegmentRules, min_kept_share: float
 ) -> str:
-    """Why the line's own segments stay (`min_kept_share`: G2's floor on the share of segments
-    the fk selection keeps, the trials' too)."""
+    """Why the line's own FK selection stays (`min_kept_share`: G2's floor on the share of
+    segments the fk selection keeps, the trials' too)."""
     span = f"{baseline.wavelength_span:.1f}" if baseline.wavelength_span is not None else "none"
     if converged:
         return (
-            f"The segments' settings kept: no candidate widened the M0 pick's span of "
-            f"wavelengths by {rules.min_gain:.0%} over the line's own ({span} times its shortest)."
+            f"The line's FK selection kept: no candidate widened the M0 pick's span of "
+            f"wavelengths by {rules.min_gain:.0%} over its own ({span} times its shortest)."
         )
     return (
-        "The segments' settings kept, though their correlograms had not converged: no candidate "
+        "The line's FK selection kept, though its correlograms had not converged: no candidate "
         f"converged keeping {min_kept_share:.0%} of the segments."
     )
 

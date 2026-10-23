@@ -24,7 +24,7 @@ from sigpipe.masw.windows import build_windows
 
 from paco import stopping
 from paco.qc.coherence import TrialJudge, receiver_spacing, trial_indices, try_windows
-from paco.qc.config import QCConfig
+from paco.qc.config import QCConfig, within_reach
 from paco.qc.positions import in_receivers
 from paco.settings import Settings
 
@@ -84,10 +84,11 @@ def compare_settings(
     config: QCConfig,
 ) -> Comparison:
     """`variants` (run_processing's overrides each: a length in metres converted) of `profile`,
-    compared on `metric` over TRIAL_WINDOWS windows each."""
+    compared on `metric` over TRIAL_WINDOWS windows each, picked as the workflow picks."""
     loaded = load_profile(profile, settings)
     folder = settings.output_dir / profile / COMPARE_FOLDER / f"{datetime.now(UTC):%Y%m%d-%H%M%S}"
-    judge = TrialJudge(config.coherence, config.curve, config.picking, config.image)
+    picking = within_reach(config).picking
+    judge = TrialJudge(config.coherence, config.curve, picking, config.image)
     spacing = receiver_spacing(loaded)
     tried: list[Variant] = []
     try:

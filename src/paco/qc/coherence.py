@@ -6,7 +6,7 @@ length for the whole line, the shortest at which most trial windows give a curve
 import json
 import math
 import shutil
-from collections.abc import Collection, Mapping, Sequence
+from collections.abc import Callable, Collection, Mapping, Sequence
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any, cast
@@ -39,9 +39,10 @@ class CoherenceRules(BaseModel):
     model_config = ConfigDict(frozen=True, extra="forbid")
 
     lengths: tuple[int, ...] = Field(
-        default=(5, 7, 9, 11),
-        description="Window lengths tried, in receivers, shortest first: short windows only, for "
-        "the lateral detail; a line where none passes takes the one that passed most.",
+        default=(5, 7, 9, 11, 13, 15, 17, 21, 25, 33, 41, 47),
+        description="Window lengths tried, in receivers, shortest first (the autonomous search's): "
+        "the shortest whose picks are precise keeps the lateral detail; a line where none passes "
+        "takes the one that passed most.",
     )
     trials: int = Field(
         default=27,
@@ -56,22 +57,19 @@ class CoherenceRules(BaseModel):
         description="Share of the trial windows G3 must pass for a length to be kept.",
     )
     max_line_share: float = Field(
-        default=0.5, gt=0, le=1, description="Longest window, as a share of the line's receivers."
+        default=0.25,
+        gt=0,
+        le=1,
+        description="Longest window, as a share of the line's receivers: a quarter, as the "
+        "autonomous search's.",
     )
     max_uncertainty: float = Field(
         default=0.2,
         gt=0,
         description="Median velocity uncertainty of the curves G3 passed at which the climb "
-        "stops: short of it, the ladder keeps the most precise length that passes. On the active test profile, 5 "
-        "receivers passed with picks at 40 %, 7 at 30 %.",
-    )
-    min_precision_gain: float = Field(
-        default=0.1,
-        ge=0,
-        lt=1,
-        description="A longer length is worth the lateral detail it costs while its picks are "
-        "this much more precise than the best so far: past it the climb stops. On PAC's test lines, "
-        "picks stay at 36 to 40 % from 7 to 11 receivers.",
+        "stops: short of it on every length, the ladder keeps the most precise length that "
+        "passes. The uncertainty is the array's resolution (sigpipe's), at most 40 %: short "
+        "windows sit at it, their picks on no ridge the window resolves.",
     )
 
 
@@ -182,21 +180,25 @@ def choose_length(
     workers: int,
     first: int | None = None,
     exclusions: Exclusions | None = None,
+    slicing: Callable[[int], Mapping[str, Any]] | None = None,
 ) -> LengthChoice:
-    """The window length, from trial windows spread along the line: up the ladder while G3
-    passes `min_pass_share` of them and each length's picks are more precise than the best so
-    far (`min_precision_gain`), the first length whose passed curves are precise
-    (`max_uncertainty`), else the most precise that passes, the shorter on a tie (the most
-    passes when none does), and one length past it for comparison; or `first`, a length given (by the user or the agent),
-    kept as it is with its trial windows' result (the ladder proposes, a length given decides).
-    A short window's picks may pass G3 yet be too loose for the inversion: precision is what
-    longer windows buy, until the line's lateral changes blur their images. Trial windows go to
+    """The window length, from trial windows spread along the line: up the ladder to the first
+    length G3 passes `min_pass_share` of whose passed curves are precise (`max_uncertainty`),
+    else the most precise that passes, the shorter on a tie (the most passes when none does),
+    and one length past it for comparison; or `first`, a length given (by the user or the
+    agent), kept as it is with its trial windows' result (the ladder proposes, a length given
+    decides). A short window's picks may pass G3 yet be too loose for the inversion: precision
+    is what longer windows buy, until the line's lateral changes blur their images. `slicing`:
+    a passive line's segments for each length, as long as the window asks. Trial windows go to
     <run_folder>/coherence/<length>/, on the run's records."""
     rules = judge.rules
     longest = max(3, int(len(profile.receivers) * rules.max_line_share))
 
     def attempt(length: int) -> LengthTrial | None:
-        return _try_length(profile, preset, records, run_folder, judge, workers, length, exclusions)
+        sliced = slicing(length) if slicing is not None else None
+        return _try_length(
+            profile, preset, records, run_folder, judge, workers, length, exclusions, sliced
+        )
 
     def passes(trial: LengthTrial) -> bool:
         return trial.passed >= math.ceil(rules.min_pass_share * len(trial.xmids))
@@ -221,15 +223,7 @@ def choose_length(
                 continue
             trials.append(trial)
             if passes(trial) and precise(trial):
-                break
-            earlier = [before for before in trials[:-1] if passes(before)]
-            if not passes(trial):
-                if earlier:
-                    break  # past the lengths that pass
-                continue
-            best = min(earlier, key=_loose, default=None)
-            if best is not None and not _gains(trial, best, rules.min_precision_gain):
-                break  # longer windows no longer buy precision: keep the lateral detail
+                break  # the shortest precise: the lateral detail kept
         if not trials:
             raise RunError("No window length gives a window with a shot: check masw's distances.")
         passing = [trial for trial in trials if passes(trial)]
@@ -278,15 +272,6 @@ def _tried(trial: LengthTrial) -> str:
     )
 
 
-def _gains(trial: LengthTrial, best: LengthTrial, gain: float) -> bool:
-    """Whether `trial`'s picks are at least `gain` more precise than `best`'s."""
-    return (
-        trial.uncertainty is not None
-        and best.uncertainty is not None
-        and trial.uncertainty <= best.uncertainty * (1 - gain)
-    )
-
-
 def _loose(trial: LengthTrial) -> float:
     """A trial's uncertainty, for sorting: unknown last."""
     return trial.uncertainty if trial.uncertainty is not None else math.inf
@@ -298,13 +283,22 @@ def read_length_choice(run_folder: Path) -> LengthChoice | None:
     return LengthChoice.model_validate_json(path.read_text()) if path.exists() else None
 
 
+def _share(longest: int, receivers: int) -> str:
+    """The longest window as a share of the line, in words: "a quarter of the line"."""
+    share = longest / receivers if receivers else 0.0
+    named = {0.25: "a quarter of the line", 0.5: "half the line"}
+    return next(
+        (said for at, said in named.items() if abs(share - at) < 0.02), f"{share:.0%} of the line"
+    )
+
+
 def describe_lengths(choice: LengthChoice) -> tuple[str, ...]:
     """The ladder's trials in words, for the agent to choose the window length from: the line,
     then each length tried with what its trial windows gave."""
     span = (choice.receivers - 1) * choice.spacing_m
     said = [
         f"line: {choice.receivers} receivers {choice.spacing_m:g} m apart ({span:.2f} m); "
-        f"windows of up to {choice.longest} receivers (half the line)"
+        f"windows of up to {choice.longest} receivers ({_share(choice.longest, choice.receivers)})"
     ]
     for trial in choice.trials:
         text = (
@@ -357,12 +351,13 @@ def _try_length(
     workers: int,
     length: int,
     exclusions: Exclusions | None = None,
+    slicing: Mapping[str, Any] | None = None,
 ) -> LengthTrial | None:
-    """S2, the picking and G3 on `trials` windows of `length` receivers spread along the line;
-    None when no window of that length has a shot."""
-    trial_preset = resolve_preset(
-        apply_overrides(preset, {"masw": {"length": length, "step": 1}}), profile
-    )
+    """S2, the picking and G3 on `trials` windows of `length` receivers spread along the line
+    (`slicing`, a passive line's segments for them); None when no window of that length has a
+    shot."""
+    changes = deep_merge({"masw": {"length": length, "step": 1}}, dict(slicing or {}))
+    trial_preset = resolve_preset(apply_overrides(preset, changes), profile)
     windows = build_windows(profile, trial_preset.masw)
     if not windows:
         return None

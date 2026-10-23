@@ -1,5 +1,5 @@
-"""S2's segments on a passive line: their length, set by the window's span, and the FK selection,
-judged by the M0 pick their images give, the correlograms converged."""
+"""S2's segments on a passive line: their length, set by the window's span, and their FK
+selection, judged by the M0 pick their images give, the correlograms converged."""
 
 import json
 from pathlib import Path
@@ -23,35 +23,36 @@ SAMPLING = 500.0
 
 
 @pytest.mark.slow
-def test_the_demos_passive_line_takes_longer_segments(
+def test_the_demos_passive_line_tries_the_fk_selection_of_its_segments(
     profiles: dict[str, Profile], tmp_path: Path
 ) -> None:
-    # passive_test_profile's windows span 34.5 m, crossed in 0.43 s at 80 m/s: 4.31 s segments (ten
-    # crossings) with the FK selection at 0.05 give an M0 pick over 4.3 times its shortest
-    # wavelength, 77 % of the segments kept and the correlograms converged (0.72), against 1.0
-    # with the defaults (1 s, FK at 0.2), whose correlograms do not converge (0.56).
+    # passive_test_profile's windows span 34.5 m, crossed in 0.43 s at 80 m/s: segments of ten
+    # crossings, 4.31 s, as the ladder sizes them. Their FK selection at 0.05 gives an M0 pick over
+    # 4.3 times its shortest wavelength, 77 % of the segments kept and the correlograms converged
+    # (0.72), against 3.9 with the line's own (0.2), whose correlograms do not converge (0.41).
     profile = profiles["passive_test_profile"]
-    preset = resolve_preset(make_preset("passive", WINDOWS), profile)
-    preprocess_records(preset, profile, tmp_path, workers=1)
     rules = SegmentRules()
+    sized = segments.sized_slicing(24, profile, rules, 80.0)
+    preset = resolve_preset(make_preset("passive", {**WINDOWS, **sized}), profile)
+    preprocess_records(preset, profile, tmp_path, workers=1)
 
     changes, notes = choose_segments(
         profile, preset, tmp_path, rules, SignalThresholds(), PickingParameters(), Exclusions()
     )
 
-    assert changes == {
-        "slicing": {"segment_duration": 4.31, "segment_step": 4.31},
-        "selection": {"method": "fk", "threshold": 0.05, "vmin": None, "vmax": None},
-    }
+    assert changes == {"selection": {"method": "fk", "threshold": 0.05, "vmin": None, "vmax": None}}
     (note,) = notes
-    assert note.startswith("Segments of 4.31 s (10 crossings of the windows' 34.5 m at 80 m/s)")
+    assert note.startswith(
+        "FK selection at 0.05 at any velocity on the line's 4.31 s segments: M0 picked over 4.3 "
+        "times its shortest wavelength against 3.9 with the line's own selection"
+    )
     trials = json.loads((tmp_path / SEGMENTS_FILE).read_text())
-    # The FK selection always on: every band and threshold tried, the line's own among them.
-    selections = len(rules.bands) * len(rules.thresholds)
-    lengths = {one["segment_s"] for one in trials["candidates"]}
-    assert len(trials["candidates"]) == len(lengths) * selections
+    # The FK selection always on: every band and threshold tried, the line's own among them, on
+    # the line's segments.
+    assert len(trials["candidates"]) == len(rules.bands) * len(rules.thresholds)
+    assert {one["segment_s"] for one in trials["candidates"]} == {4.31}
     assert trials["chosen"]["convergence"] >= rules.min_convergence
-    # The user's own settings stay as they are.
+    # The user's own selection stays as it is.
     kept, _ = choose_segments(
         profile, preset, tmp_path, rules, SignalThresholds(), PickingParameters(),
         Exclusions(), frozenset({"slicing", "selection"}),
@@ -86,14 +87,17 @@ def test_converged_halves_agree_over_their_arrivals() -> None:
     assert noisy is not None and abs(noisy) < 0.3
 
 
-def test_the_lengths_tried_are_crossings_of_the_window() -> None:
-    # A 5.75 m window at 80 m/s: 72 ms a crossing; 10, 20, 40 and 80 of them, the line's own 2 s
-    # too, within 0.1 s and the shortest record (3 s here: 5.75 s left out).
-    window = SimpleNamespace(
-        acquisitions=[SimpleNamespace(receivers=[SimpleNamespace(x=0.0), SimpleNamespace(x=5.75)])]
+def test_the_length_trial_slices_each_length_as_its_window_asks() -> None:
+    # 15 receivers 1.5 m apart, 21 m: at 80 m/s ten crossings make 2.62 s; 61 receivers would ask
+    # 11.25 s, held to the shortest record's 10 s.
+    profile = SimpleNamespace(
+        receivers=[SimpleNamespace(x=1.5 * k) for k in range(96)],
+        records=[SimpleNamespace(duration_s=10.0)],
     )
-    profile = SimpleNamespace(records=[SimpleNamespace(duration_s=3.0)])
 
-    lengths = segments.lengths_tried(2.0, [window], 80.0, SegmentRules(), profile)  # pyright: ignore[reportArgumentType]
+    def seconds(length: int) -> object:
+        sliced = segments.sized_slicing(length, profile, SegmentRules(), 80.0)  # pyright: ignore[reportArgumentType]
+        return sliced["slicing"]
 
-    assert lengths == [0.72, 1.44, 2.0, 2.88]
+    assert seconds(15) == {"segment_duration": 2.62, "segment_step": 2.62}
+    assert seconds(61) == {"segment_duration": 10.0, "segment_step": 10.0}

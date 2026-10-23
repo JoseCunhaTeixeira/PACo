@@ -96,6 +96,7 @@ from paco.qc import (
 )
 from paco.qc.budgets import refused
 from paco.qc.coherence import COHERENCE_FILE
+from paco.qc.config import within_reach
 from paco.qc.log import JUDGED
 from paco.qc.models import Flag, GateResult, Override
 from paco.settings import CACHE_FOLDER, Settings
@@ -552,10 +553,10 @@ def test_nothing_redone_reads_the_attempts_made_during_the_conversation(tmp_path
 
 def test_thresholds_must_stay_the_configurations(tmp_path: Path, paco_env: Settings) -> None:
     # The server's configuration as its environment gives it (paco_env's), not whatever the
-    # machine running the tests sets.
+    # machine running the tests sets, as the workflow records it (its picks within the reach).
     run = tmp_path / "active_test_profile" / "20260924-100000-abcd"
     run.mkdir(parents=True)
-    snapshot_qc_config(load_qc_config(paco_env.qc_config), run)
+    snapshot_qc_config(within_reach(load_qc_config(paco_env.qc_config)), run)
     trial = _trial([], "", tmp_path)
 
     assert thresholds_unchanged()(trial).passed
@@ -565,7 +566,7 @@ def test_thresholds_must_stay_the_configurations(tmp_path: Path, paco_env: Setti
     # A play given its own configuration (quick inversions'): its runs are held to that one.
     quick = tmp_path / "quick_qc.json"
     quick.write_text(json.dumps({"model": QUICK_MODEL}))
-    snapshot_qc_config(load_qc_config(quick), run)
+    snapshot_qc_config(within_reach(load_qc_config(quick)), run)
     assert not thresholds_unchanged()(trial).passed
     assert thresholds_unchanged()(Trial(trial.transcript, tmp_path, quick)).passed
 

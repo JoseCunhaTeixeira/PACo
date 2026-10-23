@@ -74,10 +74,11 @@ phase velocity v and frequency f.
   first, since short windows pass with loose picks. On active_p2 (dx 1.5 m), trial windows
   passing of 27 and their median uncertainty: 5 receivers 25 at 40 %, 7 receivers 24 at 30 %, 11
   receivers 23 at 26 %, 16 receivers 13 at 18 %, 24 receivers 13 at 9 %, 48 receivers 15 at 5 %.
-- PACo's ladder (advise window_length) tries 5, 7, 9 and 11 receivers on 27 windows spread along
-  the line: it climbs while 80 % pass and the uncertainty improves by 10 %, and stops at the first
-  length passing with 20 % or less. It favours short windows; where the objective asks depth, a
-  longer window is the hypothesis to test against it.
+- PACo's ladder (advise window_length) tries the search's lengths up to a quarter of the line on
+  27 windows spread along the line, its picks stopping at 3·L, a passive line's with segments of
+  10 crossings of each window at 80 m/s: it stops at the first length 80 % pass with 20 % or less,
+  else keeps the most precise that passes. It favours short windows; where the objective asks
+  depth, a longer window is the hypothesis to test against it.
 - Choose the length by the images: the one whose images are cleanest (by eye, one ridge unbroken
   over the widest band; lateral coherence near 1), its curves serving the objective. A target
   depth z needs λmax near 2·z, so L of at least 2·z/3 (λmax within 3·L), but only as far as the
@@ -209,11 +210,12 @@ phase velocity v and frequency f.
   noisier image: they are not more data. Short segments work best, the user finds: 1 s or less, by
   the window's length and the waves' velocities, long enough for the slowest wave to cross the
   window a few times; the grid tries 2 to 16 crossings at the slowest group velocity. advise
-  segments gives PACo's trial (a few minutes): lengths of 10 to 80 crossings of the window at
-  80 m/s, FK thresholds of 0.05 to 0.3 with no band or 80 to 1,500 m/s; a candidate counts with 1 %
-  of its segments kept and the virtual shots of its two halves agreeing (0.7), and wins by the
-  longest λmax/λmin. On passive_p2, 4.5 s segments with FK 0.2 in 80 to 1,500 m/s gave a span of 7.8
-  against 3.1.
+  segments gives PACo's: 10 crossings of the window at 80 m/s, as its ladder sizes them; for
+  segments the line's settings give, its FK selection trial (a few minutes): thresholds of 0.05 to
+  0.3 with no band or 80 to 1,500 m/s, a candidate counting with 1 % of its segments kept and the
+  virtual shots of its two halves agreeing (0.7), the longest λmax/λmin winning. On passive_p2 at
+  13 receivers its 2.25 s segments passed G3 on 80 of 84 windows; 4.5 s with FK 0.1 in 80 to
+  1,500 m/s, the best of a trial on three windows, passed 51.
 - On a passive line the settings follow PAC's page: the windows' length, by the wavelengths they
   must resolve (as on an active line); the preprocessing, a filter at most (no mute); then the
   interferometry in its order: the slicing (the segments' length, long enough for the slowest waves
@@ -285,21 +287,23 @@ phase velocity v and frequency f.
 - The workflow's order: the user's settings locked; the cone, the reach and G1 on the records;
   then PAC's page in its order: the windows (the farthest shot at the reach, the length by the
   ladder, the near field from that length's curves), the preprocessing (the mute trial at that
-  length), the interferometry (a passive line's segment trial), the dispersion image (the band
-  capped at the usable band); then the line loop: the changes the gates ask of the records and images (a mute, a trigger, a velocity
-  grid), each tried on 15 windows, half asking, and kept with 2 more passing and at most 20 % of
-  λmax lost, 4 at most; then each window's picks, G3's retries and G4's guide.
-- Its scores count G3's passes alone, so it keeps short windows with loose picks, and a tie goes
-  to the less cutting change. On active_p2 in passive-active it covers 86 of 86 windows, with its
-  curves at the 40 % uncertainty cap and half their points beyond the windows' reach.
+  length), the interferometry (a passive line's segments, sized with its length), the dispersion
+  image (the band capped at the usable band); then the line loop: the changes the gates ask of
+  the records and images (a mute, a trigger, a velocity grid), each tried on 15 windows, half
+  asking, and kept with 2 more passing and at most 20 % of λmax lost, 4 at most; then each
+  window's picks, stopping at 3·L, G3's retries and G4's guide.
+- Its scores count G3's passes alone, and a tie goes to the less cutting change. On active_p2 in
+  passive-active it covers 86 of 86 windows at 11 receivers, its picks at a median uncertainty of
+  23 %.
 - Where you can do better: a longer length where the images stay as clean (its ladder stops at
-  11 receivers); a mute kept on a tie when it lengthens the curves within reach; a mute cutting one
-  side only; the near field from each window's own λmax within its reach; nearer shots for the
-  high frequencies (its distance_max is the reach); on a passive line, segment lengths and FK
-  bands between its candidates; on a passive or passive-active line, the whitening, the
-  normalization and the stacking's nu, which it leaves at the preset's; a score weighing coverage
-  and depth within reach together, as the scorecard does. The grid tries them; advise gives
-  PACo's choice, to compare with yours on the same windows.
+  the first length within 20 %: 11 receivers on active_p2); a mute kept on a tie when it lengthens
+  the curves within reach; a mute cutting one side only; the near field from each window's own
+  λmax within its reach; nearer shots for the high frequencies (its distance_max is the reach); on
+  a passive line, segment lengths other than its 10 crossings, and FK bands between its
+  candidates; on a passive or passive-active line, the whitening, the normalization and the
+  stacking's nu, which it leaves at the preset's; a score weighing coverage and depth within reach
+  together, as the scorecard does. The grid tries them; advise gives PACo's choice, to compare
+  with yours on the same windows.
 
 ## Diagnosis
 

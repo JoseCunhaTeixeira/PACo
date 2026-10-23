@@ -4,23 +4,25 @@ PAC's pages. S1 on every record, G1 judging each (the traces and records it excl
 the windows), G1 over the line (the receivers off the amplitude decay in most records left out
 of every window); then the settings in the order of PAC's page: the windows (the shots stacked
 up to the line's reach, the length from the ladder, the near field from its curves), the
-preprocessing (the mute trial), the interferometry (a passive line's segment trial), the
-dispersion image (its band capped by G1's usable band); S2 on the whole line, G2 on every
-window, and the line loop (qc.line_loop): the changes of the records or the images the gates
-ask, tried for the line and kept when more windows get a curve G3 passes, the whole line made
-again with each. What run_processing runs; the picking and G3, G4 are pick's, each window's
-own."""
+preprocessing (the mute trial), the interferometry (a passive line's segments, as long as its
+windows ask), the dispersion image (its band capped by G1's usable band); S2 on the whole line,
+G2 on every window, and the line loop (qc.line_loop): the changes of the records or the images
+the gates ask, tried for the line and kept when more windows get a curve G3 passes, the whole
+line made again with each. What run_processing runs; the picking and G3, G4 are pick's, each
+window's own. Its picks stop at the window's reach (qc.config.within_reach)."""
 
 import shutil
 import statistics
 from collections.abc import Mapping
 from dataclasses import dataclass, replace
 from datetime import UTC, datetime
+from functools import partial
 from pathlib import Path
 from typing import Any, cast
 
 import numpy as np
 from sigpipe.masw.pipelines import PREPROCESSED, record_folder
+from sigpipe.masw.pipelines.common import stage_kwargs
 from sigpipe.masw.presets import (
     ActivePreset,
     PassivePreset,
@@ -55,7 +57,7 @@ from paco.qc.coherence import (
     near_note,
     receiver_spacing,
 )
-from paco.qc.config import QCConfig, snapshot_qc_config
+from paco.qc.config import QCConfig, snapshot_qc_config, within_reach
 from paco.qc.g1_signal import (
     SPECTRA_MODES,
     judge_fast_arrivals,
@@ -108,7 +110,7 @@ from paco.qc.muting import (
 from paco.qc.origin import run_work
 from paco.qc.report import QCReport, build_report, write_report
 from paco.qc.rerun import line_windows, rerun_phase_shift
-from paco.qc.segments import SEGMENT_STAGES, choose_segments
+from paco.qc.segments import SEGMENT_STAGES, choose_segments, sized_slicing
 from paco.qc.shots import (
     file_triggers,
     muted_records,
@@ -173,6 +175,8 @@ def _process(
 ) -> QCReport:
     """process_line's work, in the new run `run_folder`."""
     mode = (overrides or {}).get("mode", loaded.kind)
+    # The workflow's picks, the trials' and the line's, stop at the window's reach.
+    config = within_reach(config)
     snapshot_qc_config(config, run_folder)
     # The user's settings, locked before any gate judges (qc.given).
     give(run_folder, "processing", overrides)
@@ -201,6 +205,13 @@ def _process(
     # near field), the preprocessing (the mute), the interferometry (a passive line's segments),
     # then the dispersion image (its band).
     far, far_notes = far_limit(overrides, reach, config.signal.reach_snr_db)
+    # A passive line's lengths each tried with segments as long as its windows ask, the user's
+    # left as they are: longer windows need longer segments.
+    sized = (
+        partial(sized_slicing, profile=loaded, rules=config.segments, vmin=config.signal.vg_min)
+        if str(mode) == "passive" and "slicing" not in (overrides or {})
+        else None
+    )
     choice = choose_length(
         loaded,
         resolve_preset(apply_overrides(preset, far), loaded),
@@ -210,8 +221,12 @@ def _process(
         settings.workers,
         given_length(overrides),
         exclusions,
+        sized,
     )
     changes: dict[str, Any] = deep_merge(far, {"masw": {"length": choice.length}})
+    # A passive line keeps the segments its length was chosen with.
+    if sized is not None:
+        changes = deep_merge(changes, sized(choice.length))
     preset = resolve_preset(apply_overrides(preset, changes), loaded)
     near, longest = near_field(overrides, str(mode), choice)
     # The mute trial at the line's length: a mute kept changes the images, never the windows;
@@ -241,11 +256,18 @@ def _process(
             records, exclusions, usable = settle_records(
                 run_folder, loaded, preset, records, config, reach
             )
-    # A passive line's segments, their length and FK selection tried on a few windows, those the
-    # user set left as they are: PACo optimizes the parameters the passive workflow has.
+    # A passive line's segments: those its length was chosen with; the user's given, their FK
+    # selection tried on a few windows, unless the user set it too.
     segment_notes: tuple[str, ...] = ()
     given = frozenset(overrides or {}) & SEGMENT_STAGES
-    if str(mode) == "passive" and given != SEGMENT_STAGES:
+    if sized is not None:
+        seconds = stage_kwargs(preset, "slicing")["segment_duration"]
+        segment_notes = (
+            f"slicing segment_duration {seconds:g} s: the segments the window length was chosen "
+            f"with, {config.segments.segment_crossings:g} crossings of the window by the slowest wave "
+            f"({config.signal.vg_min:g} m/s)",
+        )
+    elif str(mode) == "passive" and given != SEGMENT_STAGES:
         picked, segment_notes = choose_segments(
             loaded, preset, run_folder, config.segments, config.signal, config.picking,
             exclusions, given,

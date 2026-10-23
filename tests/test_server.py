@@ -331,7 +331,8 @@ def test_the_workflow_process_pick_redo_invert() -> None:
     assert len(changed) == 2
     # The lengths the ladder tried, for the agent to choose from: the user's only, here.
     assert done["lengths"] == [
-        "line: 96 receivers 1.5 m apart (142.50 m); windows of up to 48 receivers (half the line)",
+        "line: 96 receivers 1.5 m apart (142.50 m); windows of up to 24 receivers (a quarter of "
+        "the line)",
         "24 receivers (34.50 m): 14/27 trial windows passed G3, wavelengths 6.5-15.5 m (models "
         "down to about 7.8 m), picks within 6%, 4 windows on the line (proposed)",
     ]

@@ -1,12 +1,13 @@
-"""advise: today's automatic choices, as PACo's workflow would make them,
-given as a second opinion with their evidence and never applied: the ladder's window length, the
-mute trial's muting (a line with shots), the segment trial's segments and FK selection (a passive
-line), the line loop's changes of the line's settings, and G3's changes of each window's picking.
-What to do stays the model's."""
+"""advise: today's automatic choices, as PACo's workflow would make them, its picks within the
+window's reach, given as a second opinion with their evidence and never applied: the ladder's
+window length, the mute trial's muting (a line with shots), a passive line's segments (as long as
+its windows ask; the FK selection tried for segments given), the line loop's changes of the
+line's settings, and G3's changes of each window's picking. What to do stays the model's."""
 
 import hashlib
 import json
 from collections.abc import Mapping, Sequence
+from functools import partial
 from pathlib import Path
 from typing import Any, Literal
 
@@ -26,14 +27,14 @@ from paco.autonomous.tools.trials import (
     with_records,
 )
 from paco.qc.coherence import TrialJudge, choose_length, describe_lengths
-from paco.qc.config import QCConfig
+from paco.qc.config import QCConfig, within_reach
 from paco.qc.line_loop import candidates
 from paco.qc.log import latest, read_attempts
 from paco.qc.loops import deep_merge
 from paco.qc.models import Attempt, GateResult, Override, Stage
 from paco.qc.muting import choose_mute, describe_mutes, estimate_cone, mutable
 from paco.qc.report import stretches, xmid_of
-from paco.qc.segments import SEGMENT_STAGES, choose_segments
+from paco.qc.segments import SEGMENT_STAGES, choose_segments, sized_slicing
 from paco.settings import Settings
 
 type Topic = Literal["window_length", "mute", "segments", "line_changes", "picking", "inversion"]
@@ -43,7 +44,7 @@ NO_MUTE = (
     "selection, the whitening and the stacking (advise segments)."
 )
 NO_SEGMENTS = (
-    "PACo's segment trial is a passive line's: this line's windows stack its shots (the "
+    "PACo's segments are a passive line's: this line's windows stack its shots (the "
     "passive-active mode correlates them, without segments)."
 )
 ADVICE = "advice"  # in the study's folder: one folder a topic and settings
@@ -86,9 +87,9 @@ def _trial(
     settings: Settings,
     config: QCConfig,
 ) -> str:
-    """The ladder's, the mute trial's or the segment trial's outcome, made once for these
-    settings, the user's among them. Without a window length, the mute trial runs at the one the
-    ladder chooses, as the workflow orders them."""
+    """The ladder's, the mute trial's or the segments' outcome, made once for these settings,
+    the user's among them, picked as the workflow picks. Without a window length, the mute trial
+    runs at the one the ladder chooses, as the workflow orders them."""
     user = given_of(study)
     current = with_line(current, user)
     laddered = topic == "mute" and "length" not in (current.get("masw") or {})
@@ -101,11 +102,20 @@ def _trial(
     if saved.exists() and (topic != "window_length" or (folder / LENGTH).exists()):
         return saved.read_text()
     profile = load_profile(study.profile, settings)
-    trial = concrete(current, profile, config, survey_reach(study))
+    trial = concrete(current, profile, within_reach(config), survey_reach(study))
     if topic == "mute" and not mutable(trial.preset):
         return NO_MUTE
     if topic == "segments" and trial.preset.mode != "passive":
         return NO_SEGMENTS
+    # A passive line's segments as long as its windows ask, as the workflow sizes them, unless
+    # the line's settings give them.
+    sized = (
+        partial(sized_slicing, profile=profile, rules=config.segments, vmin=config.signal.vg_min)
+        if trial.preset.mode == "passive" and "slicing" not in current
+        else None
+    )
+    if topic == "segments" and sized is not None:
+        return _sized(sized(trial.preset.masw.length), trial.preset.masw.length, config)
     records, _ = with_records(study, folder, trial.preset, profile, settings, config)
     cone = fast_cone(profile, trial.preset, config)
     exclusions, _, _ = settled(folder, profile, trial.preset, records, config, cone, study)
@@ -120,6 +130,7 @@ def _trial(
             settings.workers,
             None,
             exclusions,
+            sized,
         )
         said = [
             "PACo's ladder, on trial windows spread along the line (not applied):",
@@ -128,7 +139,7 @@ def _trial(
         ]
         write_atomic(folder / LENGTH, str(choice.length))
     elif topic == "segments":
-        # The stages of the trial the user gave stay as they gave them.
+        # The line's segments kept, their FK selection tried unless the user gave it.
         picked, notes = choose_segments(
             profile,
             trial.preset,
@@ -140,7 +151,7 @@ def _trial(
             frozenset(user.line) & SEGMENT_STAGES,
         )
         said = [
-            "PACo's segment trial, on trial windows spread along the line (not applied):",
+            "PACo's FK selection trial, on trial windows spread along the line (not applied):",
             *notes,
             f"It would keep: {json.dumps(picked)}."
             if picked is not None
@@ -278,6 +289,18 @@ def _where(units: Sequence[str]) -> str:
     """The windows `units` names, as stretches of xmids."""
     xmids = [xmid for unit in units if (xmid := xmid_of(unit)) is not None]
     return stretches(xmids) if xmids else ", ".join(units)
+
+
+def _sized(made: Mapping[str, Mapping[str, float]], length: int, config: QCConfig) -> str:
+    """PACo's segments for a passive line's windows of `length` receivers, sized as its ladder
+    tries them, with no trial."""
+    return (
+        f"PACo's segments for windows of {length} receivers (not applied): "
+        f"{made['slicing']['segment_duration']:g} s end to end, "
+        f"{config.segments.segment_crossings:g} crossings of the window by the slowest wave "
+        f"({config.signal.vg_min:g} m/s), as its ladder tried that length; the FK selection the "
+        f"line's own.\nIt would keep: {json.dumps(made)}."
+    )
 
 
 def _key(current: Mapping[str, Any]) -> str:

@@ -14,7 +14,7 @@ from paco.qc.models import GateResult, Kept, Metric
 # an end). The window at 53.25 m holds one point, under twice the receiver spacing.
 LINE = {
     17.25: (11.0, 15.0, 0.0, 0.0, 0.75 / 7.5, 0.079, True),
-    53.25: (1.72603, 1.72603, 0.0, 1.0, 0.75 / 0.86, 0.119, True),  # half its wavelength, rounded
+    53.25: (1.72603, 1.72603, 0.0, 1.0, 0.75 / (1.72603 / 2), 0.119, True),
     89.25: (8.0, 16.0, 0.0, 0.0, 0.75 / 8, 0.073, True),
     125.25: (9.0, 13.0, 0.0, 0.0, 0.75 / 6.5, 0.067, True),
 }
@@ -32,7 +32,7 @@ def test_each_curves_checks_on_the_line(judged_line: JudgedLine) -> None:
         assert check.depth_m == pytest.approx(longest / 2, abs=1e-5)
         assert check.span == pytest.approx(longest / shortest, abs=1e-5)
         assert (check.beyond, check.aliased, check.uncertainty) == (beyond, aliased, uncertainty)
-        assert check.nearest_shot == pytest.approx(nearest)
+        assert check.nearest_shot == pytest.approx(nearest, abs=1e-5)
         assert check.in_near_field == near
 
 

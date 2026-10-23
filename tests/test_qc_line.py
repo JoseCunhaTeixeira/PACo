@@ -9,6 +9,7 @@ from typing import Any, cast
 
 import pytest
 from sigpipe.algorithms.picking.dispersion.tracking import PickingParameters
+from sigpipe.masw.pipelines.common import stage_kwargs
 from sigpipe.masw.presets import make_preset
 from sigpipe.masw.profiles import Profile
 from sigpipe.masw.runs import find_run, load_manifest
@@ -30,10 +31,16 @@ from paco.qc.coherence import (
 from paco.qc.g3_curve import CurveThresholds
 from paco.qc.line import process_line
 from paco.qc.report import QCReport
+from paco.qc.segments import SEGMENTS_FILE
 from paco.settings import Settings
 
-# Three rungs and three trial windows: the ladder of the test line in a few seconds.
-QUICK = QCConfig(coherence=CoherenceRules(lengths=(5, 24, 32), trials=3, min_pass_share=2 / 3))
+# Three rungs and three trial windows, up to half the line: the ladder of the test line in a few
+# seconds.
+QUICK = QCConfig(
+    coherence=CoherenceRules(
+        lengths=(5, 24, 32), trials=3, min_pass_share=2 / 3, max_line_share=0.5
+    )
+)
 
 
 def test_the_band_is_capped_by_the_records_and_nyquist_never_widened() -> None:
@@ -64,11 +71,11 @@ def test_the_band_is_capped_by_the_records_and_nyquist_never_widened() -> None:
 
 
 def test_the_ladder_defaults_to_27_trials_and_four_fifths() -> None:
-    # 80 % of the trials, 27 of them over the whole line, short lengths only: a line where none
-    # passes takes the one that passed most.
+    # 80 % of the trials, 27 of them over the whole line, the autonomous search's lengths up to a
+    # quarter of the line: a line where none passes takes the one that passed most.
     rules = CoherenceRules()
-    assert (rules.trials, rules.min_pass_share) == (27, 0.8)
-    assert rules.lengths == (5, 7, 9, 11)
+    assert (rules.trials, rules.min_pass_share, rules.max_line_share) == (27, 0.8, 0.25)
+    assert rules.lengths == (5, 7, 9, 11, 13, 15, 17, 21, 25, 33, 41, 47)
 
 
 def test_the_trial_windows_cover_the_whole_line() -> None:
@@ -235,11 +242,11 @@ def test_an_active_profile_is_processed_passive_active(
         assert (folder / "DispersionImage_0000.hdf5").exists()
 
 
-def test_the_ladder_stops_where_longer_windows_buy_no_precision(
+def test_the_ladder_climbs_while_its_picks_are_loose(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    # The test line, measured: picks at 36 to 40 % from 7 to 32 receivers, and only half the line
-    # did better. Most precise at any cost would have kept 48, no lateral detail left.
+    # Picks at the array's 40 % on short windows, no length more precise than the one before:
+    # the climb goes on to a quarter of the line, 24 receivers, not to 48.
     passes = {5: 1, 7: 3, 9: 3, 16: 3, 48: 3}
     uncertainties = {5: 0.37, 7: 0.39, 9: 0.4, 16: 0.36, 48: 0.27}
 
@@ -264,12 +271,13 @@ def test_the_ladder_stops_where_longer_windows_buy_no_precision(
 
     choice = choose_length(line, make_preset("active", None), (), tmp_path, judge, 1)
 
-    # 9 is no more precise than 7: the climb stops there, 7 kept, 9 to compare.
-    assert choice.length == 7
+    # None within 20 %: the most precise that passed, 16, every length up to it tried.
+    assert choice.length == 16
     assert [(trial.length, trial.compared) for trial in choice.trials] == [
         (5, False),
         (7, False),
-        (9, True),
+        (9, False),
+        (16, False),
     ]
 
 
@@ -360,7 +368,7 @@ def test_the_ladder_keeps_the_best_proposes_the_shortest_and_keeps_what_is_given
 
     monkeypatch.setattr(coherence, "_try_length", tried)
     line = cast(
-        Profile, SimpleNamespace(receivers=[SimpleNamespace(x=0.25 * k) for k in range(48)])
+        Profile, SimpleNamespace(receivers=[SimpleNamespace(x=0.25 * k) for k in range(96)])
     )
 
     def choose(lengths: tuple[int, ...], first: int | None = None) -> LengthChoice:
@@ -373,13 +381,13 @@ def test_the_ladder_keeps_the_best_proposes_the_shortest_and_keeps_what_is_given
     assert [trial.length for trial in choose((5, 7, 24)).trials] == [5, 7, 24]
     assert choose((5, 7, 24)).length == 24
     assert choose((5, 7)).length == 5
-    # Up the ladder while lengths pass, to the first whose passed picks are within 20 %; one
-    # length more is tried to compare.
+    # Up the ladder to the first length that passes with picks within 20 %; one length more is
+    # tried to compare.
     precise = choose((5, 7, 9, 11, 16, 24))
     assert precise.length == 16
     assert [trial.compared for trial in precise.trials] == [False] * 5 + [True]
-    # The lengths stop passing before any is that precise: the most precise that passed, the
-    # length that failed there to compare.
+    # None passes that precise: the most precise that passed, the longer lengths tried kept to
+    # compare.
     loose = choose((5, 7, 9, 11, 24))
     assert loose.length == 11
     assert [trial.length for trial in loose.trials] == [5, 7, 9, 11, 24]
@@ -387,3 +395,58 @@ def test_the_ladder_keeps_the_best_proposes_the_shortest_and_keeps_what_is_given
     # A length given is kept, alone, whatever it gives.
     assert [trial.length for trial in choose((5, 7, 9), first=7).trials] == [7]
     assert choose((5, 7, 9), first=7).length == 7
+
+
+def test_a_passive_ladder_slices_each_length_as_asked(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    sliced: dict[int, object] = {}
+
+    def tried(*args: Any) -> LengthTrial:  # noqa: ANN401
+        length = cast(int, args[6])
+        sliced[length] = args[8]
+        return LengthTrial(length=length, xmids=(1.0,), verdicts=("retry",), flags=(), passed=0)
+
+    monkeypatch.setattr(coherence, "_try_length", tried)
+    line = cast(
+        Profile, SimpleNamespace(receivers=[SimpleNamespace(x=0.25 * k) for k in range(96)])
+    )
+    judge = TrialJudge(
+        CoherenceRules(lengths=(5, 9), trials=1), CurveThresholds(), PickingParameters()
+    )
+
+    choose_length(
+        line, make_preset("passive", None), (), tmp_path, judge, 1, None, None,
+        lambda length: {"slicing": {"segment_duration": length / 10}},
+    )  # fmt: skip
+
+    # Each length its own segments, as the window asks.
+    assert sliced == {
+        5: {"slicing": {"segment_duration": 0.5}},
+        9: {"slicing": {"segment_duration": 0.9}},
+    }
+
+
+@pytest.mark.slow
+def test_a_passive_line_keeps_the_segments_its_length_was_tried_with(
+    demo_input_dir: Path, tmp_path: Path
+) -> None:
+    # One rung, 24 receivers 1.5 m apart (34.5 m): ten crossings at 80 m/s make 4.31 s segments.
+    config = QCConfig(coherence=CoherenceRules(lengths=(24,), trials=3))
+    settings = Settings(input_dir=demo_input_dir, output_dir=tmp_path / "outputs", workers=2)
+    with pytest.MonkeyPatch.context() as patch:
+        patch.chdir(tmp_path)
+        report = process_line("passive_test_profile", {"masw": {"step": 24}}, settings, config)
+
+    run_folder = find_run(report.run_id, settings)
+    sliced = stage_kwargs(load_manifest(report.run_id, settings).preset, "slicing")
+    assert (sliced["segment_duration"], sliced["segment_step"]) == (4.31, 4.31)
+    line = latest(read_attempts(run_folder), "line", "phase_shift")
+    assert line is not None
+    assert line.parameters["slicing"] == {"segment_duration": 4.31, "segment_step": 4.31}
+    assert (
+        "slicing segment_duration 4.31 s: the segments the window length was chosen with, 10 "
+        "crossings of the window by the slowest wave (80 m/s)"
+    ) in line.notes
+    # No segments trial: the length's own segments are the line's.
+    assert not (run_folder / SEGMENTS_FILE).exists()

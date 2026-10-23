@@ -1,7 +1,7 @@
 """Passive and passive-active lines: a passive line surveyed for its
 records of noise, its levers tried (the segments, the FK selection) with G2 on their correlations,
 committed, read on the card and in the report, looked at, and decided without G3's near-field note
-(its windows' virtual source is their first receiver); PACo's segment trial as advice; and the
+(its windows' virtual source is their first receiver); PACo's segments as advice; and the
 passive-active mode of an active line, a mode change a new run, the user's mode kept. On PAC's test
 profiles: the first 2 of the passive one's records of 120 s, on the active one's 96 receivers, and
 the active one's 25 shots."""
@@ -186,21 +186,27 @@ def test_g3_raises_no_near_field_note_on_a_passive_window(passive: Passive) -> N
 
 @pytest.mark.slow
 def test_advise_on_a_passive_line(passive: Passive) -> None:
-    # One length and one threshold, on one window: PACo's trial in seconds.
+    # One threshold, on one window: PACo's FK selection trial in seconds.
     quick = QCConfig.model_validate(
-        {
-            "segments": {
-                "crossings": [10],
-                "thresholds": [0.2],
-                "bands": [[None, None]],
-                "trial_windows": 1,
-            }
-        }
+        {"segments": {"thresholds": [0.2], "bands": [[None, None]], "trial_windows": 1}}
     )
 
     assert advise(passive.study, "mute", LINE, passive.settings, quick) == NO_MUTE
-    said = advise(passive.study, "segments", LINE, passive.settings, quick).splitlines()
-    assert said[0] == "PACo's segment trial, on trial windows spread along the line (not applied):"
+    # Segments as long as the line's windows ask, as its ladder tries them: 24 receivers 1.5 m
+    # apart, ten crossings at 80 m/s.
+    sized = advise(passive.study, "segments", LINE, passive.settings, quick).splitlines()
+    assert sized == [
+        "PACo's segments for windows of 24 receivers (not applied): 4.31 s end to end, 10 "
+        "crossings of the window by the slowest wave (80 m/s), as its ladder tried that length; "
+        "the FK selection the line's own.",
+        'It would keep: {"slicing": {"segment_duration": 4.31, "segment_step": 4.31}}.',
+    ]
+    # The line's own segments kept, their FK selection tried.
+    line = {**LINE, **VARIANTS[0]}
+    said = advise(passive.study, "segments", line, passive.settings, quick).splitlines()
+    assert said[0] == (
+        "PACo's FK selection trial, on trial windows spread along the line (not applied):"
+    )
     assert said[-1].startswith("It would keep")
 
 
@@ -250,4 +256,4 @@ def test_the_users_mode_is_kept(input_dir: Path, tmp_path: Path) -> None:
     with pytest.raises(ValueError, match=re.escape("mode is the user's (passive-active)")):
         try_settings(study, [{"mode": "active"}], settings=settings, config=QCConfig())
     assert given.given_of(study).said() == ["mode passive-active"]
-    assert NO_SEGMENTS.startswith("PACo's segment trial is a passive line's")
+    assert NO_SEGMENTS.startswith("PACo's segments are a passive line's")

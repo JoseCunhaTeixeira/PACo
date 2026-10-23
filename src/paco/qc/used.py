@@ -159,9 +159,14 @@ def picking_used(
     window's alias (`aliased`: those windows' fmax) and G3 changes window by window (in the
     gates' changes); then the values the call gave (`given`), if any."""
     band = _band(parameters.fmin, parameters.fmax)
+    reach = (
+        f", wavelengths up to {parameters.max_wavelength:g} window lengths"
+        if parameters.max_wavelength is not None
+        else ""
+    )
     return (
         f"picking: M0 tracked along its ridge (threshold {parameters.threshold:g}, corridor "
-        f"{parameters.corridor:.0%} of the velocity{band}), points under "
+        f"{parameters.corridor:.0%} of the velocity{band}{reach}), points under "
         f"{parameters.min_relative_coherence:g} of the mode's coherence dropped, resampled every "
         f"{parameters.wavelength_step:g} m of wavelength: PACo's starting values, changed "
         "window by window where G2 or G3 asked; a higher mode, by hand in PAC's Dispersion "

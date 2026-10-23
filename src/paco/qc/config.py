@@ -5,6 +5,7 @@ from pathlib import Path
 from typing import Any
 
 from pydantic import BaseModel, ConfigDict, Field, model_validator
+from sigpipe.algorithms.picking.dispersion.curve import REACHED_LENGTHS
 from sigpipe.algorithms.picking.dispersion.tracking import PickingParameters
 from sigpipe.masw.inversion.priors import PriorRules
 from sigpipe.masw.runs.writing import write_atomic
@@ -34,8 +35,9 @@ RETIRED = {
     "image": ("mute_width_s", "min_virtual_shot_snr_db"),
     "curve": ("mute_width_s", "air_wave_mute_vmax", "max_uncertainty"),
     "signal": ("min_correlation_snr_db",),
-    # The segment trials keep G2's floor on the fk selection's share (min_fk_kept_share).
-    "segments": ("min_kept_share",),
+    # The segment trials keep G2's floor on the fk selection's share (min_fk_kept_share); a
+    # passive line's segments take one length, sized to its windows (segment_crossings).
+    "segments": ("min_kept_share", "crossings"),
 }
 # Thresholds renamed, their value kept under the new name (one name, one meaning):
 # the first breaks' shot time off the trigger is an error, the trigger's shift the muting's.
@@ -69,7 +71,8 @@ class QCConfig(BaseModel):
     petro: PetroThresholds = Field(default_factory=PetroThresholds)  # G7
     petro_line: PetroLineThresholds = Field(default_factory=PetroLineThresholds)  # G8
     # Where a run's picking starts: not thresholds (the loop changes the picking), but the
-    # values a run begins with. The pick goes as far as its ridge holds.
+    # values a run begins with. The pick goes as far as its ridge holds; the workflow's, within
+    # the window's reach (within_reach).
     picking: PickingParameters = Field(default_factory=PickingParameters)
 
     @model_validator(mode="before")
@@ -103,6 +106,16 @@ def load_qc_config(path: Path | None) -> QCConfig:
     return QCConfig.model_validate_json(path.read_text())
 
 
+def within_reach(config: QCConfig) -> QCConfig:
+    """The workflow's configuration: its picks stop at the window's reach, three window lengths
+    (G3's beyond_reach), where the window resolves no velocity and no eye cuts the tail; a
+    configuration that sets the picking's max_wavelength keeps its own."""
+    if "max_wavelength" in config.picking.model_fields_set:
+        return config
+    picking = config.picking.model_copy(update={"max_wavelength": REACHED_LENGTHS})
+    return config.model_copy(update={"picking": picking})
+
+
 def snapshot_qc_config(config: QCConfig, run_folder: Path) -> Path:
     """Record the configuration a run used, next to its results."""
     path = run_folder / CONFIG_FILE
@@ -117,10 +130,10 @@ def read_qc_config(run_folder: Path) -> QCConfig:
 
 def run_qc_config(run_folder: Path, path: Path | None) -> QCConfig:
     """The configuration the run's checks use: its own, or for a run the assistant has not
-    checked yet (one made in PAC's pages), the one in `path` (load_qc_config), recorded next to
-    its results."""
+    checked yet (one made in PAC's pages), the one in `path` (load_qc_config) as the workflow
+    uses it, recorded next to its results."""
     if (run_folder / CONFIG_FILE).exists():
         return read_qc_config(run_folder)
-    config = load_qc_config(path)
+    config = within_reach(load_qc_config(path))
     snapshot_qc_config(config, run_folder)
     return config
