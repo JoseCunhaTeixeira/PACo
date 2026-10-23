@@ -19,7 +19,7 @@ the agent reads them first in the summary; the ladder's trials are kept in the r
 | The band | fmax capped at the smaller of the median usable fmax of the records G1 kept and Nyquist; fmin raised to their median usable fmin. Never widened: PAC's 100 Hz stays when the records go higher | Widening the band makes G3 worse at every window length on the demo (below): above 100 Hz a second ridge competes and the picker jumps. The median, not the worst record: on `active_p2` the worst records' limits (24 to 86 Hz) would cut the whole line's long wavelengths, where the median record is usable from 2.3 to 298 Hz |
 | The far limit | `masw.distance_max` at the line's reach, where the traces' median SNR falls under 2 dB (sigpipe's `line_reach`, G1's `reach_snr_db`), unless the user gave one | A window stacks no shot whose traces there are mostly noise: PAC's 100 m takes `active_p2`'s traces beyond about 60 m, which are noise |
 | The near limit | none: a window stacks its nearest shots too, G3 reporting its nearest shot (`near_offset`), unless the user gives `masw.distance_min` | A near field gives `active_p2` no cleaner image and breaks its passive-active images; on the demo it costs curves (below) |
-| The window length | one length for the whole line. Given none: a ladder of the autonomous search's lengths (5, 7, 9, 11, 13, 15, 17, 21, 25, 33, 41 and 47 receivers, up to a quarter of the line, the shortest always), each tried on 27 windows spread evenly along the line, its ends included (S2, the picking and G3; a passive line's each with segments as long as its window asks, below). Up the ladder to the first length whose trial windows G3 passes 80 % of with the passed curves' median velocity uncertainty within 20 %; none that precise, the most precise that passed (the shorter on a tie); none passing, the one that passed most (the shortest on a tie). The next length, when there is one, is tried for comparison. A length given (by the user or the agent) is kept, its trial windows tried for the record | Lateral resolution, and picks precise enough for the inversion: a short window's picks sit at the array's 40 % and on no ridge it resolves (`active_p2` at 7 receivers: picks at 300 to 400 m/s inside a smear, above the ridge at 200 to 250 m/s that 15-receiver windows show) |
+| The window length | one length for the whole line. Given none: a ladder of the autonomous search's lengths shorter than the line (5, 7, 9, 11, 13, 15, 17, 21, 25, 33, 41 and 47 receivers), each tried on 27 windows spread evenly along the line, its ends included (S2, the picking and G3; a passive line's each with segments as long as its window asks, below). Up the ladder from the first length whose trial windows G3 passes 80 % of, while the next lengths pass too: the longest before one fails is kept, the one that failed tried for comparison; none passing, the one that passed most (the shortest on a tie). A length given (by the user or the agent) is kept, its trial windows tried for the record | The longest window whose images hold along the line: longer windows resolve the velocity and reach deeper until the ground's lateral changes break their images and G3 fails them. No share of the line caps it: a 24-geophone spread may need most of its length, and `active_p1`'s windows pass best at 47 or 48 receivers, half its line (below) |
 | The frequency step | 1/T by construction: no padding before the phase shift, so the image's step follows the record length | A finer step only interpolates |
 | The velocity range | left to G2, which flags a ridge on the grid's edges per window | The trial images could set it; not needed on the demo (1 to 1,000 m/s) |
 
@@ -27,15 +27,16 @@ the agent reads them first in the summary; the ladder's trials are kept in the r
 
 `run_processing` returns the lengths tried as `lengths`, for the agent to choose from, for the
 line's length and the depth or detail the request needs. After a line stating the receivers,
-their spacing and the longest length allowed (a quarter of the line), each length tried gets one line:
+their spacing and the longest length it may try, each length tried gets one line:
 its span in metres, how many of its trial windows passed G3, the passed curves' median
 shortest and longest wavelengths (a model reaches about half the longest), the picks' median
 precision, the windows the line gets at that length, and which length is proposed.
 
-The trials' shares follow the whole line's. On `active_p1`, the 27 trials pass 17 at 5
-receivers, 20 at 7 and 9 and 23 at 11; processed and picked with the gates' retries, the line
-gives curves on 65 % of its windows at 5 receivers, 68 % at 7, 77 % at 9 and 85 % at 11, the
-failures mostly the windows at the line's ends (1 or 2 points next to the shot).
+The trials' shares follow the whole line's. On `active_p1`, picked past the windows' reach,
+the 27 trials pass 17 at 5 receivers, 20 at 7 and 9 and 23 at 11; processed and picked with the
+gates' retries, the line gives curves on 65 % of its windows at 5 receivers, 68 % at 7, 77 % at 9
+and 85 % at 11, the failures mostly the windows at the line's ends (1 or 2 points next to the
+shot).
 
 Its `next` says the length is the ladder's proposal, to change with `masw.length` when the
 request needs more depth or lateral detail, saying why; the ideal scripted agent then takes 24
@@ -43,16 +44,24 @@ receivers for "as deep as this line allows" and 7 for "as much lateral detail as
 allow". A length given is never climbed past: a climb would turn a given 7 receivers (6 of 9
 trials passing) into 16.
 
-## The precision rule
+## Up the ladder while the windows pass
 
-On `active_p2` (96 receivers, 1.5 m apart, shots up to 63 m from a window's middle), the
-ladder's trial windows give, by length: 5 receivers, 24 of 27 passed with picks at 22 % (the
-median velocity uncertainty of the curves passed); 7: 25, 23 %; 9: 25, 26 %; 11: 23, 19 %; 13:
-22, 11 %. The uncertainty is the array's resolution at each point's frequency and velocity
-(sigpipe's), at most 40 %: a short window's long wavelengths sit at that cap, and the picks stop
-at the window's reach, three window lengths, so they leave none past it. The ladder climbs to
-the first length within 20 % that passes, and takes the most precise that passed when none is
-(`CoherenceRules.max_uncertainty`): 11 receivers on `active_p2` (19 %), 13 tried to compare.
+Every length tried on PAC's lines, the trial windows G3 passed of 27 (the picks stopping at
+three window lengths, a passive line's segments sized to each length):
+
+| Receivers | 5 | 7 | 9 | 11 | 13 | 15 | 17 | 21 | 25 | 33 | 41 | 47 |
+|---|---|---|---|---|---|---|---|---|---|---|---|---|
+| `active_p1` | 0 | 0 | 0 | 3 | 22 | 26 | 26 | 27 | 26 | 25 | 27 | 27 |
+| `active_p2` | 24 | 25 | 25 | 23 | 22 | 24 | 23 | 20 | 22 | 23 | 21 | 16 |
+| `active_p2` passive-active | 18 | 17 | 15 | 22 | 21 | 21 | 21 | 20 | 16 | 17 | 14 | 6 |
+| `passive_p2` | 10 | 9 | 21 | 14 | 27 | 25 | 16 | 24 | 20 | 13 | 17 | 17 |
+
+The ladder keeps 47 receivers on `active_p1` (curves to 30 m), 17 on `active_p2` (21 fails), 11
+in passive-active (13 fails) and 15 on `passive_p2` (17 fails): where the eye puts them, 48 on
+`active_p1` and, by the autonomous agent's eye, 15, 9 and 15 on the others. The first length whose
+picks' median uncertainty is within 20 % stops short (13, 11, 11 and 13): on `active_p1` that
+uncertainty grows with the length (19 % at 13 receivers, 27 % at 47), as its curves reach deeper
+(8 m, 30 m).
 
 ## On the demo profile, the picks cut at 2 window lengths
 

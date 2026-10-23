@@ -74,11 +74,12 @@ phase velocity v and frequency f.
   first, since short windows pass with loose picks. On active_p2 (dx 1.5 m), trial windows
   passing of 27 and their median uncertainty: 5 receivers 25 at 40 %, 7 receivers 24 at 30 %, 11
   receivers 23 at 26 %, 16 receivers 13 at 18 %, 24 receivers 13 at 9 %, 48 receivers 15 at 5 %.
-- PACo's ladder (advise window_length) tries the search's lengths up to a quarter of the line on
-  27 windows spread along the line, its picks stopping at 3·L, a passive line's with segments of
-  10 crossings of each window at 80 m/s: it stops at the first length 80 % pass with 20 % or less,
-  else keeps the most precise that passes. It favours short windows; where the objective asks
-  depth, a longer window is the hypothesis to test against it.
+- PACo's ladder (advise window_length) tries the search's lengths shorter than the line on 27
+  windows spread along the line, its picks stopping at 3·L, a passive line's with segments of 10
+  crossings of each window at 80 m/s: from the first length 80 % pass, it climbs while the next
+  ones pass and keeps the longest before one fails (17 receivers on active_p2, 11 in
+  passive-active, 15 on passive_p2, 47 on active_p1). It favours long windows; where the
+  objective asks lateral detail, a shorter window is the hypothesis to test against it.
 - Choose the length by the images: the one whose images are cleanest (by eye, one ridge unbroken
   over the widest band; lateral coherence near 1), its curves serving the objective. A target
   depth z needs λmax near 2·z, so L of at least 2·z/3 (λmax within 3·L), but only as far as the
@@ -295,14 +296,14 @@ phase velocity v and frequency f.
 - Its scores count G3's passes alone, and a tie goes to the less cutting change. On active_p2 in
   passive-active it covers 86 of 86 windows at 11 receivers, its picks at a median uncertainty of
   23 %.
-- Where you can do better: a longer length where the images stay as clean (its ladder stops at the
-  first length within 20 %: 11 receivers on active_p2); a mute kept on a tie when it lengthens the
-  curves within reach; a mute cutting one side only; nearer shots for the high frequencies (its
-  distance_max is the reach); on a passive line, segment lengths other than its 10 crossings, and
-  FK bands between its candidates; on a passive or passive-active line, the whitening, the
-  normalization and the stacking's nu, which it leaves at the preset's; a score weighing coverage
-  and depth within reach together, as the scorecard does. The grid tries them; advise gives PACo's
-  choice, to compare with yours on the same windows.
+- Where you can do better: a length whose images are cleaner than its ladder's (the longest before
+  its trial windows stop passing G3: 17 receivers on active_p2); a mute kept on a tie when it
+  lengthens the curves within reach; a mute cutting one side only; nearer shots for the high
+  frequencies (its distance_max is the reach); on a passive line, segment lengths other than its
+  10 crossings, and FK bands between its candidates; on a passive or passive-active line, the
+  whitening, the normalization and the stacking's nu, which it leaves at the preset's; a score
+  weighing coverage and depth within reach together, as the scorecard does. The grid tries them;
+  advise gives PACo's choice, to compare with yours on the same windows.
 
 ## Diagnosis
 

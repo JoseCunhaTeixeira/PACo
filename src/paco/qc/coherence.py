@@ -1,7 +1,7 @@
 """The coherence rules for S2 (docs/qc_workflow.md), checked before the phase shift runs: the
-image's band within what G1 found usable in the records, and one window
-length for the whole line, the shortest at which most trial windows give a curve G3 passes
-(lateral resolution first)."""
+image's band within what G1 found usable in the records, and one window length for the whole
+line, the longest at which most trial windows still give a curve G3 passes, before longer
+windows' images break along the line."""
 
 import json
 import math
@@ -40,9 +40,9 @@ class CoherenceRules(BaseModel):
 
     lengths: tuple[int, ...] = Field(
         default=(5, 7, 9, 11, 13, 15, 17, 21, 25, 33, 41, 47),
-        description="Window lengths tried, in receivers, shortest first (the autonomous search's): "
-        "the shortest whose picks are precise keeps the lateral detail; a line where none passes "
-        "takes the one that passed most.",
+        description="Window lengths tried, in receivers, shortest first (the autonomous search's), "
+        "those shorter than the line: the longest before one fails G3 is kept; a line where none "
+        "passes takes the one that passed most.",
     )
     trials: int = Field(
         default=27,
@@ -55,21 +55,6 @@ class CoherenceRules(BaseModel):
         gt=0,
         le=1,
         description="Share of the trial windows G3 must pass for a length to be kept.",
-    )
-    max_line_share: float = Field(
-        default=0.25,
-        gt=0,
-        le=1,
-        description="Longest window, as a share of the line's receivers: a quarter, as the "
-        "autonomous search's; the shortest length is tried on any line.",
-    )
-    max_uncertainty: float = Field(
-        default=0.2,
-        gt=0,
-        description="Median velocity uncertainty of the curves G3 passed at which the climb "
-        "stops: short of it on every length, the ladder keeps the most precise length that "
-        "passes. The uncertainty is the array's resolution (sigpipe's), at most 40 %: short "
-        "windows sit at it, their picks on no ridge the window resolves.",
     )
 
 
@@ -114,7 +99,7 @@ class LengthChoice(BaseModel):
     notes: tuple[str, ...]
     receivers: int = 0  # the line's
     spacing_m: float = 0.0
-    longest: int = 0  # the longest length allowed, in receivers
+    longest: int = 0  # the longest length the ladder may try, in receivers
 
 
 def cap_band(
@@ -182,18 +167,21 @@ def choose_length(
     exclusions: Exclusions | None = None,
     slicing: Callable[[int], Mapping[str, Any]] | None = None,
 ) -> LengthChoice:
-    """The window length, from trial windows spread along the line: up the ladder to the first
-    length G3 passes `min_pass_share` of whose passed curves are precise (`max_uncertainty`),
-    else the most precise that passes, the shorter on a tie (the most passes when none does),
-    and one length past it for comparison; or `first`, a length given (by the user or the
-    agent), kept as it is with its trial windows' result (the ladder proposes, a length given
-    decides). A short window's picks may pass G3 yet be too loose for the inversion: precision
-    is what longer windows buy, until the line's lateral changes blur their images. `slicing`:
-    a passive line's segments for each length, as long as the window asks. Trial windows go to
+    """The window length, from trial windows spread along the line: up the ladder (the lengths
+    shorter than the line) from the first length G3 passes `min_pass_share` of, while the next
+    ones pass too, the longest before one fails kept (where longer windows' images break), the
+    one that failed kept to compare; none passing, the one that passed most (the shortest on a
+    tie); or `first`, a length given (by the user or the agent), kept as it is with its trial
+    windows' result (the ladder proposes, a length given decides). `slicing`: a passive line's
+    segments for each length, as long as the window asks. Trial windows go to
     <run_folder>/coherence/<length>/, on the run's records."""
     rules = judge.rules
-    # A quarter of the line, as the search's, its shortest length always: a short line's too.
-    longest = max(int(len(profile.receivers) * rules.max_line_share), min(rules.lengths))
+    # The lengths shorter than the line, as many as it holds: a short spread's longest too.
+    count = len(profile.receivers)
+    rungs = [length for length in rules.lengths if length < count] or [
+        length for length in rules.lengths if length == count
+    ]
+    share = f"{rules.min_pass_share:.0%}"
 
     def attempt(length: int) -> LengthTrial | None:
         sliced = slicing(length) if slicing is not None else None
@@ -203,9 +191,6 @@ def choose_length(
 
     def passes(trial: LengthTrial) -> bool:
         return trial.passed >= math.ceil(rules.min_pass_share * len(trial.xmids))
-
-    def precise(trial: LengthTrial) -> bool:
-        return trial.uncertainty is not None and trial.uncertainty <= rules.max_uncertainty
 
     trials: list[LengthTrial] = []
     why = "as given"
@@ -218,33 +203,25 @@ def choose_length(
         trials.append(given)
         kept = given
     else:
-        for length in [length for length in rules.lengths if length <= longest]:
+        for length in rungs:
             trial = attempt(length)
             if trial is None:
                 continue
             trials.append(trial)
-            if passes(trial) and precise(trial):
-                break  # the shortest precise: the lateral detail kept
+            if not passes(trial) and any(passes(before) for before in trials[:-1]):
+                break  # longer windows' images break: the longest that passed is kept
         if not trials:
             raise RunError("No window length gives a window with a shot: check masw's distances.")
         passing = [trial for trial in trials if passes(trial)]
         if not passing:
             kept = max(trials, key=lambda trial: (trial.passed, -trial.length))
-            why = f"the most passes (none passed {rules.min_pass_share:.0%})"
-        elif precise(passing[-1]):
+            why = f"the most passes (none passed {share})"
+        elif passing[-1] is trials[-1]:
             kept = passing[-1]
-            why = f"the first that passed with picks within {rules.max_uncertainty:.0%}"
+            why = f"the longest, no length failing after the first that passed {share}"
         else:
-            kept = min(passing, key=lambda trial: (_loose(trial), trial.length))
-            why = f"the most precise that passed (none within {rules.max_uncertainty:.0%})"
-        if passes(kept) and not any(trial.length > kept.length for trial in trials):
-            # One length more, for the agent to weigh the depth it reaches against detail.
-            longer = next(
-                (length for length in rules.lengths if kept.length < length <= longest), None
-            )
-            compared = attempt(longer) if longer is not None else None
-            if compared is not None:
-                trials.append(compared)
+            kept = passing[-1]
+            why = f"the longest before a length failed {share}"
         trials = [
             trial.model_copy(update={"compared": True}) if trial.length > kept.length else trial
             for trial in trials
@@ -258,7 +235,7 @@ def choose_length(
         notes=(note,),
         receivers=len(receivers),
         spacing_m=receiver_spacing(profile),
-        longest=longest,
+        longest=rungs[-1] if rungs else count,
     )
     write_atomic(run_folder / COHERENCE_FILE, choice.model_dump_json(indent=2))
     return choice
@@ -273,24 +250,10 @@ def _tried(trial: LengthTrial) -> str:
     )
 
 
-def _loose(trial: LengthTrial) -> float:
-    """A trial's uncertainty, for sorting: unknown last."""
-    return trial.uncertainty if trial.uncertainty is not None else math.inf
-
-
 def read_length_choice(run_folder: Path) -> LengthChoice | None:
     """The ladder's choice for the run in `run_folder`, when it made one."""
     path = run_folder / COHERENCE_FILE
     return LengthChoice.model_validate_json(path.read_text()) if path.exists() else None
-
-
-def _share(longest: int, receivers: int) -> str:
-    """The longest window as a share of the line, in words: "a quarter of the line"."""
-    share = longest / receivers if receivers else 0.0
-    named = {0.25: "a quarter of the line", 0.5: "half the line"}
-    return next(
-        (said for at, said in named.items() if abs(share - at) < 0.02), f"{share:.0%} of the line"
-    )
 
 
 def describe_lengths(choice: LengthChoice) -> tuple[str, ...]:
@@ -299,7 +262,7 @@ def describe_lengths(choice: LengthChoice) -> tuple[str, ...]:
     span = (choice.receivers - 1) * choice.spacing_m
     said = [
         f"line: {choice.receivers} receivers {choice.spacing_m:g} m apart ({span:.2f} m); "
-        f"windows of up to {choice.longest} receivers ({_share(choice.longest, choice.receivers)})"
+        f"windows of up to {choice.longest} receivers"
     ]
     for trial in choice.trials:
         text = (

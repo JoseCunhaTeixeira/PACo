@@ -38,6 +38,8 @@ RETIRED = {
     # The segment trials keep G2's floor on the fk selection's share (min_fk_kept_share); a
     # passive line's segments take one length, sized to its windows (segment_crossings).
     "segments": ("min_kept_share", "crossings"),
+    # The ladder climbs the lengths shorter than the line while their windows pass G3.
+    "coherence": ("min_precision_gain", "max_line_share", "max_uncertainty"),
 }
 # Thresholds renamed, their value kept under the new name (one name, one meaning):
 # the first breaks' shot time off the trigger is an error, the trigger's shift the muting's.
