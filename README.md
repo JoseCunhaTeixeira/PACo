@@ -61,8 +61,9 @@ PAC/data/input/
 
 Each run goes to `PACO_OUTPUT_DIR/<profile>/<run_id>/`: PAC's `xmid_<x>/` window folders (images,
 curves, models), `run.json` (what was processed, with which settings and files), and
-`qc_log.jsonl` (every attempt of every stage, with the gates' verdicts). Nothing is deleted:
-results replaced by a stage done again go to the window's `replaced/` folder.
+`qc_log.jsonl` (every attempt of every stage, with the gates' verdicts), and in each window,
+`history.jsonl` (what you changed in PAC's pages). Nothing is deleted: results replaced by a
+stage done again go to the window's `replaced/` folder.
 
 ## Configure
 

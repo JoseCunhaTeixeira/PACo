@@ -7,7 +7,7 @@ from collections.abc import Mapping, Sequence
 from concurrent.futures import ProcessPoolExecutor
 from datetime import UTC, datetime
 from pathlib import Path
-from typing import Any
+from typing import Any, NamedTuple
 
 from sigpipe.algorithms.picking.dispersion.tracking import PickingParameters, pick_modes
 from sigpipe.base import DispersionCurve, DispersionImage, Stream
@@ -289,7 +289,8 @@ def judge_picking(
     layout (the previous pick and its inversion go to attempts/), judge it with G3 against
     `band` (G2's coherent band), and log the attempt with the verdict."""
     started_at = datetime.now(UTC)
-    previous = len(attempts_of(read_attempts(run_folder), unit, "picking"))
+    attempts = read_attempts(run_folder)
+    previous = len(attempts_of(attempts, unit, "picking"))
     g3 = _pick(
         run_folder,
         unit,
@@ -299,7 +300,8 @@ def judge_picking(
         previous,
         image,
     )
-    _log_pick(run_folder, unit, previous, picking, triggered_by, started_at, g3)
+    how = how_picked(picking, triggered_by, latest(attempts, unit, "picking"))
+    _log_pick(run_folder, unit, previous, picking, triggered_by, started_at, g3, how)
     return g3
 
 
@@ -309,11 +311,13 @@ def pick_windows(
     config: QCConfig,
     triggered_by: str,
     workers: int,
+    ways: Mapping[str, HowPicked] | None = None,
 ) -> dict[str, GateResult]:
     """S3 on the windows of `jobs`, each with its picking parameters and G2's band, each an
     attempt of its own, in up to `workers` processes (a single window here): the picks and G3
     run in the workers, each on its own window's folder, and the attempts are logged here as
-    they end. G3's results by window."""
+    they end, each with how it was picked (`ways`, by window; else by its parameters, as
+    `how_picked` reads them). G3's results by window."""
     attempts = read_attempts(run_folder)
     previous = {unit: len(attempts_of(attempts, unit, "picking")) for unit in jobs}
     started_at = datetime.now(UTC)
@@ -321,7 +325,10 @@ def pick_windows(
 
     def logged(unit: str, g3: GateResult) -> None:
         picking = jobs[unit][0]
-        _log_pick(run_folder, unit, previous[unit], picking, triggered_by, started_at, g3)
+        how = (ways or {}).get(unit) or how_picked(
+            picking, triggered_by, latest(attempts, unit, "picking")
+        )
+        _log_pick(run_folder, unit, previous[unit], picking, triggered_by, started_at, g3, how)
         results[unit] = g3
 
     # Stopped between windows: a pick archives the window's previous one before it saves its
@@ -374,6 +381,26 @@ def _pick(
     )
 
 
+class HowPicked(NamedTuple):
+    """How a window was picked, as its attempt logs it: the way (Attempt.how) and what it took
+    beyond the picking's parameters (a lasso's polygon)."""
+
+    how: str
+    inputs: Mapping[str, Any] = {}
+
+
+def how_picked(picking: PickingParameters, triggered_by: str, before: Attempt | None) -> HowPicked:
+    """How a pick with `picking` was made, from its parameters: the tracker alone; along its
+    guide, the one of the attempt `before` when the same (a check's retry keeps it), else the
+    neighbours' median curve for G4's retry, points otherwise."""
+    guide = picking.model_dump(mode="json")["guide"]
+    if not guide:
+        return HowPicked("tracker")
+    if before is not None and before.how and before.parameters.get("guide") == guide:
+        return HowPicked(before.how, before.inputs)
+    return HowPicked("neighbours" if triggered_by.startswith("G4:") else "guide")
+
+
 def _log_pick(
     run_folder: Path,
     unit: str,
@@ -382,10 +409,11 @@ def _log_pick(
     triggered_by: str,
     started_at: datetime,
     g3: GateResult,
+    how: HowPicked,
 ) -> None:
-    """The window's pick logged, after its `previous` attempts: going on from them for a retry a
-    gate asked for; else afresh, the window's earlier picks and what was made of them (their
-    inversions, soil columns) forgotten."""
+    """The window's pick logged, after its `previous` attempts, with how it was picked: going on
+    from them for a retry a gate asked for; else afresh, the window's earlier picks and what was
+    made of them (their inversions, soil columns) forgotten."""
     attempt = Attempt(
         unit=unit,
         stage="picking",
@@ -396,6 +424,8 @@ def _log_pick(
         finished_at=datetime.now(UTC),
         status="succeeded",
         results={g3.gate: g3},
+        how=how.how,
+        inputs=dict(how.inputs),
     )
     append_attempt(
         run_folder, afresh(run_folder, attempt) if starts_afresh(triggered_by) else attempt

@@ -13,7 +13,12 @@ The run's state is kept so that nothing is lost and one writer works on it at a 
   the log, and their results are moved to the window's `replaced/<time>_<stage>/`, never
   deleted.
 - Each attempt says what made it: PACo's and sigpipe's versions, and for an agent's call its
-  model, the prompts' version, the conversation and the turn.
+  model, the prompts' version, the conversation and the turn; a pick, how it was picked
+  (sigpipe's tracker, along the neighbours' curve, along points, along a lasso's maxima, the
+  curve deleted, a curve picked in PAC checked as it is).
+- What PAC's pages change (a curve picked or deleted, a model, a soil column) is recorded in the
+  window's `history.jsonl`, with what it took and where what it replaced was set aside: with
+  the log, each unit's history, as PAC shows it.
 - The state (each window's attempts and verdicts, whose each result is) is rebuilt from the log
   and the window folders whenever it is read (`qc.rebuild_state`): a curve picked in PAC shows
   at once. `qc_report.json` is a snapshot of it.

@@ -35,7 +35,7 @@ from paco.qc.attempts import invalidate
 from paco.qc.config import QCConfig
 from paco.qc.curves import imaged_windows
 from paco.qc.g4_profile import LINE, ProfileThresholds, median_guide
-from paco.qc.judging import judge_line, pick_windows, saved_m0
+from paco.qc.judging import HowPicked, judge_line, pick_windows, saved_m0
 from paco.qc.log import afresh, append_attempt, attempts_of, latest, read_attempts
 from paco.qc.loops import deep_merge, stage_changes
 from paco.qc.models import Attempt, Flag, GateResult, Override
@@ -251,7 +251,8 @@ def apply(
             jobs[unit] = (_parameters(recipe, base, run_folder / unit), bands[unit])
         except ValueError as error:
             errors[unit] = str(error)
-    results = pick_windows(run_folder, jobs, config, BACKTRACK, workers) if jobs else {}
+    ways = {unit: way_of(recipe) for unit, recipe in recipes.items()}
+    results = pick_windows(run_folder, jobs, config, BACKTRACK, workers, ways) if jobs else {}
     if guided := [unit for unit, recipe in recipes.items() if recipe.guide == NEIGHBOURS]:
         passing = passing_curves(run_folder, manifest, read_attempts(run_folder))
         along: dict[str, tuple[PickingParameters, tuple[float, float] | None]] = {}
@@ -264,7 +265,7 @@ def apply(
             values = {**base.model_dump(), **recipes[unit].picking, "guide": guide}
             along[unit] = (_validated(values), bands[unit])
         if along:
-            results |= pick_windows(run_folder, along, config, BACKTRACK, workers)
+            results |= pick_windows(run_folder, along, config, BACKTRACK, workers, ways)
             jobs |= along
     for unit, recipe in recipes.items():
         if recipe.how == "delete":
@@ -286,6 +287,25 @@ def apply(
     }
     keep(study, picked.values())
     return picked
+
+
+def way_of(recipe: Recipe) -> HowPicked:
+    """How `recipe` picks, as the window's attempt logs it: the tracker (the line's picking, or
+    the model's changes), along points, along the neighbours' median curve, along the maxima
+    inside a lasso (its polygon kept), or the curve deleted."""
+    match recipe.how:
+        case "guide" if recipe.guide == NEIGHBOURS:
+            return HowPicked("neighbours")
+        case "guide":
+            return HowPicked("guide")
+        case "lasso":
+            return HowPicked(
+                "lasso", {"polygon": [list(vertex) for vertex in recipe.polygon or ()]}
+            )
+        case "delete":
+            return HowPicked("delete")
+        case _:
+            return HowPicked("tracker")
 
 
 def keep(study: Study, picked: Iterable[Picked]) -> None:
@@ -498,6 +518,7 @@ def _delete(run_folder: Path, unit: str) -> None:
         finished_at=now,
         status="succeeded",
         notes=("The curve deleted by the model: the window has none.",),
+        how="delete",
     )
     append_attempt(run_folder, afresh(run_folder, attempt))
 

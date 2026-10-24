@@ -287,6 +287,23 @@ def test_a_lasso_guides_the_tracker_inside_its_band(played: Played) -> None:
 
 
 @pytest.mark.slow
+def test_each_pick_logs_how_it_was_made(played: Played) -> None:
+    lines = [json.loads(line) for line in (played.run / "qc_log.jsonl").read_text().splitlines()]
+    picks = [
+        one
+        for one in lines
+        if one.get("event") == "stage" and one.get("stage") == "picking" and one["unit"] != "line"
+    ]
+
+    # Every pick says how: the tracker, along points or the neighbours, a lasso, or deleted.
+    assert {one["how"] for one in picks} >= {"tracker", "lasso", "delete"}
+    assert all(one["how"] is not None for one in picks)
+    lasso = next(one for one in picks if one["unit"] == "xmid_29.25" and one["how"] == "lasso")
+    assert len(lasso["inputs"]["polygon"]) == 4
+    assert any(one["unit"] == "xmid_125.25" and one["how"] == "delete" for one in picks)
+
+
+@pytest.mark.slow
 def test_several_ways_of_picking_in_one_call(played: Played) -> None:
     lines = answer(played, 4).splitlines()
 

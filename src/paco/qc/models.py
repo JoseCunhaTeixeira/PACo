@@ -185,6 +185,13 @@ class Attempt(BaseModel):
     # against them.
     replaced: dict[str, Any] = {}
     made_by: MadeBy | None = None  # None: a version 1 line
+    # How a pick was made (a picking attempt's): sigpipe's tracker ("tracker"), along the
+    # neighbours' median curve ("neighbours"), along points ("guide"), along the maxima inside a
+    # polygon ("lasso"), the curve deleted ("delete"), or a curve picked in PAC checked as it is
+    # ("judge"); None at another stage, or in a line logged before attempts said it.
+    how: str | None = None
+    # What that way took beyond the stage's parameters: a lasso's polygon.
+    inputs: dict[str, Any] = {}
 
 
 class Budgets(BaseModel):

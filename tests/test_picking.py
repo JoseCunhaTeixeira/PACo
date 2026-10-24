@@ -1,15 +1,20 @@
 """The automatic picker on a test window; its own tests, on synthetic images, are sigpipe's
 (sigpipe.algorithms.picking.dispersion.tracking)."""
 
+from datetime import UTC, datetime
+
 import numpy as np
 import pytest
-from sigpipe.algorithms.picking.dispersion.tracking import pick_modes
+from sigpipe.algorithms.picking.dispersion.tracking import PickingParameters, pick_modes
 from sigpipe.base import DispersionImage
 from sigpipe.masw.pipelines import build_image_pipeline, build_preprocessing_pipeline, record_folder
 from sigpipe.masw.presets import make_preset, resolve_preset
 from sigpipe.masw.profiles import Profile
 from sigpipe.masw.windows import build_windows
 from sigpipe.transformers import Load
+
+from paco.qc.judging import HowPicked, how_picked
+from paco.qc.models import Attempt
 
 
 @pytest.fixture(scope="module")
@@ -56,3 +61,26 @@ def test_m0_of_a_demo_window(demo_image: DispersionImage) -> None:
     ridge = mode.kept & (mode.frequencies >= 20) & (mode.frequencies <= 60)
     velocities = mode.velocities[ridge]
     assert velocities == pytest.approx(np.median(velocities), rel=0.2)
+
+
+def test_a_pick_says_how_it_was_made() -> None:
+    plain = PickingParameters()
+    guided = PickingParameters(guide=((5.0, 300.0), (20.0, 250.0)))
+    retried = Attempt(
+        unit="xmid_1.00",
+        stage="picking",
+        attempt=2,
+        parameters=guided.model_dump(mode="json"),
+        triggered_by="G4:outlier",
+        started_at=datetime(2026, 10, 24, tzinfo=UTC),
+        status="succeeded",
+        how="neighbours",
+    )
+
+    assert how_picked(plain, "initial", None) == HowPicked("tracker")
+    # A guide: the neighbours' median curve for G4's retry, else points.
+    assert how_picked(guided, "G4:outlier", None) == HowPicked("neighbours")
+    assert how_picked(guided, "backtrack", None) == HowPicked("guide")
+    # A check's retry keeps the guide of the attempt before: the neighbours' still.
+    assert how_picked(guided, "G3:narrow_span", retried) == HowPicked("neighbours")
+    assert how_picked(plain, "G3:narrow_span", retried) == HowPicked("tracker")

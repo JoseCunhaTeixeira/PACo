@@ -258,6 +258,7 @@ def judge_curves(run_id: str, settings: Settings, units: Sequence[str] | None = 
                 finished_at=datetime.now(UTC),
                 status="succeeded",
                 results={g3.gate: g3},
+                how="judge",
             ),
         )
     judge_line(run_folder, manifest, config)
