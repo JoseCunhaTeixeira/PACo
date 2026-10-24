@@ -11,7 +11,7 @@ from typing import Any
 
 import numpy as np
 import pytest
-from sigpipe.base import DispersionCurve, Mode, VelocityType
+from sigpipe.base import Coordinate, DispersionCurve, LinearAcquisition, Mode, VelocityType
 from sigpipe.base.acquisition import UNKNOWN_ACQUISITION
 from sigpipe.dataio.dispersion.loading import load_dispersion_curves
 from sigpipe.masw.inversion import InversionParameters
@@ -332,6 +332,29 @@ def test_idle_cores_run_a_windows_chains(workers: int, windows: int, expected: i
     # Never more processes than workers, nor than a window's 5 chains.
     assert inverting.chain_jobs(workers, windows, chains=5) == expected
     assert min(workers, windows) * expected <= workers
+
+
+def test_only_the_points_within_reach_set_the_lines_depths() -> None:
+    # A 15 m window (11 receivers 1.5 m apart) reaches 45 m of wavelength; its pick goes on to
+    # 87 m, the points beyond flagged by G3.
+    fs = np.array([2.3, 5.0, 10.0, 20.0, 50.0])
+    vs = np.array([200.1, 180.0, 160.0, 150.0, 140.0])
+    window = LinearAcquisition(
+        source=Coordinate(0.0, 0.0, 0.0),
+        receivers=tuple(Coordinate(1.5 * k, 0.0, 0.0) for k in range(11)),
+    )
+    curve = DispersionCurve(
+        fs=fs, vs=vs, mode=Mode("M", 0), type=VelocityType.PHASE, acquisition=window
+    )
+    assert inverting.longest_within_reach(curve) == pytest.approx(45.0)
+    # Compared down to half the reach, 5 to 20 m, not to half the 87 m (10 to 40 m).
+    ready = {"xmid_7.50": curve, "xmid_9.00": curve}
+    assert inverting.line_depths(ready) == (5.0, 10.0, 15.0, 20.0)
+    # Without the array's geometry, the whole pick counts.
+    unknown = DispersionCurve(
+        fs=fs, vs=vs, mode=Mode("M", 0), type=VelocityType.PHASE, acquisition=UNKNOWN_ACQUISITION
+    )
+    assert inverting.longest_within_reach(unknown) == pytest.approx(87.0, abs=0.01)
 
 
 def test_a_retry_keeps_the_bounds_the_user_gave_for_every_window(

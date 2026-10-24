@@ -18,6 +18,7 @@ from typing import Any, NamedTuple, cast
 
 import numpy as np
 from pydantic import ValidationError
+from sigpipe.algorithms.picking.dispersion.curve import longest_reached_wavelength
 from sigpipe.base import DispersionCurve
 from sigpipe.base.dispersion_curve import Mode
 from sigpipe.masw.inversion import InversionError, InversionParameters, invert_window
@@ -779,13 +780,16 @@ def investigation_depth(curve: DispersionCurve, config: QCConfig) -> float:
 
 def line_depths(ready: Mapping[str, DispersionCurve]) -> tuple[float, ...]:
     """Where the line's models are reported and compared: round depths down to half the median
-    longest wavelength."""
-    return report_depths(
-        [
-            float(np.max(np.asarray(curve.vs, dtype=float) / np.asarray(curve.fs, dtype=float)))
-            for curve in ready.values()
-        ]
-    )
+    longest wavelength, each curve's counted up to its window's reach."""
+    return report_depths([longest_within_reach(curve) for curve in ready.values()])
+
+
+def longest_within_reach(curve: DispersionCurve) -> float:
+    """`curve`'s longest wavelength, up to its window's reach (three window lengths, beyond which
+    G3 flags its points); all of it where the array geometry isn't known."""
+    longest = float(np.max(np.asarray(curve.vs, dtype=float) / np.asarray(curve.fs, dtype=float)))
+    reach = longest_reached_wavelength(curve.acquisition)
+    return min(longest, reach) if reach else longest
 
 
 class Loop(NamedTuple):
