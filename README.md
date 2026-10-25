@@ -361,4 +361,5 @@ The tools' schemas are kept in `tests/snapshots/tool_schemas.json`: a change fai
 
 ## License
 
-CC BY 4.0 (see `LICENSE`).
+Copyright (c) 2026 J. Cunha Teixeira. GNU Affero General Public License v3.0 or later (see
+`LICENSE`).
