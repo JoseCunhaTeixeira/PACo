@@ -2,7 +2,8 @@
 said in the gates' language, and the curve's own rules: points under twice the spacing or over
 three window lengths flagged (the picker follows its ridge as far as it holds, at either end), no
 jump onto another mode, no air wave, the trend, enough points, uncertainties the inversion can
-use."""
+use. A curve with too few points to invert, or none, is rejected once no retry of its pick comes
+(unretried)."""
 
 import math
 
@@ -198,6 +199,40 @@ def _result(unit: str, metrics: list[Metric], flags: list[Flag], kept: Kept) -> 
     return GateResult(
         gate=GATE, unit=unit, verdict=verdict, metrics=tuple(metrics), flags=tuple(flags), kept=kept
     )
+
+
+# The flags of a curve the inversion cannot take, fewer points than min_points or none, with the
+# reason it is rejected once no retry of its pick comes.
+_UNINVERTIBLE = {"too_few_points": "too few points to invert", "no_ridge": "no curve to invert"}
+
+
+def unretried(result: GateResult) -> GateResult:
+    """G3's `result` once no retry of its pick comes (its budget spent, nothing left to try, a
+    setting the user gave, a pick judged as it is, or one the agent accepts): a curve with too few
+    points to invert, or none, rejected; any other as it is."""
+    if result.gate != GATE or result.verdict != "retry":
+        return result
+    if not any(flag.name in _UNINVERTIBLE for flag in result.flags):
+        return result
+    points = result.kept.n_points or 0
+    said = {
+        "too_few_points": f"{points} point{'s' if points != 1 else ''} in the curve, too few to "
+        "invert.",
+        "no_ridge": "No ridge kept above the noise floor, no curve to invert.",
+    }
+    flags = tuple(
+        flag.model_copy(
+            update={
+                "message": said[flag.name],
+                "action": Reject(reason=_UNINVERTIBLE[flag.name]),
+                "fixable": False,
+            }
+        )
+        if flag.name in _UNINVERTIBLE
+        else flag
+        for flag in result.flags
+    )
+    return result.model_copy(update={"verdict": "reject", "flags": flags})
 
 
 def _too_few_points(

@@ -263,6 +263,7 @@ phase velocity v and frequency f.
   band only; too_few_points (under 4), resample finer, then a lower min_relative_coherence;
   narrow_span (λmax/λmin under 1.34), a lower min_relative_coherence; mode_jump, cut the band at
   the largest step, then halve the corridor; no_ridge, mode_min_ratio 1.2; the air wave, reject.
+  A curve still under 4 points, or with none, is never accepted: too few points to invert.
   inverse_dispersion, aliasing_zone and beyond_reach are notes.
 - Points under 2·dx and beyond 3·L stay, flagged. The inversion's depth follows the longest
   wavelength, so a tail beyond the window's reach or in the near field drives the model's deep

@@ -30,7 +30,7 @@ from paco.qc.attempts import set_aside
 from paco.qc.budgets import refused, was_refused
 from paco.qc.coherence import nearest_offset
 from paco.qc.config import QCConfig, run_qc_config
-from paco.qc.g3_curve import judge_curve
+from paco.qc.g3_curve import judge_curve, unretried
 from paco.qc.g4_profile import LINE
 from paco.qc.given import locked
 from paco.qc.judging import judge_line, pick_windows, saved_m0
@@ -139,7 +139,8 @@ def _retries(
     results: Sequence[GateResult], run_folder: Path, config: QCConfig, manifest: RunManifest
 ) -> dict[str, tuple[dict[str, Any], str]]:
     """The windows of `results` to pick again, with their parameters and trigger; the ones
-    that ask for it and cannot have it stay flagged, a note saying why ("budget spent")."""
+    that ask for it and cannot have it stay flagged, a note saying why ("budget spent"), but
+    for a curve with too few points to invert, or none: rejected (G3's unretried)."""
     attempts = read_attempts(run_folder)
     budget = RetryBudget(attempts, config.budgets, max(1, len(manifest.windows)))
     given = locked(run_folder, "picking")
@@ -157,7 +158,7 @@ def _retries(
                 result.unit,
                 "picking",
                 attempt.attempt,
-                refused(result, *refusal(result, "picking", attempt.parameters, given)),
+                unretried(refused(result, *refusal(result, "picking", attempt.parameters, given))),
             )
     return again
 
@@ -236,15 +237,18 @@ def judge_curves(run_id: str, settings: Settings, units: Sequence[str] | None = 
         )
         g2 = ready[unit]
         started_at = datetime.now(UTC)
-        g3 = judge_curve(
-            unit,
-            image,
-            pick_of(curve, image) if curve is not None else None,
-            config.curve,
-            g2.kept.band_hz if g2 is not None else None,
-            picking,
-            nearest_offset(folder),
-            mutable=False,
+        # Judged as it is: no retry of its pick comes.
+        g3 = unretried(
+            judge_curve(
+                unit,
+                image,
+                pick_of(curve, image) if curve is not None else None,
+                config.curve,
+                g2.kept.band_hz if g2 is not None else None,
+                picking,
+                nearest_offset(folder),
+                mutable=False,
+            )
         )
         append_attempt(
             run_folder,

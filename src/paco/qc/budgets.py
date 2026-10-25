@@ -1,7 +1,8 @@
 """Bounded retries: a budget per gate and unit, and one for the whole run; a window's
 inversion has its own, whichever gate asks. A unit refused the retry it asks (its budget spent,
 nothing left to try, or a setting the user gave) stays flagged, a note first saying why, and goes
-on as every flagged unit does: only a rejected one stops."""
+on as every flagged unit does: only a rejected one stops. A curve with too few points to invert,
+or none, is rejected instead (G3's unretried)."""
 
 from collections.abc import Iterable
 from typing import Literal

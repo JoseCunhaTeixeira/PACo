@@ -1,6 +1,7 @@
 """freeze: the one way from the curves to the inversion. It
 checks that every window of the committed line is decided, that no check rejected an accepted
-curve nor marked it with a blocking flag, and that each rejected window has its reason. Then it writes the
+curve nor marked it with a blocking flag, and that each rejected window has its reason, G3
+rejecting a rejected window's curve with too few points to invert, or none. Then it writes the
 inversion's dataset, curves.json in the study's folder: each accepted curve's file and hash, its
 band and wavelengths, its points, their median uncertainty, the share beyond the window's reach and
 the flags and notes it carries; each rejected window and why; and the line's facts the inversion needs. Once
@@ -24,8 +25,10 @@ from paco.autonomous.tools.decide import acceptable, current
 from paco.autonomous.tools.pick import manifest_of
 from paco.autonomous.tools.survey import SAVED, Survey
 from paco.autonomous.tools.trials import CURVES, Study, check_open
+from paco.qc.g3_curve import unretried
 from paco.qc.judging import saved_m0
-from paco.qc.log import latest, read_attempts
+from paco.qc.log import latest, read_attempts, record_result
+from paco.qc.models import Attempt
 from paco.qc.report import stretches
 
 
@@ -113,6 +116,7 @@ def freeze(study: Study, run_folder: Path, line: Line) -> Frozen:
             rejected.append(
                 RejectedWindow(unit=window.folder, xmid=window.xmid, reason=decision.reason or "")
             )
+            _last_word(run_folder, attempts, window.folder)
             continue
         path = run_folder / window.folder / CURVES_FILE
         curve = saved_m0(path)
@@ -162,6 +166,15 @@ def freeze(study: Study, run_folder: Path, line: Line) -> Frozen:
     )
     write_atomic(study.folder / CURVES, made.model_dump_json(indent=2))
     return made
+
+
+def _last_word(run_folder: Path, attempts: tuple[Attempt, ...], unit: str) -> None:
+    """G3's verdict on a rejected window's curve as it ends, picked no more: one with too few
+    points to invert, or none, rejected in the run's log (unretried)."""
+    picked = latest(attempts, unit, "picking")
+    g3 = picked.results.get("G3") if picked is not None else None
+    if picked is not None and g3 is not None and (ended := unretried(g3)) is not g3:
+        record_result(run_folder, unit, "picking", picked.attempt, ended)
 
 
 def describe_frozen(made: Frozen) -> str:

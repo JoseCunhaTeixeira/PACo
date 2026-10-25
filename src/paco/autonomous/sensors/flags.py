@@ -53,14 +53,14 @@ FLAGS: dict[tuple[str, str], frozenset[FlagClass]] = {
     ("G2", "competing_ridges"): NOTE,
     ("G2", "narrower_than_usable"): NOTE,
     # G3, each curve
-    ("G3", "no_ridge"): FIXABLE,
+    ("G3", "no_ridge"): FIXABLE_OR_BLOCKING,  # blocking once picked no more: no curve to invert
     ("G3", "sharpness"): BLOCKING,
     ("G3", "prominence"): FIXABLE_OR_BLOCKING,  # blocking on a run's picks: no mute to try there
     ("G3", "on_data"): FIXABLE,
     ("G3", "constant_wavelength"): FIXABLE_OR_NOTE,  # a note when no cut removes it
     ("G3", "aliasing_zone"): NOTE,
     ("G3", "beyond_reach"): NOTE,
-    ("G3", "too_few_points"): FIXABLE,
+    ("G3", "too_few_points"): FIXABLE_OR_BLOCKING,  # blocking once picked no more, as accepted
     ("G3", "narrow_span"): FIXABLE,
     ("G3", "mode_jump"): FIXABLE,
     ("G3", "air_wave"): BLOCKING,

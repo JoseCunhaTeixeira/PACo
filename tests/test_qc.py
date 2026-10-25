@@ -9,7 +9,14 @@ from pydantic import TypeAdapter, ValidationError
 from sigpipe.algorithms.picking.dispersion.tracking import PickingParameters
 from sigpipe.masw.picks import CURVES_FILE
 from sigpipe.masw.presets import PresetError, apply_overrides, make_preset
-from sigpipe.masw.runs import RunError, find_run, load_image, load_manifest, run_processing
+from sigpipe.masw.runs import (
+    RunError,
+    RunManifest,
+    find_run,
+    load_image,
+    load_manifest,
+    run_processing,
+)
 from sigpipe.masw.runs.history import LOG_VERSION
 
 from paco import logs
@@ -69,6 +76,7 @@ from paco.qc import (
     xmid_of,
 )
 from paco.qc.budgets import was_refused
+from paco.qc.curves import _retries as retries  # pyright: ignore[reportPrivateUsage]
 from paco.qc.g3_curve import CurveThresholds
 from paco.qc.log import ASKED, LINE_CHANGE
 from paco.qc.loops import RetryBudget, deep_merge, next_try, unchanged
@@ -93,6 +101,35 @@ DEAD_TRACE = Flag(
     action=ExcludeRecord(record="2.dat"),
     fixable=False,
 )
+
+
+def _manifest(xmids: list[float]) -> RunManifest:
+    return RunManifest.model_validate(
+        {
+            "run_id": "20260924-120000-abcd",
+            "profile": {
+                "name": "line",
+                "kind": "active",
+                "n_records": 1,
+                "n_receivers": 96,
+                "receiver_x_range_m": [0.0, 95.0],
+                "receiver_spacing_m": 1.0,
+                "sampling_rate_hz": 1000.0,
+                "nyquist_hz": 500.0,
+                "record_duration_range_s": [1.0, 1.0],
+                "source_x_range_m": [0.0, 0.0],
+            },
+            "preset": {"mode": "active"},
+            "versions": {},
+            "started_at": "2026-09-24T12:00:00Z",
+            "finished_at": "2026-09-24T12:00:10Z",
+            "n_positions": len(xmids),
+            "windows": [
+                {"xmid": xmid, "folder": f"xmid_{xmid:.2f}", "status": "succeeded"}
+                for xmid in xmids
+            ],
+        }
+    )
 
 
 def _attempt(
@@ -344,6 +381,38 @@ def test_a_retry_that_changes_nothing_is_refused_and_said() -> None:
     said = {why: refused(asked, why).flags[0] for why in ("budget", "unchanged")}
     assert [flag.name for flag in said.values()] == ["budget_spent", "nothing_to_try"]
     assert all(not flag.fixable and "ridge_at_vmax" in flag.message for flag in said.values())
+
+
+def test_a_curve_still_with_too_few_points_once_its_retries_are_spent_is_rejected(
+    tmp_path: Path,
+) -> None:
+    few = GateResult(
+        gate="G3",
+        unit="xmid_1.00",
+        verdict="retry",
+        flags=(
+            Flag(
+                name="too_few_points",
+                message="2 points in the curve: too few. Keep more of the ridge's points.",
+                stage="picking",
+                action=Override(stage="picking", overrides={"min_relative_coherence": 0.3}),
+            ),
+        ),
+        kept=Kept(n_points=2),
+    )
+    for attempt, trigger in ((1, "initial"), (2, "G3:too_few_points"), (3, "G3:too_few_points")):
+        append_attempt(tmp_path, _attempt("xmid_1.00", "picking", attempt, trigger, few))
+
+    again = retries([few], tmp_path, QCConfig(), _manifest([1.0]))
+
+    # No retry left: the inversion cannot take it, rejected, a note first saying why.
+    assert again == {}
+    ended = latest(read_attempts(tmp_path), "xmid_1.00", "picking")
+    assert ended is not None
+    g3 = ended.results["G3"]
+    assert g3.verdict == "reject"
+    assert [flag.name for flag in g3.flags] == ["budget_spent", "too_few_points"]
+    assert g3.flags[1].action == Reject(reason="too few points to invert")
 
 
 def test_g1s_retries_draw_on_the_records_budgets_alone() -> None:

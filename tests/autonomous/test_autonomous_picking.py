@@ -23,12 +23,13 @@ from sigpipe.masw.runs import find_run
 
 from paco.autonomous import server
 from paco.autonomous.sensors.flags import FlagClass
-from paco.autonomous.tools.decide import owed_flags
+from paco.autonomous.tools.decide import acceptable, owed_flags
 from paco.autonomous.tools.pick import How, Picked, Recipe, check_recipe, picks_of
 from paco.autonomous.tools.trials import Study
 from paco.autonomous.tools.windows import select
 from paco.call import shown
 from paco.qc.log import latest, read_attempts
+from paco.qc.models import Flag, Kept, Override
 from paco.qc.replay import replay_run
 from paco.settings import Settings, get_settings
 
@@ -184,6 +185,17 @@ def test_the_scripted_agent_decides_every_window_and_freezes(played: Played) -> 
         f"Frozen, from L2 (run {played.run.name}): 51 curves accepted of the line's 73 windows, "
         "22 rejected."
     )
+    # G3's last word on the rejected windows, picked no more: a curve with too few points to
+    # invert, or none, rejected in the run's log.
+    attempts = read_attempts(played.run)
+    few = [
+        g3
+        for one in frozen["rejected"]
+        if (picked := latest(attempts, one["unit"], "picking")) is not None
+        and (g3 := picked.results.get("G3")) is not None
+        and {"too_few_points", "no_ridge"} & {flag.name for flag in g3.flags}
+    ]
+    assert few and all(g3.verdict == "reject" for g3 in few)
 
 
 @pytest.mark.slow
@@ -193,6 +205,36 @@ def test_decide_refuses_a_blocking_flag(played: Played) -> None:
     assert answer(played, 7).endswith(
         "- 66.75: blocking flag sharpness, air_wave: it cannot be accepted until a later pick "
         "clears it"
+    )
+
+
+@pytest.mark.slow
+def test_a_curve_with_too_few_points_is_never_accepted(judged_line: JudgedLine) -> None:
+    # A passing window's curve as G3 judges one of 3 points: a fixable flag, the hint the agent
+    # sees; accepted, the curve is picked no more and the inversion cannot take it.
+    unit = "xmid_17.25"
+    picked = latest(judged_line.attempts, unit, "picking")
+    assert picked is not None
+    few = picked.results["G3"].model_copy(
+        update={
+            "verdict": "retry",
+            "flags": (
+                Flag(
+                    name="too_few_points",
+                    message="3 points in the curve: too few. Keep more of the ridge's points.",
+                    stage="picking",
+                    action=Override(stage="picking", overrides=FIXES),
+                ),
+            ),
+            "kept": Kept(n_points=3),
+        }
+    )
+    attempts = (*judged_line.attempts, picked.model_copy(update={"results": {"G3": few}}))
+
+    problem, _ = acceptable(judged_line.folder, attempts, unit)
+
+    assert problem == (
+        "blocking flag too_few_points: it cannot be accepted until a later pick clears it"
     )
 
 

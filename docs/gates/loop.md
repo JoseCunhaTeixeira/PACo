@@ -40,7 +40,8 @@ keeps 4 changes at most (`QCConfig.line`), outside them. A unit asking for a ret
 have stays flagged and goes on, as every flagged unit (only a rejected unit stops), a note first
 saying why: its budget spent (`budget_spent`), the retry would run with the parameters of the
 attempt before (`nothing_to_try`), or it asks only to change settings the user gave (`locked`, its
-note naming the change asked: `locked, asks dispersion vmax 375 (given: 250)`). A flag whose change
+note naming the change asked: `locked, asks dispersion vmax 375 (given: 250)`); a curve with too
+few points to invert, or none, is rejected instead (`G3.md`). A flag whose change
 touches a setting the user gave is held back whole, its parts going together (G5's longer
 sampling doubles the iterations and the burn-in); the unit's other flags retry. A limit the
 user gave (the picking's band, `fmin` and `fmax`) takes the change within it instead (G3's

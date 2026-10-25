@@ -1,7 +1,8 @@
 """decide: the model's decision on each window of the committed
 line, accepted, rejected or pending, with its reason. Code refuses: accepting a window
-whose curve G3 or G4 rejected, or that carries a blocking flag (a flagged curve goes on, as every
-flagged unit: only a rejected one stops); accepting a curve with flags or notes without a reason;
+whose curve G3 or G4 rejected, or that carries a blocking flag, too few points to invert among
+them, as an accepted curve is picked no more (a flagged curve goes on, as every flagged unit:
+only a rejected one stops); accepting a curve with flags or notes without a reason;
 and rejecting a window before it was tried hard. Tried
 hard means the line's automatic pick, a pick of the model's after it when it carried fixable flags
 (or a reason naming those flags, saying why none applies), a pick guided by its neighbours when one
@@ -29,6 +30,7 @@ from paco.autonomous.tools.pick import Picked, manifest_of, neighbours, passing_
 from paco.autonomous.tools.trials import Study, check_open
 from paco.qc.budgets import REFUSALS
 from paco.qc.config import QCConfig
+from paco.qc.g3_curve import unretried
 from paco.qc.judging import saved_m0
 from paco.qc.log import latest, read_attempts
 from paco.qc.models import Attempt, Flag, GateResult
@@ -179,6 +181,8 @@ def acceptable(
     g4 = picked.results.get("G4") if picked is not None else None
     if g3 is None or saved_m0(run_folder / unit / CURVES_FILE) is None:
         return "it has no curve: pick it, or reject it", []
+    # Accepted, the curve is picked no more: one with too few points to invert blocks.
+    g3 = unretried(g3)
     blocking = [flag.name for flag in _flags(g2, g3, g4) if flag_class(flag) == "blocking"]
     if blocking:
         return (

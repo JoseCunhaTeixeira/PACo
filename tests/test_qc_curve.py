@@ -16,8 +16,8 @@ from sigpipe.base import (
     VelocityType,
 )
 
-from paco.qc.g3_curve import CurveThresholds, judge_curve
-from paco.qc.models import Flag, GateResult
+from paco.qc.g3_curve import CurveThresholds, judge_curve, unretried
+from paco.qc.models import Flag, GateResult, Reject
 
 FREQUENCIES = np.arange(10.0, 40.5, 0.5)
 VELOCITIES = np.arange(1.0, 1000.5, 0.5)
@@ -331,6 +331,37 @@ def test_too_few_points_ask_to_keep_more_of_the_ridge() -> None:
             "overrides": {"min_relative_coherence": 0.3},
         }
     assert result.kept.n_points == 3
+
+
+def test_too_few_points_or_none_reject_once_no_retry_of_the_pick_comes() -> None:
+    image = _image(_ridge(M0, 0.8, 1.5))
+    fs = np.array([30.0, 31.0, 32.0])
+    vs = 150 + 250 * np.exp(-fs / 15)
+    few = judge_curve("xmid_12.50", image, _picked(image, M0, fs=fs, vs=vs), THRESHOLDS)
+    none = judge_curve("xmid_12.50", _image(), None, THRESHOLDS)
+
+    ended = unretried(few)
+    assert ended.verdict == "reject"
+    flags = _flags(ended)
+    assert flags["too_few_points"].action == Reject(reason="too few points to invert")
+    assert flags["too_few_points"].message == "3 points in the curve, too few to invert."
+    assert not flags["too_few_points"].fixable
+    # A narrow span alone goes on flagged: it stays as it was.
+    assert flags["narrow_span"] == _flags(few)["narrow_span"]
+    (flag,) = unretried(none).flags
+    assert flag.action == Reject(reason="no curve to invert")
+    assert unretried(none).verdict == "reject"
+
+
+def test_other_flags_stay_as_they_were_once_no_retry_comes() -> None:
+    image = _image(_ridge(M0, 0.8, 1.5))
+    fs = np.linspace(29.0, 33.0, 8)
+    vs = 150 + 250 * np.exp(-fs / 15)
+    narrow = judge_curve("xmid_12.50", image, _picked(image, M0, fs=fs, vs=vs), THRESHOLDS)
+    clean = _judge(image)
+
+    assert narrow.verdict == "retry" and unretried(narrow) is narrow
+    assert unretried(clean) is clean
 
 
 def test_a_curve_spanning_too_few_wavelengths_asks_to_keep_more_of_the_ridge() -> None:
