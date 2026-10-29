@@ -5,7 +5,7 @@ Ollama, LM Studio, OpenRouter, a company's gateway). Both are PACo's ChatModel, 
 the evaluations' judge is another client of the same model."""
 
 from anthropic import AsyncAnthropic
-from openai import AsyncOpenAI
+from openai import APIConnectionError, APIStatusError, AsyncOpenAI, OpenAI
 from pydantic import SecretStr
 
 from paco.llm.claude import AnthropicChat
@@ -85,3 +85,23 @@ def chat_model(settings: ModelSettings, *, reconnect_s: float = RECONNECT_S) -> 
         vision=True,
         reconnect_s=reconnect_s,
     )
+
+
+def unanswered(base_url: str, api_key: SecretStr, wait_s: float) -> str | None:
+    """Why the server at `base_url` does not answer, reached as the model's client reaches it (its
+    proxies, the system's certificates, as a company's gateway asks): asked for its models, within
+    about `wait_s` seconds, half for the connection, half for the answer. None when it answers,
+    whatever it says: a gateway may serve no model list, or guard it otherwise."""
+    client = OpenAI(
+        base_url=base_url, api_key=api_key.get_secret_value(), timeout=wait_s / 2, max_retries=0
+    )
+    try:
+        client.models.list()
+    except APIStatusError:
+        return None
+    except APIConnectionError as error:
+        cause = error.__cause__ or error
+        return f"{type(cause).__name__}: {cause}" if str(cause) else type(cause).__name__
+    finally:
+        client.close()
+    return None
