@@ -25,6 +25,7 @@ import hashlib
 import json
 import re
 import shutil
+import sys
 import threading
 import time
 from collections.abc import Callable, Collection, Mapping, Sequence
@@ -84,6 +85,9 @@ from paco.qc.models import Attempt, GateResult
 from paco.qc.muting import estimate_cone, mutable, mute_candidates
 from paco.runs import image_cache
 from paco.settings import Settings
+
+if sys.platform == "win32":
+    import _winapi
 
 STUDIES = "studies"  # in the profile's output folder
 RECORDS = "records"
@@ -511,8 +515,23 @@ def with_records(
     store = study.folder / RECORDS / _key(_preprocessing(dumped))
     records, made = preprocessed(store, preset, profile, settings, config)
     folder.mkdir(parents=True, exist_ok=True)
-    (folder / RECORDS_FOLDER).symlink_to(store / RECORDS_FOLDER, target_is_directory=True)
+    link_records(store / RECORDS_FOLDER, folder / RECORDS_FOLDER)
     return records, made
+
+
+def link_records(source: Path, link: Path) -> None:
+    """`link` made a link to the folder `source`, a study's records given to a run folder: a
+    symbolic link; on Windows, which makes one only with Developer Mode on or as admin, a
+    directory junction, which anyone may make and which reads alike."""
+    if sys.platform == "win32":
+        _winapi.CreateJunction(str(source.resolve()), str(link))
+    else:
+        link.symlink_to(source, target_is_directory=True)
+
+
+def linked(records: Path) -> bool:
+    """Whether a run folder's `records` are a link to a study's (link_records), not its own."""
+    return records.is_symlink() or records.is_junction()
 
 
 def fast_cone(profile: Profile, preset: Preset, config: QCConfig) -> Mapping[str, Any] | None:
@@ -596,7 +615,7 @@ def judge_records(
             }
         )
     )
-    own = not (folder / RECORDS_FOLDER).is_symlink()
+    own = not linked(folder / RECORDS_FOLDER)
     if (entry / SETTLED).exists():
         kept = Settled.model_validate_json((entry / SETTLED).read_text())
         _relog(folder, kept)
