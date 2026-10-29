@@ -51,9 +51,12 @@ _NEXT_ASK = {
 _STUCK_ERROR = re.compile(r"Error executing tool \w+: \[stuck\]")
 # Numbers of a count or an order (3 windows, option 2): not checked against the results.
 _SMALL = 10
-# A number: grouped by thousands (320,000, 1,280,000.5), or with one decimal point or comma.
-_NUMBER = re.compile(r"(?<![\w.,])(?:\d{1,3}(?:,\d{3})+(?:\.\d+)?|\d+(?:[.,]\d+)?)(?![\w])")
-_THOUSANDS = re.compile(r"\d{1,3}(?:,\d{3})+(?:\.\d+)?")
+# A number: grouped by thousands, with commas (320,000, 1,280,000.5) or spaces as SI writes them
+# (320 000, a narrow or a no-break space too), or with one decimal point or comma.
+_GROUPED = r"\d{1,3}(?:(?:,\d{3})+|(?:[ \u202f\u00a0]\d{3})+)(?:\.\d+)?"
+_NUMBER = re.compile(r"(?<![\w.,])(?:" + _GROUPED + r"|\d+(?:[.,]\d+)?)(?![\w])")
+_THOUSANDS = re.compile(_GROUPED)
+_SPACED = re.compile(r"[ \u202f\u00a0]")
 # A run's id, or a job's (a run's with its kind before): a name, its digits no numbers.
 _ID = re.compile(r"(?:\w+-)?\d{8}-\d{6}-[0-9a-f]{4}")
 
@@ -284,13 +287,13 @@ def _next(turn: Turn, scope: Scope) -> str:
 
 
 def _readings(number: str) -> list[tuple[float, int]]:
-    """`number`'s values, each with its decimals: thousands grouped by commas (320,000), and a
-    comma read as the decimal point (12,5, French), whichever applies."""
+    """`number`'s values, each with its decimals: thousands grouped by commas (320,000) or spaces
+    (320 000), and a comma read as the decimal point (12,5, French), whichever applies."""
     readings: list[tuple[float, int]] = []
     if _THOUSANDS.fullmatch(number):
-        whole = number.replace(",", "")
+        whole = _SPACED.sub("", number.replace(",", ""))
         readings.append((float(whole), len(whole.partition(".")[2])))
-    if number.count(",") + number.count(".") <= 1:
+    if not _SPACED.search(number) and number.count(",") + number.count(".") <= 1:
         dotted = number.replace(",", ".")
         readings.append((float(dotted), len(dotted.partition(".")[2])))
     return readings

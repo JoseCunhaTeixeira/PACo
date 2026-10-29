@@ -70,7 +70,7 @@ REJECTED_CURVES = (
 # The curves accepted, then their models inverted and rejected: the 8 from 74.25 m on.
 ACCEPTED = "xmid 74.25-84.75 (8)"
 # A small context, for the oldest calls to drop out: P2's tools, role and manual take
-# about 13,400 tokens of it, past its 60 %.
+# about 13 400 tokens of it, past its 60 %.
 CONTEXT = 16_000
 
 
@@ -511,7 +511,7 @@ def test_the_survey_lasts_until_its_conclusion_is_written(tmp_path: Path) -> Non
     phases = [phase_of(study)]
     (tmp_path / SAVED).write_text("{}")
     phases.append(phase_of(study))
-    journal.write(study, "conclusion", "A clean fan from 120 to 330 m/s; a mute of 90 to 1,400.")
+    journal.write(study, "conclusion", "A clean fan from 120 to 330 m/s; a mute of 90 to 1400.")
     phases.append(phase_of(study))
 
     # The curves' tools open once the model has said what the survey's records show.

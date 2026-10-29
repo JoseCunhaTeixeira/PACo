@@ -153,7 +153,7 @@ def judge_model(
         iterations = 2 * parameters.n_iterations
         if measures.samples_per_chain < thresholds.min_samples_per_chain:
             # Enough models a chain at once (sigpipe keeps one every SAVE_EVERY iterations after
-            # a burn-in of a quarter): doubling 2,000 iterations twice still leaves too few.
+            # a burn-in of a quarter): doubling 2000 iterations twice still leaves too few.
             enough = thresholds.min_samples_per_chain * SAVE_EVERY / KEPT_SHARE
             iterations = max(iterations, math.ceil(enough / 1_000) * 1_000)
         loop.change(

@@ -233,7 +233,7 @@ def inversion_used(
             + (
                 GIVEN + ", checked against each curve"
                 if "vs_min" in asked or "vs_max" in asked
-                else "100 to 2,000 m/s, wider where a curve needed it or the models piled at a "
+                else "100 to 2000 m/s, wider where a curve needed it or the models piled at a "
                 "bound (G5)"
             ),
             f"interfaces from {_span(bound['depth_min'] for bound in bounds)} to "
@@ -261,7 +261,7 @@ def inversion_used(
             + (
                 GIVEN + ", checked against each curve"
                 if "vs_layers" in given
-                else "wide at first (100 to 1,000 m/s, the half-space to 2,000), wider where a "
+                else "wide at first (100 to 1000 m/s, the half-space to 2000), wider where a "
                 "curve needed it or a posterior piled at a bound (G5)"
             ),
             f"layers at least {_span(thinnest)} m thick: a third of each curve's shortest "

@@ -21,7 +21,7 @@ the agent reads them first in the summary; the ladder's trials are kept in the r
 | The near limit | none: a window stacks its nearest shots too, G3 reporting its nearest shot (`near_offset`), unless the user gives `masw.distance_min` | A near field gives `active_p2` no cleaner image and breaks its passive-active images; on the demo it costs curves (below) |
 | The window length | one length for the whole line. Given none: a ladder of the autonomous search's lengths shorter than the line (5, 7, 9, 11, 13, 15, 17, 21, 25, 33, 41 and 47 receivers), each tried on the same 27 sample windows spread evenly along the line, its ends included (S2, the picking and G3; a passive line's each with segments as long as its window asks, below), the mute trial and the line loop on as many. The length whose sample windows G3 passes most is kept; on a tie, the one whose curves reach deepest (the longest median wavelength), then the shorter. A length given (by the user or the agent) is kept, its trial windows tried for the record | The length whose images give the most curves along the line, as its sample windows show it, and of those the deepest. No share of the line caps it: a 24-geophone spread may need most of its length, and `active_p1`'s windows pass best at 47 or 48 receivers, half its line (below) |
 | The frequency step | 1/T by construction: no padding before the phase shift, so the image's step follows the record length | A finer step only interpolates |
-| The velocity range | left to G2, which flags a ridge on the grid's edges per window | The trial images could set it; not needed on the demo (1 to 1,000 m/s) |
+| The velocity range | left to G2, which flags a ridge on the grid's edges per window | The trial images could set it; not needed on the demo (1 to 1000 m/s) |
 
 ## The ladder proposes, the agent decides
 
@@ -114,7 +114,7 @@ trial windows pass G3 on 21 of 27 at 13 receivers, against 27 of 27 with its own
 
 When the user gives the segments' length, `segments.py` tries their FK selection on three
 windows at the line's length, the ladder's: the line's own, and the selection with no band
-and within 80-1,500 m/s at thresholds 0.05 to 0.3, never off. Each segment is sliced, whitened,
+and within 80-1500 m/s at thresholds 0.05 to 0.3, never off. Each segment is sliced, whitened,
 normalized, tapered and correlated once, as the pipeline does, flipped and not, and its f-k
 lopsidedness measured (sigpipe's `fk_ratio`, the selection's own measure); a candidate keeps the
 segments beyond its threshold, flipped where their energy runs the other way, and stacks them.

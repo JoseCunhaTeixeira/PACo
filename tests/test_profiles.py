@@ -44,7 +44,7 @@ def test_inspect_active_demo(demo_settings: Settings) -> None:
     assert summary.receiver_spacing_m == pytest.approx(1.5)
     assert summary.sampling_rate_hz == 2000.0
     assert summary.nyquist_hz == 1000.0
-    # 6,000 samples at 2,000 Hz: 2.9995 s from the first to the last, 2.999 to the ms.
+    # 6000 samples at 2000 Hz: 2.9995 s from the first to the last, 2.999 to the ms.
     assert summary.record_duration_range_s == pytest.approx((2.999, 2.999), abs=1e-3)
     assert summary.source_x_range_m == (-0.75, 143.25)
 

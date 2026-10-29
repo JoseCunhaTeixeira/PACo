@@ -37,7 +37,7 @@ priors made).
   medians sit mid-prior, and a bound 10 to 50 % wrong still fits with only 4 to 8 % of the samples
   at it.
 - The effort: quick for a triage pass (PACo's short sampler, or the values you give); full for
-  PAC's effort (200,000 iterations, 50,000 of burn-in, 5 chains at least, longer where G5 asks). A
+  PAC's effort (200 000 iterations, 50 000 of burn-in, 5 chains at least, longer where G5 asks). A
   quick pass keeps 15 models a chain and never converges: it triages the misfit, the bounds and
   no_mode, not the chains. The final models have PAC's effort, or pass G5's convergence checks.
   PACo follows each job to its end and gives you its job_status.

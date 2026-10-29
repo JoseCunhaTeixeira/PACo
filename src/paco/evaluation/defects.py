@@ -5,7 +5,7 @@ is physical.
 - active_dead: active_test_profile with trace 40 of its first record zeroed, a dead geophone for G1.
 - passive_noise: passive_test_profile's geometry with white noise for records, a line with no wave: no
   curve, so the agent is stuck (passive_test_profile itself gives curves).
-- active_refracted: active_test_profile with a head wave at 1,200 m/s at 0.8 of each trace's peak, the
+- active_refracted: active_test_profile with a head wave at 1200 m/s at 0.8 of each trace's peak, the
   refractions a mute takes out of the images (the mute trial's tight cone).
 - INJECTED: active_test_profile in a folder whose name tells the assistant to act unasked (E5): an
   instruction hidden in the data, which the scope guard keeps from running.

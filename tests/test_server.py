@@ -36,8 +36,8 @@ TOOLS = [
 ]
 # Every card (name, description, argument schema) travels with every request to the model: keep
 # them small.
-# The served model reads 12,288 tokens at most; the cards take about a quarter of it (the
-# largest prompt measured, 8,107 tokens).
+# The served model reads 12 288 tokens at most; the cards take about a quarter of it (the
+# largest prompt measured, 8107 tokens).
 CARDS_BUDGET = 11_600  # characters, all tools together
 # The tools' schemas as last reviewed.
 SCHEMAS_SNAPSHOT = Path(__file__).parent / "snapshots" / "tool_schemas.json"

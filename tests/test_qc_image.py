@@ -90,7 +90,7 @@ def test_a_ridge_beyond_the_top_velocity_asks_for_a_wider_range() -> None:
 
     result = judge_image("xmid_12.50", image, THRESHOLDS)
 
-    # The 47 m window tells 1,000 m/s from an infinite velocity above 21.3 Hz (f L > vmax): 28
+    # The 47 m window tells 1000 m/s from an infinite velocity above 21.3 Hz (f L > vmax): 28
     # of the 41 columns count.
     assert edge_peaks(image, coherent_columns(image, 0.3), 0.02) == (0, 28)
     assert _flags(image) == {
@@ -105,7 +105,7 @@ def test_a_ridge_beyond_the_top_velocity_asks_for_a_wider_range() -> None:
 
 
 def test_energy_with_no_moveout_on_a_short_window_is_not_a_ridge_beyond_the_grid() -> None:
-    # 24 receivers 0.25 m apart (5.75 m): at 10 to 40 Hz the window cannot tell 1,000 m/s from
+    # 24 receivers 0.25 m apart (5.75 m): at 10 to 40 Hz the window cannot tell 1000 m/s from
     # an infinite velocity (f L at most 230 m/s), so energy at the grid's top is noise common to
     # every trace, not a ridge to widen the range for.
     short = _line(24, spacing=0.25)

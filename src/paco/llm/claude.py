@@ -52,7 +52,7 @@ from paco.llm.reconnecting import reconnecting
 
 logger = logging.getLogger(__name__)
 
-# The tokens of a reply, its thinking included: past some 21,000 the SDK asks for a stream.
+# The tokens of a reply, its thinking included: past some 21 000 the SDK asks for a stream.
 REPLY_TOKENS = 16_000
 # Thinking's budget, where the model takes a budget rather than adaptive thinking.
 THINKING_TOKENS = 8_000

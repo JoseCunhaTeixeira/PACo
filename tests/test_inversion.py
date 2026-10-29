@@ -211,7 +211,7 @@ def test_parameters_are_checked(build: Callable[[], object], message: str) -> No
 
 
 def test_the_burnin_follows_the_iterations() -> None:
-    # A quarter, PAC's ratio: 2,000 iterations do not keep the default 50,000 of burn-in.
+    # A quarter, PAC's ratio: 2000 iterations do not keep the default 50 000 of burn-in.
     assert InversionParameters(n_iterations=2_000).n_burnin_iterations == 500
     assert InversionParameters.model_validate({"n_iterations": 2e3}).n_burnin_iterations == 500
     # A burn-in the user gives is kept.
@@ -333,7 +333,7 @@ def test_g5s_retries_are_in_the_jobs_summary(inverted: Inverted) -> None:
     assert summary is not None
     assert any(line.startswith("G5: ") for line in summary.splitlines()[:2])
     # 3 models a chain: G5 asks, at once, the iterations 100 models a chain need (after a burn-in
-    # of a quarter: 20,000). What comes of
+    # of a quarter: 20 000). What comes of
     # it depends on the unseeded sampler: a window may need twice as many again, or a Vs bound
     # widened with them (its retry then named after that flag), and the line says "(each its
     # own)".

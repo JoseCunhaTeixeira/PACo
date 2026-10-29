@@ -76,7 +76,7 @@ JOB_WAIT_S = 60.0
 type Effort = Literal["quick", "full"]
 EFFORTS = (
     "quick: a triage pass, PACo's short sampler (3,000 iterations and 2 chains) or the values "
-    "you give; full: PAC's own at least, 200,000 iterations and 5 chains, the final models' "
+    "you give; full: PAC's own at least, 200 000 iterations and 5 chains, the final models' "
     "(some 40 minutes a line on 8 cores)"
 )
 FULL_SAMPLER: dict[str, int] = {

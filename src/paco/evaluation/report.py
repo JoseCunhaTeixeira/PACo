@@ -31,7 +31,7 @@ def format_report(report: EvaluationReport) -> str:
         score = (
             "-" if result.judge is None or result.judge.score is None else str(result.judge.score)
         )
-        tokens = "-" if result.max_prompt_tokens is None else f"{result.max_prompt_tokens:,}"
+        tokens = "-" if result.max_prompt_tokens is None else _grouped(result.max_prompt_tokens)
         lines.append(
             f"{label:{width}} {result.kind:18} {passed:>3}/{len(result.checks):<2} {score:>5} "
             f"{result.tool_calls:>5} {result.failed_calls:>6} {tokens:>10} "
@@ -158,3 +158,9 @@ def _verdict(report: EvaluationReport, scenario: str) -> str:
 
 def _label(result: ScenarioResult, repeated: bool) -> str:
     return f"{result.name} #{result.attempt}" if repeated else result.name
+
+
+def _grouped(value: int) -> str:
+    """A whole number as SI writes it: 1612, 12 500 (a narrow space from five digits on)."""
+    text = f"{value:,}"
+    return text.replace(",", "\u202f" if abs(value) >= 10_000 else "")

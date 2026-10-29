@@ -142,7 +142,7 @@ def test_a_muting_the_user_gave_has_no_trial() -> None:
 
 def _shot(refraction: float) -> Stream:
     """A surface wave at 200 m/s from a source 2 m before the first of 24 receivers 1 m apart,
-    and with `refraction`, a head wave at 1,200 m/s of that amplitude relative to it."""
+    and with `refraction`, a head wave at 1200 m/s of that amplitude relative to it."""
     rng = np.random.default_rng(0)
     ts = np.arange(1000) / 1000.0
     receivers = tuple(Coordinate(2.0 + i, 0.0, 0.0) for i in range(24))

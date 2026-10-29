@@ -5,7 +5,7 @@ dotted in red (left of it, beyond the window's reach). Scaled row by row, a weak
 as dark as a strong one's: the background tells how far it stands above the rest. From PAC's test
 lines: what each case looks like, and what it asks.
 
-- 1. Clean (passive-active, 11 receivers, a mute of 50 to 1,500 m/s): one sharp dark ridge,
+- 1. Clean (passive-active, 11 receivers, a mute of 50 to 1500 m/s): one sharp dark ridge,
   continuous over a wide band, rising toward the low frequencies, the rest yellow; the pick on its
   crest. The image to aim for.
 - 2. Stripes (the same windows, unmuted): vertical bands across the whole image and a ridge broken

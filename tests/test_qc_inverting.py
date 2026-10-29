@@ -95,7 +95,7 @@ def test_the_windows_not_rejected_are_inverted_with_bounds_from_their_curves(
         (curve,) = load_dispersion_curves([run_folder / attempt.unit / CURVES_FILE])[0]
         velocities = np.asarray(curve.vs, dtype=float)
         wavelengths = velocities / np.asarray(curve.fs, dtype=float)
-        # The layers chosen by the data: Vs 100 to 2,000 m/s, as the curve (240 to 287 m/s)
+        # The layers chosen by the data: Vs 100 to 2000 m/s, as the curve (240 to 287 m/s)
         # needs no wider; interfaces from a third of its shortest wavelength to half its longest
         # (deeper, the curve resolves nothing); 8 layers at most.
         assert velocities.min() >= 100 and 1.09 * velocities.max() <= 2_000

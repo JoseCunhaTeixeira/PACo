@@ -93,7 +93,7 @@ No one looks at the curves before the inversion: G3 is the safety net for the pi
 - G4's verdict is the go/no-go for S4: its record in the QC log is what `invert` reads. Details: `docs/gates/G4.md`.
 
 ### Checks before S4 (inversion parameters coherent with the curve)
-- Vs bounds bracket the curve: Vs ≈ 1.09·Vr at PAC's Vp/Vs of 1.77. Wide by default (100 to 2,000 m/s; with the layers given, 100 to 1,000 m/s above the half-space), widened to 0.8·Vr_min and 1.5·Vr_max where the curve needs it.
+- Vs bounds bracket the curve: Vs ≈ 1.09·Vr at PAC's Vp/Vs of 1.77. Wide by default (100 to 2000 m/s; with the layers given, 100 to 1000 m/s above the half-space), widened to 0.8·Vr_min and 1.5·Vr_max where the curve needs it.
 - Depth: the top of the half-space (the deepest interface) is not resolved deeper than about λmax/2: the data's own layers end there, values given are scaled to it, and G5 shrinks a model given layers reaching deeper to the depth the data inform. Layers thinner than about λmin/3 are not resolved.
 - Layers: chosen by the data by default, up to 8 (sigpipe's reversible-jump chains); when given, at least 3, starting at 4, and the loop adds one when the misfit stays high and removes one when it is not resolved.
 - Vs may fall at most 20 % from a layer to the next: a stiff layer over a much softer one makes the forward model's fundamental mode a wave trapped in the soft layer.
@@ -128,13 +128,13 @@ In the order of PAC's page for each method: the windows, the preprocessing, the 
 - Step: 1 receiver by default (every xmid). The records' and the images' settings are the line's, the same for every xmid, as in PAC's pages; the picking and the inversion change per xmid.
 - Offsets: the farthest shot within the reach G1 found; the nearest at least half the trial curves' longest wavelength from the window, against near-field effects, where the window has a farther one.
 - Muting: tried at the line's length on active and passive-active lines (`qc/muting.py`), unless the user gave one; a mute kept only where the images gain (below). First the shots' trigger, where their first breaks put them, when G1 finds the files' off by more than its limit (the trigger is the muting's); each muted candidate's records judged by G1 as the line's are once a mute is kept (those it left out before staying out), so that its trial windows count as the line's will.
-- Segments (passive lines): their length and FK selection (its threshold, its band open or 80 to 1,500 m/s) tried at the line's length (`docs/gates/S2_rules.md`).
+- Segments (passive lines): their length and FK selection (its threshold, its band open or 80 to 1500 m/s) tried at the line's length (`docs/gates/S2_rules.md`).
 - Frequency range: fmin >= the records' median fmin_usable from G1; fmax <= min(their median fmax_usable, Nyquist), never widened.
 - Velocity range: vmin and vmax bracket the expected velocities: where a ridge sits on the grid's edge, G2 asks a wider range of the line, which the line loop tries.
 - Frequency step: a step finer than 1/T (T = record length after the mute) only interpolates: no padding before the phase shift.
 
 ## Agent side
-Constraints: a small model on a local GPU, a 16,384-token context, one tool call per reply, 15 tool calls per answer; the model sees summaries only, and the tool cards have a measured budget.
+Constraints: a small model on a local GPU, a 16 384-token context, one tool call per reply, 15 tool calls per answer; the model sees summaries only, and the tool cards have a measured budget.
 - The agent asks when the request leaves the user's choice open (work already there, work made by hand: below) or when it is stuck: the data cannot decide (no image or no curve left for the line, a request the data do not allow, such as windows longer than the line). It asks one short question with 2 to 4 concrete options, its choice first, and waits. Settings the user did not give are its own to choose, never a reason to ask; otherwise it applies the gates' fixes and goes back a stage by itself, saying what it changed.
 - Settings the user types in the chat are the only exception to "derived": the loop starts from them. If a gate then concludes one must change, the agent changes it and says so in its answer, without asking.
 - The go/no-go before the inversion of the agent's curves is G4's verdict: `invert` reads G4's record from the QC log; a person's curves are taken as they are, and automatic curves no gate judged are judged first. There is no approval step.

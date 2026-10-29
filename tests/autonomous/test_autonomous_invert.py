@@ -412,7 +412,7 @@ def test_g5s_loop_weighs_the_studys_runs_at_the_same_effort() -> None:
 
     own = [ran("quick", 3000, "not_converged"), ran("full", 200_000, "not_converged")]
     own.append(ran("full", 400_000, "not_converged"))
-    # The quick look is not one of the full runs: 800,000 iterations sample longer a second time.
+    # The quick look is not one of the full runs: 800 000 iterations sample longer a second time.
     assert loop(own, 800_000, "full") == inverting.Loop(MIN_LAYERS, 2, False)
     # Chains that disagreed, then as many iterations: the ranges were narrowed.
     assert loop(own[:2], 200_000, "full") == inverting.Loop(MIN_LAYERS, 0, True)

@@ -5,7 +5,7 @@ each scaled to its peak, time down, the shot a blue star. From PAC's active test
   the blue lines of the survey's cone, their low frequencies first and the train spreading with
   distance (dispersion). Ahead of them, the refractions: fast, straight first arrivals. After
   them, from about 1 s on the far side, trains from other sources, with no moveout from the shot.
-  The red lines are a mute's window, 80 to 1,500 m/s with its tail: it keeps the fan and cuts
+  The red lines are a mute's window, 80 to 1500 m/s with its tail: it keeps the fan and cuts
   what arrives after it.
 - 2. 101.dat: under the fan, near 2 s, a wave train no shot of the line made: another source, noise
   for the phase shift. G1 rejects the record for its SNR.

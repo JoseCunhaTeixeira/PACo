@@ -121,13 +121,13 @@ phase velocity v and frequency f.
   surface-wave window of a passive-active line: the grid tries PACo's mutes, and no mute.
   A mute cut hard at the slowest arrival rings in the image: PACo gives one without its width the
   wave train's tail (0.05 s) and without its taper 10 ms, as its own mute trial does.
-- The candidates: PACo's standard 80 to 1,500 m/s, the cone widened by 2.25 or 1.5 each side, and
+- The candidates: PACo's standard 80 to 1500 m/s, the cone widened by 2.25 or 1.5 each side, and
   the tight cone (its median divided and multiplied by 1.5); advise mute runs PACo's mute trial at
   the line's length. Beyond them: long wavelengths arrive early, at the cone's fast edge, so a mute
   that cuts the fast side alone (refractions) and keeps the slow edge wide may lose less depth.
 - Compare the candidates on the images, not only a mute against none: their velocities matter.
   The mute you drew by eye on the survey's gathers is one of them. On active_p2 in
-  passive-active, PACo's mute trial kept the cone widened by 2.25 (68 to 2,086 m/s), whose images
+  passive-active, PACo's mute trial kept the cone widened by 2.25 (68 to 2086 m/s), whose images
   are quieter over 16 to 45 m (background 0.10 to 0.14) than the standard mute's (0.15 to 0.21).
 - Keeping a mute: PACo keeps the mute most windows pass, the tightest on a tie (the narrowest
   velocity window); on active_p2 a tie of four mutes at 26 of 27 keeps the tight cone. Keep a mute
@@ -213,17 +213,17 @@ phase velocity v and frequency f.
   window a few times; the grid tries 2 to 16 crossings at the slowest group velocity. advise
   segments gives PACo's: 10 crossings of the window at 80 m/s, as its ladder sizes them; for
   segments the line's settings give, its FK selection trial (a few minutes): thresholds of 0.05 to
-  0.3 with no band or 80 to 1,500 m/s, a candidate counting with 1 % of its segments kept and the
+  0.3 with no band or 80 to 1500 m/s, a candidate counting with 1 % of its segments kept and the
   virtual shots of its two halves agreeing (0.7), the longest λmax/λmin winning. On passive_p2 at
   13 receivers its 2.25 s segments passed G3 on 80 of 84 windows; 4.5 s with FK 0.1 in 80 to
-  1,500 m/s, the best of a trial on three windows, passed 51.
+  1500 m/s, the best of a trial on three windows, passed 51.
 - On a passive line the settings follow PAC's page: the windows' length, by the wavelengths they
   must resolve (as on an active line); the preprocessing, a filter at most (no mute); then the
   interferometry in its order: the slicing (the segments' length, long enough for the slowest waves
   to cross a window a few times and no longer, which also sets the image's frequency step), the
   segment selection (the FK threshold, 0 to 1, the preset's 0.2: lower keeps more segments and their
   noise, higher fewer and cleaner, while enough remain to stack; its velocity band from 80 to
-  1,500 m/s to start, since noise records show no velocity to set it from, then wider, narrower or
+  1500 m/s to start, since noise records show no velocity to set it from, then wider, narrower or
   open), the spectral whitening, the temporal normalization, the correlations' stacking; then the
   dispersion image. The FK selection, its threshold and its band, gets the most values: keep the
   variants whose images and virtual shot gathers are cleanest (look selection shows each segment's

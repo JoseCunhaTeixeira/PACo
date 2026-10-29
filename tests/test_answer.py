@@ -194,6 +194,16 @@ def test_numbers_grouped_by_thousands_are_read_either_way() -> None:
     assert unfound_numbers("640,000 iterations", held) == ["640,000"]
 
 
+def test_numbers_grouped_as_si_writes_them_are_read_whole() -> None:
+    # Thousands grouped by a space (20 000), a narrow one, or a no-break one, in the answer as in
+    # the tools' results; four digits stand alone (1500).
+    said = "From 20 000 to 1\u202f280\u202f000 iterations, then 320\u00a0000, muted at 1500 m/s."
+    held = ['{"n_iterations":20000}', "1280000", "320\u202f000 iterations", "80 to 1500 m/s"]
+
+    assert unfound_numbers(said, held) == []
+    assert unfound_numbers("640 000 iterations", held) == ["640 000"]
+
+
 def test_ids_and_numbers_the_conversation_holds_are_not_flagged() -> None:
     # A run's and a job's ids are names; a number the user wrote, or a result of an earlier
     # turn, comes from the conversation; one of the scope's, from the message.

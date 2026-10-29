@@ -192,8 +192,8 @@ def test_a_narrowed_range_keeps_a_width() -> None:
 
 
 def test_too_few_models_a_chain_ask_for_enough_iterations_at_once() -> None:
-    # 2,000 iterations keep 12 models a chain: doubling twice would still leave 48. 100 models a
-    # chain after a burn-in of a quarter: 20,000.
+    # 2000 iterations keep 12 models a chain: doubling twice would still leave 48. 100 models a
+    # chain after a burn-in of a quarter: 20 000.
     short = PARAMETERS.model_copy(update={"n_iterations": 2_000, "n_burnin_iterations": 500})
 
     result = _judge(_measures(samples_per_chain=12), short)

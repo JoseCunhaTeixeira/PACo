@@ -2,7 +2,7 @@
 each of the model's calls, replacing the one before: the phase, the objective and the budgets, the
 settings kept as the user gave them, the survey, the line now with its scorecard, the open issues,
 the checks, the last experiments and the windows' decisions; after the freeze, the frozen curves.
-About 1,500 tokens at most. Both are read from the study's records alone (the journal, the usage
+About 1500 tokens at most. Both are read from the study's records alone (the journal, the usage
 log, the survey, the committed line and its run, the picks and decisions, the frozen curves), so
 that a study resumed shows the same; state.json is rewritten from them each time, never edited
 alone."""

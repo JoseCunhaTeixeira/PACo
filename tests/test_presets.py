@@ -436,7 +436,7 @@ def test_resolving_the_defaults_changes_nothing(
 @pytest.mark.parametrize(
     ("profile", "name", "stage", "override", "field", "expected"),
     [
-        # The muting's width: one sample, 0.5 ms at 2,000 Hz (a passive line has no muting).
+        # The muting's width: one sample, 0.5 ms at 2000 Hz (a passive line has no muting).
         (
             "active_test_profile",
             "active",

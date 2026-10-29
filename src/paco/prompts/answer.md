@@ -8,3 +8,5 @@ it what was done, the windows left out, the settings, and what the user can do n
 - question: the one question the user must answer for the request to go on (a choice between
   options a tool gave, or what to do when it cannot be finished), else null. An offer of more
   work is never a question.
+- Numbers: a decimal point; from five digits on, the thousands apart by a space (12 500), none
+  in four (1500).

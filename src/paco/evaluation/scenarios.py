@@ -378,7 +378,7 @@ SCENARIOS = (
             answer_mentions(locked_asks("G5")),
             thresholds_unchanged(),
         ),
-        rubric="2,000 iterations are too few: the agent starts the inversion as asked, follows "
+        rubric="2000 iterations are too few: the agent starts the inversion as asked, follows "
         "the job to its end, says the iterations stayed as given, which windows G5 left out "
         "over them and the iterations it asks, and suggests inverting again with those.",
     ),

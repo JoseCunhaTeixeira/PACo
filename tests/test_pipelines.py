@@ -373,7 +373,7 @@ def test_active_preset_values_reach_the_transformers(
 
     assert vars(_only(built.preprocessing, Mute)) == {
         "method": "mute",
-        # The bounds left out stay out (none); the width, one sample at 2,000 Hz.
+        # The bounds left out stay out (none); the width, one sample at 2000 Hz.
         "params": {
             "tmin": None,
             "tmax": None,

@@ -53,7 +53,7 @@ active_test_profile in passive-active mode"); `inspect` lists a profile's modes.
 1 s segments end to end, FK-selected (0.2, always on), whitened and normalized one-bit, and their
 correlations stacked phase-weighted (power 2), as PAC's forms do. A passive-active shot
 is correlated whole; when its image peaks at the grid's top velocity, G2 asks for the
-surface-wave mute (80 to 1,500 m/s) before a wider grid, the records' time origin moved by the
+surface-wave mute (80 to 1500 m/s) before a wider grid, the records' time origin moved by the
 trigger their files state.
 
 Given no window length, `run_processing` chooses one: the shortest at which most trial windows
@@ -250,7 +250,7 @@ for the model to choose (`docs/gates/S2_rules.md`, `docs/gates/S4_checks.md`). E
 goes as far as its ridge holds, at both ends, and G3 judges sharpness and prominence against a
 perfect plane wave for the same window, so that short windows are judged fairly
 (`docs/gates/G3.md`). An inversion lets the data choose the number of layers (up to 8, Vs 100
-to 2,000 m/s widened where the curve needs it, interfaces from a third of its shortest
+to 2000 m/s widened where the curve needs it, interfaces from a third of its shortest
 wavelength to half its longest), the picks' noise level sampled with the model; G5 judges the
 chains on the models' Vs at the depths the curve resolves, and adapts each window: sampling
 longer, a Vs bound widened, more layers allowed (with the layers given: a layer added or two
@@ -277,7 +277,7 @@ rates of every evaluation kept, by model and prompts' version, the latest versio
 one before (`--model` for one model), and over the same plays the tool calls that failed, the
 calls refused as outside the message's scope, the answers a cap ended and each gate's retries a
 play. An evaluation's plays share one images' cache, removed at its end, and their inversions
-are quick (two chains of 3,000 iterations where the message gave no sampler, G5 taking them as
+are quick (two chains of 3000 iterations where the message gave no sampler, G5 taking them as
 converged): the plays measure the agent's calls and answers, not the models; the scenarios that
 judge the inversion's gates on your settings invert at PAC's effort, as every play does with
 `--full-inversion`. A play the model's server cuts short (out of reach, failing, or a 404 page

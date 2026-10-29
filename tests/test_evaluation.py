@@ -1389,7 +1389,7 @@ def test_the_report_table() -> None:
         "Evaluation eval-20260923-100000-abcd of Qwen/Qwen3-14B-FP8 (judge: judge)"
     )
     assert (
-        "list_profiles        look around          1/1      5     2      0      1,612    3.2s"
+        "list_profiles        look around          1/1      5     2      0       1612    3.2s"
         in text
     )
     assert text.endswith(
@@ -1435,7 +1435,7 @@ def test_the_report_table_with_repeats() -> None:
     )
     # The column widens for the longest label.
     assert (
-        "inversion_approved #2 the loop             0/1      -     5      1      2,444   30.4s"
+        "inversion_approved #2 the loop             0/1      -     5      1       2444   30.4s"
         in text
     )
     assert text.endswith(
