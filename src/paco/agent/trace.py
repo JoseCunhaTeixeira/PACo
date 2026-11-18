@@ -152,7 +152,7 @@ def main() -> None:
     parser.add_argument("action", choices=("show", "replay"))
     parser.add_argument("file", type=Path, help="a transcript: agent_logs/*.json, transcript.json")
     arguments = parser.parse_args()
-    transcript = Transcript.model_validate_json(arguments.file.read_text())
+    transcript = Transcript.model_validate_json(arguments.file.read_text(encoding="utf-8"))
     if arguments.action == "show":
         print(show(transcript))
         return

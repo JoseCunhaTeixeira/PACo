@@ -261,14 +261,14 @@ def test_an_inversion_needs_g4(picked: Picked, tmp_path: Path) -> None:
     # The assistant's picks, G3's verdicts on them, and no G4 yet.
     settings, folder = _copy(picked, tmp_path)
     kept: list[str] = []
-    for line in (folder / "qc_log.jsonl").read_text().splitlines():
+    for line in (folder / "qc_log.jsonl").read_text(encoding="utf-8").splitlines():
         entry = json.loads(line)
         if entry.get("stage") == "picking":  # the log's events have none
             if entry["unit"] == "line":
                 continue
             entry["results"].pop("G4", None)
         kept.append(json.dumps(entry))
-    (folder / "qc_log.jsonl").write_text("\n".join(kept) + "\n")
+    (folder / "qc_log.jsonl").write_text("\n".join(kept) + "\n", encoding="utf-8")
 
     with pytest.raises(RunError, match=r"has not been judged up to G4: judge it"):
         submit_inversion(picked.run_id, SHORT, settings)

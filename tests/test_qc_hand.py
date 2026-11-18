@@ -377,4 +377,7 @@ def test_the_state_is_rebuilt_from_the_files_a_page_of_pac_changed(
     unit = next(one for one in after.units if one.unit == window)
     assert "M0" in unit.by_hand and after != before
     assert read_report(run_folder) == after
-    assert QCReport.model_validate_json((run_folder / REPORT_FILE).read_text()) == after
+    assert (
+        QCReport.model_validate_json((run_folder / REPORT_FILE).read_text(encoding="utf-8"))
+        == after
+    )

@@ -305,11 +305,11 @@ def _compare_images(
     compared: list[Compared] = []
     for window in windows:
         unit = f"xmid_{window.xmid:.2f}"
-        run_window = (run_folder / unit / "window.json").read_text()
+        run_window = (run_folder / unit / "window.json").read_text(encoding="utf-8")
         replayed_window = folder / unit / "window.json"
         if not replayed_window.exists() or MASWWindow.model_validate_json(
             run_window
-        ) != MASWWindow.model_validate_json(replayed_window.read_text()):
+        ) != MASWWindow.model_validate_json(replayed_window.read_text(encoding="utf-8")):
             compared.append(Compared(unit, "phase_shift", None, "its receivers or shots differ"))
             continue
         try:

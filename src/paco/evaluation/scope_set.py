@@ -383,7 +383,9 @@ async def read_scopes(
         results=tuple(results),
     )
     (folder / eval_id).mkdir(parents=True, exist_ok=True)
-    (folder / eval_id / "scopes.json").write_text(report.model_dump_json(indent=2))
+    (folder / eval_id / "scopes.json").write_text(
+        report.model_dump_json(indent=2), encoding="utf-8"
+    )
     return report
 
 

@@ -717,7 +717,7 @@ def judge_model_line(
         if inverted is None or g5 is None or g5.verdict == "reject" or not path.exists():
             without.append(window.xmid)
             continue
-        measures = InversionMeasures.model_validate_json(path.read_text())
+        measures = InversionMeasures.model_validate_json(path.read_text(encoding="utf-8"))
         # Down to the depth the data inform (G5's, where the models' Vs spread U stays under its
         # limit: one depth informed), within the curve's depth of investigation: below it, the
         # priors speak, and models differ by them alone.
@@ -909,7 +909,7 @@ def invert_windows(
                 except Exception as exc:
                     undo(run_folder / unit, created=False)  # a failed inversion's files not kept
                     (run_folder / unit / ERROR_FILE).write_text(
-                        "".join(traceback.format_exception(exc))
+                        "".join(traceback.format_exception(exc)), encoding="utf-8"
                     )
                     error = f"{type(exc).__name__}: {exc}"
                     attempt = attempt.model_copy(update={"status": "failed", "error": error})

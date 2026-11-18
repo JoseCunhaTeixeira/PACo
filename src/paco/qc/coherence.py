@@ -235,7 +235,11 @@ def _tried(trial: LengthTrial) -> str:
 def read_length_choice(run_folder: Path) -> LengthChoice | None:
     """The ladder's choice for the run in `run_folder`, when it made one."""
     path = run_folder / COHERENCE_FILE
-    return LengthChoice.model_validate_json(path.read_text()) if path.exists() else None
+    return (
+        LengthChoice.model_validate_json(path.read_text(encoding="utf-8"))
+        if path.exists()
+        else None
+    )
 
 
 def describe_lengths(choice: LengthChoice) -> tuple[str, ...]:
@@ -475,10 +479,13 @@ def nearest_offset(window_folder: Path) -> float | None:
     uses (window.json, sigpipe's nearest_offset); None when the window has none: a passive line's
     records hold no shot, their source at the origin only by default."""
     manifest = window_folder.parent / "run.json"
-    if manifest.exists() and json.loads(manifest.read_text())["profile"]["kind"] == "passive":
+    if (
+        manifest.exists()
+        and json.loads(manifest.read_text(encoding="utf-8"))["profile"]["kind"] == "passive"
+    ):
         return None
     return window_nearest_offset(
-        MASWWindow.model_validate_json((window_folder / "window.json").read_text())
+        MASWWindow.model_validate_json((window_folder / "window.json").read_text(encoding="utf-8"))
     )
 
 

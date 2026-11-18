@@ -104,5 +104,5 @@ def save_transcript(transcript: Transcript, folder: Path) -> Path:
     """Write `transcript` in `folder`, named after when it started, and return its path."""
     folder.mkdir(parents=True, exist_ok=True)
     path = folder / f"{transcript.started_at:%Y%m%d-%H%M%S}-{secrets.token_hex(2)}.json"
-    path.write_text(transcript.model_dump_json(indent=2))
+    path.write_text(transcript.model_dump_json(indent=2), encoding="utf-8")
     return path

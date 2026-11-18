@@ -33,7 +33,7 @@ def test_a_run_changed_from_the_command_line_says_so_in_its_trace(
 
     result = json.loads(capsys.readouterr().out)
     (trace,) = paco_env.output_dir.glob(f"*/{result['run_id']}/agent_calls.jsonl")
-    assert json.loads(trace.read_text())["conversation"] == call.CONVERSATION
+    assert json.loads(trace.read_text(encoding="utf-8"))["conversation"] == call.CONVERSATION
 
 
 @pytest.mark.usefixtures("paco_env")

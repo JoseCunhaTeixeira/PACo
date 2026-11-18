@@ -29,7 +29,7 @@ def test_list_profiles_finds_the_demo_profiles(demo_settings: Settings) -> None:
 def test_list_profiles_skips_files_and_hidden_folders(input_dir: Path, settings: Settings) -> None:
     (input_dir / "p1").mkdir()
     (input_dir / ".hidden").mkdir()
-    (input_dir / "notes.txt").write_text("not a profile")
+    (input_dir / "notes.txt").write_text("not a profile", encoding="utf-8")
 
     assert list_profiles(settings) == ["p1"]
 
@@ -152,7 +152,7 @@ def test_malformed_receiver_file(
     copy_demo: CopyDemo, settings: Settings, content: str, message: str
 ) -> None:
     folder = copy_demo("active_test_profile", "p1")
-    (folder / RECEIVER_POSITIONS_FILE).write_text(content)
+    (folder / RECEIVER_POSITIONS_FILE).write_text(content, encoding="utf-8")
 
     with pytest.raises(ProfileError, match=message):
         load_profile("p1", settings)
@@ -161,7 +161,9 @@ def test_malformed_receiver_file(
 def test_unsorted_receivers(copy_demo: CopyDemo, settings: Settings) -> None:
     folder = copy_demo("active_test_profile", "p1")
     path = folder / RECEIVER_POSITIONS_FILE
-    path.write_text(yaml.safe_dump(yaml.safe_load(path.read_text())[::-1]))
+    path.write_text(
+        yaml.safe_dump(yaml.safe_load(path.read_text(encoding="utf-8"))[::-1]), encoding="utf-8"
+    )
 
     with pytest.raises(ProfileError, match="must be sorted by x"):
         load_profile("p1", settings)
@@ -170,10 +172,10 @@ def test_unsorted_receivers(copy_demo: CopyDemo, settings: Settings) -> None:
 def test_source_file_not_matching_the_records(copy_demo: CopyDemo, settings: Settings) -> None:
     folder = copy_demo("active_test_profile", "p1")
     path = folder / SOURCE_POSITIONS_FILE
-    sources = yaml.safe_load(path.read_text())
+    sources = yaml.safe_load(path.read_text(encoding="utf-8"))
     # The last shot's position under the name of a record the profile does not have.
     sources["198.dat"] = sources.pop("197.dat")
-    path.write_text(yaml.safe_dump(sources))
+    path.write_text(yaml.safe_dump(sources), encoding="utf-8")
 
     with pytest.raises(
         ProfileError,
@@ -184,7 +186,7 @@ def test_source_file_not_matching_the_records(copy_demo: CopyDemo, settings: Set
 
 def test_source_file_that_is_not_a_mapping(copy_demo: CopyDemo, settings: Settings) -> None:
     folder = copy_demo("active_test_profile", "p1")
-    (folder / SOURCE_POSITIONS_FILE).write_text("- x: 0.0\n  z: 0.0\n")
+    (folder / SOURCE_POSITIONS_FILE).write_text("- x: 0.0\n  z: 0.0\n", encoding="utf-8")
 
     with pytest.raises(ProfileError, match="must map each record file name"):
         load_profile("p1", settings)
@@ -193,7 +195,9 @@ def test_source_file_that_is_not_a_mapping(copy_demo: CopyDemo, settings: Settin
 def test_fewer_receivers_than_traces(copy_demo: CopyDemo, settings: Settings) -> None:
     folder = copy_demo("active_test_profile", "p1")
     path = folder / RECEIVER_POSITIONS_FILE
-    path.write_text(yaml.safe_dump(yaml.safe_load(path.read_text())[:10]))
+    path.write_text(
+        yaml.safe_dump(yaml.safe_load(path.read_text(encoding="utf-8"))[:10]), encoding="utf-8"
+    )
 
     with pytest.raises(ProfileError, match=r"cannot load record 101\.dat.*lists 10 receivers"):
         load_profile("p1", settings)
@@ -202,7 +206,7 @@ def test_fewer_receivers_than_traces(copy_demo: CopyDemo, settings: Settings) ->
 def test_file_sigpipe_cannot_read(copy_demo: CopyDemo, settings: Settings) -> None:
     folder = copy_demo("active_test_profile", "p1")
     (folder / SOURCE_POSITIONS_FILE).unlink()
-    (folder / "notes.txt").write_text("field notes")
+    (folder / "notes.txt").write_text("field notes", encoding="utf-8")
 
     with pytest.raises(ProfileError, match=r"sigpipe cannot load record notes\.txt"):
         load_profile("p1", settings)

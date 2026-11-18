@@ -136,7 +136,7 @@ class Committed:
 def line_of(study: Study) -> Line | None:
     """The study's committed line; None before its first commit."""
     path = study.folder / LINE_FILE
-    return Line.model_validate_json(path.read_text()) if path.exists() else None
+    return Line.model_validate_json(path.read_text(encoding="utf-8")) if path.exists() else None
 
 
 def commit(
@@ -277,7 +277,9 @@ def line_state(run_folder: Path) -> LineState:
     """What a trial set reads of the committed line in `run_folder`: each window's G3 verdict
     ("no curve" without a pick) and the flags of its latest image and pick (G2, G3, G4)."""
     attempts = read_attempts(run_folder)
-    manifest = RunManifest.model_validate_json((run_folder / "run.json").read_text())
+    manifest = RunManifest.model_validate_json(
+        (run_folder / "run.json").read_text(encoding="utf-8")
+    )
     verdicts: dict[float, str] = {}
     flags: dict[float, frozenset[str]] = {}
     for window in manifest.windows:

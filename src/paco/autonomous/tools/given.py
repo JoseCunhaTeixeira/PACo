@@ -80,9 +80,9 @@ def given_of(study: Study) -> Given:
     given.json was kept: its objective's window length."""
     path = study.folder / GIVEN
     if path.exists():
-        return Given.model_validate_json(path.read_text())
+        return Given.model_validate_json(path.read_text(encoding="utf-8"))
     journal = study.folder / "journal.jsonl"
-    for line in journal.read_text().splitlines() if journal.exists() else ():
+    for line in journal.read_text(encoding="utf-8").splitlines() if journal.exists() else ():
         entry = json.loads(line) if line else {}
         if entry.get("kind") == "objective":
             older = entry.get("data", {}).get("given")

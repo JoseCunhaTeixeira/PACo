@@ -445,7 +445,7 @@ def survey_reach(study: Study) -> float | None:
     path = study.folder / SURVEY_FILE
     if not path.exists():
         return None
-    reach = json.loads(path.read_text()).get("reach_m")
+    reach = json.loads(path.read_text(encoding="utf-8")).get("reach_m")
     return float(reach) if isinstance(reach, int | float) else None
 
 
@@ -483,7 +483,7 @@ def preprocessed(
     the line's reach: made the first time, reused after (records.json). Whether made now."""
     saved = folder / "records.json"
     if saved.exists():
-        return Records.model_validate_json(saved.read_text()), False
+        return Records.model_validate_json(saved.read_text(encoding="utf-8")), False
     shutil.rmtree(folder, ignore_errors=True)  # what a stopped call left half made
     folder.mkdir(parents=True)
     outcomes = preprocess_records(
@@ -617,7 +617,7 @@ def judge_records(
     )
     own = not linked(folder / RECORDS_FOLDER)
     if (entry / SETTLED).exists():
-        kept = Settled.model_validate_json((entry / SETTLED).read_text())
+        kept = Settled.model_validate_json((entry / SETTLED).read_text(encoding="utf-8"))
         _relog(folder, kept)
         if own:
             _copy_spectra(entry, folder, outcomes)
@@ -693,7 +693,7 @@ def tried(
     key = trial_key(study, trial, windows, config)
     folder = study.folder / TRIALS / key
     if (folder / RESULT).exists():
-        return TrialRun.model_validate_json((folder / RESULT).read_text()), True
+        return TrialRun.model_validate_json((folder / RESULT).read_text(encoding="utf-8")), True
     shutil.rmtree(folder, ignore_errors=True)
     # The study's records and G1 are shared by every trial that preprocesses alike: made once.
     with _PREPARING:
@@ -832,7 +832,9 @@ def try_settings(
     if call in index["calls"]:
         # Made before: its results again, every trial taken from the study, nothing spent.
         made = Experiment.model_validate_json(
-            (study.folder / EXPERIMENTS / f"{index['calls'][call]}.json").read_text()
+            (study.folder / EXPERIMENTS / f"{index['calls'][call]}.json").read_text(
+                encoding="utf-8"
+            )
         )
         taken = tuple(one.model_copy(update={"taken": True, "seconds": 0.0}) for one in made.tried)
         return made.model_copy(update={"repeated": True, "tried": taken})
@@ -1004,7 +1006,7 @@ def _index(study: Study) -> dict[str, dict[str, str]]:
     if not path.exists():
         (study.folder / EXPERIMENTS).mkdir(parents=True, exist_ok=True)
         return {"calls": {}}
-    return json.loads(path.read_text())
+    return json.loads(path.read_text(encoding="utf-8"))
 
 
 def last_xmids(study: Study) -> tuple[float, ...]:
@@ -1013,7 +1015,9 @@ def last_xmids(study: Study) -> tuple[float, ...]:
     if not calls:
         return ()
     last = max(calls.values(), key=lambda name: int(name.removeprefix("E")))
-    made = Experiment.model_validate_json((study.folder / EXPERIMENTS / f"{last}.json").read_text())
+    made = Experiment.model_validate_json(
+        (study.folder / EXPERIMENTS / f"{last}.json").read_text(encoding="utf-8")
+    )
     return made.xmids
 
 

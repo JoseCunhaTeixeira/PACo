@@ -283,7 +283,7 @@ def test_the_command_serves_the_tools_the_chat_lists(
     url = f"http://127.0.0.1:{free_port}/mcp"
     log = tmp_path / "server.log"
 
-    with log.open("w") as stderr:
+    with log.open("w", encoding="utf-8") as stderr:
         process = subprocess.Popen(
             [command, "--mode", "autonomous"], cwd=tmp_path, env=environment, stderr=stderr
         )
@@ -295,7 +295,7 @@ def test_the_command_serves_the_tools_the_chat_lists(
             process.wait(timeout=STARTUP_S)
 
     assert capsys.readouterr().out.splitlines()[1:-1] == [f"  {name}" for name in TOOLS]
-    assert f"Serving {', '.join(TOOLS)} at {url}" in log.read_text()
+    assert f"Serving {', '.join(TOOLS)} at {url}" in log.read_text(encoding="utf-8")
 
 
 def _call(name: str, arguments: dict[str, Any]) -> CallToolResult:

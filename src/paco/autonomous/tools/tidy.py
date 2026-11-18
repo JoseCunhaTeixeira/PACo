@@ -66,7 +66,7 @@ def keep_images(study: Study) -> None:
     kept = study.folder / EXPERIMENTS / EXPERIMENT_IMAGES
     for path in sorted((study.folder / EXPERIMENTS).glob("E*.json")):
         try:
-            experiment = Experiment.model_validate_json(path.read_text())
+            experiment = Experiment.model_validate_json(path.read_text(encoding="utf-8"))
         except ValidationError:
             continue
         for tried in experiment.tried:

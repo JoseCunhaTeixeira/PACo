@@ -80,7 +80,7 @@ def read_reports(root: Path) -> list[EvaluationReport]:
     reports: list[EvaluationReport] = []
     for path in sorted(root.glob("*/report.json")):
         try:
-            reports.append(EvaluationReport.model_validate_json(path.read_text()))
+            reports.append(EvaluationReport.model_validate_json(path.read_text(encoding="utf-8")))
         except ValidationError:
             continue
     return sorted(reports, key=lambda report: report.started_at)

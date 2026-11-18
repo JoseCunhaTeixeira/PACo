@@ -42,7 +42,7 @@ def append_attempt(
             "made_by": made_by,
         }
     )
-    with log_lock(run_folder), (run_folder / LOG_FILE).open("a") as file:
+    with log_lock(run_folder), (run_folder / LOG_FILE).open("a", encoding="utf-8") as file:
         file.write(line.model_dump_json() + "\n")
 
 

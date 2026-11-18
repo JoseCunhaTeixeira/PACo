@@ -105,9 +105,9 @@ def test_the_ladder_keeps_the_length_most_trial_windows_pass(
     # The step keeps the line to four windows; the length is left to the ladder.
     run_folder, report = _line(demo_input_dir, tmp_path, {"masw": {"step": 24}}, QUICK)
 
-    choice = json.loads((run_folder / COHERENCE_FILE).read_text())
+    choice = json.loads((run_folder / COHERENCE_FILE).read_text(encoding="utf-8"))
     # Its picks, the trials' and the line's, go as far as their ridge holds, as PAC's auto pick.
-    picking = json.loads((run_folder / "qc_config.json").read_text())["picking"]
+    picking = json.loads((run_folder / "qc_config.json").read_text(encoding="utf-8"))["picking"]
     assert picking["max_wavelength"] is None
     # At 5 receivers (6 m) the trial windows keep too few points: none of the 3 passes. 24
     # passes 2 of 3 and 32 passes 1: 24, the most passing, is kept.
@@ -176,7 +176,7 @@ def test_a_given_length_is_kept_as_it_is(demo_input_dir: Path, tmp_path: Path) -
         demo_input_dir, tmp_path, {"masw": {"length": 32, "step": 24}}, strict
     )
 
-    choice = json.loads((run_folder / COHERENCE_FILE).read_text())
+    choice = json.loads((run_folder / COHERENCE_FILE).read_text(encoding="utf-8"))
     assert [(trial["length"], trial["passed"]) for trial in choice["trials"]] == [(32, 1)]
     assert choice["length"] == 32
     settings = Settings(input_dir=demo_input_dir, output_dir=run_folder.parents[1])

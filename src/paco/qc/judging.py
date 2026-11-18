@@ -504,7 +504,9 @@ def shared_band(
 ) -> tuple[float, float] | None:
     """The band every record of the window keeps usable: the highest low edge, the lowest high
     edge; None when no record has one."""
-    window = MASWWindow.model_validate_json((window_folder / "window.json").read_text())
+    window = MASWWindow.model_validate_json(
+        (window_folder / "window.json").read_text(encoding="utf-8")
+    )
     known = [band for path in window.selected_files if (band := usable.get(path.name))]
     if not known:
         return None
@@ -605,7 +607,7 @@ def _correlations_before_muting(
     preset = manifest.preset
     if not isinstance(preset, PassiveActivePreset):
         return None
-    window = MASWWindow.model_validate_json((folder / "window.json").read_text())
+    window = MASWWindow.model_validate_json((folder / "window.json").read_text(encoding="utf-8"))
     streams: dict[str, Stream] = {}
     for path in window.selected_files:
         found = records.stream(path.name)

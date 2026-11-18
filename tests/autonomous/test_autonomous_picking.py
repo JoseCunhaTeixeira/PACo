@@ -159,7 +159,7 @@ def played(
         results = anyio.run(play)
         settings = get_settings()
         (folder,) = (settings.output_dir / "active_test_profile" / "studies").iterdir()
-        line = json.loads((folder / "line.json").read_text())
+        line = json.loads((folder / "line.json").read_text(encoding="utf-8"))
         yield Played(
             [text for _, text in results],
             [refused for refused, _ in results],
@@ -178,7 +178,7 @@ def answer(played: Played, step: int) -> str:
 def test_the_scripted_agent_decides_every_window_and_freezes(played: Played) -> None:
     # Each call answered, or refused where the play expects it.
     assert played.refused == [refused for _, _, refused in PLAY], played.answers
-    frozen = json.loads((played.study.folder / "curves.json").read_text())
+    frozen = json.loads((played.study.folder / "curves.json").read_text(encoding="utf-8"))
     assert len(frozen["curves"]) + len(frozen["rejected"]) == 73
     assert [one["unit"] for one in frozen["rejected"]][:2] == ["xmid_18.75", "xmid_26.25"]
     assert answer(played, 18).startswith(
@@ -330,7 +330,10 @@ def test_a_lasso_guides_the_tracker_inside_its_band(played: Played) -> None:
 
 @pytest.mark.slow
 def test_each_pick_logs_how_it_was_made(played: Played) -> None:
-    lines = [json.loads(line) for line in (played.run / "qc_log.jsonl").read_text().splitlines()]
+    lines = [
+        json.loads(line)
+        for line in (played.run / "qc_log.jsonl").read_text(encoding="utf-8").splitlines()
+    ]
     picks = [
         one
         for one in lines
@@ -362,7 +365,7 @@ def test_several_ways_of_picking_in_one_call(played: Played) -> None:
 
 @pytest.mark.slow
 def test_the_frozen_curves_hold_what_the_inversion_needs(played: Played) -> None:
-    frozen = json.loads((played.study.folder / "curves.json").read_text())
+    frozen = json.loads((played.study.folder / "curves.json").read_text(encoding="utf-8"))
 
     assert (frozen["run_id"], frozen["commit"], frozen["length"]) == (played.run.name, 2, 24)
     assert (frozen["dx_m"], frozen["length_m"], frozen["reach_m"]) == (1.5, 34.5, 66.64)
@@ -447,7 +450,7 @@ def test_the_soils_come_from_the_frozen_curves(played: Played) -> None:
     # Last: it writes the run's soil columns. With PACo's petro extra only.
     if not all(importlib.util.find_spec(name) for name in ("santiludo", "keras", "keras_nlp")):
         pytest.skip("needs PACo's petro extra")
-    frozen = json.loads((played.study.folder / "curves.json").read_text())
+    frozen = json.loads((played.study.folder / "curves.json").read_text(encoding="utf-8"))
     accepted = {curve["unit"] for curve in frozen["curves"]}
 
     async def calls() -> tuple[str, str]:

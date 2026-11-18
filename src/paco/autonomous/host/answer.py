@@ -240,7 +240,7 @@ def outcomes(study: Study, settings: Settings) -> list[str]:
     if line is None:
         return []
     folder = find_run(line.run_id, settings)
-    manifest = RunManifest.model_validate_json((folder / "run.json").read_text())
+    manifest = RunManifest.model_validate_json((folder / "run.json").read_text(encoding="utf-8"))
     statuses = decide.statuses(study, folder, line.run_id)
     lines: list[str] = []
     for status in ("accepted", "rejected", "pending"):
@@ -262,7 +262,7 @@ def parameters_used(study: Study, settings: Settings) -> list[str]:
     if line is None:
         return []
     folder = find_run(line.run_id, settings)
-    manifest = RunManifest.model_validate_json((folder / "run.json").read_text())
+    manifest = RunManifest.model_validate_json((folder / "run.json").read_text(encoding="utf-8"))
     preset = manifest.preset
     spacing = manifest.profile.receiver_spacing_m
     source = _sources(study, line)

@@ -35,7 +35,9 @@ def test_the_given_settings_are_kept_by_family(tmp_path: Path) -> None:
     assert locked(tmp_path, "phase_shift") == locked(tmp_path, "preprocessing")
     assert locked(tmp_path, "inversion") == {}
     # Events of the run's log, which the attempts' readers pass by (S2).
-    lines = [json.loads(line) for line in (tmp_path / LOG_FILE).read_text().splitlines()]
+    lines = [
+        json.loads(line) for line in (tmp_path / LOG_FILE).read_text(encoding="utf-8").splitlines()
+    ]
     assert [(line["event"], line["family"], line["actor"]) for line in lines] == [
         ("given", "processing", "agent"),
         ("given", "processing", "agent"),

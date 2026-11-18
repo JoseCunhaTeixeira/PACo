@@ -232,7 +232,7 @@ def test_g1_is_made_once_for_the_trials_that_preprocess_alike(made: Made) -> Non
     # The variants change neither the records' preprocessing nor the images' band, and take the
     # same cone: one G1, made by the first trial and given to the others.
     (entry,) = (made.study.folder / trials.G1).iterdir()
-    kept = trials.Settled.model_validate_json((entry / trials.SETTLED).read_text())
+    kept = trials.Settled.model_validate_json((entry / trials.SETTLED).read_text(encoding="utf-8"))
 
     assert [_run(made.study, one.trial).g1 for one in made.first.tried] == [kept.results] * 4
     assert kept.exclusions.records == ("101.dat", "129.dat")
@@ -385,5 +385,5 @@ def test_an_experiment_seen_side_by_side(made: Made) -> None:
 
 def _run(study: Study, key: str) -> TrialRun:
     return TrialRun.model_validate_json(
-        (study.folder / trials.TRIALS / key / trials.RESULT).read_text()
+        (study.folder / trials.TRIALS / key / trials.RESULT).read_text(encoding="utf-8")
     )

@@ -26,7 +26,7 @@ def find_job(job_id: str, settings: Settings) -> tuple[Path, InversionRecord]:
     """The run folder and record of inversion job `job_id`."""
     if _JOB_ID.fullmatch(job_id):
         for path in sorted(settings.output_dir.glob(f"*/*/{INVERSION_FILE}")):
-            record = InversionRecord.model_validate_json(path.read_text())
+            record = InversionRecord.model_validate_json(path.read_text(encoding="utf-8"))
             if record.job_id == job_id:
                 return path.parent, record
     raise InversionError(
@@ -37,14 +37,18 @@ def find_job(job_id: str, settings: Settings) -> tuple[Path, InversionRecord]:
 
 def read_record(folder: Path) -> InversionRecord | None:
     path = folder / INVERSION_FILE
-    return InversionRecord.model_validate_json(path.read_text()) if path.exists() else None
+    return (
+        InversionRecord.model_validate_json(path.read_text(encoding="utf-8"))
+        if path.exists()
+        else None
+    )
 
 
 def write_record(folder: Path, record: InversionRecord) -> None:
     # Written whole, then renamed: a reader never sees half a file.
     path = folder / INVERSION_FILE
     partial = path.with_suffix(".partial")
-    partial.write_text(record.model_dump_json(indent=2))
+    partial.write_text(record.model_dump_json(indent=2), encoding="utf-8")
     partial.replace(path)
 
 

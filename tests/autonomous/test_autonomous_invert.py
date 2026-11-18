@@ -254,7 +254,9 @@ def test_the_same_seed_makes_the_same_models(inverted: Inverted, tmp_path: Path)
             window, tmp_path / name, ignore=shutil.ignore_patterns("SeismicInversion_*")
         )
         invert_window(tmp_path / name, parameters, chain_jobs=2, seed=seed)
-        models.append((tmp_path / name / "SeismicInversion_Model_0000_median.csv").read_text())
+        models.append(
+            (tmp_path / name / "SeismicInversion_Model_0000_median.csv").read_text(encoding="utf-8")
+        )
 
     assert models[0] == models[1] != models[2]
 

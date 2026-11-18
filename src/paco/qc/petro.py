@@ -349,7 +349,9 @@ def _measures_in_place(run_folder: Path, manifest: RunManifest) -> dict[str, Pet
     for window in manifest.windows:
         path = run_folder / window.folder / MEASURES_FILE
         if path.exists():
-            found[window.folder] = PetroMeasures.model_validate_json(path.read_text())
+            found[window.folder] = PetroMeasures.model_validate_json(
+                path.read_text(encoding="utf-8")
+            )
     return found
 
 

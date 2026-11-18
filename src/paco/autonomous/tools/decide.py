@@ -74,7 +74,7 @@ def current(study: Study, run_folder: Path, run_id: str) -> dict[str, Decision]:
     attempts = read_attempts(run_folder)
     last: dict[str, Decision] = {}
     path = study.folder / DECISIONS
-    lines = path.read_text().splitlines() if path.exists() else []
+    lines = path.read_text(encoding="utf-8").splitlines() if path.exists() else []
     for one in (Decision.model_validate_json(line) for line in lines if line):
         if one.run_id == run_id:
             last[one.unit] = one
@@ -145,7 +145,7 @@ def decide(
             f"Nothing decided, {len(problems)} of the windows cannot be {status}:\n{rows}"
         )
     now = datetime.now(UTC)
-    with (study.folder / DECISIONS).open("a") as file:
+    with (study.folder / DECISIONS).open("a", encoding="utf-8") as file:
         for unit in units:
             imaged_at, picked_at = _made_on(attempts, unit)
             decision = Decision(

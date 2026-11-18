@@ -32,24 +32,24 @@ def _study(folder: Path, finalists: tuple[str, ...]) -> Study:
     (searches / searching.IMAGES).mkdir(parents=True)
     (searches / searching.IMAGES / "g1.npz").write_bytes(b"x" * 500)
     (searches / searching.IMAGES / "g2.npz").write_bytes(b"x" * 500)
-    (searches / "S1.json").write_text("{}")
-    (searches / searching.JUDGED).write_text('{"round": 1}\n')
+    (searches / "S1.json").write_text("{}", encoding="utf-8")
+    (searches / searching.JUDGED).write_text('{"round": 1}\n', encoding="utf-8")
     knockout = searching.Knockout(
         round=1,
         sheets=(searching.Sheet(number=1, labels=("g1", "g2")),),
         finalists=finalists,
         best=finalists[0] if finalists else None,
     )
-    (searches / searching.KNOCKOUT).write_text(knockout.model_dump_json())
+    (searches / searching.KNOCKOUT).write_text(knockout.model_dump_json(), encoding="utf-8")
     for name in ("journal.jsonl", "decisions.jsonl", "line.json", "experiments/E1.json"):
         (folder / name).parent.mkdir(parents=True, exist_ok=True)
-        (folder / name).write_text("{}")
+        (folder / name).write_text("{}", encoding="utf-8")
     return Study("active_test_profile", folder)
 
 
 def test_the_working_files_go_and_the_results_stay(tmp_path: Path) -> None:
     study = _study(tmp_path / "study", finalists=("g1",))
-    (study.folder / CURVES).write_text("{}")
+    (study.folder / CURVES).write_text("{}", encoding="utf-8")
 
     freed = tidy(study)
 
@@ -72,7 +72,7 @@ def test_each_experiments_dispersion_images_are_kept_as_thumbnails(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     study = _study(tmp_path / "study", finalists=("g1",))
-    (study.folder / TRIALS / "t1" / "xmid_10.00" / IMAGE_FILE).write_text("")
+    (study.folder / TRIALS / "t1" / "xmid_10.00" / IMAGE_FILE).write_text("", encoding="utf-8")
     card = Scorecard((10.0,), (10.0,), (), *([None] * 11))
     tried = Tried(
         label="current",
@@ -93,7 +93,7 @@ def test_each_experiments_dispersion_images_are_kept_as_thumbnails(
         tried=(tried,),
         made_at=datetime.now(UTC),
     )
-    (study.folder / EXPERIMENTS / "E1.json").write_text(made.model_dump_json())
+    (study.folder / EXPERIMENTS / "E1.json").write_text(made.model_dump_json(), encoding="utf-8")
     empty = np.zeros(0, dtype=np.float32)
     thumb = grid.Thumb(10.0, np.zeros((2, 2), np.uint8), (0, 1, 0, 1), 1.0, (empty, empty), (0, 0))
     monkeypatch.setattr(grid, "thumbnail", lambda _folder, _xmid: thumb)  # pyright: ignore[reportUnknownLambdaType]

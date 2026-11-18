@@ -241,7 +241,7 @@ def test_what_every_combination_of_the_search_had_needs_no_reason(
     )
     (study.folder / searching.SEARCHES).mkdir()
     (study.folder / searching.SEARCHES / f"{searching.SEARCH}.json").write_text(
-        made.model_dump_json()
+        made.model_dump_json(), encoding="utf-8"
     )
     reasons = {key: reason for key, reason in FIRST_REASONS.items() if key != "dispersion nv"}
 

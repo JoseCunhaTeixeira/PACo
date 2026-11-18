@@ -68,7 +68,7 @@ class Use(BaseModel):
 
 def record(study: Study, use: Use) -> None:
     """`use` appended to the study's usage log."""
-    with (study.folder / USAGE).open("a") as file:
+    with (study.folder / USAGE).open("a", encoding="utf-8") as file:
         file.write(use.model_dump_json() + "\n")
 
 
@@ -77,7 +77,11 @@ def uses(study: Study) -> list[Use]:
     path = study.folder / USAGE
     if not path.exists():
         return []
-    return [Use.model_validate_json(line) for line in path.read_text().splitlines() if line]
+    return [
+        Use.model_validate_json(line)
+        for line in path.read_text(encoding="utf-8").splitlines()
+        if line
+    ]
 
 
 @dataclass(frozen=True)

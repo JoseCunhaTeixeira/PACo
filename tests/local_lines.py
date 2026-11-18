@@ -32,10 +32,12 @@ def link_active(root: Path, shots: Sequence[str]) -> Path:
     """The active test profile linked into `root`, with the records `shots` names."""
     source, target = LOCAL_INPUT_DIR / ACTIVE, root / ACTIVE
     target.mkdir()
-    positions: dict[str, object] = yaml.safe_load((source / "source_positions.yaml").read_text())
+    positions: dict[str, object] = yaml.safe_load(
+        (source / "source_positions.yaml").read_text(encoding="utf-8")
+    )
     (target / "receiver_positions.yaml").symlink_to(source / "receiver_positions.yaml")
     (target / "source_positions.yaml").write_text(
-        yaml.safe_dump({name: positions[name] for name in shots})
+        yaml.safe_dump({name: positions[name] for name in shots}), encoding="utf-8"
     )
     for name in shots:
         (target / name).symlink_to(source / name)

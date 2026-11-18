@@ -538,7 +538,7 @@ class _Segments(_Products):
             band = (selection.get("vmin"), selection.get("vmax"))
             scores = [(ratio, abs(ratio) > threshold) for ratio in self.ratios[band]]
             (folder / SELECTION).write_text(
-                selection_scores(scores, threshold, True).model_dump_json()
+                selection_scores(scores, threshold, True).model_dump_json(), encoding="utf-8"
             )
             chosen = [(ratio > 0, j) for j, (ratio, keep) in enumerate(scores) if keep]
             if not chosen:

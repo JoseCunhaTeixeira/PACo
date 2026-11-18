@@ -108,7 +108,7 @@ def load_qc_config(path: Path | None) -> QCConfig:
     """The configuration in `path`, a JSON file, or the defaults when there is none."""
     if path is None:
         return QCConfig()
-    return QCConfig.model_validate_json(path.read_text())
+    return QCConfig.model_validate_json(path.read_text(encoding="utf-8"))
 
 
 def snapshot_qc_config(config: QCConfig, run_folder: Path) -> Path:
@@ -120,7 +120,9 @@ def snapshot_qc_config(config: QCConfig, run_folder: Path) -> Path:
 
 def read_qc_config(run_folder: Path) -> QCConfig:
     """The configuration a run used, as recorded: a setting PACo no longer has left out."""
-    return QCConfig.model_validate_json((run_folder / CONFIG_FILE).read_text(), extra="ignore")
+    return QCConfig.model_validate_json(
+        (run_folder / CONFIG_FILE).read_text(encoding="utf-8"), extra="ignore"
+    )
 
 
 def run_qc_config(run_folder: Path, path: Path | None) -> QCConfig:

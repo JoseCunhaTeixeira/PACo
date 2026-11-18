@@ -100,7 +100,7 @@ def _trial(
     folder = study.folder / ADVICE / topic / _key(current)
     saved = folder / "advice.txt"
     if saved.exists() and (topic != "window_length" or (folder / LENGTH).exists()):
-        return saved.read_text()
+        return saved.read_text(encoding="utf-8")
     profile = load_profile(study.profile, settings)
     trial = concrete(current, profile, config, survey_reach(study))
     if topic == "mute" and not mutable(trial.preset):
@@ -193,13 +193,19 @@ def _trial(
 def _ladder(study: Study, current: Mapping[str, Any], settings: Settings, config: QCConfig) -> int:
     """The window length PACo's ladder chooses from `current` (advise window_length, made once)."""
     _trial(study, "window_length", current, settings, config)
-    return int((study.folder / ADVICE / "window_length" / _key(current) / LENGTH).read_text())
+    return int(
+        (study.folder / ADVICE / "window_length" / _key(current) / LENGTH).read_text(
+            encoding="utf-8"
+        )
+    )
 
 
 def _line_changes(run_folder: Path) -> str:
     """The changes of the line's settings PACo's line loop would try, from the committed line's
     settings (run.json) and its G1, G2 and G3: the one the most failing windows ask first."""
-    manifest = RunManifest.model_validate_json((run_folder / "run.json").read_text())
+    manifest = RunManifest.model_validate_json(
+        (run_folder / "run.json").read_text(encoding="utf-8")
+    )
     attempts = read_attempts(run_folder)
     records = _latest(attempts, [record.name for record in manifest.records], "preprocessing", "G1")
     folders = [window.folder for window in manifest.windows]
@@ -209,7 +215,9 @@ def _line_changes(run_folder: Path) -> str:
     for folder in folders:
         path = run_folder / folder / "window.json"
         if path.exists():
-            for file in MASWWindow.model_validate_json(path.read_text()).selected_files:
+            for file in MASWWindow.model_validate_json(
+                path.read_text(encoding="utf-8")
+            ).selected_files:
                 uses.setdefault(file.name, set()).add(folder)
     found = candidates(
         records,
@@ -233,7 +241,9 @@ def _line_changes(run_folder: Path) -> str:
 
 def _picking(run_folder: Path) -> str:
     """G3's changes of the windows' picking, on the committed line, by change."""
-    manifest = RunManifest.model_validate_json((run_folder / "run.json").read_text())
+    manifest = RunManifest.model_validate_json(
+        (run_folder / "run.json").read_text(encoding="utf-8")
+    )
     attempts = read_attempts(run_folder)
     picks = _latest(attempts, [window.folder for window in manifest.windows], "picking", "G3")
     asked: dict[tuple[str, str], list[str]] = {}
@@ -253,7 +263,9 @@ def _picking(run_folder: Path) -> str:
 
 def _inversion(run_folder: Path) -> str:
     """G5's changes of the windows' inversions, on their latest models, by change."""
-    manifest = RunManifest.model_validate_json((run_folder / "run.json").read_text())
+    manifest = RunManifest.model_validate_json(
+        (run_folder / "run.json").read_text(encoding="utf-8")
+    )
     attempts = read_attempts(run_folder)
     models = _latest(attempts, [window.folder for window in manifest.windows], "inversion", "G5")
     if not models:

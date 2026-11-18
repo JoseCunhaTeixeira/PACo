@@ -128,7 +128,7 @@ def paco_env(
     monkeypatch.setenv("PACO_INPUT_DIR", str(demo_input_dir))
     monkeypatch.setenv("PACO_OUTPUT_DIR", str(tmp_path / "output"))
     qc_config = tmp_path / "qc_config.json"
-    qc_config.write_text('{"budgets": {"inversion_per_window": 1}}')
+    qc_config.write_text('{"budgets": {"inversion_per_window": 1}}', encoding="utf-8")
     monkeypatch.setenv("PACO_QC_CONFIG", str(qc_config))
     get_settings.cache_clear()
     yield get_settings()

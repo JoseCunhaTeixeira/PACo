@@ -228,7 +228,7 @@ def test_a_change_kept_is_made_on_the_whole_line(
         ": the line loop, asked by 1 window (G2:ridge_at_vmax): 2 of 2 "
         "trial windows passing G3 against 0 with the line's settings before it"
     )
-    trials = json.loads((run_folder / LINE_LOOP_FILE).read_text())["trials"]
+    trials = json.loads((run_folder / LINE_LOOP_FILE).read_text(encoding="utf-8"))["trials"]
     assert [trial["kept"] for trial in trials] == [True]
     # Read again after it, the asks gave nothing more: the loop ended.
     assert len(calls) == 2
@@ -276,7 +276,9 @@ def test_the_loop_keeps_at_most_its_changes(
     )
 
     assert load_manifest(report.run_id, settings).preset.model_dump()["dispersion"]["vmax"] == 1000
-    trials = json.loads((find_run(report.run_id, settings) / LINE_LOOP_FILE).read_text())
+    trials = json.loads(
+        (find_run(report.run_id, settings) / LINE_LOOP_FILE).read_text(encoding="utf-8")
+    )
     assert len(trials["trials"]) == 2
 
 

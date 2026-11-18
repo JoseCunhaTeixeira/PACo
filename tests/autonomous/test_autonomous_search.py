@@ -151,7 +151,9 @@ def test_a_line_with_shots_takes_a_near_field_in_either_mode(input_dir: Path) ->
 
 def test_a_study_changes_the_grid_and_never_its_file(input_dir: Path) -> None:
     profile = load_profile("passive_test_profile", Settings(input_dir=input_dir))
-    written = (Path(searching.__file__).parent.parent / searching.GRID_FILE).read_text()
+    written = (Path(searching.__file__).parent.parent / searching.GRID_FILE).read_text(
+        encoding="utf-8"
+    )
     changes = {
         "group_velocities": {"slowest": {"value": 160}},
         "passive": {"length": {"values": [5, 10]}},
@@ -167,7 +169,9 @@ def test_a_study_changes_the_grid_and_never_its_file(input_dir: Path) -> None:
     assert found["segments"].values[0].changes[searching.SEGMENTS] == 2 / 160
     file_lengths = yaml.safe_load(written)["passive"]["length"]["values"]
     assert list(searching.grid_of().passive["length"].values) == file_lengths
-    assert (Path(searching.__file__).parent.parent / searching.GRID_FILE).read_text() == written
+    assert (Path(searching.__file__).parent.parent / searching.GRID_FILE).read_text(
+        encoding="utf-8"
+    ) == written
     with pytest.raises(ValueError, match="no setting colour"):
         searching.grid_of({"passive": {"colour": {"description": "", "unit": "", "values": [1]}}})
 
@@ -305,11 +309,13 @@ def _study_with_sheets(folder: Path, rows: list[Row]) -> trials.Study:
         seconds=60.0,
         made_at=datetime.now(UTC),
     )
-    (folder / searching.SEARCHES / "S1.json").write_text(made.model_dump_json())
+    (folder / searching.SEARCHES / "S1.json").write_text(made.model_dump_json(), encoding="utf-8")
     knockout = searching.Knockout(
         round=1, sheets=searching.first_sheets(rows, ["length", "muting"])
     )
-    (folder / searching.SEARCHES / searching.KNOCKOUT).write_text(knockout.model_dump_json())
+    (folder / searching.SEARCHES / searching.KNOCKOUT).write_text(
+        knockout.model_dump_json(), encoding="utf-8"
+    )
     return study
 
 
@@ -337,7 +343,10 @@ def test_the_knockout_keeps_the_cleanest_round_after_round(tmp_path: Path) -> No
     with pytest.raises(ValueError, match="g30 is not a finalist: g15, g31, g3"):
         searching.choose(study, "g30", "why")
     final = searching.choose(study, "g31", "unbroken at every place")
-    judged = [json.loads(line) for line in (study.folder / "searches" / searching.JUDGED).open()]
+    judged = [
+        json.loads(line)
+        for line in (study.folder / "searches" / searching.JUDGED).open(encoding="utf-8")
+    ]
 
     assert (
         waiting == "Every sheet is judged first: 4 of round 1's 4 left; search again judges them."
@@ -606,7 +615,9 @@ def test_what_every_variant_had_is_the_searchs_not_a_choice(tmp_path: Path) -> N
         made_at=datetime.now(UTC),
     )
     (tmp_path / searching.SEARCHES).mkdir()
-    (tmp_path / searching.SEARCHES / f"{searching.SEARCH}.json").write_text(made.model_dump_json())
+    (tmp_path / searching.SEARCHES / f"{searching.SEARCH}.json").write_text(
+        made.model_dump_json(), encoding="utf-8"
+    )
 
     # The band and the near field the same in every variant, the grid's one value; the length
     # chosen among them.
@@ -677,7 +688,9 @@ def test_every_sheet_is_judged_until_the_search_chooses(paco_env: Settings) -> N
     done = searching.knockout_of(study)
     records = [
         json.loads(line)
-        for line in (study.folder / searching.SEARCHES / searching.JUDGED).read_text().splitlines()
+        for line in (study.folder / searching.SEARCHES / searching.JUDGED)
+        .read_text(encoding="utf-8")
+        .splitlines()
     ]
     first_round = sum(1 for one in records if one["round"] == 1)
     # The grid's summary in a text of its own, then its first sheets, each a figure.

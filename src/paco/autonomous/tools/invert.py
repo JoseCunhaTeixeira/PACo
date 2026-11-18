@@ -121,7 +121,11 @@ def inversions_of(study: Study, run_id: str | None = None) -> list[Inverted]:
     path = study.folder / INVERSIONS
     if not path.exists():
         return []
-    found = [Inverted.model_validate_json(line) for line in path.read_text().splitlines() if line]
+    found = [
+        Inverted.model_validate_json(line)
+        for line in path.read_text(encoding="utf-8").splitlines()
+        if line
+    ]
     return [one for one in found if run_id is None or one.run_id == run_id]
 
 
@@ -437,7 +441,7 @@ def _invert_group(
             results |= inverted
     attempts = read_attempts(run_folder)
     now = datetime.now(UTC)
-    with (study.folder / INVERSIONS).open("a") as file:
+    with (study.folder / INVERSIONS).open("a", encoding="utf-8") as file:
         for unit in units:
             attempt = latest(attempts, unit, "inversion")
             g5 = attempt.results.get("G5") if attempt is not None else None

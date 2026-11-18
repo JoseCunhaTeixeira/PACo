@@ -70,9 +70,9 @@ def _dead_trace(source: Path, folder: Path, trace: int) -> None:
     rewritten as MiniSEED (obspy writes no SEG-2)."""
     folder.mkdir(parents=True)
     shutil.copy(source / "receiver_positions.yaml", folder / "receiver_positions.yaml")
-    sources = yaml.safe_load((source / "source_positions.yaml").read_text())
+    sources = yaml.safe_load((source / "source_positions.yaml").read_text(encoding="utf-8"))
     renamed = {f"{Path(name).stem}.mseed": point for name, point in sources.items()}
-    (folder / "source_positions.yaml").write_text(yaml.safe_dump(renamed))
+    (folder / "source_positions.yaml").write_text(yaml.safe_dump(renamed), encoding="utf-8")
     for index, path in enumerate(
         sorted(path for path in source.iterdir() if path.suffix == ".dat")
     ):
@@ -107,12 +107,14 @@ def _refracted(source: Path, folder: Path, velocity: float, ratio: float) -> Non
     records rewritten as MiniSEED."""
     folder.mkdir(parents=True)
     shutil.copy(source / "receiver_positions.yaml", folder / "receiver_positions.yaml")
-    sources = yaml.safe_load((source / "source_positions.yaml").read_text())
+    sources = yaml.safe_load((source / "source_positions.yaml").read_text(encoding="utf-8"))
     renamed = {f"{Path(name).stem}.mseed": point for name, point in sources.items()}
-    (folder / "source_positions.yaml").write_text(yaml.safe_dump(renamed))
+    (folder / "source_positions.yaml").write_text(yaml.safe_dump(renamed), encoding="utf-8")
     receivers = [
         float(point["x"])
-        for point in yaml.safe_load((source / "receiver_positions.yaml").read_text())
+        for point in yaml.safe_load(
+            (source / "receiver_positions.yaml").read_text(encoding="utf-8")
+        )
     ]
     for path in sorted(path for path in source.iterdir() if path.suffix == ".dat"):
         with warnings.catch_warnings():  # obspy doubts the lines' SEG-2 delay header

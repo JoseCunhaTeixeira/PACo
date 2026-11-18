@@ -82,7 +82,7 @@ class Frozen(BaseModel):
 def frozen(study: Study) -> Frozen | None:
     """The study's frozen curves; none before the freeze."""
     path = study.folder / CURVES
-    return Frozen.model_validate_json(path.read_text()) if path.exists() else None
+    return Frozen.model_validate_json(path.read_text(encoding="utf-8")) if path.exists() else None
 
 
 def freeze(study: Study, run_folder: Path, line: Line) -> Frozen:
@@ -158,7 +158,9 @@ def freeze(study: Study, run_folder: Path, line: Line) -> Frozen:
         dx_m=manifest.profile.receiver_spacing_m,
         length=manifest.preset.masw.length,
         length_m=round(length_m, 3),
-        reach_m=Survey.model_validate_json(survey.read_text()).reach_m if survey.exists() else None,
+        reach_m=Survey.model_validate_json(survey.read_text(encoding="utf-8")).reach_m
+        if survey.exists()
+        else None,
         objective=None,
         curves=tuple(curves),
         rejected=tuple(rejected),

@@ -100,7 +100,7 @@ async def run_evaluation(
         thresholds={scenario.name: scenario.threshold for scenario in scenarios},
     )
     folder.mkdir(parents=True, exist_ok=True)
-    (folder / "report.json").write_text(report.model_dump_json(indent=2))
+    (folder / "report.json").write_text(report.model_dump_json(indent=2), encoding="utf-8")
     return report
 
 
@@ -150,7 +150,7 @@ async def run_scenario(
     transcript = agent.transcript(model_name)
     # A scenario that never processed a profile left no folder behind.
     folder.mkdir(parents=True, exist_ok=True)
-    (folder / "transcript.json").write_text(transcript.model_dump_json(indent=2))
+    (folder / "transcript.json").write_text(transcript.model_dump_json(indent=2), encoding="utf-8")
     trial = Trial(transcript, outputs, quick)
     tokens = [step.prompt_tokens for step in transcript.steps if step.kind == "model"]
     known_tokens = [count for count in tokens if count is not None]
@@ -213,7 +213,7 @@ def gate_retries(outputs: Path) -> dict[str, int]:
     logs each triggered by a gate's flag ("G2:ridge_at_vmax"), those a reset left behind too."""
     counts: Counter[str] = Counter()
     for log in outputs.glob("*/*/qc_log.jsonl"):
-        for line in log.read_text().splitlines():
+        for line in log.read_text(encoding="utf-8").splitlines():
             try:
                 entry = json.loads(line)
             except json.JSONDecodeError:
@@ -259,7 +259,7 @@ def _quick_config(folder: Path) -> Path:
     their short chains as converged (QUICK_MODEL), so that it does not sample them longer."""
     folder.mkdir(parents=True, exist_ok=True)
     path = folder / "quick_qc.json"
-    path.write_text(json.dumps({"model": QUICK_MODEL}))
+    path.write_text(json.dumps({"model": QUICK_MODEL}), encoding="utf-8")
     return path
 
 
@@ -267,6 +267,6 @@ async def _wait_for_jobs(outputs: Path) -> None:
     """Let the inversions the scenario started finish, so that scenarios never overlap."""
     deadline = time.monotonic() + _JOBS_TIMEOUT_S
     for path in outputs.glob("*/*/inversion.json"):
-        job = InversionRecord.model_validate_json(path.read_text()).job_id
+        job = InversionRecord.model_validate_json(path.read_text(encoding="utf-8")).job_id
         while server.JOBS.is_live(job) and time.monotonic() < deadline:
             await anyio.sleep(0.5)

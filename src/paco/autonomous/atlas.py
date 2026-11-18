@@ -147,7 +147,7 @@ def _windows(
     found: dict[tuple[str, float], tuple[Path, WindowResult]] = {}
     for example in examples:
         folder = study.folder / TRIALS / trials[example.window[0]]
-        run = TrialRun.model_validate_json((folder / RESULT).read_text())
+        run = TrialRun.model_validate_json((folder / RESULT).read_text(encoding="utf-8"))
         result = min(
             (one for one in run.windows if one.error is None),
             key=lambda one: abs(one.xmid - example.xmid),

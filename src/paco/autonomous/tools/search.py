@@ -178,7 +178,7 @@ class Grid(BaseModel):
 @cache
 def _grid_file() -> dict[str, Any]:
     """grid.yaml, as written."""
-    return yaml.safe_load((files("paco.autonomous") / GRID_FILE).read_text())
+    return yaml.safe_load((files("paco.autonomous") / GRID_FILE).read_text(encoding="utf-8"))
 
 
 def grid_of(changes: Mapping[str, Any] | None = None) -> Grid:
@@ -286,13 +286,13 @@ class Knockout(BaseModel):
 def searched(study: trials.Study) -> Search | None:
     """The study's search, when it has run."""
     path = study.folder / SEARCHES / f"{SEARCH}.json"
-    return Search.model_validate_json(path.read_text()) if path.exists() else None
+    return Search.model_validate_json(path.read_text(encoding="utf-8")) if path.exists() else None
 
 
 def knockout_of(study: trials.Study) -> Knockout | None:
     """The study's knockout, once its search has run."""
     path = study.folder / SEARCHES / KNOCKOUT
-    return Knockout.model_validate_json(path.read_text()) if path.exists() else None
+    return Knockout.model_validate_json(path.read_text(encoding="utf-8")) if path.exists() else None
 
 
 def unjudged(study: trials.Study) -> str | None:
@@ -384,7 +384,7 @@ def judge(study: trials.Study, kept: Mapping[int, Sequence[str]], why: str) -> K
                 f"{', '.join(sheet.labels)}."
             )
     at = datetime.now(UTC).isoformat()
-    with (study.folder / SEARCHES / JUDGED).open("a") as file:
+    with (study.folder / SEARCHES / JUDGED).open("a", encoding="utf-8") as file:
         for number, labels in kept.items():
             sheet = left[number]
             record = {

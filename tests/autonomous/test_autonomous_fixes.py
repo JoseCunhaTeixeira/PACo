@@ -60,7 +60,7 @@ def fixed(
                 (folder,) = (
                     get_settings().output_dir / "active_test_profile" / "studies"
                 ).iterdir()
-                line = json.loads((folder / "line.json").read_text())
+                line = json.loads((folder / "line.json").read_text(encoding="utf-8"))
                 run = find_run(line["run_id"], get_settings())
                 attempts = read_attempts(run)
                 asked: dict[str, dict[str, object]] = {}

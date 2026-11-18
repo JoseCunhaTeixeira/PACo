@@ -373,8 +373,12 @@ def test_models_and_soil_columns_already_there_are_the_users_choice(
     manifest = load_manifest(run_id, settings)
     # A model and a soil column made in PAC's inversion pages, at xmid 89.25.
     window = run_folder / "xmid_89.25"
-    (window / MODEL_FILES.replace("*", "Model_0000_best.csv")).write_text("depth,vs\n")
-    (window / SOIL_FILES.replace("*", "Model_0000.csv")).write_text("depth,soil\n")
+    (window / MODEL_FILES.replace("*", "Model_0000_best.csv")).write_text(
+        "depth,vs\n", encoding="utf-8"
+    )
+    (window / SOIL_FILES.replace("*", "Model_0000.csv")).write_text(
+        "depth,soil\n", encoding="utf-8"
+    )
 
     conversation = choices.Conversation(new)
     inverting = choices.inverting(run_folder, manifest, conversation, None, None, None)
@@ -660,7 +664,7 @@ def test_a_run_whose_manifest_does_not_read_is_not_gone_on_from(
     settings, run_id, new = run
     broken = settings.output_dir / "active_test_profile" / "20260930-235959-ffff"
     broken.mkdir()
-    (broken / "run.json").write_text("{}")
+    (broken / "run.json").write_text("{}", encoding="utf-8")
 
     asked = _call("run_processing", {"profile": "active_test_profile"}, new)
     runs = inspection.runs_text(settings)
@@ -704,7 +708,9 @@ def test_read_only_tools_change_nothing_and_a_run_keeps_its_calls(
     assert {path: path.stat().st_mtime_ns for path in settings.output_dir.rglob("*")} == stamps
     # A call that changes the run leaves its trace there, with its conversation and turn.
     _call("judge", {"run_id": run_id}, new, 2, _scope("pick"))
-    lines = (find_run(run_id, settings) / server.CALLS_FILE).read_text().splitlines()
+    lines = (
+        (find_run(run_id, settings) / server.CALLS_FILE).read_text(encoding="utf-8").splitlines()
+    )
     calls = [json.loads(line) for line in lines]
     # The fixture's own conversation processed and picked the run: its calls are there too.
     assert [call["tool"] for call in calls if call["conversation"] == "earlier"] == [

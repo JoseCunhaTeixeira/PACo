@@ -116,7 +116,7 @@ def test_the_trial_says_each_candidate_and_why_it_was_not_kept(tmp_path: Path) -
         trials=tuple(trials),
         notes=("muting none: the mute trial.",),
     )
-    (tmp_path / "mute.json").write_text(choice.model_dump_json())
+    (tmp_path / "mute.json").write_text(choice.model_dump_json(), encoding="utf-8")
 
     assert describe_mutes(choice) == (
         "no mute (kept): 13 of 15 trial windows passed G3, wavelengths 5 to 17 m",

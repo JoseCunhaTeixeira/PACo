@@ -52,7 +52,7 @@ def give(run_folder: Path, family: Family, values: Mapping[str, Any] | None) -> 
         "actor": "agent",
         "made_by": made_by_now("agent").model_dump(mode="json"),
     }
-    with log_lock(run_folder), (run_folder / LOG_FILE).open("a") as log:
+    with log_lock(run_folder), (run_folder / LOG_FILE).open("a", encoding="utf-8") as log:
         log.write(json.dumps(event, default=str) + "\n")
 
 

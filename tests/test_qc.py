@@ -205,7 +205,7 @@ def test_the_log_is_appended_and_read_back_in_order(tmp_path: Path) -> None:
         (1, "initial"),
         (2, "G2:ridge_at_vmax"),
     ]
-    assert len((tmp_path / LOG_FILE).read_text().splitlines()) == 2
+    assert len((tmp_path / LOG_FILE).read_text(encoding="utf-8").splitlines()) == 2
     assert latest(read, "xmid_12.50", "phase_shift") == read[1]
     assert latest(read, "xmid_12.50", "picking") is None
     # Each line in the log's version, with its kind, who logged it and what made it (S2, S4).
@@ -244,7 +244,8 @@ def test_a_line_says_the_call_that_made_it_and_a_verdict_is_the_gates(tmp_path: 
         _attempt("xmid_13.00", "phase_shift", 1).model_dump_json(
             exclude={"version", "event", "actor", "made_by"}
         )
-        + "\n"
+        + "\n",
+        encoding="utf-8",
     )
     (old,) = read_attempts(tmp_path)
     assert (old.version, old.event, old.actor, old.made_by) == (1, "stage", None, None)
@@ -295,7 +296,9 @@ def test_a_stage_started_afresh_forgets_its_attempts_not_their_cost(tmp_path: Pa
         ("xmid_12.50", "phase_shift", 1),
     ]
     # The log only grows: the forgotten lines are there, behind the agent's reset.
-    lines = [json.loads(line) for line in (tmp_path / LOG_FILE).read_text().splitlines()]
+    lines = [
+        json.loads(line) for line in (tmp_path / LOG_FILE).read_text(encoding="utf-8").splitlines()
+    ]
     assert [line.get("event") for line in lines] == ["stage"] * 4 + ["reset", "stage"]
     assert (lines[4]["actor"], lines[4]["stages"]) == (
         "agent",
@@ -448,7 +451,8 @@ def test_a_snapshot_with_retired_or_renamed_thresholds_still_reads(tmp_path: Pat
         ' "image": {"min_virtual_shot_snr_db": 3.0},'
         ' "curve": {"air_wave_mute_vmax": 320.0},'
         ' "model": {"max_vs_drop": 0.4},'
-        ' "models": {"max_useful_depth_spread": 0.6}}'
+        ' "models": {"max_useful_depth_spread": 0.6}}',
+        encoding="utf-8",
     )
 
     config = load_qc_config(given)
@@ -561,7 +565,8 @@ def test_the_configuration_defaults_hold_the_thresholds_and_the_budgets() -> Non
 def test_the_configuration_is_loaded_from_a_file_and_recorded_with_the_run(tmp_path: Path) -> None:
     given = tmp_path / "qc.json"
     given.write_text(
-        '{"budgets": {"per_gate_and_unit": 3}, "curve": {"metrics": {"min_sharpness": 0.9}}}'
+        '{"budgets": {"per_gate_and_unit": 3}, "curve": {"metrics": {"min_sharpness": 0.9}}}',
+        encoding="utf-8",
     )
     run_folder = tmp_path / "run"
     run_folder.mkdir()
@@ -574,13 +579,13 @@ def test_the_configuration_is_loaded_from_a_file_and_recorded_with_the_run(tmp_p
     assert config.curve.metrics.min_sharpness == 0.9
     assert read_qc_config(run_folder) == config
     # A typo in a threshold's name is refused, like the tools' arguments.
-    given.write_text('{"curve": {"metrics": {"min_sharpnes": 1}}}')
+    given.write_text('{"curve": {"metrics": {"min_sharpnes": 1}}}', encoding="utf-8")
     with pytest.raises(ValidationError, match="min_sharpnes"):
         load_qc_config(given)
     # A run's record still reads once PACo has dropped one of its settings.
-    recorded = json.loads((run_folder / CONFIG_FILE).read_text())
+    recorded = json.loads((run_folder / CONFIG_FILE).read_text(encoding="utf-8"))
     recorded["curve"]["dropped_setting"] = 0.5
-    (run_folder / CONFIG_FILE).write_text(json.dumps(recorded))
+    (run_folder / CONFIG_FILE).write_text(json.dumps(recorded), encoding="utf-8")
     assert read_qc_config(run_folder) == config
 
 
@@ -601,7 +606,7 @@ def test_going_back_to_a_stage_archives_it_and_everything_after(tmp_path: Path) 
         "PetroInversion_Model_0000.csv": "the petrophysical inversion, from the picks too",
     }
     for name, content in files.items():
-        (window / name).write_text(content)
+        (window / name).write_text(content, encoding="utf-8")
 
     archive = invalidate(window, "picking", attempt=1)
 
@@ -619,7 +624,7 @@ def test_going_back_to_a_stage_archives_it_and_everything_after(tmp_path: Path) 
         "DispersionImage_0000.hdf5",
         "DispersionImage_0000.png",
     }
-    assert (archive / "quality.json").read_text() == "S3"
+    assert (archive / "quality.json").read_text(encoding="utf-8") == "S3"
     assert archived_attempts(window) == (archive,)
     assert downstream("phase_shift") == ("phase_shift", "picking", "inversion", "petro_inversion")
     assert STAGE_FILES["preprocessing"] == ()

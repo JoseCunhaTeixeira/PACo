@@ -107,7 +107,9 @@ def test_the_windows_not_rejected_are_inverted_with_bounds_from_their_curves(
         # What G5 judged is kept next to PAC's files.
         folder = run_folder / attempt.unit
         assert (folder / SAMPLES_FILE).exists()
-        measures = InversionMeasures.model_validate_json((folder / MEASURES_FILE).read_text())
+        measures = InversionMeasures.model_validate_json(
+            (folder / MEASURES_FILE).read_text(encoding="utf-8")
+        )
         assert measures.samples_per_chain == 7  # (1,500 - 375) // 150
         # Round depths down to half the line's median longest wavelength (about 7 m here: the
         # picks go down to where their ridge breaks).
@@ -164,7 +166,7 @@ def test_the_inversion_done_again_starts_from_the_windows_parameters(
         3_000,
         750,
     )
-    measures = json.loads((run_folder / "xmid_89.25" / MEASURES_FILE).read_text())
+    measures = json.loads((run_folder / "xmid_89.25" / MEASURES_FILE).read_text(encoding="utf-8"))
     assert measures["samples_per_chain"] == 15  # (3,000 - 750) // 150
     # Nothing of the first attempt left: its files replaced, none archived; the other windows
     # keep theirs.

@@ -34,7 +34,9 @@ _PART = re.compile(
 def select(run_folder: Path, spec: str, statuses: Mapping[str, str]) -> list[str]:
     """The windows of the run in `run_folder` that `spec` names (`SPEC`), in the line's order;
     `statuses`: each decided window's status (the others pending)."""
-    manifest = RunManifest.model_validate_json((run_folder / "run.json").read_text())
+    manifest = RunManifest.model_validate_json(
+        (run_folder / "run.json").read_text(encoding="utf-8")
+    )
     xmids = {window.folder: window.xmid for window in manifest.windows}
     attempts = read_attempts(run_folder)
     chosen = list(xmids)

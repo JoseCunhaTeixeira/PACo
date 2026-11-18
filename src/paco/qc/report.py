@@ -205,7 +205,11 @@ def build_report(run_id: str, run_folder: Path, budgets: Budgets, n_xmids: int) 
     attempts = read_attempts(run_folder)
     manifest = run_folder / "run.json"
     work = (
-        run_work(run_folder, RunManifest.model_validate_json(manifest.read_text()), attempts)
+        run_work(
+            run_folder,
+            RunManifest.model_validate_json(manifest.read_text(encoding="utf-8")),
+            attempts,
+        )
         if manifest.exists()
         else {}
     )

@@ -83,7 +83,7 @@ def survey(study: Study, settings: Settings, config: QCConfig) -> Survey:
     """The study's survey of its line: made the first time, read after."""
     saved = study.folder / SAVED
     if saved.exists():
-        return Survey.model_validate_json(saved.read_text())
+        return Survey.model_validate_json(saved.read_text(encoding="utf-8"))
     profile = load_profile(study.profile, settings)
     preset = resolve_preset(make_preset(profile.kind), profile)
     passive = profile.kind == "passive"

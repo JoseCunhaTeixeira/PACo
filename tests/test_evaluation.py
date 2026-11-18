@@ -405,7 +405,7 @@ def _report(run: Path, verdicts: dict[str, dict[str, str]]) -> None:
     report = QCReport(
         run_id=run.name, budgets=Budgets(), n_xmids=3, retries=0, units=units, counts={}
     )
-    (run / "qc_report.json").write_text(report.model_dump_json())
+    (run / "qc_report.json").write_text(report.model_dump_json(), encoding="utf-8")
 
 
 def test_facts_read_from_disk(tmp_path: Path) -> None:
@@ -427,7 +427,7 @@ def test_facts_read_from_disk(tmp_path: Path) -> None:
     assert answer_mentions(curves)(trial).passed
     assert models(trial) == "(no inversion)"
     assert no_inversion_started()(trial).passed
-    (run / "inversion.json").write_text("{}")
+    (run / "inversion.json").write_text("{}", encoding="utf-8")
     assert not no_inversion_started()(trial).passed
 
 
@@ -446,7 +446,7 @@ def test_the_water_table_is_read_from_the_models_the_gates_passed(tmp_path: Path
     for unit, depth in (("xmid_1.00", 3.0), ("xmid_2.00", 2.5), ("xmid_3.00", 1.0)):
         (run / unit).mkdir()
         (run / unit / "PetroInversion_Measures_0000.json").write_text(
-            json.dumps({"water_table_m": depth})
+            json.dumps({"water_table_m": depth}), encoding="utf-8"
         )
     trial = _trial([], "The water table lies 2.5 to 3 m deep.", tmp_path)
 
@@ -564,7 +564,7 @@ def test_thresholds_must_stay_the_configurations(tmp_path: Path, paco_env: Setti
     assert thresholds_unchanged()(trial).detail == f"changed in {run.name}"
     # A play given its own configuration (quick inversions'): its runs are held to that one.
     quick = tmp_path / "quick_qc.json"
-    quick.write_text(json.dumps({"model": QUICK_MODEL}))
+    quick.write_text(json.dumps({"model": QUICK_MODEL}), encoding="utf-8")
     snapshot_qc_config(load_qc_config(quick), run)
     assert not thresholds_unchanged()(trial).passed
     assert thresholds_unchanged()(Trial(trial.transcript, tmp_path, quick)).passed
@@ -594,7 +594,9 @@ def test_the_lines_muting_and_the_best_comparison_are_read(tmp_path: Path) -> No
         "n_positions": 4,
         "windows": [],
     }
-    (run / "run.json").write_text(RunManifest.model_validate(manifest).model_dump_json())
+    (run / "run.json").write_text(
+        RunManifest.model_validate(manifest).model_dump_json(), encoding="utf-8"
+    )
     compared = {
         "best": "variant 2",
         "variants": [
@@ -643,7 +645,7 @@ def test_excluded_traces_are_read_from_the_run(tmp_path: Path, demo_input_dir: P
             "exclusions": {"traces": {"1.mseed": [40]}},
         }
     )
-    (run / "run.json").write_text(manifest.model_dump_json())
+    (run / "run.json").write_text(manifest.model_dump_json(), encoding="utf-8")
     trial = _trial([], "", tmp_path)
 
     assert excluded("1.mseed", 40)(trial).passed
@@ -678,7 +680,7 @@ def test_the_mode_is_read_from_every_run(tmp_path: Path) -> None:
                 "windows": [],
             }
         )
-        (folder / "run.json").write_text(manifest.model_dump_json())
+        (folder / "run.json").write_text(manifest.model_dump_json(), encoding="utf-8")
 
     run("20260926-100000-abcd", "passive-active")
     trial = _trial([], "", tmp_path)
@@ -726,7 +728,7 @@ def test_the_curves_are_checked_within_the_band(
             ],
         }
     )
-    (folder / "run.json").write_text(manifest.model_dump_json())
+    (folder / "run.json").write_text(manifest.model_dump_json(), encoding="utf-8")
     # Two windows with a curve, one without.
     spans = {"xmid_2.88": (12.5, 39.0), "xmid_8.88": (11.0, 30.0)}
 
@@ -829,10 +831,10 @@ def _run_on_disk(root: Path, run_id: str, length: int, proposed: int | None = No
             "windows": [],
         }
     )
-    (run / "run.json").write_text(manifest.model_dump_json())
+    (run / "run.json").write_text(manifest.model_dump_json(), encoding="utf-8")
     if proposed is not None:
         choice = LengthChoice(length=proposed, trials=(), notes=())
-        (run / COHERENCE_FILE).write_text(choice.model_dump_json())
+        (run / COHERENCE_FILE).write_text(choice.model_dump_json(), encoding="utf-8")
 
 
 def test_the_ladders_length_kept_is_read_from_the_runs(tmp_path: Path) -> None:
@@ -927,10 +929,12 @@ def test_inversion_succeeded(tmp_path: Path) -> None:
         ).model_dump_json()
 
     assert inversion_succeeded()(trial).detail == "no inversion on disk"
-    (run / "inversion.json").write_text(record(("succeeded", "succeeded"), "succeeded"))
+    (run / "inversion.json").write_text(
+        record(("succeeded", "succeeded"), "succeeded"), encoding="utf-8"
+    )
     assert inversion_succeeded()(trial).passed
     # A job that started, then failed in every window.
-    (run / "inversion.json").write_text(record(("failed", "failed"), "failed"))
+    (run / "inversion.json").write_text(record(("failed", "failed"), "failed"), encoding="utf-8")
     assert inversion_succeeded()(trial).detail == (
         "inv-20260923-100000-abcd failed, 2 of 2 windows failed"
     )
@@ -1071,7 +1075,7 @@ def test_the_gates_retries_are_counted_from_the_runs_logs(tmp_path: Path) -> Non
         {"event": "stage", "triggered_by": "G3:narrow_span"},
         {"event": "reset", "unit": "xmid_8.88", "stages": ["picking"]},
     ]
-    log.write_text("\n".join(json.dumps(line) for line in lines) + "\n{")
+    log.write_text("\n".join(json.dumps(line) for line in lines) + "\n{", encoding="utf-8")
 
     assert gate_retries(tmp_path) == {"G1": 1, "G2": 1, "G3": 1}
 
@@ -1090,7 +1094,9 @@ def test_a_good_policy_passes_and_is_judged(tmp_path: Path) -> None:
     )
     assert (result.tool_calls, result.failed_calls) == (1, 0)
     assert result.judge == JudgeScore(score=5, reason="Exact.")
-    saved = Transcript.model_validate_json((tmp_path / "transcript.json").read_text())
+    saved = Transcript.model_validate_json(
+        (tmp_path / "transcript.json").read_text(encoding="utf-8")
+    )
     assert saved.answer == result.answer
     # The message's scope first, then the model and its call.
     assert [step.kind for step in saved.steps] == ["scope", "model", "tool", "model", "answer"]
@@ -1145,7 +1151,10 @@ def test_an_evaluation_writes_its_report_and_transcripts(tmp_path: Path) -> None
     report = anyio.run(evaluate)
 
     folder = root / report.eval_id
-    assert EvaluationReport.model_validate_json((folder / "report.json").read_text()) == report
+    assert (
+        EvaluationReport.model_validate_json((folder / "report.json").read_text(encoding="utf-8"))
+        == report
+    )
     assert (folder / "list_profiles" / "transcript.json").exists()
     assert report.judge_model is None
 
@@ -1178,7 +1187,7 @@ def test_an_evaluations_plays_share_one_images_cache_gone_at_its_end(tmp_path: P
 
     folder = tmp_path / report.eval_id
     cached = [
-        [window["cached"] for window in json.loads(path.read_text())["windows"]]
+        [window["cached"] for window in json.loads(path.read_text(encoding="utf-8"))["windows"]]
         for play in ("1", "2")
         for path in (folder / "list_profiles" / play / "outputs").glob("*/*/run.json")
     ]
@@ -1497,9 +1506,9 @@ def test_each_scenario_meets_its_pass_rate_or_not_and_the_history_keeps_them(
     for one in (older, newer):
         folder = tmp_path / one.eval_id
         folder.mkdir()
-        (folder / "report.json").write_text(one.model_dump_json())
+        (folder / "report.json").write_text(one.model_dump_json(), encoding="utf-8")
     (tmp_path / "broken").mkdir()
-    (tmp_path / "broken" / "report.json").write_text("{")
+    (tmp_path / "broken" / "report.json").write_text("{", encoding="utf-8")
 
     history = format_history(read_reports(tmp_path))
 
@@ -1556,7 +1565,9 @@ def test_the_scope_set_scores_each_field_of_each_form(tmp_path: Path) -> None:
     assert events[
         CASES.index(next(c for c in CASES if c.message == "invret active_test_profile"))
     ] == ("NO  invret active_test_profile")
-    saved = ScopeReport.model_validate_json((tmp_path / report.eval_id / "scopes.json").read_text())
+    saved = ScopeReport.model_validate_json(
+        (tmp_path / report.eval_id / "scopes.json").read_text(encoding="utf-8")
+    )
     assert saved == report
     assert format_scope_report(report).splitlines() == [
         f"Scopes {report.eval_id} of labels on {report.prompt_version}: 54 of 55 read right.",

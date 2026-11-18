@@ -37,7 +37,7 @@ class CaseReference(TypedDict):
 
 
 REFERENCE_CASES: list[CaseReference] = json.loads(
-    (Path(__file__).parent / "snapshots" / "pac_windows.json").read_text()
+    (Path(__file__).parent / "snapshots" / "pac_windows.json").read_text(encoding="utf-8")
 )["cases"]
 
 

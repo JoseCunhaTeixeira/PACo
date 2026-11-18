@@ -85,7 +85,7 @@ def card(study: Study, settings: Settings) -> str:
         lines.append("Budgets: " + "; ".join(near) + ".")
     survey = study.folder / SAVED
     if survey.exists():
-        lines.append(_survey(Survey.model_validate_json(survey.read_text())))
+        lines.append(_survey(Survey.model_validate_json(survey.read_text(encoding="utf-8"))))
     elif phase == "P1":
         lines.append("Survey: not made yet.")
     made = frozen(study)
@@ -114,7 +114,9 @@ def outcome(study: Study, settings: Settings, tool: str, said: str = "") -> str 
     that only reads."""
     found = journal.entries(study)
     if tool == "survey" and (study.folder / SAVED).exists():
-        return _surveyed(Survey.model_validate_json((study.folder / SAVED).read_text()))
+        return _surveyed(
+            Survey.model_validate_json((study.folder / SAVED).read_text(encoding="utf-8"))
+        )
     if tool == "search" and (made := searching.searched(study)) is not None:
         return _searched(made, searching.knockout_of(study))
     if tool in ("try_settings", "commit"):
@@ -144,7 +146,7 @@ def outcome(study: Study, settings: Settings, tool: str, said: str = "") -> str 
         return f"{count} window{'s' if count != 1 else ''} picked again"
     if made is not None:
         return _decided(models.statuses(study, folder, line.run_id), len(made.curves), "models")
-    manifest = RunManifest.model_validate_json((folder / "run.json").read_text())
+    manifest = RunManifest.model_validate_json((folder / "run.json").read_text(encoding="utf-8"))
     return _decided(decide.statuses(study, folder, line.run_id), len(manifest.windows), "windows")
 
 
@@ -248,7 +250,9 @@ def state(study: Study, settings: Settings) -> State:
         folder = find_run(line.run_id, settings)
         statuses = decide.statuses(study, folder, line.run_id)
         recipes = pick.recipes(study, line.run_id)
-        manifest = RunManifest.model_validate_json((folder / "run.json").read_text())
+        manifest = RunManifest.model_validate_json(
+            (folder / "run.json").read_text(encoding="utf-8")
+        )
         windows = {
             window.folder: {
                 "status": statuses.get(window.folder, "pending"),
@@ -306,7 +310,7 @@ def _line(study: Study, line: Line, settings: Settings) -> list[str]:
     """The line now: its settings, its scorecard, its open issues, its checks, the last
     experiments and the windows' decisions."""
     folder = find_run(line.run_id, settings)
-    manifest = RunManifest.model_validate_json((folder / "run.json").read_text())
+    manifest = RunManifest.model_validate_json((folder / "run.json").read_text(encoding="utf-8"))
     attempts = read_attempts(folder)
     g2: dict[float, GateResult | None] = {}
     g3: dict[float, GateResult | None] = {}

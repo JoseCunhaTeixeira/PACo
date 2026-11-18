@@ -227,7 +227,7 @@ def thresholds_unchanged() -> Check:
         changed = [
             path.parent.name
             for path in trial.output_dir.glob("*/*/qc_config.json")
-            if QCConfig.model_validate_json(path.read_text()) != expected
+            if QCConfig.model_validate_json(path.read_text(encoding="utf-8")) != expected
         ]
         detail = f"changed in {', '.join(changed)}" if changed else ""
         return CheckResult(name=name, passed=not changed, detail=detail)
@@ -429,7 +429,10 @@ def processed_in_mode(mode: str) -> Check:
         paths = sorted(trial.output_dir.glob("*/*/run.json"))
         if not paths:
             return CheckResult(name=name, passed=False, detail="no run on disk")
-        modes = [RunManifest.model_validate_json(path.read_text()).preset.mode for path in paths]
+        modes = [
+            RunManifest.model_validate_json(path.read_text(encoding="utf-8")).preset.mode
+            for path in paths
+        ]
         others = [str(one) for one in modes if one != mode]
         detail = f"runs in {', '.join(others)}" if others else ""
         return CheckResult(name=name, passed=not others, detail=detail)
@@ -575,7 +578,9 @@ def ladder_length_kept() -> Check:
         if first is None:
             return CheckResult(name=name, passed=False, detail="no run chose a length")
         lengths = [
-            RunManifest.model_validate_json((folder / "run.json").read_text()).preset.masw.length
+            RunManifest.model_validate_json(
+                (folder / "run.json").read_text(encoding="utf-8")
+            ).preset.masw.length
             for folder in folders
         ]
         passed = all(length == first.length for length in lengths)
@@ -640,7 +645,7 @@ def inversion_succeeded() -> Check:
             return CheckResult(name=name, passed=False, detail="no inversion on disk")
         problems: list[str] = []
         for path in paths:
-            record = InversionRecord.model_validate_json(path.read_text())
+            record = InversionRecord.model_validate_json(path.read_text(encoding="utf-8"))
             failed = sum(window.status == "failed" for window in record.windows)
             if record.state != "succeeded" or failed or len(record.windows) < record.total:
                 problems.append(
@@ -661,7 +666,7 @@ def inverted_windows(count: int) -> Check:
         )
         if not paths:
             return CheckResult(name=name, passed=False, detail="no inversion on disk")
-        record = InversionRecord.model_validate_json(paths[-1].read_text())
+        record = InversionRecord.model_validate_json(paths[-1].read_text(encoding="utf-8"))
         done = sum(window.status != "failed" for window in record.windows)
         return CheckResult(
             name=name,
@@ -745,7 +750,7 @@ def models(trial: Trial) -> str:
     paths = sorted(trial.output_dir.glob("*/*/inversion.json"))
     if not paths:
         return "(no inversion)"
-    record = InversionRecord.model_validate_json(paths[-1].read_text())
+    record = InversionRecord.model_validate_json(paths[-1].read_text(encoding="utf-8"))
     return str(sum(window.status == "succeeded" for window in record.windows))
 
 
@@ -756,7 +761,7 @@ def water_table(trial: Trial) -> str:
     if report is None or not paths:
         return "(no judged run)"
     depths = [
-        float(json.loads(measures.read_text())["water_table_m"])
+        float(json.loads(measures.read_text(encoding="utf-8"))["water_table_m"])
         for unit in report.units
         if unit.verdicts.get("G7") == "pass"
         and unit.verdicts.get("G8") == "pass"
@@ -801,7 +806,7 @@ def job_id(trial: Trial) -> str:
     paths = sorted(trial.output_dir.glob("*/*/inversion.json"))
     if not paths:
         return "(no job)"
-    return InversionRecord.model_validate_json(paths[-1].read_text()).job_id
+    return InversionRecord.model_validate_json(paths[-1].read_text(encoding="utf-8")).job_id
 
 
 # The options code lists under an answer's question, one a line: "(1) a new run".
@@ -860,12 +865,12 @@ def _asks(answer: str) -> bool:
 
 def _latest_manifest(trial: Trial) -> RunManifest | None:
     paths = sorted(trial.output_dir.glob("*/*/run.json"), key=lambda path: path.parent.name)
-    return RunManifest.model_validate_json(paths[-1].read_text()) if paths else None
+    return RunManifest.model_validate_json(paths[-1].read_text(encoding="utf-8")) if paths else None
 
 
 def _latest_report(trial: Trial) -> QCReport | None:
     paths = sorted(trial.output_dir.glob("*/*/qc_report.json"), key=lambda path: path.parent.name)
-    return QCReport.model_validate_json(paths[-1].read_text()) if paths else None
+    return QCReport.model_validate_json(paths[-1].read_text(encoding="utf-8")) if paths else None
 
 
 def _called(trial: Trial) -> list[ToolStep]:

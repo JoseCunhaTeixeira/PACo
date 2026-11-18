@@ -47,7 +47,7 @@ def test_the_demos_passive_line_tries_the_fk_selection_of_its_segments(
         "FK selection at 0.05 at any velocity on the line's 4.31 s segments: M0 picked over 4.3 "
         "times its shortest wavelength against 3.9 with the line's own selection"
     )
-    trials = json.loads((tmp_path / SEGMENTS_FILE).read_text())
+    trials = json.loads((tmp_path / SEGMENTS_FILE).read_text(encoding="utf-8"))
     # The FK selection always on: every band and threshold tried, the line's own among them, on
     # the line's segments.
     assert len(trials["candidates"]) == len(rules.bands) * len(rules.thresholds)

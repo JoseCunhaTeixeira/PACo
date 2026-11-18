@@ -19,17 +19,17 @@ def rebuild_state(run_folder: Path) -> QCReport:
     manifest_path, config_path = run_folder / "run.json", run_folder / CONFIG_FILE
     saved = run_folder / REPORT_FILE
     if manifest_path.exists():
-        manifest = RunManifest.model_validate_json(manifest_path.read_text())
+        manifest = RunManifest.model_validate_json(manifest_path.read_text(encoding="utf-8"))
         run_id, n_xmids = manifest.run_id, len(manifest.windows)
     elif saved.exists():
-        before = QCReport.model_validate_json(saved.read_text())
+        before = QCReport.model_validate_json(saved.read_text(encoding="utf-8"))
         run_id, n_xmids = before.run_id, before.n_xmids
     else:
         raise RunError(f"{run_folder} holds no run: no run.json, no QC report.")
     if config_path.exists():
         budgets = read_qc_config(run_folder).budgets
     elif saved.exists():
-        budgets = QCReport.model_validate_json(saved.read_text()).budgets
+        budgets = QCReport.model_validate_json(saved.read_text(encoding="utf-8")).budgets
     else:
         budgets = Budgets()
     return build_report(run_id, run_folder, budgets, n_xmids)
@@ -42,6 +42,6 @@ def read_report(run_folder: Path) -> QCReport:
     report = rebuild_state(run_folder)
     path = run_folder / REPORT_FILE
     text = report.model_dump_json(indent=2)
-    if not path.exists() or path.read_text() != text:
+    if not path.exists() or path.read_text(encoding="utf-8") != text:
         write_atomic(path, text)
     return report

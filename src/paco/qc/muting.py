@@ -254,7 +254,9 @@ def line_trigger(
 def read_mute_choice(run_folder: Path) -> MuteChoice | None:
     """The run's mute trial, None when it had none (a passive line, a muting given)."""
     path = run_folder / MUTE_FILE
-    return MuteChoice.model_validate_json(path.read_text()) if path.exists() else None
+    return (
+        MuteChoice.model_validate_json(path.read_text(encoding="utf-8")) if path.exists() else None
+    )
 
 
 def describe_mutes(choice: MuteChoice) -> tuple[str, ...]:

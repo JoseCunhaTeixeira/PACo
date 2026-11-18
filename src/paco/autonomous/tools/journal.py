@@ -71,12 +71,16 @@ def entries(study: Study) -> list[Entry]:
     path = study.folder / JOURNAL
     if not path.exists():
         return []
-    return [Entry.model_validate_json(line) for line in path.read_text().splitlines() if line]
+    return [
+        Entry.model_validate_json(line)
+        for line in path.read_text(encoding="utf-8").splitlines()
+        if line
+    ]
 
 
 def append(study: Study, entry: Entry) -> Entry:
     """`entry` appended to the study's journal."""
-    with (study.folder / JOURNAL).open("a") as file:
+    with (study.folder / JOURNAL).open("a", encoding="utf-8") as file:
         file.write(entry.model_dump_json() + "\n")
     return entry
 

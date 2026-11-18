@@ -42,7 +42,9 @@ def trigger_context(
 
 def window_muted(window_folder: Path, muted: Callable[[str], bool]) -> bool:
     """Whether a record of the window in `window_folder` was muted (`muted`, by record name)."""
-    window = MASWWindow.model_validate_json((window_folder / "window.json").read_text())
+    window = MASWWindow.model_validate_json(
+        (window_folder / "window.json").read_text(encoding="utf-8")
+    )
     return any(muted(path.name) for path in window.selected_files)
 
 

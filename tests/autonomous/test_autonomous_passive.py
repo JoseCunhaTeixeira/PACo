@@ -94,7 +94,9 @@ def test_the_survey_says_a_passive_lines_records_of_noise(passive: Passive) -> N
 def test_passive_trials_are_judged_on_their_correlations(passive: Passive) -> None:
     runs = [
         TrialRun.model_validate_json(
-            (passive.study.folder / "trials" / one.trial / "result.json").read_text()
+            (passive.study.folder / "trials" / one.trial / "result.json").read_text(
+                encoding="utf-8"
+            )
         )
         for one in passive.experiment.tried
     ]
@@ -231,7 +233,7 @@ def test_passive_active_is_a_mode_of_an_active_line(input_dir: Path, tmp_path: P
 
     modes = [
         TrialRun.model_validate_json(
-            (study.folder / "trials" / one.trial / "result.json").read_text()
+            (study.folder / "trials" / one.trial / "result.json").read_text(encoding="utf-8")
         ).mode
         for one in made.tried
     ]

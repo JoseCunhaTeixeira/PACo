@@ -133,7 +133,9 @@ def look(
     spectra, `mute` or `velocities` drawn on a gather; a window's image (`where`, its xmid, m);
     a sheet of the windows `where` names (`a-b`, m). Without `vision`, text in the figures'
     stead."""
-    manifest = RunManifest.model_validate_json((run_folder / "run.json").read_text())
+    manifest = RunManifest.model_validate_json(
+        (run_folder / "run.json").read_text(encoding="utf-8")
+    )
     if what in RECORD_FIGURES:
         record = next((one for one in manifest.records if one.name == where), None)
         if record is None:
@@ -202,7 +204,9 @@ def look(
 
 def look_line(run_folder: Path) -> Seen:
     """A sheet of the run's images and picks, up to SHEET windows spread along all of its line."""
-    manifest = RunManifest.model_validate_json((run_folder / "run.json").read_text())
+    manifest = RunManifest.model_validate_json(
+        (run_folder / "run.json").read_text(encoding="utf-8")
+    )
     xmids = [xmid_of(window.folder) for window in manifest.windows if window.status == "succeeded"]
     if not xmids:
         return Seen("The run has no window with an image.")
@@ -258,7 +262,7 @@ def look_survey(
     saved = study.folder / SAVED
     if not saved.exists():
         raise RunError("No survey yet in this study: call survey first.")
-    shots = Survey.model_validate_json(saved.read_text()).kind != "passive"
+    shots = Survey.model_validate_json(saved.read_text(encoding="utf-8")).kind != "passive"
     survey = study.folder / SURVEY
     folders = sorted(path.name for path in (survey / "records").iterdir() if path.is_dir())
     stem = Path(where).stem
@@ -381,7 +385,7 @@ def look_experiment(study: Study, where: str, vision: bool) -> Seen:
     path = study.folder / EXPERIMENTS / f"{name.strip()}.json"
     if not path.exists():
         raise ValueError(f"No experiment '{name.strip()}' in this study: where is E<n>[:labels].")
-    experiment = Experiment.model_validate_json(path.read_text())
+    experiment = Experiment.model_validate_json(path.read_text(encoding="utf-8"))
     tried = {one.label: one for one in experiment.tried}
     sheets = [[label.strip() for label in named.split(",")]] if named else _sheets(experiment)
     unknown = [label for label in sheets[0] if label not in tried]
@@ -435,7 +439,7 @@ def _row(study: Study, tried: Tried) -> _Row:
             "This experiment's images were removed with the study's working files (at the "
             "freeze, or when a session ended); before the freeze, try_settings makes them again."
         )
-    run = TrialRun.model_validate_json((folder / RESULT).read_text())
+    run = TrialRun.model_validate_json((folder / RESULT).read_text(encoding="utf-8"))
     found = {xmid_of(path.name): path for path in folder.glob("xmid_*")}
     windows = {
         result.xmid: (found[result.xmid], result)
@@ -613,7 +617,7 @@ def _model(run_folder: Path, folder: str, what: What, vision: bool) -> Seen:
     if not measures.exists():
         raise ValueError(f"{folder} has no model: invert it first.")
     if not vision:
-        found = InversionMeasures.model_validate_json(measures.read_text())
+        found = InversionMeasures.model_validate_json(measures.read_text(encoding="utf-8"))
         return Seen(
             f"{folder}, its model's measures in its {what}'s stead (vision is off): "
             + describe_measures(found)

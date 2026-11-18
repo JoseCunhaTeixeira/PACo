@@ -106,13 +106,15 @@ def test_a_window_redone_is_given_back_what_it_had(tmp_path: Path) -> None:
         "quality.json": "S3",
     }
     for name, content in before.items():
-        (window / name).write_text(content)
+        (window / name).write_text(content, encoding="utf-8")
 
     invalidate(window, "phase_shift", attempt=1)
-    (window / "DispersionImage_0000.hdf5").write_text("half of a new image")  # a stopped redo's
+    (window / "DispersionImage_0000.hdf5").write_text(
+        "half of a new image", encoding="utf-8"
+    )  # a stopped redo's
     restore(window, "phase_shift", attempt=1)
 
-    assert {path.name: path.read_text() for path in window.iterdir()} == before
+    assert {path.name: path.read_text(encoding="utf-8") for path in window.iterdir()} == before
 
 
 def test_a_run_stopped_is_removed_whole(

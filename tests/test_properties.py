@@ -129,6 +129,8 @@ def test_the_log_read_after_any_resets_holds_what_came_after_each(tmp_path: Path
             own = [one for one in read if (one.unit, one.stage) == (unit, stage)]
             assert [one.attempt for one in own] == list(range(1, count + 1))
         # The log only grew: every line ever appended is there, the resets among them.
-        lines = [json.loads(line) for line in (run / LOG_FILE).read_text().splitlines()]
+        lines = [
+            json.loads(line) for line in (run / LOG_FILE).read_text(encoding="utf-8").splitlines()
+        ]
         assert sum(line.get("event") == "stage" for line in lines) == appended
         assert sum(line.get("event") == "reset" for line in lines) == resets

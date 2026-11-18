@@ -276,4 +276,8 @@ def _window_state(
 
 def _measures(window: Path) -> InversionMeasures | None:
     path = window / MEASURES_FILE
-    return InversionMeasures.model_validate_json(path.read_text()) if path.exists() else None
+    return (
+        InversionMeasures.model_validate_json(path.read_text(encoding="utf-8"))
+        if path.exists()
+        else None
+    )

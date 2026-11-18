@@ -444,7 +444,9 @@ def test_every_call_goes_to_the_usage_log_and_the_transcript_is_saved(played: Pl
     assert len(calls) - calls.count("job_status") == 13
     assert sum(1 for one in used if one.kind == "form") == 2
     (saved,) = (played.study.folder / "transcripts").iterdir()
-    assert json.loads(saved.read_text())["prompt_version"].startswith("autonomous-prompts-")
+    assert json.loads(saved.read_text(encoding="utf-8"))["prompt_version"].startswith(
+        "autonomous-prompts-"
+    )
 
 
 @pytest.mark.slow
@@ -509,7 +511,7 @@ def test_the_survey_lasts_until_its_conclusion_is_written(tmp_path: Path) -> Non
     study = Study(PROFILE, tmp_path)
     journal.objective(study, {}, "balanced, no target depth")
     phases = [phase_of(study)]
-    (tmp_path / SAVED).write_text("{}")
+    (tmp_path / SAVED).write_text("{}", encoding="utf-8")
     phases.append(phase_of(study))
     journal.write(study, "conclusion", "A clean fan from 120 to 330 m/s; a mute of 90 to 1400.")
     phases.append(phase_of(study))
@@ -712,8 +714,8 @@ def test_a_follow_up_after_the_report_opens_the_study_again(paco_env: Settings) 
     folder.mkdir(parents=True)
     study = Study("active_test_profile", folder)
     journal.objective(study, {}, "balanced, no target depth, normal effort")
-    (folder / SAVED).write_text("{}")
-    (folder / CURVES).write_text("{}")
+    (folder / SAVED).write_text("{}", encoding="utf-8")
+    (folder / CURVES).write_text("{}", encoding="utf-8")
     journal.report(study, "The report.")
     assert phase_of(study) == "P5"
 
@@ -818,11 +820,11 @@ def canned(windows: str, *, thumbs: bool = False) -> Callable[..., Any]:
         )
         folder = study.folder / searching.SEARCHES
         (folder / searching.IMAGES).mkdir(parents=True)
-        (folder / f"{made.id}.json").write_text(made.model_dump_json())
+        (folder / f"{made.id}.json").write_text(made.model_dump_json(), encoding="utf-8")
         knockout = searching.Knockout(
             round=1, sheets=searching.first_sheets(ROWS, ["length", "muting"])
         )
-        (folder / searching.KNOCKOUT).write_text(knockout.model_dump_json())
+        (folder / searching.KNOCKOUT).write_text(knockout.model_dump_json(), encoding="utf-8")
         image = np.tile(np.linspace(0, 255, grid.THUMB, dtype=np.uint8)[:, None], grid.THUMB)
         pick = (np.array([10.0, 20.0], np.float32), np.array([300.0, 250.0], np.float32))
         for row in ROWS if thumbs else []:
@@ -882,7 +884,9 @@ def test_the_sheets_are_judged_in_calls_of_their_own_until_refused_three_times(
         for message in played.model.bodies[-2]["messages"]
         if message["role"] == "tool" and message["tool_call_id"] == "call_3"
     )
-    records = (played.study.folder / searching.SEARCHES / searching.JUDGED).read_text()
+    records = (played.study.folder / searching.SEARCHES / searching.JUDGED).read_text(
+        encoding="utf-8"
+    )
     used = budgets.uses(played.study)
     steps = [step for step in played.host.transcript().host_steps if step.name == "judge"]
     # Each judge's call, a form, reads its prompt, the line's facts and the sheets alone: no

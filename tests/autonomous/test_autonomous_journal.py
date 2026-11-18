@@ -61,7 +61,7 @@ def test_an_entry_may_rest_on_the_studys_search_once_made(study: Study) -> None:
         journal.write(study, "decision", "Commit the search's choice.", of=["S1"])
     searches = study.folder / "searches"
     searches.mkdir()
-    (searches / "S1.json").write_text("{}")
+    (searches / "S1.json").write_text("{}", encoding="utf-8")
 
     # The search's choice, the evidence a commit of it rests on.
     entry = journal.write(study, "decision", "Commit the search's choice.", of=["S1"])

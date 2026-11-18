@@ -141,9 +141,10 @@ def test_the_tools_schemas_match_their_reviewed_snapshot() -> None:
     version = "tools-" + hashlib.sha256(text.encode()).hexdigest()[:8]
     if os.environ.get("PACO_SNAPSHOT_UPDATE"):
         SCHEMAS_SNAPSHOT.write_text(
-            json.dumps({"version": version, "tools": schemas}, indent=1, sort_keys=True) + "\n"
+            json.dumps({"version": version, "tools": schemas}, indent=1, sort_keys=True) + "\n",
+            encoding="utf-8",
         )
-    snapshot = json.loads(SCHEMAS_SNAPSHOT.read_text())
+    snapshot = json.loads(SCHEMAS_SNAPSHOT.read_text(encoding="utf-8"))
 
     changed = sorted(
         name
@@ -420,7 +421,9 @@ def test_run_processing_takes_the_mode_as_an_argument(paco_env: Settings) -> Non
     assert not processed.is_error and processed.structured_content is not None
     run_id = processed.structured_content["run_id"]
     manifest = json.loads(
-        (paco_env.output_dir / "active_test_profile" / run_id / "run.json").read_text()
+        (paco_env.output_dir / "active_test_profile" / run_id / "run.json").read_text(
+            encoding="utf-8"
+        )
     )
     assert manifest["preset"]["mode"] == "passive-active"
     refused = _call("run_processing", {"profile": "active_test_profile", "mode": "passive"})
@@ -438,7 +441,9 @@ def test_a_run_made_again_takes_its_images_from_the_cache(paco_env: Settings) ->
     first, again = _call("run_processing", arguments), _call("run_processing", arguments)
 
     manifests = [
-        json.loads(next(paco_env.output_dir.glob(f"*/{run_id}/run.json")).read_text())
+        json.loads(
+            next(paco_env.output_dir.glob(f"*/{run_id}/run.json")).read_text(encoding="utf-8")
+        )
         for run_id in (_run_id(first), _run_id(again))
     ]
     # The same code, records and settings: the images the first run made, byte for byte.

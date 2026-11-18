@@ -131,7 +131,11 @@ def picks_of(study: Study, run_id: str | None = None) -> list[Picked]:
     path = study.folder / PICKS
     if not path.exists():
         return []
-    found = [Picked.model_validate_json(line) for line in path.read_text().splitlines() if line]
+    found = [
+        Picked.model_validate_json(line)
+        for line in path.read_text(encoding="utf-8").splitlines()
+        if line
+    ]
     return [one for one in found if run_id is None or one.run_id == run_id]
 
 
@@ -310,7 +314,7 @@ def way_of(recipe: Recipe) -> HowPicked:
 
 def keep(study: Study, picked: Iterable[Picked]) -> None:
     """Picks appended to the study's record, one JSON line each."""
-    with (study.folder / PICKS).open("a") as file:
+    with (study.folder / PICKS).open("a", encoding="utf-8") as file:
         for one in picked:
             file.write(one.model_dump_json() + "\n")
 
@@ -394,7 +398,7 @@ def lasso_guide(
 
 
 def manifest_of(run_folder: Path) -> RunManifest:
-    return RunManifest.model_validate_json((run_folder / "run.json").read_text())
+    return RunManifest.model_validate_json((run_folder / "run.json").read_text(encoding="utf-8"))
 
 
 def describe_picks(picks: Picks) -> str:

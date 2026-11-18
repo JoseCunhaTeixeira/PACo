@@ -79,7 +79,7 @@ def _run(
         )
 
     folder = settings.output_dir / summary.path
-    manifest = RunManifest.model_validate_json((folder / "run.json").read_text())
+    manifest = RunManifest.model_validate_json((folder / "run.json").read_text(encoding="utf-8"))
     return Run(summary, manifest, folder, working_dir, progress)
 
 
@@ -173,7 +173,7 @@ def test_window_json_is_the_window_processed(active_run: Run, profiles: dict[str
     expected = build_windows(profiles["active_test_profile"], active_run.manifest.preset.masw)
     saved = [
         MASWWindow.model_validate_json(
-            (active_run.folder / window.folder / "window.json").read_text()
+            (active_run.folder / window.folder / "window.json").read_text(encoding="utf-8")
         )
         for window in active_run.manifest.windows
     ]
@@ -219,7 +219,7 @@ def test_failed_windows_keep_their_traceback(failing_run: Run) -> None:
         assert window.error is not None
         assert window.error.startswith("ValueError: no frequencies found")
 
-        log = (failing_run.folder / window.folder / "error.log").read_text()
+        log = (failing_run.folder / window.folder / "error.log").read_text(encoding="utf-8")
         # The worker's own traceback, down to the sigpipe step that failed.
         assert "_RemoteTraceback" in log
         assert "phase_shift.py" in log
@@ -351,7 +351,7 @@ def _fake_run(settings: Settings, profile: str, run_id: str) -> Path:
     """A run folder with a run.json: all find_run looks for."""
     folder = settings.output_dir / profile / run_id
     folder.mkdir(parents=True)
-    (folder / "run.json").write_text("{}")
+    (folder / "run.json").write_text("{}", encoding="utf-8")
     return folder
 
 
