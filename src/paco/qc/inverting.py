@@ -1,27 +1,36 @@
 """S4 on a judged run, the QC way (docs/qc_workflow.md): the windows whose curve G3 and G4 did
 not reject, each inverted with bounds derived from its own curve (the checks before S4) and the
-values given, in worker processes; G5 on each model and its retries (sampling longer, a bound
-widened, a layer more or fewer), then G6 over the line and its own (a non-unique model inverted
-again), within the budgets; every attempt in the QC log, and the report written. What invert runs as a
-background job, whose record (inversion.json) job_status reads."""
+values given, every window's chains sharing the worker processes; G5 on each model and its
+retries (sampling longer, a bound widened, a layer more or fewer), then G6 over the line and
+its own (a non-unique model inverted again), within the budgets; every attempt in the QC log,
+and the report written. What invert runs as a background job, whose record (inversion.json)
+job_status reads."""
 
 import logging
 import math
 import traceback
 from collections.abc import Callable, Mapping, Sequence
-from concurrent.futures import Future, ProcessPoolExecutor
+from concurrent.futures import Future
 from dataclasses import dataclass, replace
 from datetime import UTC, datetime
+from functools import partial
 from itertools import pairwise
 from pathlib import Path
 from typing import Any, NamedTuple, cast
 
 import numpy as np
 from pydantic import ValidationError
+from sigpipe.algorithms.inversion.rayleigh.seismic.mcmc import Ran
 from sigpipe.algorithms.picking.dispersion.curve import longest_reached_wavelength
 from sigpipe.base import DispersionCurve
 from sigpipe.base.dispersion_curve import Mode
-from sigpipe.masw.inversion import InversionError, InversionParameters, invert_window
+from sigpipe.masw.inversion import (
+    InversionError,
+    InversionParameters,
+    WindowSampling,
+    finish_window,
+    window_sampling,
+)
 from sigpipe.masw.inversion.measuring import InversionMeasures, measure_inversion, report_depths
 from sigpipe.masw.inversion.priors import (
     FIXED_KEYS,
@@ -45,7 +54,8 @@ from sigpipe.masw.runs import (
     start_worker,
     window_length,
 )
-from sigpipe.masw.runs.stopping import Stopped, commit, finished, staging, undo
+from sigpipe.masw.runs.scheduling import Scheduler, Split
+from sigpipe.masw.runs.stopping import Stopped, commit, staging, undo
 from sigpipe.masw.runs.writing import RunBusy, run_lock, write_atomic
 from sigpipe.workers import one_thread_each
 
@@ -814,11 +824,12 @@ def invert_windows(
     seeds: Mapping[str, int] | None = None,
     loops: Mapping[str, Loop] | None = None,
 ) -> tuple[tuple[GateResult, ...], dict[str, WindowInversion]]:
-    """Each window of `jobs` inverted with its parameters in a worker, the previous attempt's
-    files archived first; G5 on each, logged as its inversion attempt. A window's inversion
-    writes into a staging folder, moved into place once it finished: stopped (see
-    paco.stopping), the windows not finished get their previous attempt back. G5's results by
-    position, and each window's result by its folder.
+    """Each window of `jobs` inverted with its parameters, the previous attempt's files archived
+    first: every window's chains on whichever worker is free, the costliest first (sigpipe's
+    Scheduler), then each window's files in a worker too; G5 on each, logged as its inversion
+    attempt. A window's inversion writes into a staging folder, moved into place once it
+    finished: stopped (see paco.stopping), the windows not finished get their previous attempt
+    back. G5's results by position, and each window's result by its folder.
 
     A retry a gate asked for goes on from the window's attempts; any other inversion (the first,
     or one the agent was asked to do again) starts them afresh: once its result is in, the
@@ -842,24 +853,27 @@ def invert_windows(
     results: list[GateResult] = []
     windows: dict[str, WindowInversion] = {}
     started_at = datetime.now(UTC)
+    # Each window's curves read and its parameters checked here, before any worker starts: one
+    # refused fails as a window whose inversion failed.
+    sampled: dict[str, WindowSampling | Exception] = {}
+    for unit, derived in jobs.items():
+        folder = run_folder / unit
+        try:
+            sampled[unit] = window_sampling(
+                folder, derived.parameters, window_modes(folder), seeds[unit] if seeds else None
+            )
+        except Exception as exc:
+            sampled[unit] = exc
+    parts = sum(
+        len(one.sampling.parts) for one in sampled.values() if isinstance(one, WindowSampling)
+    )
     one_thread_each()  # the workers are the cores the inversions take
-    with ProcessPoolExecutor(
-        max_workers=max(1, min(workers, len(jobs))),
-        initializer=start_worker,
-        initargs=(run_folder,),
-    ) as executor:
+    with Scheduler(
+        max(1, min(workers, parts)), initializer=start_worker, initargs=(run_folder,)
+    ) as scheduler:
         futures: dict[Future[InversionMeasures], str] = {
-            executor.submit(
-                _invert_and_measure,
-                run_folder / unit,
-                derived.parameters,
-                depths,
-                config.model,
-                chain_jobs(workers, len(jobs), derived.parameters.n_chains),
-                staging(run_folder / unit),
-                seeds[unit] if seeds else None,
-            ): unit
-            for unit, derived in jobs.items()
+            _submitted(scheduler, one, depths, config.model, staging(run_folder / unit)): unit
+            for unit, one in sampled.items()
         }
         waiting = dict(futures)  # the windows not finished yet
         doing = {"initial": "inverted", "backtrack": "inverted again"}.get(
@@ -868,7 +882,7 @@ def invert_windows(
         if on_progress is not None:
             on_progress(0, len(futures), doing)
         try:
-            for done, future in enumerate(finished(executor, futures, stopping.current()), start=1):
+            for done, future in enumerate(scheduler.finished(futures, stopping.current()), start=1):
                 unit = waiting.pop(future)
                 derived = jobs[unit]
                 attempt = Attempt(
@@ -961,43 +975,50 @@ def _not_invertible(
         )
 
 
-def chain_jobs(workers: int, windows: int, chains: int) -> int:
-    """The processes each window's chains run in: the cores the windows leave idle, shared
-    between them, never more than its chains. One window of 5 chains with 6 workers: 5; with
-    4 windows or more: 1, each window in its worker."""
-    return max(1, min(chains, workers // max(1, windows)))
-
-
-def _invert_and_measure(
-    folder: Path,
-    parameters: InversionParameters,
+def _submitted(
+    scheduler: Scheduler,
+    window: WindowSampling | Exception,
     depths: tuple[float, ...],
     thresholds: ModelThresholds,
-    chain_jobs: int = 1,
-    output: Path | None = None,
-    seed: int | None = None,
-) -> InversionMeasures:
-    """Runs in a worker: the window's inversion, of every mode picked in it, its chains in
-    `chain_jobs` processes seeded with `seed`, then what G5 judges (M0's fit), saved next to it,
-    or in `output` (a staging folder, moved into place once this ended)."""
-    invert_window(
-        folder,
-        parameters,
-        window_modes(folder),
-        chain_jobs=chain_jobs,
-        output_folder=output,
-        seed=seed,
+    output: Path,
+) -> Future[InversionMeasures]:
+    """A window's inversion to run: its chains on whichever worker is free, then its files and
+    what G5 judges, in `output` (its staging folder); a window refused, its error as its
+    outcome."""
+    if isinstance(window, Exception):
+        refused: Future[InversionMeasures] = Future()
+        refused.set_exception(window)
+        return refused
+    return scheduler.submit(
+        Split(
+            parts=window.sampling.parts,
+            finish=partial(_finish_and_measure, window, depths, thresholds, output),
+            cost=window.sampling.cost,
+        )
     )
+
+
+def _finish_and_measure(
+    window: WindowSampling,
+    depths: tuple[float, ...],
+    thresholds: ModelThresholds,
+    output: Path,
+    ran: Sequence[Ran],
+) -> InversionMeasures:
+    """Runs in a worker: the window's inversion made of its chains' outputs, of every mode
+    picked in it (window_modes), then what G5 judges (M0's fit), saved in `output` (a staging
+    folder, moved into place once this ended)."""
+    finish_window(window, ran, output)
     measures = measure_inversion(
-        folder,
-        parameters,
+        window.folder,
+        window.parameters,
         depths,
         thresholds.n_bands,
         thresholds.bound_edge,
         thresholds.useful_uncertainty,
         output_folder=output,
     )
-    write_atomic((output or folder) / MEASURES_FILE, measures.model_dump_json(indent=2))
+    write_atomic(output / MEASURES_FILE, measures.model_dump_json(indent=2))
     return measures
 
 

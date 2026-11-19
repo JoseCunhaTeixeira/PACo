@@ -326,16 +326,6 @@ def test_the_runs_sampled_longer_count_the_one_being_judged() -> None:
     )
 
 
-@pytest.mark.parametrize(
-    ("workers", "windows", "expected"),
-    [(6, 1, 5), (6, 2, 3), (6, 3, 2), (6, 4, 1), (6, 12, 1), (1, 1, 1), (8, 1, 5)],
-)
-def test_idle_cores_run_a_windows_chains(workers: int, windows: int, expected: int) -> None:
-    # Never more processes than workers, nor than a window's 5 chains.
-    assert inverting.chain_jobs(workers, windows, chains=5) == expected
-    assert min(workers, windows) * expected <= workers
-
-
 def test_only_the_points_within_reach_set_the_lines_depths() -> None:
     # A 15 m window (11 receivers 1.5 m apart) reaches 45 m of wavelength; its pick goes on to
     # 87 m, the points beyond flagged by G3.
